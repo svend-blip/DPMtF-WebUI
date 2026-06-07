@@ -50,6 +50,35 @@ To view imported panels through the API:
 curl http://localhost:9130/api/panels
 ```
 
+## Phase 1F: Prompt Sequence Planner
+
+This phase implements the skeleton for the Prompt Sequence Planner feature. The planner allows users to:
+
+1. See existing prompt sequences
+2. Create new prompt sequences manually
+3. Select a prompt sequence
+4. See steps for the selected sequence
+5. Add simple manual steps to the selected sequence
+
+### Features Implemented
+
+- **Database Schema**: Updated `prompt_sequences` and `prompt_sequence_steps` tables with required columns
+- **API Endpoints**: 
+  - GET /api/prompt-sequences
+  - POST /api/prompt-sequences  
+  - GET /api/prompt-sequences/{sequence_id}/steps
+  - POST /api/prompt-sequences/{sequence_id}/steps
+- **Frontend UI**: 
+  - Form to create new sequences
+  - Dropdown to select existing sequences
+  - Read-only list of steps for selected sequence
+  - Form to add new steps
+  - Status indicators and error handling
+
+### Usage
+
+The Prompt Sequence Planner is now accessible through the WebUI under the "Prompt Sequence Planner" section.
+
 ## Project Structure
 
 - `app.py` - Main FastAPI application

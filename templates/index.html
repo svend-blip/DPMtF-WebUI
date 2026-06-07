@@ -94,6 +94,68 @@
                 </table>
             </div>
         </div>
+
+        <!-- Prompt Sequence Planner Section -->
+        <div class="prompt-sequence-planner-section">
+            <h3>Prompt Sequence Planner</h3>
+            <div id="prompt-sequence-error" class="error-message" style="display: none;"></div>
+
+            <div class="create-sequence-form">
+                <h4>Create New Prompt Sequence</h4>
+                <div>
+                    <label for="sequence-name">Name:</label>
+                    <input type="text" id="sequence-name" placeholder="Enter sequence name">
+                </div>
+                <div>
+                    <label for="sequence-goal">Goal:</label>
+                    <textarea id="sequence-goal" placeholder="Enter sequence goal"></textarea>
+                </div>
+                <button id="create-sequence-btn" onclick="createPromptSequence()">Create Sequence</button>
+            </div>
+
+            <div class="select-sequence-section">
+                <h4>Select Existing Sequence</h4>
+                <select id="sequence-selector" onchange="loadSequenceSteps()">
+                    <option value="">Select a sequence...</option>
+                </select>
+                <div id="sequence-status" style="margin-top: 10px; font-weight: bold;"></div>
+            </div>
+
+            <div class="sequence-steps-section">
+                <h4>Sequence Steps</h4>
+                <div id="sequence-steps-container">
+                    <p>No sequence selected. Please select or create a sequence to view steps.</p>
+                </div>
+            </div>
+
+            <div class="add-step-form">
+                <h4>Add New Step</h4>
+                <div>
+                    <label for="step-title">Step Title:</label>
+                    <input type="text" id="step-title" placeholder="Enter step title">
+                </div>
+                <div>
+                    <label for="target-layer">Target Layer:</label>
+                    <select id="target-layer">
+                        <option value="skeleton">skeleton</option>
+                        <option value="database">database</option>
+                        <option value="frontend">frontend</option>
+                        <option value="css">css</option>
+                        <option value="backend">backend</option>
+                        <option value="config">config</option>
+                        <option value="tests">tests</option>
+                        <option value="docs">docs</option>
+                        <option value="verification">verification</option>
+                        <option value="other">other</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="prompt-text">Prompt Text:</label>
+                    <textarea id="prompt-text" placeholder="Enter prompt text"></textarea>
+                </div>
+                <button id="add-step-btn" onclick="addPromptSequenceStep()">Add Step</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -365,6 +427,220 @@
         // Load panels when page loads
         loadPanels();
         loadAppProfiles();
+        loadPromptSequences();
+
+        // Load prompt sequences when page loads
+        function loadPromptSequences() {
+            const selector = document.getElementById('sequence-selector');
+            const errorElement = document.getElementById('prompt-sequence-error');
+
+            fetch('/api/prompt-sequences')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Clear existing options
+                    selector.innerHTML = '<option value="">Select a sequence...</option>';
+
+                    // Add sequences to selector
+                    data.sequences.forEach(sequence => {
+                        const option = document.createElement('option');
+                        option.value = sequence.id;
+                        option.textContent = `${sequence.name} (${sequence.status})`;
+                        selector.appendChild(option);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching prompt sequences:', error);
+                    errorElement.textContent = 'Error loading prompt sequences: ' + error.message;
+                    errorElement.style.display = 'block';
+                });
+        }
+
+        // Create a new prompt sequence
+        function createPromptSequence() {
+            const nameInput = document.getElementById('sequence-name');
+            const goalInput = document.getElementById('sequence-goal');
+            const btn = document.getElementById('create-sequence-btn');
+            const errorElement = document.getElementById('prompt-sequence-error');
+
+            const name = nameInput.value.trim();
+            const goal = goalInput.value.trim();
+
+            if (!name) {
+                errorElement.textContent = 'Sequence name is required';
+                errorElement.style.display = 'block';
+                return;
+            }
+
+            btn.textContent = 'Creating...';
+            btn.disabled = true;
+
+            fetch('/api/prompt-sequences', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: name,
+                    goal: goal
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                btn.textContent = 'Create Sequence';
+                btn.disabled = false;
+                nameInput.value = '';
+                goalInput.value = '';
+
+                // Reload sequences to include the new one
+                loadPromptSequences();
+
+                // Show success message
+                alert('Sequence created successfully!');
+            })
+            .catch(error => {
+                console.error('Error creating prompt sequence:', error);
+                errorElement.textContent = 'Error creating prompt sequence: ' + error.message;
+                errorElement.style.display = 'block';
+                btn.textContent = 'Create Sequence';
+                btn.disabled = false;
+            });
+        }
+
+        // Load steps for a selected sequence
+        function loadSequenceSteps() {
+            const sequenceId = document.getElementById('sequence-selector').value;
+            const container = document.getElementById('sequence-steps-container');
+            const statusElement = document.getElementById('sequence-status');
+            const errorElement = document.getElementById('prompt-sequence-error');
+
+            if (!sequenceId) {
+                container.innerHTML = '<p>No sequence selected. Please select or create a sequence to view steps.</p>';
+                statusElement.textContent = '';
+                return;
+            }
+
+            // Show loading
+            container.innerHTML = '<p>Loading steps...</p>';
+
+            fetch(`/api/prompt-sequences/${sequenceId}/steps`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Get sequence info for status
+                    fetch(`/api/prompt-sequences/${sequenceId}`)
+                        .then(response => response.json())
+                        .then(seqData => {
+                            statusElement.textContent = `Status: ${seqData.sequences[0].status}`;
+                        });
+
+                    // Display steps
+                    if (!data.steps || data.steps.length === 0) {
+                        container.innerHTML = '<p>No steps in this sequence.</p>';
+                        return;
+                    }
+
+                    let stepsHtml = '<table class="panel-table"><thead><tr><th>Step #</th><th>Title</th><th>Layer</th><th>Status</th><th>Prompt</th></tr></thead><tbody>';
+                    data.steps.forEach(step => {
+                        stepsHtml += `
+                            <tr>
+                                <td>${step.step_number}</td>
+                                <td>${step.step_title}</td>
+                                <td>${step.target_layer}</td>
+                                <td>${step.status}</td>
+                                <td>${step.prompt_text.substring(0, 100)}${step.prompt_text.length > 100 ? '...' : ''}</td>
+                            </tr>
+                        `;
+                    });
+                    stepsHtml += '</tbody></table>';
+                    container.innerHTML = stepsHtml;
+                })
+                .catch(error => {
+                    console.error('Error fetching sequence steps:', error);
+                    errorElement.textContent = 'Error loading sequence steps: ' + error.message;
+                    errorElement.style.display = 'block';
+                    container.innerHTML = '<p>Error loading steps.</p>';
+                });
+        }
+
+        // Add a new step to the selected sequence
+        function addPromptSequenceStep() {
+            const sequenceId = document.getElementById('sequence-selector').value;
+            const titleInput = document.getElementById('step-title');
+            const layerSelect = document.getElementById('target-layer');
+            const promptInput = document.getElementById('prompt-text');
+            const btn = document.getElementById('add-step-btn');
+            const errorElement = document.getElementById('prompt-sequence-error');
+
+            if (!sequenceId) {
+                errorElement.textContent = 'Please select a sequence first';
+                errorElement.style.display = 'block';
+                return;
+            }
+
+            const step_title = titleInput.value.trim();
+            const target_layer = layerSelect.value;
+            const prompt_text = promptInput.value.trim();
+
+            if (!step_title) {
+                errorElement.textContent = 'Step title is required';
+                errorElement.style.display = 'block';
+                return;
+            }
+
+            btn.textContent = 'Adding...';
+            btn.disabled = true;
+
+            fetch(`/api/prompt-sequences/${sequenceId}/steps`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    step_title: step_title,
+                    target_layer: target_layer,
+                    prompt_text: prompt_text
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                btn.textContent = 'Add Step';
+                btn.disabled = false;
+                titleInput.value = '';
+                promptInput.value = '';
+
+                // Reload steps to include the new one
+                loadSequenceSteps();
+
+                // Show success message
+                alert('Step added successfully!');
+            })
+            .catch(error => {
+                console.error('Error adding prompt sequence step:', error);
+                errorElement.textContent = 'Error adding prompt sequence step: ' + error.message;
+                errorElement.style.display = 'block';
+                btn.textContent = 'Add Step';
+                btn.disabled = false;
+            });
+        }
     </script>
 </body>
 </html>
