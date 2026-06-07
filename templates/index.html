@@ -60,10 +60,14 @@
                 <h4>Phase 1E</h4>
                 <p>App Profiles</p>
             </div>
-            <h3>Next Planned Phase</h3>
-            <div class="phase-card disabled">
+            <div class="phase-card completed">
                 <h4>Phase 1F</h4>
                 <p>Prompt Sequence Planner</p>
+            </div>
+            <h3>Next Planned Phase</h3>
+            <div class="phase-card disabled">
+                <h4>Phase 1G</h4>
+                <p>Generate Next Prompt</p>
             </div>
         </div>
 
@@ -99,6 +103,9 @@
         <div class="prompt-sequence-planner-section">
             <h3>Prompt Sequence Planner</h3>
             <div id="prompt-sequence-error" class="error-message" style="display: none;"></div>
+            <div id="prompt-sequence-counts" style="margin-bottom: 15px; font-weight: bold;">
+                Sequences: <span id="sequence-count">0</span>, Steps: <span id="step-count">0</span>
+            </div>
 
             <div class="create-sequence-form">
                 <h4>Create New Prompt Sequence</h4>
@@ -124,7 +131,7 @@
             <div class="sequence-steps-section">
                 <h4>Sequence Steps</h4>
                 <div id="sequence-steps-container">
-                    <p>No sequence selected. Please select or create a sequence to view steps.</p>
+                    <p id="empty-steps-message">No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts.</p>
                 </div>
             </div>
 
@@ -504,6 +511,9 @@
                 // Reload sequences to include the new one
                 loadPromptSequences();
 
+                // Update counts
+                updateCounts();
+
                 // Show success message
                 alert('Sequence created successfully!');
             })
@@ -524,8 +534,10 @@
             const errorElement = document.getElementById('prompt-sequence-error');
 
             if (!sequenceId) {
-                container.innerHTML = '<p>No sequence selected. Please select or create a sequence to view steps.</p>';
+                // Show empty message if no sequence selected
+                container.innerHTML = '<p id="empty-steps-message">No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts.</p>';
                 statusElement.textContent = '';
+                updateCounts(); // Update counts when no sequence is selected
                 return;
             }
 
@@ -630,6 +642,9 @@
                 // Reload steps to include the new one
                 loadSequenceSteps();
 
+                // Update counts
+                updateCounts();
+
                 // Show success message
                 alert('Step added successfully!');
             })
@@ -641,6 +656,29 @@
                 btn.disabled = false;
             });
         }
+
+        // Update sequence and step counts
+        function updateCounts() {
+            fetch('/api/prompt-sequences')
+                .then(response => response.json())
+                .then(data => {
+                    const sequenceCount = data.sequence_count || 0;
+                    const stepCount = data.total_step_count || 0;
+
+                    // Update UI elements
+                    document.getElementById('sequence-count').textContent = sequenceCount;
+                    document.getElementById('step-count').textContent = stepCount;
+                })
+                .catch(error => {
+                    console.error('Error updating counts:', error);
+                });
+        }
+
+        // Load initial data
+        loadPanels();
+        loadAppProfiles();
+        loadPromptSequences();
+        updateCounts();
     </script>
 </body>
 </html>

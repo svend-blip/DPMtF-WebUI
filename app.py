@@ -276,8 +276,15 @@ async def get_prompt_sequences():
             "updated_at": row[5]
         })
 
+    # Get counts
+    cursor.execute("SELECT COUNT(*) FROM prompt_sequences")
+    sequence_count = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM prompt_sequence_steps")
+    total_step_count = cursor.fetchone()[0]
+
     conn.close()
-    return {"sequences": sequences}
+    return {"sequences": sequences, "sequence_count": sequence_count, "total_step_count": total_step_count}
 
 @app.post("/api/prompt-sequences")
 async def create_prompt_sequence(sequence_data: dict):
