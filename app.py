@@ -504,6 +504,116 @@ Step prompt text:
         "generated_prompt": generated_prompt
     }
 
+@app.get("/api/prompt-sequences/{sequence_id}/generated-prompts")
+async def get_generated_prompts(sequence_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if sequence exists
+    cursor.execute("SELECT id FROM prompt_sequences WHERE id = ?", (sequence_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    # Get generated prompts for this sequence
+    cursor.execute("""
+        SELECT gp.id, gp.sequence_step_id, gp.prompt_text, gp.generated_at,
+               pss.step_number, pss.step_title, pss.target_layer
+        FROM generated_prompts gp
+        JOIN prompt_sequence_steps pss ON gp.sequence_step_id = pss.id
+        WHERE pss.sequence_id = ?
+        ORDER BY gp.generated_at DESC
+    """, (sequence_id,))
+
+    generated_prompts = []
+    for row in cursor.fetchall():
+        generated_prompts.append({
+            "id": row[0],
+            "sequence_step_id": row[1],
+            "prompt_text": row[2],
+            "generated_at": row[3],
+            "step_number": row[4],
+            "step_title": row[5],
+            "target_layer": row[6]
+        })
+
+    conn.close()
+    return {"generated_prompts": generated_prompts}
+
+@app.post("/api/prompt-sequences/{sequence_id}/steps/{step_id}/generated-prompts")
+async def save_generated_prompt(sequence_id: int, step_id: int, prompt_data: dict):
+    # Validate required fields
+    generated_prompt = prompt_data.get("generated_prompt")
+    if not generated_prompt or generated_prompt.strip() == "":
+        raise HTTPException(status_code=400, detail="Generated prompt is required")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if sequence exists
+    cursor.execute("SELECT id FROM prompt_sequences WHERE id = ?", (sequence_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    # Check if step exists and belongs to sequence
+    cursor.execute("""
+        SELECT id FROM prompt_sequence_steps
+        WHERE id = ? AND sequence_id = ?
+    """, (step_id, sequence_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Step not found or does not belong to sequence")
+
+    # Insert generated prompt
+    cursor.execute("""
+        INSERT INTO generated_prompts (sequence_step_id, prompt_text)
+        VALUES (?, ?)
+    """, (step_id, generated_prompt))
+
+    generated_prompt_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "generated_prompt_id": generated_prompt_id,
+        "sequence_id": sequence_id,
+        "step_id": step_id
+    }
+
+@app.get("/api/generated-prompts")
+async def get_all_generated_prompts():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get all generated prompts with sequence and step information
+    cursor.execute("""
+        SELECT gp.id, gp.sequence_step_id, gp.prompt_text, gp.generated_at,
+               pss.sequence_id, ps.name, pss.step_number, pss.step_title, pss.target_layer
+        FROM generated_prompts gp
+        JOIN prompt_sequence_steps pss ON gp.sequence_step_id = pss.id
+        JOIN prompt_sequences ps ON pss.sequence_id = ps.id
+        ORDER BY gp.generated_at DESC
+    """)
+
+    generated_prompts = []
+    for row in cursor.fetchall():
+        generated_prompts.append({
+            "id": row[0],
+            "sequence_step_id": row[1],
+            "prompt_text": row[2],
+            "generated_at": row[3],
+            "sequence_id": row[4],
+            "sequence_name": row[5],
+            "step_number": row[6],
+            "step_title": row[7],
+            "target_layer": row[8]
+        })
+
+    conn.close()
+    return {"generated_prompts": generated_prompts}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
