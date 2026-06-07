@@ -30,14 +30,27 @@ CREATE TABLE IF NOT EXISTS reference_projects (
 )
 """)
 
+# Create or modify frontend_panels table to include all required columns
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS frontend_panels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    source_file TEXT NOT NULL,
+    panel_key TEXT NOT NULL,
+    panel_title TEXT,
+    html_id TEXT,
+    sort_order INTEGER,
+    raw_opening_tag TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
+
+# Add updated_at column if it doesn't exist (for backward compatibility)
+try:
+    cursor.execute("ALTER TABLE frontend_panels ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS panel_classifications (
@@ -45,6 +58,7 @@ CREATE TABLE IF NOT EXISTS panel_classifications (
     panel_id INTEGER,
     classification TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (panel_id) REFERENCES frontend_panels (id)
 )
 """)
