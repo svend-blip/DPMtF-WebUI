@@ -61,10 +61,14 @@
                 <h4>Phase 1D</h4>
                 <p>Classification UI</p>
             </div>
-            <h3>Next Planned Phase</h3>
-            <div class="phase-card disabled">
+            <div class="phase-card completed">
                 <h4>Phase 1E</h4>
                 <p>App Profiles</p>
+            </div>
+            <h3>Next Planned Phase</h3>
+            <div class="phase-card disabled">
+                <h4>Phase 1F</h4>
+                <p>Prompt Sequence Planner</p>
             </div>
         </div>
 
@@ -233,11 +237,11 @@
                     // Clear existing options
                     selector.innerHTML = '<option value="">Select a profile...</option>';
 
-                    // Add profiles to selector
+                    // Add profiles to selector with count information
                     data.profiles.forEach(profile => {
                         const option = document.createElement('option');
                         option.value = profile.id;
-                        option.textContent = profile.name;
+                        option.textContent = `${profile.name} (${profile.included_panel_count} panels)`;
                         selector.appendChild(option);
                     });
                 })

@@ -54,6 +54,10 @@ def import_reference_panels():
         # Get panel title from panel key (replace hyphens with spaces and title case)
         panel_title = panel_key.replace('-', ' ').title()
 
+        # Special case for System Resources panel
+        if panel_key == "resources":
+            panel_title = "System Resources"
+
         # Get the raw opening tag for reference
         raw_opening_tag = panel_element.split('>', 1)[0] + '>' if '>' in panel_element else panel_element
 
