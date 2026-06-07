@@ -103,6 +103,75 @@ h3 {
     border: 1px solid #ffcdd2;
 }
 
+.app-profiles-section {
+    margin-top: 30px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #eee;
+}
+
+.app-profiles-section h3 {
+    margin-top: 0;
+    color: #444;
+}
+
+#app-profiles-controls {
+    margin-bottom: 15px;
+}
+
+#app-profiles-controls button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-right: 10px;
+    font-size: 0.9em;
+}
+
+#app-profiles-controls button:hover {
+    background-color: #45a049;
+}
+
+#app-profiles-controls button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+#profile-panels-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    font-size: 0.9em;
+}
+
+#profile-panels-table th,
+#profile-panels-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+#profile-panels-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+    color: #333;
+}
+
+#profile-panels-table tr:hover {
+    background-color: #f5f5f5;
+}
+
+#profile-panels-table tr:nth-child(even) {
+    background-color: #fafafa;
+}
+
+.checkbox-cell {
+    text-align: center;
+}
+
 .classification-select {
     padding: 5px;
     border: 1px solid #ccc;
