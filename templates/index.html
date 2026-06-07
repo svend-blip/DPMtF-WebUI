@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DPMtF WebUI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>DPMtF WebUI</h1>
+        <h2>Deterministic Prompt – MockUp to Finalised</h2>
+
+        <div class="status-section">
+            <h3>Database Status</h3>
+            <p id="database-status">Loading...</p>
+        </div>
+
+        <div class="message-section">
+            <h3>Phase 1A Status</h3>
+            <p>This is the skeleton for Phase 1A. Only the basic structure is implemented.</p>
+        </div>
+
+        <div class="planned-phases">
+            <h3>Next Planned Phases</h3>
+            <div class="phase-card disabled">
+                <h4>Phase 1B</h4>
+                <p>Import panels from ai-pc-resource-webui/templates/index.html</p>
+            </div>
+            <div class="phase-card disabled">
+                <h4>Phase 1C</h4>
+                <p>Implement AI prompt generation</p>
+            </div>
+            <div class="phase-card disabled">
+                <h4>Phase 1D</h4>
+                <p>Implement service control and execution buttons</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Simple script to check database status
+        fetch('/api/health')
+            .then(response => response.json())
+            .then(data => {
+                const statusElement = document.getElementById('database-status');
+                statusElement.textContent = data.database_exists ? 'Database found' : 'Database not found';
+            })
+            .catch(error => {
+                console.error('Error checking database:', error);
+                document.getElementById('database-status').textContent = 'Error checking database';
+            });
+    </script>
+</body>
+</html>
