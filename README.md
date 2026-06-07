@@ -34,6 +34,22 @@ To check if the application is running properly:
 curl http://localhost:9130/api/health
 ```
 
+## Importing Reference Panels
+
+To import panels from ai-pc-resource-webui:
+
+```bash
+python scripts/import_reference_panels.py
+```
+
+## Checking Imported Panels
+
+To view imported panels through the API:
+
+```bash
+curl http://localhost:9130/api/panels
+```
+
 ## Project Structure
 
 - `app.py` - Main FastAPI application
