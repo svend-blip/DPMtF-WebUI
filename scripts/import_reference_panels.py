@@ -17,10 +17,22 @@ def import_reference_panels():
     with open(source_file_path, 'r', encoding='utf-8') as f:
         html_content = f.read()
 
-    # Find all panel sections using regex to detect <section ...> tags
+    # Find all panel sections using regex to detect <section ...> tags with panel classes
     # This pattern looks for section tags with panel-related classes
     panel_pattern = re.compile(r'<section[^>]*class=["\'][^"\']*panel[^"\']*["\'][^>]*>.*?</section>', re.DOTALL | re.IGNORECASE)
     panel_elements = panel_pattern.findall(html_content)
+
+    # Also look for sections that have a meaningful id that suggests they are panels
+    # We'll look for sections that have an id attribute but no class, and check if they contain panel-like content
+    section_pattern = re.compile(r'<section[^>]*>.*?</section>', re.DOTALL | re.IGNORECASE)
+    all_sections = section_pattern.findall(html_content)
+
+    # Filter sections that have an id but no panel class - these are likely our panels
+    for section in all_sections:
+        if re.search(r'id=["\'][^"\']*["\']', section, re.IGNORECASE):
+            # Check if this section has panel-like content (has a heading with panel name)
+            if re.search(r'<h2[^>]*>.*?</h2>', section, re.IGNORECASE):
+                panel_elements.append(section)
 
     # Count imported panels
     imported_count = 0
