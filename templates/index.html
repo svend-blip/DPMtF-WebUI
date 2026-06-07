@@ -177,6 +177,18 @@
                     <p id="prompt-preview-message">No prompt generated yet. Select a sequence with planned steps and click "Generate Next Prompt Preview".</p>
                     <textarea id="prompt-preview" style="width: 100%; height: 200px; display: none;" readonly></textarea>
                     <button id="copy-prompt-btn" onclick="copyPrompt()" style="display: none; margin-top: 10px;">Copy Prompt</button>
+                    <div id="save-prompt-section" style="margin-top: 10px; display: none;">
+                        <button id="save-generated-prompt-btn" onclick="saveGeneratedPrompt()">Save Generated Prompt</button>
+                        <span id="save-prompt-status" style="margin-left: 10px; font-size: 0.8em;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="prompt-history-section">
+                <h4>Prompt History / Generated Archive</h4>
+                <div id="prompt-history-container">
+                    <p id="prompt-history-message">No generated prompts yet. Generate prompts to see them appear here.</p>
+                    <div id="prompt-history-list" style="margin-top: 10px; display: none;"></div>
                 </div>
             </div>
         </div>
@@ -610,6 +622,9 @@
                     });
                     stepsHtml += '</tbody></table>';
                     container.innerHTML = stepsHtml;
+
+                    // Load prompt history after steps are displayed
+                    loadPromptHistory();
                 })
                 .catch(error => {
                     console.error('Error fetching sequence steps:', error);
@@ -749,6 +764,87 @@
             alert('Prompt copied to clipboard!');
         }
 
+        // Save generated prompt
+        function saveGeneratedPrompt() {
+            const sequenceId = document.getElementById('sequence-selector').value;
+            const previewElement = document.getElementById('prompt-preview');
+            const statusElement = document.getElementById('save-prompt-status');
+            const saveSection = document.getElementById('save-prompt-section');
+
+            if (!sequenceId) {
+                alert('Please select a sequence first');
+                return;
+            }
+
+            const generatedPrompt = previewElement.value;
+            if (!generatedPrompt) {
+                alert('No prompt to save');
+                return;
+            }
+
+            // Show loading state
+            statusElement.textContent = 'Saving. ..';
+            statusElement.style.color = '#666';
+
+            // Find the first planned step for this sequence to save against
+            fetch(`/api/prompt-sequences/${sequenceId}/steps`)
+            .then(response => response.json())
+            .then(data => {
+                const plannedStep = data.steps.find(step => step.status === 'planned');
+                if (!plannedStep) {
+                    statusElement.textContent = 'No planned step found to save against';
+                    statusElement.style.color = 'red';
+                    return;
+                }
+
+                // Save the generated prompt
+                fetch(`/api/prompt-sequences/${sequenceId}/steps/${plannedStep.id}/generated-prompts`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        generated_prompt: generatedPrompt
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    statusElement.textContent = 'Saved successfully';
+                    statusElement.style.color = 'green';
+                    // Clear status after 3 seconds
+                    setTimeout(() => {
+                        statusElement.textContent = '';
+                    }, 3000);
+
+                    // Reload prompt history to show the new entry
+                    loadPromptHistory();
+                })
+                .catch(error => {
+                    console.error('Error saving generated prompt:', error);
+                    statusElement.textContent = 'Error saving prompt';
+                    statusElement.style.color = 'red';
+                    // Clear status after 3 seconds
+                    setTimeout(() => {
+                        statusElement.textContent = '';
+                    }, 3000);
+                });
+            })
+            .catch(error => {
+                console.error('Error finding planned step:', error);
+                statusElement.textContent = 'Error finding step';
+                statusElement.style.color = 'red';
+                // Clear status after 3 seconds
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                }, 3000);
+            });
+        }
+
         // Update step status
         function updateStepStatus(selectElement) {
             // This function just updates the UI state when a status is selected
@@ -806,6 +902,62 @@
                 setTimeout(() => {
                     statusElement.textContent = '';
                 }, 3000);
+            });
+        }
+
+        // Load prompt history
+        function loadPromptHistory() {
+            const sequenceId = document.getElementById('sequence-selector').value;
+            const container = document.getElementById('prompt-history-container');
+            const messageElement = document.getElementById('prompt-history-message');
+            const listElement = document.getElementById('prompt-history-list');
+
+            if (!sequenceId) {
+                messageElement.textContent = 'Select a sequence to view its prompt history.';
+                messageElement.style.display = 'block';
+                listElement.style.display = 'none';
+                return;
+            }
+
+            // Show loading
+            messageElement.textContent = 'Loading prompt history. ..';
+            messageElement.style.display = 'block';
+            listElement.style.display = 'none';
+
+            fetch(`/api/prompt-sequences/${sequenceId}/generated-prompts`)
+            .then(response => response.json())
+            .then(data => {
+                if (!data.generated_prompts || data.generated_prompts.length === 0) {
+                    messageElement.textContent = 'No generated prompts found for this sequence.';
+                    messageElement.style.display = 'block';
+                    listElement.style.display = 'none';
+                    return;
+                }
+
+                // Display history
+                let historyHtml = '<div style="max-height: 400px; overflow-y: auto;">';
+                data.generated_prompts.forEach(prompt => {
+                    historyHtml += `
+                        <div style="border: 1px solid #ddd; margin: 5px 0; padding: 10px; border-radius: 5px;">
+                            <strong>Step ${prompt.step_number}: ${prompt.step_title}</strong> (${prompt.target_layer})
+                            <br>
+                            <small>Generated: ${prompt.generated_at}</small>
+                            <br>
+                            <pre style="background-color: #f5f5f5; padding: 8px; border-radius: 3px; font-size: 0.8em; white-space: pre-wrap; word-wrap: break-word;">${prompt.prompt_text}</pre>
+                        </div>
+                    `;
+                });
+                historyHtml += '</div>';
+
+                listElement.innerHTML = historyHtml;
+                messageElement.style.display = 'none';
+                listElement.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error loading prompt history:', error);
+                messageElement.textContent = 'Error loading prompt history: ' + error.message;
+                messageElement.style.display = 'block';
+                listElement.style.display = 'none';
             });
         }
 
