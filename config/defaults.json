@@ -1,0 +1,16 @@
+{
+    "app": {
+        "name": "DPMtF WebUI",
+        "version": "0.1.0",
+        "port": 9130,
+        "host": "0.0.0.0"
+    },
+    "database": {
+        "path": "databases/dpmtf.db",
+        "type": "sqlite"
+    },
+    "ui": {
+        "title": "DPMtF WebUI",
+        "subtitle": "Deterministic Prompt – MockUp to Finalised"
+    }
+}

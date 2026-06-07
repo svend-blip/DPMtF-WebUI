@@ -1,0 +1,62 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f5f5f5;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+h1 {
+    color: #333;
+    text-align: center;
+}
+
+h2 {
+    color: #666;
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+h3 {
+    color: #444;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 5px;
+}
+
+.status-section, .message-section {
+    margin-bottom: 30px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+}
+
+.phase-card {
+    background-color: #f0f0f0;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.phase-card.disabled {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.phase-card h4 {
+    margin-top: 0;
+    color: #555;
+}
+
+.phase-card p {
+    margin: 5px 0;
+    color: #777;
+}
