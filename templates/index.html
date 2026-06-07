@@ -23,7 +23,24 @@
 
         <div class="imported-panels-section">
             <h3>Imported Panels</h3>
-            <p>Panel data is available through the <code>/api/panels</code> endpoint.</p>
+            <div id="panels-count">Loading panel data...</div>
+            <div id="panels-error" class="error-message" style="display: none;"></div>
+            <div id="panels-table-container">
+                <table id="panels-table" class="panel-table">
+                    <thead>
+                        <tr>
+                            <th>Sort Order</th>
+                            <th>Panel Key</th>
+                            <th>Panel Title</th>
+                            <th>HTML ID</th>
+                            <th>Classification</th>
+                        </tr>
+                    </thead>
+                    <tbody id="panels-table-body">
+                        <!-- Panel rows will be inserted here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="planned-phases">
@@ -55,6 +72,62 @@
                 console.error('Error checking database:', error);
                 document.getElementById('database-status').textContent = 'Error checking database';
             });
+
+        // Fetch and display panels
+        function loadPanels() {
+            const tableBody = document.getElementById('panels-table-body');
+            const countElement = document.getElementById('panels-count');
+            const errorElement = document.getElementById('panels-error');
+
+            // Show loading message
+            tableBody.innerHTML = '<tr><td colspan="5">Loading panels...</td></tr>';
+            countElement.textContent = 'Loading panel data...';
+            errorElement.style.display = 'none';
+
+            fetch('/api/panels')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Clear loading message
+                    tableBody.innerHTML = '';
+
+                    if (!data.panels || data.panels.length === 0) {
+                        tableBody.innerHTML = '<tr><td colspan="5">No panels imported</td></tr>';
+                        countElement.textContent = '0 panels imported';
+                        return;
+                    }
+
+                    // Display panel count
+                    countElement.textContent = `${data.panels.length} panel(s) imported`;
+
+                    // Populate table rows
+                    data.panels.forEach(panel => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${panel.sort_order}</td>
+                            <td>${panel.panel_key}</td>
+                            <td>${panel.panel_title}</td>
+                            <td>${panel.html_id || ''}</td>
+                            <td>${panel.classification}</td>
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching panels:', error);
+                    errorElement.textContent = 'Error loading panels: ' + error.message;
+                    errorElement.style.display = 'block';
+                    tableBody.innerHTML = '<tr><td colspan="5">Failed to load panels</td></tr>';
+                    countElement.textContent = 'Error loading panels';
+                });
+        }
+
+        // Load panels when page loads
+        loadPanels();
     </script>
 </body>
 </html>
