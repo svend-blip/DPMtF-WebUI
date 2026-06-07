@@ -64,9 +64,17 @@
                 <h4>Phase 1F</h4>
                 <p>Prompt Sequence Planner</p>
             </div>
-            <div class="phase-card disabled">
+            <div class="phase-card completed">
                 <h4>Phase 1G</h4>
-                <p>Generate Next Prompt</p>
+                <p>Generate Next Prompt Preview</p>
+            </div>
+        </div>
+
+        <div class="planned-phases">
+            <h3>Next Planned Phase</h3>
+            <div class="phase-card">
+                <h4>Phase 1H</h4>
+                <p>Step Status / Mark Step Done</p>
             </div>
         </div>
 
@@ -130,7 +138,7 @@
             <div class="sequence-steps-section">
                 <h4>Sequence Steps</h4>
                 <div id="sequence-steps-container">
-                    <p id="empty-steps-message">No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts.</p>
+                    <p id="empty-steps-message">No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts. Add steps to your sequence to generate prompts.</p>
                 </div>
             </div>
 
@@ -166,7 +174,7 @@
                 <h4>Generate Next Prompt Preview</h4>
                 <button id="generate-prompt-btn" onclick="generateNextPrompt()">Generate Next Prompt Preview</button>
                 <div id="prompt-preview-container" style="margin-top: 10px;">
-                    <p id="prompt-preview-message">No prompt generated yet. Select a sequence and click "Generate Next Prompt Preview".</p>
+                    <p id="prompt-preview-message">No prompt generated yet. Select a sequence with planned steps and click "Generate Next Prompt Preview".</p>
                     <textarea id="prompt-preview" style="width: 100%; height: 200px; display: none;" readonly></textarea>
                     <button id="copy-prompt-btn" onclick="copyPrompt()" style="display: none; margin-top: 10px;">Copy Prompt</button>
                 </div>
