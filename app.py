@@ -118,7 +118,23 @@ async def get_app_profiles():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, name, description, created_at FROM app_profiles ORDER BY name")
+    # Get profiles with panel counts
+    cursor.execute("""
+        SELECT ap.id, ap.name, ap.description, ap.created_at,
+               COUNT(appp.panel_id) as included_panel_count
+        FROM app_profiles ap
+        LEFT JOIN app_profile_panels appp ON ap.id = appp.profile_id
+        GROUP BY ap.id, ap.name, ap.description, ap.created_at
+        ORDER BY
+            CASE ap.name
+                WHEN 'Minimal Starter App' THEN 1
+                WHEN 'Pipeline App' THEN 2
+                WHEN 'Operational Dashboard App' THEN 3
+                WHEN 'Full Reference App' THEN 4
+                WHEN 'Custom Selected Panels' THEN 5
+                ELSE 6
+            END
+    """)
 
     profiles = []
     for row in cursor.fetchall():
@@ -126,7 +142,8 @@ async def get_app_profiles():
             "id": row[0],
             "name": row[1],
             "description": row[2],
-            "created_at": row[3]
+            "created_at": row[3],
+            "included_panel_count": row[4]
         })
 
     conn.close()
