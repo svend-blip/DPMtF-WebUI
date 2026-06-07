@@ -83,25 +83,83 @@ CREATE TABLE IF NOT EXISTS app_profile_panels (
 )
 """)
 
+# Create prompt_sequences table with all required columns
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS prompt_sequences (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    goal TEXT,
+    status TEXT DEFAULT 'planned',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
+
+# Add missing columns if they don't exist (for backward compatibility)
+try:
+    cursor.execute("ALTER TABLE prompt_sequences ADD COLUMN goal TEXT")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
+
+try:
+    cursor.execute("ALTER TABLE prompt_sequences ADD COLUMN status TEXT DEFAULT 'planned'")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
+
+try:
+    cursor.execute("ALTER TABLE prompt_sequences ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS prompt_sequence_steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sequence_id INTEGER,
     step_number INTEGER,
+    step_title TEXT,
+    target_layer TEXT,
+    status TEXT DEFAULT 'planned',
     prompt_text TEXT,
+    result_note TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sequence_id) REFERENCES prompt_sequences (id)
 )
 """)
+
+# Add missing columns for prompt_sequence_steps if they don't exist
+try:
+    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN step_title TEXT")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
+
+try:
+    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN target_layer TEXT")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
+
+try:
+    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN status TEXT DEFAULT 'planned'")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
+
+try:
+    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN result_note TEXT")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
+
+try:
+    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+except sqlite3.OperationalError:
+    # Column already exists
+    pass
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS generated_prompts (

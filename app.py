@@ -253,6 +253,142 @@ async def update_profile_panel_membership(profile_id: int, panel_id: int, member
         "included": include
     }
 
+# Prompt Sequence Planner endpoints
+@app.get("/api/prompt-sequences")
+async def get_prompt_sequences():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, name, goal, status, created_at, updated_at
+        FROM prompt_sequences
+        ORDER BY created_at DESC
+    """)
+
+    sequences = []
+    for row in cursor.fetchall():
+        sequences.append({
+            "id": row[0],
+            "name": row[1],
+            "goal": row[2],
+            "status": row[3],
+            "created_at": row[4],
+            "updated_at": row[5]
+        })
+
+    conn.close()
+    return {"sequences": sequences}
+
+@app.post("/api/prompt-sequences")
+async def create_prompt_sequence(sequence_data: dict):
+    # Validate required fields
+    name = sequence_data.get("name")
+    if not name or name.strip() == "":
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    goal = sequence_data.get("goal", "")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Insert new sequence
+    cursor.execute("""
+        INSERT INTO prompt_sequences (name, goal, status)
+        VALUES (?, ?, 'planned')
+    """, (name, goal))
+
+    sequence_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "sequence_id": sequence_id,
+        "name": name,
+        "goal": goal
+    }
+
+@app.get("/api/prompt-sequences/{sequence_id}/steps")
+async def get_prompt_sequence_steps(sequence_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if sequence exists
+    cursor.execute("SELECT id FROM prompt_sequences WHERE id = ?", (sequence_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    cursor.execute("""
+        SELECT id, step_number, step_title, target_layer, status, prompt_text, result_note, created_at, updated_at
+        FROM prompt_sequence_steps
+        WHERE sequence_id = ?
+        ORDER BY step_number ASC
+    """, (sequence_id,))
+
+    steps = []
+    for row in cursor.fetchall():
+        steps.append({
+            "id": row[0],
+            "step_number": row[1],
+            "step_title": row[2],
+            "target_layer": row[3],
+            "status": row[4],
+            "prompt_text": row[5],
+            "result_note": row[6],
+            "created_at": row[7],
+            "updated_at": row[8]
+        })
+
+    conn.close()
+    return {"steps": steps}
+
+@app.post("/api/prompt-sequences/{sequence_id}/steps")
+async def create_prompt_sequence_step(sequence_id: int, step_data: dict):
+    # Validate required fields
+    step_title = step_data.get("step_title")
+    if not step_title or step_title.strip() == "":
+        raise HTTPException(status_code=400, detail="Step title is required")
+
+    target_layer = step_data.get("target_layer")
+    allowed_layers = ["skeleton", "database", "frontend", "css", "backend", "config", "tests", "docs", "verification", "other"]
+    if not target_layer or target_layer not in allowed_layers:
+        raise HTTPException(status_code=400, detail=f"Invalid target layer. Must be one of: {', '.join(allowed_layers)}")
+
+    prompt_text = step_data.get("prompt_text", "")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if sequence exists
+    cursor.execute("SELECT id FROM prompt_sequences WHERE id = ?", (sequence_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    # Get the next step number
+    cursor.execute("SELECT COALESCE(MAX(step_number), 0) + 1 FROM prompt_sequence_steps WHERE sequence_id = ?", (sequence_id,))
+    step_number = cursor.fetchone()[0]
+
+    # Insert new step
+    cursor.execute("""
+        INSERT INTO prompt_sequence_steps (sequence_id, step_number, step_title, target_layer, status, prompt_text)
+        VALUES (?, ?, ?, ?, 'planned', ?)
+    """, (sequence_id, step_number, step_title, target_layer, prompt_text))
+
+    step_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "step_id": step_id,
+        "sequence_id": sequence_id,
+        "step_title": step_title,
+        "target_layer": target_layer,
+        "prompt_text": prompt_text
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
