@@ -112,7 +112,17 @@
                             <td>${panel.panel_key}</td>
                             <td>${panel.panel_title}</td>
                             <td>${panel.html_id || ''}</td>
-                            <td>${panel.classification}</td>
+                            <td>
+                                <select class="classification-select" data-panel-id="${panel.id}" onchange="updateClassification(this)">
+                                    <option value="unknown" ${panel.classification === 'unknown' ? 'selected' : ''}>unknown</option>
+                                    <option value="starter" ${panel.classification === 'starter' ? 'selected' : ''}>starter</option>
+                                    <option value="advanced" ${panel.classification === 'advanced' ? 'selected' : ''}>advanced</option>
+                                    <option value="project_specific" ${panel.classification === 'project_specific' ? 'selected' : ''}>project_specific</option>
+                                    <option value="debug" ${panel.classification === 'debug' ? 'selected' : ''}>debug</option>
+                                    <option value="skip" ${panel.classification === 'skip' ? 'selected' : ''}>skip</option>
+                                </select>
+                                <span class="status-text" id="status-${panel.id}" style="margin-left: 10px; font-size: 0.8em;"></span>
+                            </td>
                         `;
                         tableBody.appendChild(row);
                     });
@@ -124,6 +134,50 @@
                     tableBody.innerHTML = '<tr><td colspan="5">Failed to load panels</td></tr>';
                     countElement.textContent = 'Error loading panels';
                 });
+        }
+
+        // Update classification for a panel
+        function updateClassification(selectElement) {
+            const panelId = parseInt(selectElement.dataset.panelId);
+            const newClassification = selectElement.value;
+            const statusElement = document.getElementById(`status-${panelId}`);
+
+            // Show loading state
+            statusElement.textContent = 'Saving...';
+            statusElement.style.color = '#666';
+
+            fetch(`/api/panels/${panelId}/classification`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    classification: newClassification
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                statusElement.textContent = 'Saved';
+                statusElement.style.color = 'green';
+                // Clear status after 3 seconds
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                }, 3000);
+            })
+            .catch(error => {
+                console.error('Error updating classification:', error);
+                statusElement.textContent = 'Error';
+                statusElement.style.color = 'red';
+                // Clear status after 3 seconds
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                }, 3000);
+            });
         }
 
         // Load panels when page loads
