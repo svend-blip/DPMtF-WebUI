@@ -396,6 +396,68 @@ async def create_prompt_sequence_step(sequence_id: int, step_data: dict):
         "prompt_text": prompt_text
     }
 
+@app.get("/api/prompt-sequences/{sequence_id}/next-prompt")
+async def get_next_prompt_preview(sequence_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if sequence exists
+    cursor.execute("SELECT id, name FROM prompt_sequences WHERE id = ?", (sequence_id,))
+    sequence = cursor.fetchone()
+    if not sequence:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    sequence_name = sequence[1]
+
+    # Find the first planned step for this sequence ordered by step_number
+    cursor.execute("""
+        SELECT id, step_number, step_title, target_layer, prompt_text
+        FROM prompt_sequence_steps
+        WHERE sequence_id = ? AND status = 'planned'
+        ORDER BY step_number ASC
+        LIMIT 1
+    """, (sequence_id,))
+
+    step = cursor.fetchone()
+    conn.close()
+
+    if not step:
+        return {
+            "status": "no_planned_steps"
+        }
+
+    step_id, step_number, step_title, target_layer, prompt_text = step
+
+    # Generate the prompt preview
+    generated_prompt = f"""Project path: /home/svend/DPMtF-WebUI
+
+Sequence: {sequence_name}
+Step #{step_number}: {step_title}
+Target Layer: {target_layer}
+
+Instructions:
+Implement only this step.
+Do not expand scope.
+Do not execute unrelated changes.
+Use targeted Edit/MultiEdit for existing files.
+Write only for new files.
+No heredocs.
+Stop after verification.
+
+Step prompt text:
+{prompt_text}"""
+
+    return {
+        "status": "success",
+        "sequence_id": sequence_id,
+        "step_id": step_id,
+        "step_number": step_number,
+        "step_title": step_title,
+        "target_layer": target_layer,
+        "generated_prompt": generated_prompt
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)

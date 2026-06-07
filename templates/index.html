@@ -64,7 +64,6 @@
                 <h4>Phase 1F</h4>
                 <p>Prompt Sequence Planner</p>
             </div>
-            <h3>Next Planned Phase</h3>
             <div class="phase-card disabled">
                 <h4>Phase 1G</h4>
                 <p>Generate Next Prompt</p>
@@ -161,6 +160,16 @@
                     <textarea id="prompt-text" placeholder="Enter prompt text"></textarea>
                 </div>
                 <button id="add-step-btn" onclick="addPromptSequenceStep()">Add Step</button>
+            </div>
+
+            <div class="prompt-preview-section">
+                <h4>Generate Next Prompt Preview</h4>
+                <button id="generate-prompt-btn" onclick="generateNextPrompt()">Generate Next Prompt Preview</button>
+                <div id="prompt-preview-container" style="margin-top: 10px;">
+                    <p id="prompt-preview-message">No prompt generated yet. Select a sequence and click "Generate Next Prompt Preview".</p>
+                    <textarea id="prompt-preview" style="width: 100%; height: 200px; display: none;" readonly></textarea>
+                    <button id="copy-prompt-btn" onclick="copyPrompt()" style="display: none; margin-top: 10px;">Copy Prompt</button>
+                </div>
             </div>
         </div>
     </div>
@@ -655,6 +664,67 @@
                 btn.textContent = 'Add Step';
                 btn.disabled = false;
             });
+        }
+
+        // Generate next prompt preview
+        function generateNextPrompt() {
+            const sequenceId = document.getElementById('sequence-selector').value;
+            const container = document.getElementById('prompt-preview-container');
+            const messageElement = document.getElementById('prompt-preview-message');
+            const previewElement = document.getElementById('prompt-preview');
+            const copyBtn = document.getElementById('copy-prompt-btn');
+            const btn = document.getElementById('generate-prompt-btn');
+            const errorElement = document.getElementById('prompt-sequence-error');
+
+            if (!sequenceId) {
+                errorElement.textContent = 'Please select a sequence first';
+                errorElement.style.display = 'block';
+                return;
+            }
+
+            btn.textContent = 'Generating. ..';
+            btn.disabled = true;
+            messageElement.style.display = 'none';
+            previewElement.style.display = 'none';
+            copyBtn.style.display = 'none';
+
+            fetch(`/api/prompt-sequences/${sequenceId}/next-prompt`)
+            .then(response => response.json())
+            .then(data => {
+                btn.textContent = 'Generate Next Prompt Preview';
+                btn.disabled = false;
+
+                if (data.status === 'no_planned_steps') {
+                    messageElement.textContent = 'No planned steps found in this sequence.';
+                    messageElement.style.display = 'block';
+                    return;
+                }
+
+                if (data.status === 'success') {
+                    previewElement.value = data.generated_prompt;
+                    previewElement.style.display = 'block';
+                    copyBtn.style.display = 'inline-block';
+                    messageElement.style.display = 'none';
+                } else {
+                    messageElement.textContent = 'Error generating prompt preview.';
+                    messageElement.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('Error generating next prompt:', error);
+                btn.textContent = 'Generate Next Prompt Preview';
+                btn.disabled = false;
+                messageElement.textContent = 'Error generating prompt preview: ' + error.message;
+                messageElement.style.display = 'block';
+            });
+        }
+
+        // Copy prompt to clipboard
+        function copyPrompt() {
+            const previewElement = document.getElementById('prompt-preview');
+            previewElement.select();
+            document.execCommand('copy');
+            alert('Prompt copied to clipboard!');
         }
 
         // Update sequence and step counts
