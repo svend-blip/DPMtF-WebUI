@@ -60,3 +60,40 @@ h3 {
     margin: 5px 0;
     color: #777;
 }
+
+.panel-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    font-size: 0.9em;
+}
+
+.panel-table th,
+.panel-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+.panel-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+    color: #333;
+}
+
+.panel-table tr:hover {
+    background-color: #f5f5f5;
+}
+
+.panel-table tr:nth-child(even) {
+    background-color: #fafafa;
+}
+
+.error-message {
+    color: #d32f2f;
+    background-color: #ffebee;
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+    border: 1px solid #ffcdd2;
+}
