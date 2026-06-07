@@ -67,6 +67,34 @@
                 <p>App Profiles</p>
             </div>
         </div>
+
+        <!-- App Profiles Section -->
+        <div class="app-profiles-section">
+            <h3>App Profiles</h3>
+            <div id="app-profiles-controls">
+                <button id="create-default-profiles-btn" onclick="createDefaultProfiles()">Create Default Profiles</button>
+                <select id="profile-selector" onchange="loadProfilePanels()">
+                    <option value="">Select a profile...</option>
+                </select>
+            </div>
+            <div id="app-profiles-error" class="error-message" style="display: none;"></div>
+            <div id="profile-panels-container">
+                <table id="profile-panels-table" class="panel-table" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Select</th>
+                            <th>Sort Order</th>
+                            <th>Panel Key</th>
+                            <th>Panel Title</th>
+                            <th>HTML ID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="profile-panels-body">
+                        <!-- Panel rows will be inserted here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -189,8 +217,155 @@
             });
         }
 
+        // Load app profiles
+        function loadAppProfiles() {
+            const selector = document.getElementById('profile-selector');
+            const errorElement = document.getElementById('app-profiles-error');
+
+            fetch('/api/app-profiles')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Clear existing options
+                    selector.innerHTML = '<option value="">Select a profile...</option>';
+
+                    // Add profiles to selector
+                    data.profiles.forEach(profile => {
+                        const option = document.createElement('option');
+                        option.value = profile.id;
+                        option.textContent = profile.name;
+                        selector.appendChild(option);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching app profiles:', error);
+                    errorElement.textContent = 'Error loading app profiles: ' + error.message;
+                    errorElement.style.display = 'block';
+                });
+        }
+
+        // Create default profiles
+        function createDefaultProfiles() {
+            const btn = document.getElementById('create-default-profiles-btn');
+            const errorElement = document.getElementById('app-profiles-error');
+
+            btn.textContent = 'Creating...';
+            btn.disabled = true;
+
+            fetch('/api/app-profiles/defaults', {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                btn.textContent = 'Create Default Profiles';
+                btn.disabled = false;
+                loadAppProfiles();
+                alert('Default profiles created successfully!');
+            })
+            .catch(error => {
+                console.error('Error creating default profiles:', error);
+                errorElement.textContent = 'Error creating default profiles: ' + error.message;
+                errorElement.style.display = 'block';
+                btn.textContent = 'Create Default Profiles';
+                btn.disabled = false;
+            });
+        }
+
+        // Load panels for a selected profile
+        function loadProfilePanels() {
+            const profileId = document.getElementById('profile-selector').value;
+            const table = document.getElementById('profile-panels-table');
+            const tableBody = document.getElementById('profile-panels-body');
+            const errorElement = document.getElementById('app-profiles-error');
+
+            if (!profileId) {
+                table.style.display = 'none';
+                return;
+            }
+
+            table.style.display = 'table';
+
+            fetch(`/api/app-profiles/${profileId}/panels`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    tableBody.innerHTML = '';
+
+                    if (!data.panels || data.panels.length === 0) {
+                        tableBody.innerHTML = '<tr><td colspan="6">No panels in this profile</td></tr>';
+                        return;
+                    }
+
+                    // Populate table rows
+                    data.panels.forEach(panel => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>
+                                <input type="checkbox" id="panel-${panel.id}" ${panel.included ? 'checked' : ''}
+                                       onchange="updateProfilePanelMembership(${profileId}, ${panel.id}, this.checked)">
+                            </td>
+                            <td>${panel.id}</td>
+                            <td>${panel.panel_key}</td>
+                            <td>${panel.panel_title}</td>
+                            <td>${panel.html_id || ''}</td>
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching profile panels:', error);
+                    errorElement.textContent = 'Error loading profile panels: ' + error.message;
+                    errorElement.style.display = 'block';
+                    table.style.display = 'none';
+                });
+        }
+
+        // Update profile panel membership
+        function updateProfilePanelMembership(profileId, panelId, included) {
+            const errorElement = document.getElementById('app-profiles-error');
+
+            fetch(`/api/app-profiles/${profileId}/panels/${panelId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    include: included
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Show success status
+                console.log(`Panel ${panelId} ${included ? 'included' : 'excluded'} in profile ${profileId}`);
+            })
+            .catch(error => {
+                console.error('Error updating profile panel membership:', error);
+                errorElement.textContent = 'Error updating panel membership: ' + error.message;
+                errorElement.style.display = 'block';
+            });
+        }
+
         // Load panels when page loads
         loadPanels();
+        loadAppProfiles();
     </script>
 </body>
 </html>

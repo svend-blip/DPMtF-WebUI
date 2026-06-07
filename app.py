@@ -17,6 +17,15 @@ DB_PATH = "databases/dpmtf.db"
 # Allowed classifications
 ALLOWED_CLASSIFICATIONS = ["unknown", "starter", "advanced", "project_specific", "debug", "skip"]
 
+# Default app profiles
+DEFAULT_APP_PROFILES = [
+    {"name": "Minimal Starter App", "description": "Basic starter profile with essential panels"},
+    {"name": "Pipeline App", "description": "Pipeline-focused profile"},
+    {"name": "Operational Dashboard App", "description": "Operational dashboard profile"},
+    {"name": "Full Reference App", "description": "Complete reference profile"},
+    {"name": "Custom Selected Panels", "description": "Custom panel selection"}
+]
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     return HTMLResponse(content=open("templates/index.html").read())
@@ -102,6 +111,129 @@ async def update_panel_classification(panel_id: int, classification_data: dict):
         "status": "success",
         "panel_id": panel_id,
         "classification": classification
+    }
+
+@app.get("/api/app-profiles")
+async def get_app_profiles():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id, name, description, created_at FROM app_profiles ORDER BY name")
+
+    profiles = []
+    for row in cursor.fetchall():
+        profiles.append({
+            "id": row[0],
+            "name": row[1],
+            "description": row[2],
+            "created_at": row[3]
+        })
+
+    conn.close()
+    return {"profiles": profiles}
+
+@app.post("/api/app-profiles/defaults")
+async def create_default_profiles():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if default profiles already exist
+    cursor.execute("SELECT COUNT(*) FROM app_profiles")
+    count = cursor.fetchone()[0]
+
+    if count == 0:
+        # Insert default profiles
+        for profile in DEFAULT_APP_PROFILES:
+            cursor.execute("""
+                INSERT INTO app_profiles (name, description)
+                VALUES (?, ?)
+            """, (profile["name"], profile["description"]))
+
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Default profiles created"}
+    else:
+        conn.close()
+        return {"status": "success", "message": "Default profiles already exist"}
+
+@app.get("/api/app-profiles/{profile_id}/panels")
+async def get_profile_panels(profile_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if profile exists
+    cursor.execute("SELECT id FROM app_profiles WHERE id = ?", (profile_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    cursor.execute("""
+        SELECT fp.id, fp.panel_key, fp.panel_title, fp.html_id,
+               app_profile_panels.id IS NOT NULL as included
+        FROM frontend_panels fp
+        LEFT JOIN app_profile_panels ON fp.id = app_profile_panels.panel_id AND app_profile_panels.profile_id = ?
+        ORDER BY fp.sort_order
+    """, (profile_id,))
+
+    panels = []
+    for row in cursor.fetchall():
+        panels.append({
+            "id": row[0],
+            "panel_key": row[1],
+            "panel_title": row[2],
+            "html_id": row[3],
+            "included": bool(row[4])
+        })
+
+    conn.close()
+    return {"panels": panels}
+
+@app.post("/api/app-profiles/{profile_id}/panels/{panel_id}")
+async def update_profile_panel_membership(profile_id: int, panel_id: int, membership_data: dict):
+    # Validate membership_data
+    include = membership_data.get("include")
+    if include is None:
+        raise HTTPException(status_code=400, detail="Include parameter is required")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if profile exists
+    cursor.execute("SELECT id FROM app_profiles WHERE id = ?", (profile_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # Check if panel exists
+    cursor.execute("SELECT id FROM frontend_panels WHERE id = ?", (panel_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Panel not found")
+
+    # Update or insert membership
+    cursor.execute("SELECT id FROM app_profile_panels WHERE profile_id = ? AND panel_id = ?", (profile_id, panel_id))
+    existing = cursor.fetchone()
+
+    if include:
+        if not existing:
+            # Insert new membership
+            cursor.execute("""
+                INSERT INTO app_profile_panels (profile_id, panel_id)
+                VALUES (?, ?)
+            """, (profile_id, panel_id))
+    else:
+        if existing:
+            # Delete existing membership
+            cursor.execute("DELETE FROM app_profile_panels WHERE profile_id = ? AND panel_id = ?", (profile_id, panel_id))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "profile_id": profile_id,
+        "panel_id": panel_id,
+        "included": include
     }
 
 if __name__ == "__main__":
