@@ -396,6 +396,52 @@ async def create_prompt_sequence_step(sequence_id: int, step_data: dict):
         "prompt_text": prompt_text
     }
 
+@app.post("/api/prompt-sequences/{sequence_id}/steps/{step_id}/status")
+async def update_prompt_sequence_step_status(sequence_id: int, step_id: int, status_data: dict):
+    # Validate required fields
+    status = status_data.get("status")
+    allowed_statuses = ["planned", "generated", "implemented", "failed", "skipped"]
+    if not status or status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(allowed_statuses)}")
+
+    result_note = status_data.get("result_note", "")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if sequence exists
+    cursor.execute("SELECT id FROM prompt_sequences WHERE id = ?", (sequence_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sequence not found")
+
+    # Check if step exists and belongs to sequence
+    cursor.execute("""
+        SELECT id FROM prompt_sequence_steps
+        WHERE id = ? AND sequence_id = ?
+    """, (step_id, sequence_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Step not found or does not belong to sequence")
+
+    # Update step status and result_note
+    cursor.execute("""
+        UPDATE prompt_sequence_steps
+        SET status = ?, result_note = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (status, result_note, step_id))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "sequence_id": sequence_id,
+        "step_id": step_id,
+        "step_status": status,
+        "result_note": result_note
+    }
+
 @app.get("/api/prompt-sequences/{sequence_id}/next-prompt")
 async def get_next_prompt_preview(sequence_id: int):
     conn = sqlite3.connect(DB_PATH)
