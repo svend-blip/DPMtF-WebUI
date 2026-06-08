@@ -183,6 +183,23 @@ CREATE TABLE IF NOT EXISTS phase_status (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS project_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_name TEXT NOT NULL,
+    target_folder TEXT NOT NULL,
+    app_port INTEGER,
+    app_profile_id INTEGER,
+    prompt_sequence_id INTEGER,
+    notes TEXT,
+    status TEXT DEFAULT 'planned',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (app_profile_id) REFERENCES app_profiles (id),
+    FOREIGN KEY (prompt_sequence_id) REFERENCES prompt_sequences (id)
+)
+""")
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

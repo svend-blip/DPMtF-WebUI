@@ -76,6 +76,13 @@
             </div>
         </div>
 
+        <div class="planned-phases">
+            <h3>Planned Phases</h3>
+            <div id="planned-phases-container">
+                <p>Loading planned phases...</p>
+            </div>
+        </div>
+
         <!-- App Profiles Section -->
         <div class="app-profiles-section">
             <h3>App Profiles</h3>
@@ -191,6 +198,49 @@
                     <div id="prompt-history-list" style="margin-top: 10px; display: none;"></div>
                 </div>
             </div>
+
+            <div class="new-project-planning-section">
+                <h3>New Project Planning</h3>
+                <div id="project-plan-error" class="error-message" style="display: none;"></div>
+                <div class="create-project-plan-form">
+                    <div>
+                        <label for="project-name">Project Name:</label>
+                        <input type="text" id="project-name" placeholder="Enter project name">
+                    </div>
+                    <div>
+                        <label for="target-folder">Target Folder:</label>
+                        <input type="text" id="target-folder" placeholder="Enter absolute target folder path">
+                    </div>
+                    <div>
+                        <label for="app-port">App Port:</label>
+                        <input type="number" id="app-port" placeholder="Enter app port (optional)">
+                    </div>
+                    <div>
+                        <label for="app-profile">App Profile:</label>
+                        <select id="app-profile">
+                            <option value="">Select an app profile</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="prompt-sequence">Prompt Sequence:</label>
+                        <select id="prompt-sequence">
+                            <option value="">Select a prompt sequence</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="notes">Notes:</label>
+                        <textarea id="notes" placeholder="Enter project notes (optional)"></textarea>
+                    </div>
+                    <button id="create-project-plan-btn" onclick="createProjectPlan()">Create Project Plan</button>
+                    <span id="project-plan-status" style="margin-left: 10px; font-size: 0.8em;"></span>
+                </div>
+                <div id="project-plans-list">
+                    <h4>Existing Project Plans</h4>
+                    <div id="project-plans-container">
+                        <p>Loading project plans...</p>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -260,6 +310,14 @@
                         `;
                         tableBody.appendChild(row);
                     });
+
+                    // Store panels in global variable and apply filters if available
+                    allPanels = data.panels || [];
+                    if (typeof applyPanelFilters === 'function') {
+                        applyPanelFilters();
+                    } else {
+                        renderPanelsTable(allPanels);
+                    }
                 })
                 .catch(error => {
                     console.error('Error fetching panels:', error);
@@ -978,56 +1036,6 @@
                 });
         }
 
-        // Load phase status
-        function loadPhaseStatus() {
-            fetch('/api/phase-status')
-            .then(response => response.json())
-            .then(data => {
-                // Load completed phases
-                const completedContainer = document.getElementById('completed-phases-container');
-                if (data.completed && data.completed.length > 0) {
-                    let completedHtml = '';
-                    data.completed.forEach(phase => {
-                        completedHtml += `
-                            <div class="phase-card completed">
-                                <h4>Phase ${phase.phase_key}</h4>
-                                <p>${phase.phase_description}</p>
-                            </div>
-                        `;
-                    });
-                    completedContainer.innerHTML = completedHtml;
-                } else {
-                    completedContainer.innerHTML = '<p>No completed phases found.</p>';
-                }
-
-                // Load next phases
-                const nextContainer = document.getElementById('next-phases-container');
-                if (data.next && data.next.length > 0) {
-                    let nextHtml = '';
-                    data.next.forEach(phase => {
-                        nextHtml += `
-                            <div class="phase-card">
-                                <h4>Phase ${phase.phase_key}</h4>
-                                <p>${phase.phase_description}</p>
-                            </div>
-                        `;
-                    });
-                    nextContainer.innerHTML = nextHtml;
-                } else {
-                    nextContainer.innerHTML = '<p>No next phases found.</p>';
-                }
-            })
-            .catch(error => {
-                console.error('Error loading phase status:', error);
-                // Show fallback message
-                document.getElementById('completed-phases-container').innerHTML =
-                    '<p>Error loading phase status. Please refresh the page.</p>';
-                document.getElementById('next-phases-container').innerHTML =
-                    '<p>Error loading phase status. Please refresh the page.</p>';
-            });
-        }
-
-        // Load phase status with filtering
         function loadPhaseStatusWithFilter() {
             // Check if we should show completed phases
             const showCompleted = localStorage.getItem('dpmtf.phaseStatus.showCompleted') === 'true';
@@ -1043,10 +1051,10 @@
                     if (showCompleted) {
                         data.completed.forEach(phase => {
                             completedHtml += `
-                                <div class="phase-card completed">
-                                    <h4>Phase ${phase.phase_key}</h4>
-                                    <p>${phase.phase_description}</p>
-                                </div>
+   	  	              <div class="phase-card completed">
+   	      	 	      <h4>Phase ${phase.phase_key}</h4>
+   	      	 	      <p>${phase.phase_description}</p>
+   	  	              </div>
                             `;
                         });
                     }
@@ -1062,14 +1070,31 @@
                     data.next.forEach(phase => {
                         nextHtml += `
                             <div class="phase-card">
-                                <h4>Phase ${phase.phase_key}</h4>
-                                <p>${phase.phase_description}</p>
+   	  	              <h4>Phase ${phase.phase_key}</h4>
+   	  	              <p>${phase.phase_description}</p>
                             </div>
                         `;
                     });
                     nextContainer.innerHTML = nextHtml;
                 } else {
                     nextContainer.innerHTML = '<p>No next phases found.</p>';
+                }
+
+                // Load planned phases
+                const plannedContainer = document.getElementById('planned-phases-container');
+                if (data.planned && data.planned.length > 0) {
+                    let plannedHtml = '';
+                    data.planned.forEach(phase => {
+                        plannedHtml += `
+                            <div class="phase-card">
+   	  	              <h4>Phase ${phase.phase_key}</h4>
+   	  	              <p>${phase.phase_description}</p>
+                            </div>
+                        `;
+                    });
+                    plannedContainer.innerHTML = plannedHtml;
+                } else {
+                    plannedContainer.innerHTML = '<p>No planned phases found.</p>';
                 }
             })
             .catch(error => {
@@ -1078,6 +1103,8 @@
                 document.getElementById('completed-phases-container').innerHTML =
                     '<p>Error loading phase status. Please refresh the page.</p>';
                 document.getElementById('next-phases-container').innerHTML =
+                    '<p>Error loading phase status. Please refresh the page.</p>';
+                document.getElementById('planned-phases-container').innerHTML =
                     '<p>Error loading phase status. Please refresh the page.</p>';
             });
         }
@@ -1096,19 +1123,20 @@
 
         // Initialize phase status filters
         function initPhaseStatusFilters() {
-            // Add the toggle checkbox to the completed phases section
+            // Add the toggle checkbox outside the completed phases section to prevent overwriting
             const completedContainer = document.getElementById('completed-phases-container');
-            const existingContent = completedContainer.innerHTML;
+            const parentContainer = completedContainer.parentElement;
 
-            // Add the checkbox before the existing content
-            const checkboxHtml = `
-                <div style="margin-bottom: 10px;">
-                    <input type="checkbox" id="show-completed-phases" style="margin-right: 5px;">
-                    <label for="show-completed-phases">Show completed phases</label>
-                </div>
+            // Create toggle container
+            const toggleContainer = document.createElement('div');
+            toggleContainer.style.marginBottom = '10px';
+            toggleContainer.innerHTML = `
+                <input type="checkbox" id="show-completed-phases" style="margin-right: 5px;">
+                <label for="show-completed-phases">Show completed phases</label>
             `;
 
-            completedContainer.innerHTML = checkboxHtml + existingContent;
+            // Insert toggle before completed container
+            parentContainer.insertBefore(toggleContainer, completedContainer);
 
             // Set initial state from localStorage
             const showCompleted = localStorage.getItem('dpmtf.phaseStatus.showCompleted') === 'true';
@@ -1178,167 +1206,374 @@
             });
         }
 
-        // Load panels with filtering and sorting
-        function loadPanels() {
-            fetch('/api/panels')
+
+        // Load project plans
+        function loadProjectPlans() {
+            const container = document.getElementById('project-plans-container');
+
+            // Show loading message
+            if (container) {
+                container.innerHTML = '<p>Loading project plans...</p>';
+            }
+
+            fetch('/api/project-plans')
             .then(response => response.json())
             .then(data => {
-                const container = document.getElementById('panels-table-container');
-                const countElement = document.getElementById('panels-count');
-                const errorElement = document.getElementById('panels-error');
-
-                if (!data.panels || data.panels.length === 0) {
-                    countElement.innerHTML = '<p>No panels imported yet.</p>';
+                if (!container) {
+                    console.error('project-plans-container not found');
                     return;
                 }
 
-                // Load panels with saved filters/sorting
-                loadPanelsWithFilters(data.panels);
+                if (!data.project_plans || data.project_plans.length === 0) {
+                    container.innerHTML = '<p>No project plans created yet.</p>';
+                    return;
+                }
+
+                let plansHtml = '<table class="panel-table"><thead><tr><th>Name</th><th>Folder</th><th>Port</th><th>Profile</th><th>Sequence</th><th>Status</th><th>Created</th></tr></thead><tbody>';
+                data.project_plans.forEach(plan => {
+                    plansHtml += `
+                        <tr>
+                            <td>${plan.project_name}</td>
+                            <td>${plan.target_folder}</td>
+                            <td>${plan.app_port || ''}</td>
+                            <td>${plan.app_profile_name || ''}</td>
+                            <td>${plan.prompt_sequence_name || ''}</td>
+                            <td>${plan.status}</td>
+                            <td>${plan.created_at}</td>
+                        </tr>
+                    `;
+                });
+                plansHtml += '</tbody></table>';
+                container.innerHTML = plansHtml;
             })
             .catch(error => {
-                console.error('Error loading panels:', error);
-                errorElement.textContent = 'Error loading panels: ' + error.message;
-                errorElement.style.display = 'block';
-                countElement.innerHTML = '<p>Error loading panels.</p>';
+                console.error('Error loading project plans:', error);
+                if (container) {
+                    container.innerHTML = '<p>Error loading project plans.</p>';
+                }
             });
         }
 
-        // Load panels with current filters and sorting
-        function loadPanelsWithFilters(panels) {
-            // Get current filter values from localStorage or defaults
-            const searchValue = localStorage.getItem('dpmtf.panels.filter.search') || '';
-            const classificationFilter = localStorage.getItem('dpmtf.panels.filter.classification') || '';
-            const sortField = localStorage.getItem('dpmtf.panels.sort.field') || 'sort_order';
-            const sortDirection = localStorage.getItem('dpmtf.panels.sort.direction') || 'asc';
+        // Create project plan
+        function createProjectPlan() {
+            const projectName = document.getElementById('project-name').value;
+            const targetFolder = document.getElementById('target-folder').value;
+            const appPort = document.getElementById('app-port').value;
+            const appProfileId = document.getElementById('app-profile').value;
+            const promptSequenceId = document.getElementById('prompt-sequence').value;
+            const notes = document.getElementById('notes').value;
+            const statusElement = document.getElementById('project-plan-status');
+            const errorElement = document.getElementById('project-plan-error');
+            const btn = document.getElementById('create-project-plan-btn');
 
-            // Apply search filter
-            let filteredPanels = panels.filter(panel => {
-                if (searchValue) {
-                    const searchLower = searchValue.toLowerCase();
-                    return (
-                        panel.panel_key.toLowerCase().includes(searchLower) ||
-                        panel.panel_title.toLowerCase().includes(searchLower) ||
-                        (panel.html_id && panel.html_id.toLowerCase().includes(searchLower))
-                    );
-                }
-                return true;
-            });
-
-            // Apply classification filter
-            if (classificationFilter) {
-                filteredPanels = filteredPanels.filter(panel => panel.classification === classificationFilter);
+            // Validate inputs
+            if (!projectName.trim()) {
+                errorElement.textContent = 'Project name is required';
+                errorElement.style.display = 'block';
+                return;
             }
 
-            // Apply sorting
-            filteredPanels.sort((a, b) => {
-                let aValue = a[sortField];
-                let bValue = b[sortField];
+            if (!targetFolder.trim()) {
+                errorElement.textContent = 'Target folder is required';
+                errorElement.style.display = 'block';
+                return;
+            }
 
-                // Handle null/undefined values
-                if (aValue === null || aValue === undefined) aValue = '';
-                if (bValue === null || bValue === undefined) bValue = '';
+            // Show loading state
+            btn.textContent = 'Creating...';
+            btn.disabled = true;
+            errorElement.style.display = 'none';
+            statusElement.textContent = 'Creating project plan...';
+            statusElement.style.color = '#666';
 
-                // Convert to lowercase for string comparison
-                if (typeof aValue === 'string') aValue = aValue.toLowerCase();
-                if (typeof bValue === 'string') bValue = bValue.toLowerCase();
+            // Prepare data
+            const projectData = {
+                project_name: projectName,
+                target_folder: targetFolder,
+                notes: notes
+            };
 
-                let comparison = 0;
-                if (aValue < bValue) comparison = -1;
-                if (aValue > bValue) comparison = 1;
+            if (appPort) projectData.app_port = parseInt(appPort);
+            if (appProfileId) projectData.app_profile_id = parseInt(appProfileId);
+            if (promptSequenceId) projectData.prompt_sequence_id = parseInt(promptSequenceId);
 
-                return sortDirection === 'asc' ? comparison : -comparison;
+            fetch('/api/project-plans', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(projectData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                btn.textContent = 'Create Project Plan';
+                btn.disabled = false;
+                statusElement.textContent = 'Project plan created successfully';
+                statusElement.style.color = 'green';
+
+                // Clear form
+                document.getElementById('project-name').value = '';
+                document.getElementById('target-folder').value = '';
+                document.getElementById('app-port').value = '';
+                document.getElementById('app-profile').value = '';
+                document.getElementById('prompt-sequence').value = '';
+                document.getElementById('notes').value = '';
+
+                // Reload project plans
+                loadProjectPlans();
+
+                // Clear status after 3 seconds
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                }, 3000);
+            })
+            .catch(error => {
+                console.error('Error creating project plan:', error);
+                btn.textContent = 'Create Project Plan';
+                btn.disabled = false;
+                errorElement.textContent = 'Error creating project plan: ' + error.message;
+                errorElement.style.display = 'block';
             });
-
-            // Render the table
-            renderPanelsTable(filteredPanels);
         }
 
-        // Render panels table
+        // Load dropdown data for project planning
+        function loadProjectPlanningDropdowns() {
+            // Load app profiles
+            fetch('/api/app-profiles')
+            .then(response => response.json())
+            .then(data => {
+                const profileSelect = document.getElementById('app-profile');
+                if (!profileSelect) {
+                    console.error('app-profile dropdown not found');
+                    return;
+                }
+
+                // Clear existing options except the placeholder
+                while (profileSelect.options.length > 0) {
+                    profileSelect.remove(0);
+                }
+
+                // Add placeholder option
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = '';
+                placeholderOption.textContent = 'Select an app profile';
+                profileSelect.appendChild(placeholderOption);
+
+                if (data.profiles && data.profiles.length > 0) {
+                    data.profiles.forEach(profile => {
+                        const option = document.createElement('option');
+                        option.value = profile.id;
+                        option.textContent = profile.name;
+                        profileSelect.appendChild(option);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error loading app profiles:', error);
+                const profileSelect = document.getElementById('app-profile');
+                if (profileSelect) {
+                    // Clear existing options except the placeholder
+                    while (profileSelect.options.length > 0) {
+                        profileSelect.remove(0);
+                    }
+                    // Add placeholder option
+                    const placeholderOption = document.createElement('option');
+                    placeholderOption.value = '';
+                    placeholderOption.textContent = 'Select an app profile';
+                    profileSelect.appendChild(placeholderOption);
+                }
+            });
+
+            // Load prompt sequences
+            fetch('/api/prompt-sequences')
+            .then(response => response.json())
+            .then(data => {
+                const sequenceSelect = document.getElementById('prompt-sequence');
+                if (!sequenceSelect) {
+                    console.error('prompt-sequence dropdown not found');
+                    return;
+                }
+
+                // Clear existing options except the placeholder
+                while (sequenceSelect.options.length > 0) {
+                    sequenceSelect.remove(0);
+                }
+
+                // Add placeholder option
+                const placeholderOption = document.createElement('option');
+                placeholderOption.value = '';
+                placeholderOption.textContent = 'Select a prompt sequence';
+                sequenceSelect.appendChild(placeholderOption);
+
+                if (data.sequences && data.sequences.length > 0) {
+                    data.sequences.forEach(sequence => {
+                        const option = document.createElement('option');
+                        option.value = sequence.id;
+                        option.textContent = sequence.name;
+                        sequenceSelect.appendChild(option);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error loading prompt sequences:', error);
+                const sequenceSelect = document.getElementById('prompt-sequence');
+                if (sequenceSelect) {
+                    // Clear existing options except the placeholder
+                    while (sequenceSelect.options.length > 0) {
+                        sequenceSelect.remove(0);
+                    }
+                    // Add placeholder option
+                    const placeholderOption = document.createElement('option');
+                    placeholderOption.value = '';
+                    placeholderOption.textContent = 'Select a prompt sequence';
+                    sequenceSelect.appendChild(placeholderOption);
+                }
+            });
+        }
+
+        // Global variables
+        let allPanels = [];
+
+        // Panel filtering and sorting functions
         function renderPanelsTable(panels) {
             const tableBody = document.getElementById('panels-table-body');
             const countElement = document.getElementById('panels-count');
 
             if (!panels || panels.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="5">No panels match the current filters.</td></tr>';
-                countElement.innerHTML = '<p>No panels match the current filters.</p>';
+                tableBody.innerHTML = '<tr><td colspan="5">No panels imported</td></tr>';
+                countElement.textContent = '0 panels imported';
                 return;
             }
 
-            let tableRows = '';
+            // Display panel count
+            countElement.textContent = `${panels.length} panel(s) imported`;
+
+            // Populate table rows
+            tableBody.innerHTML = '';
             panels.forEach(panel => {
-                tableRows += `
-                    <tr>
-                        <td>${panel.sort_order}</td>
-                        <td>${panel.panel_key}</td>
-                        <td>${panel.panel_title}</td>
-                        <td>${panel.html_id || ''}</td>
-                        <td>${panel.classification || 'unknown'}</td>
-                    </tr>
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${panel.sort_order}</td>
+                    <td>${panel.panel_key}</td>
+                    <td>${panel.panel_title}</td>
+                    <td>${panel.html_id || ''}</td>
+                    <td>
+                        <select class="classification-select" data-panel-id="${panel.id}" onchange="updateClassification(this)">
+                            <option value="unknown" ${panel.classification === 'unknown' ? 'selected' : ''}>unknown</option>
+                            <option value="starter" ${panel.classification === 'starter' ? 'selected' : ''}>starter</option>
+                            <option value="advanced" ${panel.classification === 'advanced' ? 'selected' : ''}>advanced</option>
+                            <option value="project_specific" ${panel.classification === 'project_specific' ? 'selected' : ''}>project_specific</option>
+                            <option value="debug" ${panel.classification === 'debug' ? 'selected' : ''}>debug</option>
+                            <option value="skip" ${panel.classification === 'skip' ? 'selected' : ''}>skip</option>
+                        </select>
+                        <span class="status-text" id="status-${panel.id}" style="margin-left: 10px; font-size: 0.8em;"></span>
+                    </td>
                 `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function applyPanelFilters() {
+            const searchInput = document.getElementById('panel-search');
+            const classificationFilter = document.getElementById('panel-classification-filter');
+            const sortField = document.getElementById('panel-sort-field');
+            const sortDirection = document.getElementById('panel-sort-direction');
+
+            const searchTerm = searchInput.value.toLowerCase();
+            const selectedClassification = classificationFilter.value;
+
+            // Filter panels
+            let filteredPanels = allPanels.filter(panel => {
+                // Search filter
+                const matchesSearch =
+                    panel.panel_key.toLowerCase().includes(searchTerm) ||
+                    panel.panel_title.toLowerCase().includes(searchTerm) ||
+                    (panel.html_id && panel.html_id.toLowerCase().includes(searchTerm));
+
+                // Classification filter
+                const matchesClassification = selectedClassification === '' || panel.classification === selectedClassification;
+
+                return matchesSearch && matchesClassification;
             });
 
-            tableBody.innerHTML = tableRows;
-            countElement.innerHTML = `<p>Showing ${panels.length} of ${panels.length} panels</p>`;
+            // Sort panels
+            const sortBy = sortField.value;
+            const direction = sortDirection.value;
+
+            filteredPanels.sort((a, b) => {
+                let aValue = a[sortBy];
+                let bValue = b[sortBy];
+
+                // Handle null/undefined values
+                if (aValue === null || aValue === undefined) aValue = '';
+                if (bValue === null || bValue === undefined) bValue = '';
+
+                // Convert to strings for comparison
+                aValue = String(aValue);
+                bValue = String(bValue);
+
+                let comparison = 0;
+                if (sortBy === 'classification') {
+                    // For classification, we want to sort by the actual classification values
+                    comparison = aValue.localeCompare(bValue);
+                } else {
+                    // For other fields, we want numeric sorting for sort_order
+                    if (sortBy === 'sort_order' && !isNaN(aValue) && !isNaN(bValue)) {
+                        comparison = Number(aValue) - Number(bValue);
+                    } else {
+                        comparison = aValue.localeCompare(bValue);
+                    }
+                }
+
+                return direction === 'desc' ? -comparison : comparison;
+            });
+
+            renderPanelsTable(filteredPanels);
         }
 
-        // Apply filters and re-render
-        function applyPanelFilters() {
-            // Get current panel data (this would normally be from a global variable)
-            // For now, we'll just reload the panels to get fresh data
-            loadPanels();
-        }
-
-        // Save filter settings to localStorage
-        function savePanelFilterSettings() {
-            const searchValue = document.getElementById('panel-search').value;
-            const classificationFilter = document.getElementById('panel-classification-filter').value;
-            const sortField = document.getElementById('panel-sort-field').value;
-            const sortDirection = document.getElementById('panel-sort-direction').value;
-
-            localStorage.setItem('dpmtf.panels.filter.search', searchValue);
-            localStorage.setItem('dpmtf.panels.filter.classification', classificationFilter);
-            localStorage.setItem('dpmtf.panels.sort.field', sortField);
-            localStorage.setItem('dpmtf.panels.sort.direction', sortDirection);
-        }
-
-        // Load saved filter settings
-        function loadPanelFilterSettings() {
-            const searchValue = localStorage.getItem('dpmtf.panels.filter.search') || '';
-            const classificationFilter = localStorage.getItem('dpmtf.panels.filter.classification') || '';
-            const sortField = localStorage.getItem('dpmtf.panels.sort.field') || 'sort_order';
-            const sortDirection = localStorage.getItem('dpmtf.panels.sort.direction') || 'asc';
-
-            document.getElementById('panel-search').value = searchValue;
-            document.getElementById('panel-classification-filter').value = classificationFilter;
-            document.getElementById('panel-sort-field').value = sortField;
-            document.getElementById('panel-sort-direction').value = sortDirection;
-        }
-
-        // Initialize panel filters
         function initPanelFilters() {
-            // Set up event listeners for filters
+            // Load saved filter values from localStorage if they exist
+            const savedSearch = localStorage.getItem('dpmtf.panels.search');
+            const savedClassification = localStorage.getItem('dpmtf.panels.classification');
+            const savedSortField = localStorage.getItem('dpmtf.panels.sortField');
+            const savedSortDirection = localStorage.getItem('dpmtf.panels.sortDirection');
+
+            if (savedSearch) {
+                document.getElementById('panel-search').value = savedSearch;
+            }
+            if (savedClassification) {
+                document.getElementById('panel-classification-filter').value = savedClassification;
+            }
+            if (savedSortField) {
+                document.getElementById('panel-sort-field').value = savedSortField;
+            }
+            if (savedSortDirection) {
+                document.getElementById('panel-sort-direction').value = savedSortDirection;
+            }
+
+            // Attach event listeners
             document.getElementById('panel-search').addEventListener('input', function() {
-                savePanelFilterSettings();
+                localStorage.setItem('dpmtf.panels.search', this.value);
                 applyPanelFilters();
             });
 
             document.getElementById('panel-classification-filter').addEventListener('change', function() {
-                savePanelFilterSettings();
+                localStorage.setItem('dpmtf.panels.classification', this.value);
                 applyPanelFilters();
             });
 
             document.getElementById('panel-sort-field').addEventListener('change', function() {
-                savePanelFilterSettings();
+                localStorage.setItem('dpmtf.panels.sortField', this.value);
                 applyPanelFilters();
             });
 
             document.getElementById('panel-sort-direction').addEventListener('change', function() {
-                savePanelFilterSettings();
+                localStorage.setItem('dpmtf.panels.sortDirection', this.value);
                 applyPanelFilters();
             });
 
-            // Load saved settings
-            loadPanelFilterSettings();
+            // Initial filter application
+            applyPanelFilters();
         }
 
         // Load initial data
@@ -1346,9 +1581,11 @@
         loadAppProfiles();
         loadPromptSequences();
         updateCounts();
-        loadPhaseStatus();
+        loadPhaseStatusWithFilter();
         initPanelFilters();
         initPhaseStatusFilters();
+        loadProjectPlans();
+        loadProjectPlanningDropdowns();
     </script>
 </body>
 </html>
