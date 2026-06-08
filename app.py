@@ -770,6 +770,118 @@ async def create_draft_prompt_sequence(profile_id: int):
         "created_steps_count": created_steps_count
     }
 
+@app.get("/api/project-plans")
+async def get_project_plans():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT pp.id, pp.project_name, pp.target_folder, pp.app_port, pp.app_profile_id, pp.prompt_sequence_id, pp.notes, pp.status, pp.created_at,
+               ap.name as app_profile_name, ps.name as prompt_sequence_name
+        FROM project_plans pp
+        LEFT JOIN app_profiles ap ON pp.app_profile_id = ap.id
+        LEFT JOIN prompt_sequences ps ON pp.prompt_sequence_id = ps.id
+        ORDER BY pp.created_at DESC
+    """)
+
+    project_plans = []
+    for row in cursor.fetchall():
+        project_plans.append({
+            "id": row[0],
+            "project_name": row[1],
+            "target_folder": row[2],
+            "app_port": row[3],
+            "app_profile_id": row[4],
+            "prompt_sequence_id": row[5],
+            "notes": row[6],
+            "status": row[7],
+            "created_at": row[8],
+            "app_profile_name": row[9],
+            "prompt_sequence_name": row[10]
+        })
+
+    conn.close()
+    return {"project_plans": project_plans}
+
+@app.post("/api/project-plans")
+async def create_project_plan(project_data: dict):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Validate required fields
+    project_name = project_data.get("project_name")
+    target_folder = project_data.get("target_folder")
+
+    if not project_name or project_name.strip() == "":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Project name is required")
+
+    if not target_folder or target_folder.strip() == "":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Target folder is required")
+
+    # Validate target folder path
+    if not target_folder.startswith("/"):
+        conn.close()
+        raise HTTPException(status_code=400, detail="Target folder must be an absolute path")
+
+    if target_folder == "/":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Target folder cannot be root directory")
+
+    if target_folder == "/home/svend":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Target folder cannot be /home/svend")
+
+    if ".." in target_folder:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Target folder cannot contain '..'")
+
+    # Validate app_port if provided
+    app_port = project_data.get("app_port")
+    if app_port is not None:
+        if not isinstance(app_port, int) or app_port < 1024 or app_port > 65535:
+            conn.close()
+            raise HTTPException(status_code=400, detail="App port must be between 1024 and 65535")
+
+    # Validate app_profile_id if provided
+    app_profile_id = project_data.get("app_profile_id")
+    if app_profile_id is not None:
+        cursor.execute("SELECT id FROM app_profiles WHERE id = ?", (app_profile_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="App profile not found")
+
+    # Validate prompt_sequence_id if provided
+    prompt_sequence_id = project_data.get("prompt_sequence_id")
+    if prompt_sequence_id is not None:
+        cursor.execute("SELECT id FROM prompt_sequences WHERE id = ?", (prompt_sequence_id,))
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=400, detail="Prompt sequence not found")
+
+    # Create project plan
+    cursor.execute("""
+        INSERT INTO project_plans (project_name, target_folder, app_port, app_profile_id, prompt_sequence_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (
+        project_name,
+        target_folder,
+        app_port,
+        app_profile_id,
+        prompt_sequence_id,
+        project_data.get("notes", "")
+    ))
+
+    project_plan_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "project_plan_id": project_plan_id
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
