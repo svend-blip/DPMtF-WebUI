@@ -18,6 +18,30 @@
 
         <div class="imported-panels-section">
             <h3>Imported Panels</h3>
+            <div id="panels-controls">
+                <div style="margin-bottom: 10px;">
+                    <input type="text" id="panel-search" placeholder="Search panel_key, panel_title, html_id..." style="width: 300px; margin-right: 10px;">
+                    <select id="panel-classification-filter">
+                        <option value="">All Classifications</option>
+                        <option value="unknown">unknown</option>
+                        <option value="starter">starter</option>
+                        <option value="advanced">advanced</option>
+                        <option value="project_specific">project_specific</option>
+                        <option value="debug">debug</option>
+                        <option value="skip">skip</option>
+                    </select>
+                    <select id="panel-sort-field" style="margin-left: 10px;">
+                        <option value="sort_order">Sort by Sort Order</option>
+                        <option value="panel_key">Sort by Panel Key</option>
+                        <option value="panel_title">Sort by Panel Title</option>
+                        <option value="classification">Sort by Classification</option>
+                    </select>
+                    <select id="panel-sort-direction" style="margin-left: 10px;">
+                        <option value="asc">Ascending</option>
+                        <option value="desc">Descending</option>
+                    </select>
+                </div>
+            </div>
             <div id="panels-count">Loading panel data...</div>
             <div id="panels-error" class="error-message" style="display: none;"></div>
             <div id="panels-table-container">
@@ -1003,6 +1027,100 @@
             });
         }
 
+        // Load phase status with filtering
+        function loadPhaseStatusWithFilter() {
+            // Check if we should show completed phases
+            const showCompleted = localStorage.getItem('dpmtf.phaseStatus.showCompleted') === 'true';
+
+            // Load the phase status data
+            fetch('/api/phase-status')
+            .then(response => response.json())
+            .then(data => {
+                // Load completed phases
+                const completedContainer = document.getElementById('completed-phases-container');
+                if (data.completed && data.completed.length > 0) {
+                    let completedHtml = '';
+                    if (showCompleted) {
+                        data.completed.forEach(phase => {
+                            completedHtml += `
+                                <div class="phase-card completed">
+                                    <h4>Phase ${phase.phase_key}</h4>
+                                    <p>${phase.phase_description}</p>
+                                </div>
+                            `;
+                        });
+                    }
+                    completedContainer.innerHTML = completedHtml || '<p>No completed phases found.</p>';
+                } else {
+                    completedContainer.innerHTML = '<p>No completed phases found.</p>';
+                }
+
+                // Load next phases
+                const nextContainer = document.getElementById('next-phases-container');
+                if (data.next && data.next.length > 0) {
+                    let nextHtml = '';
+                    data.next.forEach(phase => {
+                        nextHtml += `
+                            <div class="phase-card">
+                                <h4>Phase ${phase.phase_key}</h4>
+                                <p>${phase.phase_description}</p>
+                            </div>
+                        `;
+                    });
+                    nextContainer.innerHTML = nextHtml;
+                } else {
+                    nextContainer.innerHTML = '<p>No next phases found.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading phase status:', error);
+                // Show fallback message
+                document.getElementById('completed-phases-container').innerHTML =
+                    '<p>Error loading phase status. Please refresh the page.</p>';
+                document.getElementById('next-phases-container').innerHTML =
+                    '<p>Error loading phase status. Please refresh the page.</p>';
+            });
+        }
+
+        // Toggle completed phases visibility
+        function toggleCompletedPhases() {
+            const checkbox = document.getElementById('show-completed-phases');
+            const showCompleted = checkbox.checked;
+
+            // Save to localStorage
+            localStorage.setItem('dpmtf.phaseStatus.showCompleted', showCompleted);
+
+            // Reload phase status with new setting
+            loadPhaseStatusWithFilter();
+        }
+
+        // Initialize phase status filters
+        function initPhaseStatusFilters() {
+            // Add the toggle checkbox to the completed phases section
+            const completedContainer = document.getElementById('completed-phases-container');
+            const existingContent = completedContainer.innerHTML;
+
+            // Add the checkbox before the existing content
+            const checkboxHtml = `
+                <div style="margin-bottom: 10px;">
+                    <input type="checkbox" id="show-completed-phases" style="margin-right: 5px;">
+                    <label for="show-completed-phases">Show completed phases</label>
+                </div>
+            `;
+
+            completedContainer.innerHTML = checkboxHtml + existingContent;
+
+            // Set initial state from localStorage
+            const showCompleted = localStorage.getItem('dpmtf.phaseStatus.showCompleted') === 'true';
+            document.getElementById('show-completed-phases').checked = showCompleted;
+
+            // Add event listener
+            document.getElementById('show-completed-phases').addEventListener('change', toggleCompletedPhases);
+
+            // Load phase status with initial filter state
+            loadPhaseStatusWithFilter();
+        }
+
         // Create draft prompt sequence
         function createDraftPromptSequence() {
             const profileId = document.getElementById('profile-selector').value;
@@ -1060,12 +1178,177 @@
             });
         }
 
+        // Load panels with filtering and sorting
+        function loadPanels() {
+            fetch('/api/panels')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('panels-table-container');
+                const countElement = document.getElementById('panels-count');
+                const errorElement = document.getElementById('panels-error');
+
+                if (!data.panels || data.panels.length === 0) {
+                    countElement.innerHTML = '<p>No panels imported yet.</p>';
+                    return;
+                }
+
+                // Load panels with saved filters/sorting
+                loadPanelsWithFilters(data.panels);
+            })
+            .catch(error => {
+                console.error('Error loading panels:', error);
+                errorElement.textContent = 'Error loading panels: ' + error.message;
+                errorElement.style.display = 'block';
+                countElement.innerHTML = '<p>Error loading panels.</p>';
+            });
+        }
+
+        // Load panels with current filters and sorting
+        function loadPanelsWithFilters(panels) {
+            // Get current filter values from localStorage or defaults
+            const searchValue = localStorage.getItem('dpmtf.panels.filter.search') || '';
+            const classificationFilter = localStorage.getItem('dpmtf.panels.filter.classification') || '';
+            const sortField = localStorage.getItem('dpmtf.panels.sort.field') || 'sort_order';
+            const sortDirection = localStorage.getItem('dpmtf.panels.sort.direction') || 'asc';
+
+            // Apply search filter
+            let filteredPanels = panels.filter(panel => {
+                if (searchValue) {
+                    const searchLower = searchValue.toLowerCase();
+                    return (
+                        panel.panel_key.toLowerCase().includes(searchLower) ||
+                        panel.panel_title.toLowerCase().includes(searchLower) ||
+                        (panel.html_id && panel.html_id.toLowerCase().includes(searchLower))
+                    );
+                }
+                return true;
+            });
+
+            // Apply classification filter
+            if (classificationFilter) {
+                filteredPanels = filteredPanels.filter(panel => panel.classification === classificationFilter);
+            }
+
+            // Apply sorting
+            filteredPanels.sort((a, b) => {
+                let aValue = a[sortField];
+                let bValue = b[sortField];
+
+                // Handle null/undefined values
+                if (aValue === null || aValue === undefined) aValue = '';
+                if (bValue === null || bValue === undefined) bValue = '';
+
+                // Convert to lowercase for string comparison
+                if (typeof aValue === 'string') aValue = aValue.toLowerCase();
+                if (typeof bValue === 'string') bValue = bValue.toLowerCase();
+
+                let comparison = 0;
+                if (aValue < bValue) comparison = -1;
+                if (aValue > bValue) comparison = 1;
+
+                return sortDirection === 'asc' ? comparison : -comparison;
+            });
+
+            // Render the table
+            renderPanelsTable(filteredPanels);
+        }
+
+        // Render panels table
+        function renderPanelsTable(panels) {
+            const tableBody = document.getElementById('panels-table-body');
+            const countElement = document.getElementById('panels-count');
+
+            if (!panels || panels.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="5">No panels match the current filters.</td></tr>';
+                countElement.innerHTML = '<p>No panels match the current filters.</p>';
+                return;
+            }
+
+            let tableRows = '';
+            panels.forEach(panel => {
+                tableRows += `
+                    <tr>
+                        <td>${panel.sort_order}</td>
+                        <td>${panel.panel_key}</td>
+                        <td>${panel.panel_title}</td>
+                        <td>${panel.html_id || ''}</td>
+                        <td>${panel.classification || 'unknown'}</td>
+                    </tr>
+                `;
+            });
+
+            tableBody.innerHTML = tableRows;
+            countElement.innerHTML = `<p>Showing ${panels.length} of ${panels.length} panels</p>`;
+        }
+
+        // Apply filters and re-render
+        function applyPanelFilters() {
+            // Get current panel data (this would normally be from a global variable)
+            // For now, we'll just reload the panels to get fresh data
+            loadPanels();
+        }
+
+        // Save filter settings to localStorage
+        function savePanelFilterSettings() {
+            const searchValue = document.getElementById('panel-search').value;
+            const classificationFilter = document.getElementById('panel-classification-filter').value;
+            const sortField = document.getElementById('panel-sort-field').value;
+            const sortDirection = document.getElementById('panel-sort-direction').value;
+
+            localStorage.setItem('dpmtf.panels.filter.search', searchValue);
+            localStorage.setItem('dpmtf.panels.filter.classification', classificationFilter);
+            localStorage.setItem('dpmtf.panels.sort.field', sortField);
+            localStorage.setItem('dpmtf.panels.sort.direction', sortDirection);
+        }
+
+        // Load saved filter settings
+        function loadPanelFilterSettings() {
+            const searchValue = localStorage.getItem('dpmtf.panels.filter.search') || '';
+            const classificationFilter = localStorage.getItem('dpmtf.panels.filter.classification') || '';
+            const sortField = localStorage.getItem('dpmtf.panels.sort.field') || 'sort_order';
+            const sortDirection = localStorage.getItem('dpmtf.panels.sort.direction') || 'asc';
+
+            document.getElementById('panel-search').value = searchValue;
+            document.getElementById('panel-classification-filter').value = classificationFilter;
+            document.getElementById('panel-sort-field').value = sortField;
+            document.getElementById('panel-sort-direction').value = sortDirection;
+        }
+
+        // Initialize panel filters
+        function initPanelFilters() {
+            // Set up event listeners for filters
+            document.getElementById('panel-search').addEventListener('input', function() {
+                savePanelFilterSettings();
+                applyPanelFilters();
+            });
+
+            document.getElementById('panel-classification-filter').addEventListener('change', function() {
+                savePanelFilterSettings();
+                applyPanelFilters();
+            });
+
+            document.getElementById('panel-sort-field').addEventListener('change', function() {
+                savePanelFilterSettings();
+                applyPanelFilters();
+            });
+
+            document.getElementById('panel-sort-direction').addEventListener('change', function() {
+                savePanelFilterSettings();
+                applyPanelFilters();
+            });
+
+            // Load saved settings
+            loadPanelFilterSettings();
+        }
+
         // Load initial data
         loadPanels();
         loadAppProfiles();
         loadPromptSequences();
         updateCounts();
         loadPhaseStatus();
+        initPanelFilters();
+        initPhaseStatusFilters();
     </script>
 </body>
 </html>
