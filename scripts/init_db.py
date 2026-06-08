@@ -171,6 +171,18 @@ CREATE TABLE IF NOT EXISTS generated_prompts (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS phase_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_key TEXT UNIQUE NOT NULL,
+    phase_title TEXT NOT NULL,
+    phase_description TEXT,
+    phase_state TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
