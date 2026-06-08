@@ -40,45 +40,15 @@
 
         <div class="planned-phases">
             <h3>Completed Phases</h3>
-            <div class="phase-card completed">
-                <h4>Phase 1A</h4>
-                <p>Skeleton</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1B</h4>
-                <p>Panel import</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1C</h4>
-                <p>Read-only panel table</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1D</h4>
-                <p>Classification UI</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1E</h4>
-                <p>App Profiles</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1F</h4>
-                <p>Prompt Sequence Planner</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1G</h4>
-                <p>Generate Next Prompt Preview</p>
-            </div>
-            <div class="phase-card completed">
-                <h4>Phase 1I</h4>
-                <p>Prompt History / Generated Archive</p>
+            <div id="completed-phases-container">
+                <p>Loading completed phases...</p>
             </div>
         </div>
 
         <div class="planned-phases">
             <h3>Next Planned Phase</h3>
-            <div class="phase-card">
-                <h4>Phase 1J</h4>
-                <p>App Profile to Prompt Sequence Draft</p>
+            <div id="next-phases-container">
+                <p>Loading next phases...</p>
             </div>
         </div>
 
@@ -982,11 +952,61 @@
                 });
         }
 
+        // Load phase status
+        function loadPhaseStatus() {
+            fetch('/api/phase-status')
+            .then(response => response.json())
+            .then(data => {
+                // Load completed phases
+                const completedContainer = document.getElementById('completed-phases-container');
+                if (data.completed && data.completed.length > 0) {
+                    let completedHtml = '';
+                    data.completed.forEach(phase => {
+                        completedHtml += `
+                            <div class="phase-card completed">
+                                <h4>Phase ${phase.phase_key}</h4>
+                                <p>${phase.phase_description}</p>
+                            </div>
+                        `;
+                    });
+                    completedContainer.innerHTML = completedHtml;
+                } else {
+                    completedContainer.innerHTML = '<p>No completed phases found.</p>';
+                }
+
+                // Load next phases
+                const nextContainer = document.getElementById('next-phases-container');
+                if (data.next && data.next.length > 0) {
+                    let nextHtml = '';
+                    data.next.forEach(phase => {
+                        nextHtml += `
+                            <div class="phase-card">
+                                <h4>Phase ${phase.phase_key}</h4>
+                                <p>${phase.phase_description}</p>
+                            </div>
+                        `;
+                    });
+                    nextContainer.innerHTML = nextHtml;
+                } else {
+                    nextContainer.innerHTML = '<p>No next phases found.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading phase status:', error);
+                // Show fallback message
+                document.getElementById('completed-phases-container').innerHTML =
+                    '<p>Error loading phase status. Please refresh the page.</p>';
+                document.getElementById('next-phases-container').innerHTML =
+                    '<p>Error loading phase status. Please refresh the page.</p>';
+            });
+        }
+
         // Load initial data
         loadPanels();
         loadAppProfiles();
         loadPromptSequences();
         updateCounts();
+        loadPhaseStatus();
     </script>
 </body>
 </html>

@@ -614,6 +614,72 @@ async def get_all_generated_prompts():
     conn.close()
     return {"generated_prompts": generated_prompts}
 
+@app.get("/api/phase-status")
+async def get_phase_status():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get completed phases
+    cursor.execute("""
+        SELECT phase_key, phase_title, phase_description, phase_state, sort_order
+        FROM phase_status
+        WHERE phase_state = 'completed'
+        ORDER BY sort_order
+    """)
+
+    completed = []
+    for row in cursor.fetchall():
+        completed.append({
+            "phase_key": row[0],
+            "phase_title": row[1],
+            "phase_description": row[2],
+            "phase_state": row[3],
+            "sort_order": row[4]
+        })
+
+    # Get next phase
+    cursor.execute("""
+        SELECT phase_key, phase_title, phase_description, phase_state, sort_order
+        FROM phase_status
+        WHERE phase_state = 'next'
+        ORDER BY sort_order
+    """)
+
+    next_phases = []
+    for row in cursor.fetchall():
+        next_phases.append({
+            "phase_key": row[0],
+            "phase_title": row[1],
+            "phase_description": row[2],
+            "phase_state": row[3],
+            "sort_order": row[4]
+        })
+
+    # Get planned phases (if any)
+    cursor.execute("""
+        SELECT phase_key, phase_title, phase_description, phase_state, sort_order
+        FROM phase_status
+        WHERE phase_state = 'planned'
+        ORDER BY sort_order
+    """)
+
+    planned = []
+    for row in cursor.fetchall():
+        planned.append({
+            "phase_key": row[0],
+            "phase_title": row[1],
+            "phase_description": row[2],
+            "phase_state": row[3],
+            "sort_order": row[4]
+        })
+
+    conn.close()
+    return {
+        "completed": completed,
+        "next": next_phases,
+        "planned": planned
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
