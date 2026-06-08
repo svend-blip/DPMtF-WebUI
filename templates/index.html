@@ -60,6 +60,8 @@
                 <select id="profile-selector" onchange="loadProfilePanels()">
                     <option value="">Select a profile...</option>
                 </select>
+                <button id="create-draft-sequence-btn" onclick="createDraftPromptSequence()" style="margin-left: 10px;">Create Draft Prompt Sequence</button>
+                <span id="draft-sequence-status" style="margin-left: 10px; font-size: 0.8em;"></span>
             </div>
             <div id="app-profiles-error" class="error-message" style="display: none;"></div>
             <div id="profile-panels-container">
@@ -998,6 +1000,63 @@
                     '<p>Error loading phase status. Please refresh the page.</p>';
                 document.getElementById('next-phases-container').innerHTML =
                     '<p>Error loading phase status. Please refresh the page.</p>';
+            });
+        }
+
+        // Create draft prompt sequence
+        function createDraftPromptSequence() {
+            const profileId = document.getElementById('profile-selector').value;
+            const statusElement = document.getElementById('draft-sequence-status');
+            const btn = document.getElementById('create-draft-sequence-btn');
+
+            if (!profileId) {
+                alert('Please select an app profile first');
+                return;
+            }
+
+            // Show loading state
+            btn.textContent = 'Creating. ..';
+            btn.disabled = true;
+            statusElement.textContent = 'Creating draft sequence...';
+            statusElement.style.color = '#666';
+
+            fetch(`/api/app-profiles/${profileId}/draft-prompt-sequence`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                btn.textContent = 'Create Draft Prompt Sequence';
+                btn.disabled = false;
+                statusElement.textContent = `Created sequence ${data.sequence_id} with ${data.created_steps_count} steps`;
+                statusElement.style.color = 'green';
+
+                // Clear status after 5 seconds
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                }, 5000);
+
+                // Refresh prompt sequences to show the new sequence
+                loadPromptSequences();
+            })
+            .catch(error => {
+                console.error('Error creating draft prompt sequence:', error);
+                btn.textContent = 'Create Draft Prompt Sequence';
+                btn.disabled = false;
+                statusElement.textContent = 'Error creating draft sequence';
+                statusElement.style.color = 'red';
+
+                // Clear status after 5 seconds
+                setTimeout(() => {
+                    statusElement.textContent = '';
+                }, 5000);
             });
         }
 

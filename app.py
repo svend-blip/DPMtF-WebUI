@@ -680,6 +680,96 @@ async def get_phase_status():
         "planned": planned
     }
 
+@app.post("/api/app-profiles/{profile_id}/draft-prompt-sequence")
+async def create_draft_prompt_sequence(profile_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Check if profile exists
+    cursor.execute("SELECT id, name FROM app_profiles WHERE id = ?", (profile_id,))
+    profile = cursor.fetchone()
+    if not profile:
+        conn.close()
+        raise HTTPException(status_code=404, detail="App profile not found")
+
+    profile_name = profile[1]
+
+    # Get panels included in this profile
+    cursor.execute("""
+        SELECT fp.panel_key, fp.panel_title
+        FROM frontend_panels fp
+        JOIN app_profile_panels appp ON fp.id = appp.panel_id
+        WHERE appp.profile_id = ?
+        ORDER BY fp.sort_order
+    """, (profile_id,))
+
+    included_panels = cursor.fetchall()
+
+    # Create new prompt sequence
+    sequence_name = f"Draft from {profile_name}"
+    sequence_goal = f"Create a new WebUI app draft from selected panels in {profile_name}."
+
+    cursor.execute("""
+        INSERT INTO prompt_sequences (name, goal, status)
+        VALUES (?, ?, 'planned')
+    """, (sequence_name, sequence_goal))
+
+    sequence_id = cursor.lastrowid
+
+    # Define draft steps
+    draft_steps = [
+        {
+            "step_title": "Create project skeleton",
+            "target_layer": "skeleton",
+            "prompt_text": "Create only the basic FastAPI project skeleton for the new app. Do not implement panel functionality yet."
+        },
+        {
+            "step_title": "Add selected frontend panel placeholders",
+            "target_layer": "frontend",
+            "prompt_text": f"Add static placeholder sections for the selected app profile panels. Do not implement backend actions yet. Included panels: {', '.join([f'{p[0]} ({p[1]})' for p in included_panels]) if included_panels else 'None'}"
+        },
+        {
+            "step_title": "Add basic CSS layout",
+            "target_layer": "css",
+            "prompt_text": "Add minimal CSS layout for the selected panels. Do not redesign beyond the selected structure."
+        },
+        {
+            "step_title": "Add health endpoint",
+            "target_layer": "backend",
+            "prompt_text": "Add a simple /api/health endpoint for the new app."
+        },
+        {
+            "step_title": "Add basic verification",
+            "target_layer": "tests",
+            "prompt_text": "Add basic verification commands or tests for app startup and health endpoint."
+        },
+        {
+            "step_title": "Update project documentation",
+            "target_layer": "docs",
+            "prompt_text": "Update README or project documentation with install, start, and verification commands."
+        }
+    ]
+
+    # Create steps for the sequence
+    created_steps_count = 0
+    for i, step in enumerate(draft_steps):
+        step_number = i + 1
+        cursor.execute("""
+            INSERT INTO prompt_sequence_steps (sequence_id, step_number, step_title, target_layer, status, prompt_text)
+            VALUES (?, ?, ?, ?, 'planned', ?)
+        """, (sequence_id, step_number, step["step_title"], step["target_layer"], step["prompt_text"]))
+        created_steps_count += 1
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "success",
+        "profile_id": profile_id,
+        "sequence_id": sequence_id,
+        "created_steps_count": created_steps_count
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
