@@ -274,7 +274,7 @@ phase_data = [
     ("1R", "Localization / i18n Label Helper Scripts", "Create i18n helper scripts", "completed", 17),
     ("1S", "Localization / i18n Renderer", "Render i18n labels", "completed", 18),
     ("1T", "Endpoint Registry Schema", "Create endpoint registry schema", "completed", 19),
-    ("1U", "Endpoint Registry UI", "Add endpoint registry UI", "planned", 20),
+    ("1U", "Endpoint Registry UI", "Add endpoint registry UI", "next", 20),
     ("1V", "Endpoint Runtime Status Checks", "Check endpoint status", "planned", 21),
     ("1W", "WebUI Bootstrap Dataset / Seed Scripts", "Create bootstrap dataset", "planned", 22),
     ("1X", "Architecture Decision Record in Frontend Roadmap", "Document architecture decisions", "planned", 23),
