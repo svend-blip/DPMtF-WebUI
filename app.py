@@ -1084,6 +1084,91 @@ async def get_endpoint_runtime_status():
     return {"endpoint_runtime_status": runtime_status}
 
 
+# Allowed table names for safe counting in bootstrap dataset status
+ALLOWED_BOOTSTRAP_TABLES = {
+    "phase_status",
+    "layout_slots",
+    "layout_panels",
+    "ui_labels",
+    "ui_label_translations",
+    "endpoint_registry",
+}
+
+
+@app.get("/api/bootstrap-dataset-status")
+async def get_bootstrap_dataset_status():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get active bootstrap_dataset_registry records ordered by dataset_id
+    cursor.execute("""
+        SELECT dataset_id, dataset_key, table_name, min_expected_count,
+               is_required, is_active
+        FROM bootstrap_dataset_registry
+        WHERE is_active = 1
+        ORDER BY dataset_id
+    """)
+
+    bootstrap_status = []
+    for row in cursor.fetchall():
+        dataset_id, dataset_key, table_name, min_expected_count, is_required, is_active = row
+
+        # Safe table-name handling: only count if the name is an allowed identifier
+        if table_name not in ALLOWED_BOOTSTRAP_TABLES:
+            bootstrap_status.append({
+                "dataset_id": dataset_id,
+                "dataset_key": dataset_key,
+                "table_name": table_name,
+                "min_expected_count": min_expected_count,
+                "actual_count": None,
+                "is_required": bool(is_required),
+                "is_active": bool(is_active),
+                "status": "missing_table",
+            })
+            continue
+
+        # Verify the table exists in sqlite_schema
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            (table_name,),
+        )
+        if not cursor.fetchone():
+            bootstrap_status.append({
+                "dataset_id": dataset_id,
+                "dataset_key": dataset_key,
+                "table_name": table_name,
+                "min_expected_count": min_expected_count,
+                "actual_count": None,
+                "is_required": bool(is_required),
+                "is_active": bool(is_active),
+                "status": "missing_table",
+            })
+            continue
+
+        # Count records in the referenced table
+        cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+        actual_count = cursor.fetchone()[0]
+
+        if actual_count >= min_expected_count:
+            status = "ok"
+        else:
+            status = "below_minimum"
+
+        bootstrap_status.append({
+            "dataset_id": dataset_id,
+            "dataset_key": dataset_key,
+            "table_name": table_name,
+            "min_expected_count": min_expected_count,
+            "actual_count": actual_count,
+            "is_required": bool(is_required),
+            "is_active": bool(is_active),
+            "status": status,
+        })
+
+    conn.close()
+    return {"bootstrap_dataset_status": bootstrap_status}
+
+
 @app.get("/api/project-plans")
 async def get_project_plans():
     conn = sqlite3.connect(DB_PATH)

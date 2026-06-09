@@ -407,6 +407,7 @@ endpoint_registry_data = [
     ("ENDP-4000004", "ui_labels_domain", "/api/ui-labels/{label_domain}", "GET", "Resolved localized labels for a label domain", "labels JSON", "system_setup_drawer"),
     ("ENDP-4000005", "phase_status", "/api/phase-status", "GET", "Roadmap phase status", "phase status JSON", "main_dashboard"),
     ("ENDP-4000006", "endpoint_runtime_status", "/api/endpoint-runtime-status", "GET", "Runtime route registration status for endpoint registry records", "endpoint runtime status JSON", "system_setup_drawer"),
+    ("ENDP-4000007", "bootstrap_dataset_status", "/api/bootstrap-dataset-status", "GET", "Bootstrap dataset registry status", "bootstrap dataset status JSON", "system_setup_drawer"),
 ]
 
 # Safely insert or update endpoint_registry data (no DELETE)
@@ -416,6 +417,41 @@ for endpoint in endpoint_registry_data:
         (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     """, endpoint)
+
+# Create bootstrap_dataset_registry table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bootstrap_dataset_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dataset_id TEXT UNIQUE NOT NULL,
+    dataset_key TEXT UNIQUE NOT NULL,
+    table_name TEXT NOT NULL,
+    dataset_purpose TEXT NOT NULL,
+    source_script TEXT NOT NULL,
+    min_expected_count INTEGER DEFAULT 1,
+    is_required INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed baseline bootstrap_dataset_registry data
+bootstrap_dataset_data = [
+    ("BDS-5000001", "phase_status", "phase_status", "Roadmap phase seed data", "scripts/init_db.py", 1, 1, 1),
+    ("BDS-5000002", "layout_slots", "layout_slots", "Database-driven layout slot seed data", "scripts/init_db.py", 6, 1, 1),
+    ("BDS-5000003", "layout_panels", "layout_panels", "Database-driven layout panel seed data", "scripts/init_db.py", 7, 1, 1),
+    ("BDS-5000004", "ui_labels", "ui_labels", "UI label registry seed data", "scripts/init_db.py", 6, 1, 1),
+    ("BDS-5000005", "ui_label_translations", "ui_label_translations", "UI label translation seed data", "scripts/init_db.py", 6, 1, 1),
+    ("BDS-5000006", "endpoint_registry", "endpoint_registry", "Endpoint registry seed data", "scripts/init_db.py", 6, 1, 1),
+]
+
+# Safely insert or update bootstrap_dataset_registry data (no DELETE)
+for dataset in bootstrap_dataset_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO bootstrap_dataset_registry
+        (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, dataset)
 
 # Commit changes and close connection
 conn.commit()
