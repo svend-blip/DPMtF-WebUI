@@ -1371,6 +1371,36 @@ let allPanels = [];
             });
         }
 
+        // System Setup Drawer Functions
+        function initSystemSetupDrawer() {
+            const drawer = document.getElementById('system-setup-drawer');
+            const openButton = document.getElementById('system-setup-btn');
+            const closeButton = document.getElementById('system-setup-close-btn');
+
+            if (drawer) {
+                drawer.classList.remove('open');
+            }
+
+            if (openButton) {
+                openButton.addEventListener('click', openSystemSetupDrawer);
+            }
+
+            if (closeButton) {
+                closeButton.addEventListener('click', closeSystemSetupDrawer);
+            }
+        }
+
+        function openSystemSetupDrawer() {
+            document.getElementById('system-setup-drawer').classList.add('open');
+        }
+
+        function closeSystemSetupDrawer() {
+            document.getElementById('system-setup-drawer').classList.remove('open');
+        }
+
+        // Initialize system setup drawer before other startup calls
+        initSystemSetupDrawer();
+
         // Load initial data
         loadPanels();
         loadAppProfiles();
@@ -1381,3 +1411,4 @@ let allPanels = [];
         initPhaseStatusFilters();
         loadProjectPlans();
         loadProjectPlanningDropdowns();
+
