@@ -1544,6 +1544,83 @@ let allPanels = [];
                 });
         }
 
+        // Load endpoint registry preview
+        function loadEndpointRegistryPreview() {
+            const container = document.getElementById('endpoint-registry-preview-container');
+            const statusElement = document.getElementById('endpoint-registry-preview-status');
+
+            // Clear previous content
+            container.replaceChildren();
+            if (statusElement) {
+                statusElement.textContent = '';
+            }
+
+            // Show loading message
+            const loadingElement = document.createElement('p');
+            loadingElement.textContent = 'Loading endpoint registry...';
+            container.appendChild(loadingElement);
+
+            fetch('/api/endpoint-registry')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Remove loading message
+                    container.removeChild(loadingElement);
+
+                    // Check if we have endpoint data
+                    if (!data.endpoint_registry || !Array.isArray(data.endpoint_registry)) {
+                        const errorElement = document.createElement('p');
+                        errorElement.textContent = 'No endpoint registry data available';
+                        errorElement.className = 'error-message';
+                        container.appendChild(errorElement);
+                        return;
+                    }
+
+                    // Render each endpoint as a compact row
+                    data.endpoint_registry.forEach(function(endpoint) {
+                        const rowElement = document.createElement('div');
+                        rowElement.className = 'endpoint-row';
+
+                        // Primary info: method, route path, endpoint key
+                        const routeSpan = document.createElement('span');
+                        routeSpan.className = 'endpoint-route';
+                        routeSpan.textContent = endpoint.http_method + ' ' + endpoint.route_path;
+                        rowElement.appendChild(routeSpan);
+
+                        // Meta info: endpoint_id, frontend_consumer, response_shape
+                        const metaSpan = document.createElement('span');
+                        metaSpan.className = 'endpoint-meta';
+                        var metaParts = [endpoint.endpoint_id, endpoint.endpoint_key];
+                        if (endpoint.frontend_consumer) {
+                            metaParts.push(endpoint.frontend_consumer);
+                        }
+                        if (endpoint.response_shape) {
+                            metaParts.push(endpoint.response_shape);
+                        }
+                        metaSpan.textContent = metaParts.join(' · ');
+                        rowElement.appendChild(metaSpan);
+
+                        container.appendChild(rowElement);
+                    });
+
+                    if (statusElement) {
+                        statusElement.textContent = data.endpoint_registry.length + ' endpoint(s) loaded';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading endpoint registry preview:', error);
+                    container.removeChild(loadingElement);
+                    const errorElement = document.createElement('p');
+                    errorElement.textContent = 'Error loading endpoint registry: ' + error.message;
+                    errorElement.className = 'error-message';
+                    container.appendChild(errorElement);
+                });
+        }
+
         // System Setup Drawer Functions
         function initSystemSetupDrawer() {
             const drawer = document.getElementById('system-setup-drawer');
@@ -1552,6 +1629,7 @@ let allPanels = [];
             const refreshButton = document.getElementById('refresh-layout-preview-btn');
             const refreshI18nButton = document.getElementById('refresh-i18n-preview-btn');
             const localeSelect = document.getElementById('i18n-preview-locale');
+            const refreshEndpointRegistryButton = document.getElementById('refresh-endpoint-registry-btn');
 
             if (drawer) {
                 drawer.classList.remove('open');
@@ -1576,6 +1654,10 @@ let allPanels = [];
             if (localeSelect) {
                 localeSelect.addEventListener('change', loadI18nLabelPreview);
             }
+
+            if (refreshEndpointRegistryButton) {
+                refreshEndpointRegistryButton.addEventListener('click', loadEndpointRegistryPreview);
+            }
         }
 
         function openSystemSetupDrawer() {
@@ -1584,6 +1666,8 @@ let allPanels = [];
             loadDatabaseLayoutPreview();
             // Load i18n label preview when drawer opens
             loadI18nLabelPreview();
+            // Load endpoint registry preview when drawer opens
+            loadEndpointRegistryPreview();
         }
 
         function closeSystemSetupDrawer() {
