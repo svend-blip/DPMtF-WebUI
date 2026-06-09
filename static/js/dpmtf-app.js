@@ -1371,11 +1371,112 @@ let allPanels = [];
             });
         }
 
+        // Load database layout preview
+        function loadDatabaseLayoutPreview() {
+            const container = document.getElementById('database-layout-preview-container');
+            const statusElement = document.getElementById('database-layout-preview-status');
+
+            // Clear previous content
+            container.replaceChildren();
+            statusElement.textContent = '';
+
+            // Show loading message
+            const loadingElement = document.createElement('p');
+            loadingElement.textContent = 'Loading database layout preview...';
+            container.appendChild(loadingElement);
+
+            fetch('/api/frontend-layout')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Remove loading message
+                    container.removeChild(loadingElement);
+
+                    // Check if we have layout data
+                    if (!data.layout_slots || !data.layout_panels) {
+                        const errorElement = document.createElement('p');
+                        errorElement.textContent = 'No layout data available';
+                        errorElement.className = 'error-message';
+                        container.appendChild(errorElement);
+                        return;
+                    }
+
+                    // Sort slots by display_order
+                    const sortedSlots = [...data.layout_slots].sort((a, b) => a.display_order - b.display_order);
+
+                    // Group panels by slot_id
+                    const panelsBySlot = {};
+                    data.layout_panels.forEach(panel => {
+                        if (!panelsBySlot[panel.slot_id]) {
+                            panelsBySlot[panel.slot_id] = [];
+                        }
+                        panelsBySlot[panel.slot_id].push(panel);
+                    });
+
+                    // Render each slot
+                    sortedSlots.forEach(slot => {
+                        const slotElement = document.createElement('div');
+                        slotElement.className = 'layout-slot';
+
+                        // Slot header
+                        const slotHeader = document.createElement('h5');
+                        slotHeader.textContent = `${slot.slot_name} (${slot.slot_id})`;
+                        slotElement.appendChild(slotHeader);
+
+                        // Slot description
+                        const slotDescription = document.createElement('p');
+                        slotDescription.textContent = slot.slot_description;
+                        slotDescription.className = 'layout-muted';
+                        slotElement.appendChild(slotDescription);
+
+                        // Panel count
+                        const panelCount = panelsBySlot[slot.slot_id] ? panelsBySlot[slot.slot_id].length : 0;
+                        const panelCountElement = document.createElement('p');
+                        panelCountElement.textContent = `${panelCount} panel(s)`;
+                        panelCountElement.className = 'layout-muted';
+                        slotElement.appendChild(panelCountElement);
+
+                        // Panel list
+                        if (panelsBySlot[slot.slot_id] && panelsBySlot[slot.slot_id].length > 0) {
+                            const panelsContainer = document.createElement('div');
+                            panelsContainer.className = 'slot-panels';
+
+                            // Sort panels by display_order
+                            const sortedPanels = [...panelsBySlot[slot.slot_id]].sort((a, b) => a.display_order - b.display_order);
+
+                            sortedPanels.forEach(panel => {
+                                const panelLine = document.createElement('div');
+                                panelLine.className = 'panel-line';
+                                panelLine.textContent = `${panel.panel_id} · ${panel.panel_key} · ${panel.panel_type}`;
+                                panelsContainer.appendChild(panelLine);
+                            });
+
+                            slotElement.appendChild(panelsContainer);
+                        }
+
+                        container.appendChild(slotElement);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading database layout preview:', error);
+                    container.removeChild(loadingElement);
+                    const errorElement = document.createElement('p');
+                    errorElement.textContent = 'Error loading database layout preview: ' + error.message;
+                    errorElement.className = 'error-message';
+                    container.appendChild(errorElement);
+                });
+        }
+
         // System Setup Drawer Functions
         function initSystemSetupDrawer() {
             const drawer = document.getElementById('system-setup-drawer');
             const openButton = document.getElementById('system-setup-btn');
             const closeButton = document.getElementById('system-setup-close-btn');
+            const refreshButton = document.getElementById('refresh-layout-preview-btn');
 
             if (drawer) {
                 drawer.classList.remove('open');
@@ -1388,10 +1489,16 @@ let allPanels = [];
             if (closeButton) {
                 closeButton.addEventListener('click', closeSystemSetupDrawer);
             }
+
+            if (refreshButton) {
+                refreshButton.addEventListener('click', loadDatabaseLayoutPreview);
+            }
         }
 
         function openSystemSetupDrawer() {
             document.getElementById('system-setup-drawer').classList.add('open');
+            // Load layout preview when drawer opens
+            loadDatabaseLayoutPreview();
         }
 
         function closeSystemSetupDrawer() {
