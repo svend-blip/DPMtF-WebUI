@@ -410,3 +410,32 @@ h3 {
   text-align: right;
   word-break: break-word;
 }
+
+/* Endpoint Registry Preview Styles */
+.endpoint-registry-preview {
+  margin-top: 10px;
+}
+
+.endpoint-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 0.9em;
+}
+
+.endpoint-route {
+  font-family: monospace;
+  color: #333;
+  font-weight: 600;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.endpoint-meta {
+  color: #888;
+  text-align: right;
+  font-size: 0.85em;
+  word-break: break-word;
+}
