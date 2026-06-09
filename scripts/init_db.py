@@ -271,7 +271,7 @@ phase_data = [
     ("1O", "Database-driven Frontend Layout Schema", "Create database-driven layout schema", "completed", 14),
     ("1P", "Database-driven Frontend Layout Renderer", "Render database-driven layout", "completed", 15),
     ("1Q", "Localization / i18n Label Registry Schema", "Create i18n label registry schema", "completed", 16),
-    ("1R", "Localization / i18n Label Helper Scripts", "Create i18n helper scripts", "next", 17),
+    ("1R", "Localization / i18n Label Helper Scripts", "Create i18n helper scripts", "completed", 17),
     ("1S", "Localization / i18n Renderer", "Render i18n labels", "planned", 18),
     ("1T", "Endpoint Registry Schema", "Create endpoint registry schema", "planned", 19),
     ("1U", "Endpoint Registry UI", "Add endpoint registry UI", "planned", 20),
