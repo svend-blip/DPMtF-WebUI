@@ -680,6 +680,54 @@ async def get_phase_status():
         "planned": planned
     }
 
+@app.get("/api/frontend-layout")
+async def get_frontend_layout():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get layout slots
+    cursor.execute("""
+        SELECT slot_id, slot_name, slot_description, display_order, is_active
+        FROM layout_slots
+        ORDER BY display_order
+    """)
+
+    layout_slots = []
+    for row in cursor.fetchall():
+        layout_slots.append({
+            "slot_id": row[0],
+            "slot_name": row[1],
+            "slot_description": row[2],
+            "display_order": row[3],
+            "is_active": bool(row[4])
+        })
+
+    # Get layout panels
+    cursor.execute("""
+        SELECT panel_id, slot_id, panel_key, panel_title, panel_description, panel_type, display_order, is_active
+        FROM layout_panels
+        ORDER BY display_order
+    """)
+
+    layout_panels = []
+    for row in cursor.fetchall():
+        layout_panels.append({
+            "panel_id": row[0],
+            "slot_id": row[1],
+            "panel_key": row[2],
+            "panel_title": row[3],
+            "panel_description": row[4],
+            "panel_type": row[5],
+            "display_order": row[6],
+            "is_active": bool(row[7])
+        })
+
+    conn.close()
+    return {
+        "layout_slots": layout_slots,
+        "layout_panels": layout_panels
+    }
+
 @app.post("/api/app-profiles/{profile_id}/draft-prompt-sequence")
 async def create_draft_prompt_sequence(profile_id: int):
     conn = sqlite3.connect(DB_PATH)
