@@ -14,6 +14,119 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Database path
 DB_PATH = "databases/dpmtf.db"
 
+# Fallback locale for i18n
+FALLBACK_LOCALE = "en-US"
+
+
+def _resolve_ui_label_text(label_row, locale):
+    """Resolve translated text for a single ui_label row with fallback chain.
+
+    Fallback order: requested locale -> en-US -> default_text -> label_key.
+    Returns a plain string.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    label_id = label_row["label_id"]
+    default_text = label_row["default_text"]
+    label_key = label_row["label_key"]
+
+    # Try requested locale translation
+    if locale:
+        cursor.execute(
+            "SELECT translated_text FROM ui_label_translations "
+            "WHERE label_id = ? AND locale = ? AND is_active = 1",
+            (label_id, locale),
+        )
+        row = cursor.fetchone()
+        if row:
+            conn.close()
+            return row[0]
+
+    # Fallback to en-US translation
+    if locale != FALLBACK_LOCALE:
+        cursor.execute(
+            "SELECT translated_text FROM ui_label_translations "
+            "WHERE label_id = ? AND locale = ? AND is_active = 1",
+            (label_id, FALLBACK_LOCALE),
+        )
+        row = cursor.fetchone()
+        if row:
+            conn.close()
+            return row[0]
+
+    # Fallback to default_text
+    if default_text:
+        conn.close()
+        return default_text
+
+    # Last resort: return the key itself
+    conn.close()
+    return label_key
+
+
+def get_ui_label_by_key(label_key, locale="en-US"):
+    """Look up a single active ui_label by label_key and resolve its text.
+
+    Fallback chain: requested locale -> en-US -> default_text -> label_key.
+    Returns a plain string.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT label_id, label_key, label_domain, default_text, description, is_active "
+        "FROM ui_labels WHERE label_key = ? AND is_active = 1",
+        (label_key,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return label_key
+
+    label_row = {
+        "label_id": row[0],
+        "label_key": row[1],
+        "label_domain": row[2],
+        "default_text": row[3],
+        "description": row[4],
+        "is_active": bool(row[5]),
+    }
+    conn.close()
+    return _resolve_ui_label_text(label_row, locale)
+
+
+def get_ui_labels_for_domain(label_domain, locale="en-US"):
+    """Return a dict of label_key -> resolved text for all active labels in a domain.
+
+    Uses the same fallback chain per label. Sorted by label_id for determinism.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT label_id, label_key, label_domain, default_text, description, is_active "
+        "FROM ui_labels WHERE label_domain = ? AND is_active = 1 "
+        "ORDER BY label_id",
+        (label_domain,),
+    )
+
+    result = {}
+    for row in cursor.fetchall():
+        label_row = {
+            "label_id": row[0],
+            "label_key": row[1],
+            "label_domain": row[2],
+            "default_text": row[3],
+            "description": row[4],
+            "is_active": bool(row[5]),
+        }
+        result[label_row["label_key"]] = _resolve_ui_label_text(label_row, locale)
+
+    conn.close()
+    return result
+
+
 # Allowed classifications
 ALLOWED_CLASSIFICATIONS = ["unknown", "starter", "advanced", "project_specific", "debug", "skip"]
 
@@ -865,6 +978,16 @@ async def get_ui_label_registry():
     return {
         "ui_labels": ui_labels,
         "ui_label_translations": ui_label_translations
+    }
+
+
+@app.get("/api/ui-labels/{label_domain}")
+async def get_ui_labels_by_domain(label_domain: str, locale: str = "en-US"):
+    labels = get_ui_labels_for_domain(label_domain, locale)
+    return {
+        "label_domain": label_domain,
+        "locale": locale,
+        "labels": labels
     }
 
 
