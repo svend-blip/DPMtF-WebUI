@@ -818,6 +818,56 @@ async def create_draft_prompt_sequence(profile_id: int):
         "created_steps_count": created_steps_count
     }
 
+@app.get("/api/ui-label-registry")
+async def get_ui_label_registry():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get all active ui_labels ordered by label_id
+    cursor.execute("""
+        SELECT label_id, label_key, label_domain, default_text, description, is_active, created_at, updated_at
+        FROM ui_labels
+        ORDER BY label_id
+    """)
+
+    ui_labels = []
+    for row in cursor.fetchall():
+        ui_labels.append({
+            "label_id": row[0],
+            "label_key": row[1],
+            "label_domain": row[2],
+            "default_text": row[3],
+            "description": row[4],
+            "is_active": bool(row[5]),
+            "created_at": row[6],
+            "updated_at": row[7]
+        })
+
+    # Get all active ui_label_translations ordered by label_id, locale
+    cursor.execute("""
+        SELECT label_id, locale, translated_text, is_active, created_at, updated_at
+        FROM ui_label_translations
+        ORDER BY label_id, locale
+    """)
+
+    ui_label_translations = []
+    for row in cursor.fetchall():
+        ui_label_translations.append({
+            "label_id": row[0],
+            "locale": row[1],
+            "translated_text": row[2],
+            "is_active": bool(row[3]),
+            "created_at": row[4],
+            "updated_at": row[5]
+        })
+
+    conn.close()
+    return {
+        "ui_labels": ui_labels,
+        "ui_label_translations": ui_label_translations
+    }
+
+
 @app.get("/api/project-plans")
 async def get_project_plans():
     conn = sqlite3.connect(DB_PATH)
