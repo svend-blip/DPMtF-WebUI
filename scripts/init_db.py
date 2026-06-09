@@ -183,6 +183,75 @@ CREATE TABLE IF NOT EXISTS phase_status (
 )
 """)
 
+# Create layout_slots table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS layout_slots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot_id TEXT UNIQUE NOT NULL,
+    parent_slot_id TEXT,
+    slot_name TEXT NOT NULL,
+    slot_description TEXT,
+    display_order INTEGER NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Create layout_panels table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS layout_panels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    panel_id TEXT UNIQUE NOT NULL,
+    slot_id TEXT NOT NULL,
+    panel_key TEXT NOT NULL,
+    panel_title TEXT NOT NULL,
+    panel_description TEXT,
+    panel_type TEXT NOT NULL,
+    display_order INTEGER NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed layout_slots data
+layout_slots_data = [
+    ("SLOT-2000001", None, "Main Dashboard", "Main dashboard area", 1, 1),
+    ("SLOT-2000002", None, "Top Action Area", "Top action area", 2, 1),
+    ("SLOT-2000003", None, "Imported Panels Area", "Area for imported panels", 3, 1),
+    ("SLOT-2000004", None, "Phase Status Area", "Area for phase status display", 4, 1),
+    ("SLOT-2000005", None, "Project Planning Area", "Area for project planning", 5, 1),
+    ("SLOT-2000006", None, "System Setup Drawer", "System setup drawer area", 6, 1),
+]
+
+# Safely insert or update layout_slots data (no DELETE)
+for slot in layout_slots_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO layout_slots
+        (slot_id, parent_slot_id, slot_name, slot_description, display_order, is_active)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, slot)
+
+# Seed layout_panels data
+layout_panels_data = [
+    ("PNL-3000001", "SLOT-2000001", "database_status", "Database Status Panel", "Database status panel", "status", 1, 1),
+    ("PNL-3000002", "SLOT-2000003", "imported_panels", "Imported Panels Panel", "Imported panels panel", "imported_panels", 1, 1),
+    ("PNL-3000003", "SLOT-2000001", "app_profiles", "App Profiles Panel", "App profiles panel", "app_profiles", 2, 1),
+    ("PNL-3000004", "SLOT-2000001", "prompt_sequence_planner", "Prompt Sequence Planner Panel", "Prompt sequence planner panel", "prompt_sequence_planner", 3, 1),
+    ("PNL-3000005", "SLOT-2000004", "phase_status", "Phase Status Panel", "Phase status panel", "phase_status", 1, 1),
+    ("PNL-3000006", "SLOT-2000005", "project_planning", "New Project Planning Panel", "Project planning panel", "project_planning", 1, 1),
+    ("PNL-3000007", "SLOT-2000006", "system_setup_drawer", "System Setup Drawer Shell", "System setup drawer shell", "system_setup_drawer", 1, 1),
+]
+
+# Safely insert or update layout_panels data (no DELETE)
+for panel in layout_panels_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO layout_panels
+        (panel_id, slot_id, panel_key, panel_title, panel_description, panel_type, display_order, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, panel)
+
 # Seed phase status data
 phase_data = [
     ("1A", "Skeleton", "Initial project structure", "completed", 0),
