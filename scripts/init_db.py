@@ -381,6 +381,41 @@ for translation in ui_label_translations_data:
         VALUES (?, ?, ?)
     """, translation)
 
+# Create endpoint_registry table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS endpoint_registry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint_id TEXT UNIQUE NOT NULL,
+    endpoint_key TEXT UNIQUE NOT NULL,
+    route_path TEXT NOT NULL,
+    http_method TEXT NOT NULL,
+    endpoint_purpose TEXT NOT NULL,
+    response_shape TEXT,
+    frontend_consumer TEXT,
+    is_read_only INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed baseline endpoint_registry data
+endpoint_registry_data = [
+    ("ENDP-4000001", "health", "/api/health", "GET", "Health check endpoint", "status JSON", "system"),
+    ("ENDP-4000002", "frontend_layout", "/api/frontend-layout", "GET", "Database-driven frontend layout registry", "layout_slots and layout_panels JSON", "system_setup_drawer"),
+    ("ENDP-4000003", "ui_label_registry", "/api/ui-label-registry", "GET", "UI label registry", "ui_labels and ui_label_translations JSON", "system_setup_drawer"),
+    ("ENDP-4000004", "ui_labels_domain", "/api/ui-labels/{label_domain}", "GET", "Resolved localized labels for a label domain", "labels JSON", "system_setup_drawer"),
+    ("ENDP-4000005", "phase_status", "/api/phase-status", "GET", "Roadmap phase status", "phase status JSON", "main_dashboard"),
+]
+
+# Safely insert or update endpoint_registry data (no DELETE)
+for endpoint in endpoint_registry_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

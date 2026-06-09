@@ -991,6 +991,40 @@ async def get_ui_labels_by_domain(label_domain: str, locale: str = "en-US"):
     }
 
 
+@app.get("/api/endpoint-registry")
+async def get_endpoint_registry():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get all active endpoints ordered by endpoint_id
+    cursor.execute("""
+        SELECT endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose,
+               response_shape, frontend_consumer, is_read_only, is_active, created_at, updated_at
+        FROM endpoint_registry
+        WHERE is_active = 1
+        ORDER BY endpoint_id
+    """)
+
+    endpoints = []
+    for row in cursor.fetchall():
+        endpoints.append({
+            "endpoint_id": row[0],
+            "endpoint_key": row[1],
+            "route_path": row[2],
+            "http_method": row[3],
+            "endpoint_purpose": row[4],
+            "response_shape": row[5],
+            "frontend_consumer": row[6],
+            "is_read_only": bool(row[7]),
+            "is_active": bool(row[8]),
+            "created_at": row[9],
+            "updated_at": row[10],
+        })
+
+    conn.close()
+    return {"endpoint_registry": endpoints}
+
+
 @app.get("/api/project-plans")
 async def get_project_plans():
     conn = sqlite3.connect(DB_PATH)
