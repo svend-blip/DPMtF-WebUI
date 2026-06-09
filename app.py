@@ -1025,6 +1025,65 @@ async def get_endpoint_registry():
     return {"endpoint_registry": endpoints}
 
 
+@app.get("/api/endpoint-runtime-status")
+async def get_endpoint_runtime_status():
+    # Build in-memory map of registered FastAPI routes
+    route_map = {}
+    for route in app.routes:
+        if hasattr(route, "path") and hasattr(route, "methods"):
+            path = route.path
+            methods = route.methods - {"HEAD", "OPTIONS"}
+            if path not in route_map:
+                route_map[path] = set()
+            route_map[path].update(methods)
+
+    # Query active endpoint_registry records ordered by endpoint_id
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT endpoint_id, endpoint_key, route_path, http_method
+        FROM endpoint_registry
+        WHERE is_active = 1
+        ORDER BY endpoint_id
+    """)
+
+    runtime_status = []
+    for row in cursor.fetchall():
+        endpoint_id, endpoint_key, route_path, http_method = row
+
+        # Check if route path is registered
+        route_registered = route_path in route_map
+
+        # Check if HTTP method is registered for the route
+        if route_registered:
+            method_registered = http_method in route_map.get(route_path, set())
+        else:
+            method_registered = False
+
+        # Determine status string
+        if route_registered and method_registered:
+            status = "ok"
+        elif not route_registered:
+            status = "missing_route"
+        else:
+            status = "missing_method"
+
+        runtime_status.append({
+            "endpoint_id": endpoint_id,
+            "endpoint_key": endpoint_key,
+            "route_path": route_path,
+            "http_method": http_method,
+            "route_registered": route_registered,
+            "method_registered": method_registered,
+            "status": status,
+            "check_type": "fastapi_route_registry",
+        })
+
+    conn.close()
+    return {"endpoint_runtime_status": runtime_status}
+
+
 @app.get("/api/project-plans")
 async def get_project_plans():
     conn = sqlite3.connect(DB_PATH)
