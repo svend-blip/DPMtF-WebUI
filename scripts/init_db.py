@@ -408,6 +408,7 @@ endpoint_registry_data = [
     ("ENDP-4000005", "phase_status", "/api/phase-status", "GET", "Roadmap phase status", "phase status JSON", "main_dashboard"),
     ("ENDP-4000006", "endpoint_runtime_status", "/api/endpoint-runtime-status", "GET", "Runtime route registration status for endpoint registry records", "endpoint runtime status JSON", "system_setup_drawer"),
     ("ENDP-4000007", "bootstrap_dataset_status", "/api/bootstrap-dataset-status", "GET", "Bootstrap dataset registry status", "bootstrap dataset status JSON", "system_setup_drawer"),
+    ("ENDP-4000008", "architecture_decision_records", "/api/architecture-decision-records", "GET", "Architecture Decision Record registry", "architecture decision records JSON", "system_setup_drawer"),
 ]
 
 # Safely insert or update endpoint_registry data (no DELETE)
@@ -443,6 +444,7 @@ bootstrap_dataset_data = [
     ("BDS-5000004", "ui_labels", "ui_labels", "UI label registry seed data", "scripts/init_db.py", 6, 1, 1),
     ("BDS-5000005", "ui_label_translations", "ui_label_translations", "UI label translation seed data", "scripts/init_db.py", 6, 1, 1),
     ("BDS-5000006", "endpoint_registry", "endpoint_registry", "Endpoint registry seed data", "scripts/init_db.py", 6, 1, 1),
+    ("BDS-5000007", "architecture_decision_records", "architecture_decision_records", "Architecture Decision Record seed data", "scripts/init_db.py", 4, 1, 1),
 ]
 
 # Safely insert or update bootstrap_dataset_registry data (no DELETE)
@@ -452,6 +454,76 @@ for dataset in bootstrap_dataset_data:
         (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, dataset)
+
+# Create architecture_decision_records table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS architecture_decision_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    adr_id TEXT UNIQUE NOT NULL,
+    adr_key TEXT UNIQUE NOT NULL,
+    adr_title TEXT NOT NULL,
+    decision_status TEXT NOT NULL,
+    decision_context TEXT NOT NULL,
+    decision_text TEXT NOT NULL,
+    consequences TEXT,
+    related_phase_key TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed baseline architecture_decision_records data
+adr_data = [
+    (
+        "ADR-6000001",
+        "new_webui_version_not_full_refactor",
+        "Build a new clean AI PC Resource WebUI version instead of fully refactoring the existing one",
+        "accepted",
+        "Existing AI PC Resource WebUI is useful as a source/reference but has grown large and hard to restructure safely.",
+        "Build a new WebUI version on a different port and carve out only the few needed panels/elements from the existing project.",
+        "Keeps the current system stable while allowing a cleaner database-driven architecture.",
+        "1X",
+    ),
+    (
+        "ADR-6000002",
+        "database_driven_frontend_layout",
+        "Use database-driven frontend layout definitions",
+        "accepted",
+        "Hardcoded frontend layout becomes difficult for Claude Code to modify safely as the project grows.",
+        "Store layout slots, panels, labels, endpoint references, and bootstrap datasets in SQLite-backed registries.",
+        "Makes generated WebUIs more predictable, inspectable, and easier to seed from scripts.",
+        "1O",
+    ),
+    (
+        "ADR-6000003",
+        "linux_first_platform_adapter_design",
+        "Use Linux-first implementation with future platform adapters",
+        "accepted",
+        "The current target machine is Linux, but the architecture should not hardcode platform behavior into frontend or data structures.",
+        "Implement Linux-first backend checks now, but keep platform-specific behavior behind backend adapters or action bindings.",
+        "Avoids premature heavy cross-platform abstractions while reducing future Linux lock-in.",
+        "1X",
+    ),
+    (
+        "ADR-6000004",
+        "repeatable_seed_scripts_source_of_truth",
+        "Use repeatable seed scripts as the source of truth for bootstrap data",
+        "accepted",
+        "A database-driven generated WebUI requires seed data before it can run.",
+        "Keep scripts/init_db.py as the source of truth for required bootstrap datasets, with the SQLite database as a generated/runtime artifact.",
+        "New WebUI instances can be initialized reproducibly.",
+        "1W",
+    ),
+]
+
+# Safely insert or update architecture_decision_records data (no DELETE)
+for adr in adr_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO architecture_decision_records
+        (adr_id, adr_key, adr_title, decision_status, decision_context, decision_text, consequences, related_phase_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, adr)
 
 # Commit changes and close connection
 conn.commit()
