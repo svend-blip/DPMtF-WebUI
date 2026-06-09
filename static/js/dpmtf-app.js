@@ -1471,12 +1471,87 @@ let allPanels = [];
                 });
         }
 
+        // Load i18n label preview
+        function loadI18nLabelPreview() {
+            const container = document.getElementById('i18n-label-preview-container');
+            const statusElement = document.getElementById('i18n-label-preview-status');
+            const localeSelect = document.getElementById('i18n-preview-locale');
+
+            // Clear previous content
+            container.replaceChildren();
+            if (statusElement) {
+                statusElement.textContent = '';
+            }
+
+            const locale = localeSelect ? localeSelect.value : 'en-US';
+
+            // Show loading message
+            const loadingElement = document.createElement('p');
+            loadingElement.textContent = 'Loading i18n labels...';
+            container.appendChild(loadingElement);
+
+            fetch('/api/ui-labels/system_setup?locale=' + encodeURIComponent(locale))
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Remove loading message
+                    container.removeChild(loadingElement);
+
+                    // Check if we have labels data
+                    if (!data.labels || typeof data.labels !== 'object') {
+                        const errorElement = document.createElement('p');
+                        errorElement.textContent = 'No label data available';
+                        errorElement.className = 'error-message';
+                        container.appendChild(errorElement);
+                        return;
+                    }
+
+                    // Render each label as a compact row
+                    Object.keys(data.labels).forEach(function(labelKey) {
+                        const resolvedText = data.labels[labelKey];
+
+                        const rowElement = document.createElement('div');
+                        rowElement.className = 'i18n-label-row';
+
+                        const keySpan = document.createElement('span');
+                        keySpan.className = 'i18n-label-key';
+                        keySpan.textContent = labelKey;
+                        rowElement.appendChild(keySpan);
+
+                        const textSpan = document.createElement('span');
+                        textSpan.className = 'i18n-label-text';
+                        textSpan.textContent = resolvedText;
+                        rowElement.appendChild(textSpan);
+
+                        container.appendChild(rowElement);
+                    });
+
+                    if (statusElement) {
+                        statusElement.textContent = 'Resolved for locale: ' + data.locale + ' (' + Object.keys(data.labels).length + ' labels)';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading i18n label preview:', error);
+                    container.removeChild(loadingElement);
+                    const errorElement = document.createElement('p');
+                    errorElement.textContent = 'Error loading i18n labels: ' + error.message;
+                    errorElement.className = 'error-message';
+                    container.appendChild(errorElement);
+                });
+        }
+
         // System Setup Drawer Functions
         function initSystemSetupDrawer() {
             const drawer = document.getElementById('system-setup-drawer');
             const openButton = document.getElementById('system-setup-btn');
             const closeButton = document.getElementById('system-setup-close-btn');
             const refreshButton = document.getElementById('refresh-layout-preview-btn');
+            const refreshI18nButton = document.getElementById('refresh-i18n-preview-btn');
+            const localeSelect = document.getElementById('i18n-preview-locale');
 
             if (drawer) {
                 drawer.classList.remove('open');
@@ -1493,12 +1568,22 @@ let allPanels = [];
             if (refreshButton) {
                 refreshButton.addEventListener('click', loadDatabaseLayoutPreview);
             }
+
+            if (refreshI18nButton) {
+                refreshI18nButton.addEventListener('click', loadI18nLabelPreview);
+            }
+
+            if (localeSelect) {
+                localeSelect.addEventListener('change', loadI18nLabelPreview);
+            }
         }
 
         function openSystemSetupDrawer() {
             document.getElementById('system-setup-drawer').classList.add('open');
             // Load layout preview when drawer opens
             loadDatabaseLayoutPreview();
+            // Load i18n label preview when drawer opens
+            loadI18nLabelPreview();
         }
 
         function closeSystemSetupDrawer() {

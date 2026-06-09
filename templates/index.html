@@ -266,7 +266,16 @@
                     </div>
                     <div class="drawer-section">
                         <h4>UI Labels / i18n</h4>
-                        <p>UI label and i18n management placeholder</p>
+                        <p>Resolved label preview from /api/ui-labels</p>
+                        <div id="i18n-preview-controls" class="i18n-preview-controls">
+                            <select id="i18n-preview-locale">
+                                <option value="en-US" selected>en-US</option>
+                                <option value="da-DK">da-DK</option>
+                            </select>
+                            <button id="refresh-i18n-preview-btn" type="button">Refresh</button>
+                        </div>
+                        <div id="i18n-label-preview-container"></div>
+                        <div id="i18n-label-preview-status"></div>
                     </div>
                     <div class="drawer-section">
                         <h4>Endpoint Registry</h4>

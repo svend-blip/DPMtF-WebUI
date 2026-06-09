@@ -370,3 +370,43 @@ h3 {
   font-size: 0.85em;
   color: #555;
 }
+
+/* i18n Label Preview Styles */
+.i18n-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+#i18n-label-preview-container {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.i18n-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 0.9em;
+}
+
+.i18n-label-key {
+  font-family: monospace;
+  color: #666;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.i18n-label-text {
+  color: #333;
+  text-align: right;
+  word-break: break-word;
+}
