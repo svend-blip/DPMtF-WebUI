@@ -253,3 +253,77 @@ h3 {
 .prompt-sequence-planner-section .panel-table {
     margin-top: 15px;
 }
+
+/* System Setup Drawer */
+.system-setup-button-container {
+  margin: 15px 0;
+  text-align: right;
+}
+
+#system-setup-btn {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#system-setup-btn:hover {
+  background-color: #2980b9;
+}
+
+.system-setup-drawer {
+  position: fixed;
+  top: 0;
+  right: -400px;
+  width: 400px;
+  height: 100%;
+  background-color: #f8f9fa;
+  box-shadow: -2px 0 5px rgba(0,0,0,0.2);
+  transition: right 0.3s ease;
+  z-index: 1000;
+  overflow-y: auto;
+}
+
+.system-setup-drawer.open {
+  right: 0;
+}
+
+.system-setup-drawer-content {
+  padding: 20px;
+  height: 100%;
+}
+
+.close-btn {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #333;
+}
+
+.close-btn:hover {
+  color: #000;
+}
+
+.drawer-sections {
+  margin-top: 20px;
+}
+
+.drawer-section {
+  margin: 20px 0;
+  padding: 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  background-color: #fff;
+}
+
+.drawer-section h4 {
+  margin-top: 0;
+  color: #3498db;
+}
