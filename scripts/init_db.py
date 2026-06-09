@@ -277,7 +277,7 @@ phase_data = [
     ("1U", "Endpoint Registry UI", "Add endpoint registry UI", "completed", 20),
     ("1V", "Endpoint Runtime Status Checks", "Check endpoint status", "completed", 21),
     ("1W", "WebUI Bootstrap Dataset / Seed Scripts", "Create bootstrap dataset", "completed", 22),
-    ("1X", "Architecture Decision Record in Frontend Roadmap", "Document architecture decisions", "next", 23),
+    ("1X", "Architecture Decision Record in Frontend Roadmap", "Document architecture decisions", "completed", 23),
     ("2A", "New AI PC Resource WebUI Migration Target", "Create new AI PC WebUI target", "planned", 24),
     ("2B", "Select 4–5 Reusable AI PC Panels", "Select reusable panels", "planned", 25),
     ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "planned", 26),
