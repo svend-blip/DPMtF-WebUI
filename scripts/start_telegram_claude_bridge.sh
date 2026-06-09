@@ -18,5 +18,12 @@ else
   echo "already running dpmtf_claude_input_watch"
 fi
 
+if ! tmux has-session -t dpmtf_claude_output_watch 2>/dev/null; then
+  tmux new-session -d -s dpmtf_claude_output_watch -c /home/svend/DPMtF-WebUI "./scripts/run_telegram_claude_output_watch_loop.sh"
+  echo "started dpmtf_claude_output_watch"
+else
+  echo "already running dpmtf_claude_output_watch"
+fi
+
 echo "Active DPMtF tmux sessions:"
-tmux ls | grep -E "dpmtf_(claude_code|telegram_bridge|claude_input_watch)" || true
+tmux ls | grep -E "dpmtf_(claude_code|telegram_bridge|claude_input_watch|claude_output_watch)" || true
