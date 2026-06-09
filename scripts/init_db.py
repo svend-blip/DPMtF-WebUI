@@ -316,6 +316,71 @@ CREATE TABLE IF NOT EXISTS project_plans (
 )
 """)
 
+# Create ui_labels table for i18n label registry
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ui_labels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label_id TEXT UNIQUE NOT NULL,
+    label_key TEXT UNIQUE NOT NULL,
+    label_domain TEXT NOT NULL,
+    default_text TEXT NOT NULL,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Create ui_label_translations table for locale-specific translations
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ui_label_translations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label_id TEXT NOT NULL,
+    locale TEXT NOT NULL,
+    translated_text TEXT NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(label_id, locale)
+)
+""")
+
+# Seed baseline ui_labels data
+ui_labels_data = [
+    ("LBL-1000001", "system_setup.title", "system_setup", "System Setup", "Title for the system setup section"),
+    ("LBL-1000002", "system_setup.layout_slots.title", "system_setup", "Layout Slots", "Title for the layout slots section"),
+    ("LBL-1000003", "system_setup.database_layout_preview.title", "system_setup", "Database Layout Preview", "Title for the database layout preview section"),
+    ("LBL-1000004", "system_setup.database_layout_preview.description", "system_setup", "Read-only preview from /api/frontend-layout", "Description for the database layout preview section"),
+    ("LBL-1000005", "system_setup.database_layout_preview.refresh", "system_setup", "Refresh", "Label for the refresh button in database layout preview"),
+    ("LBL-1000006", "phase_status.show_completed", "phase_status", "Show completed phases", "Toggle label to show/hide completed phases"),
+]
+
+# Safely insert or update ui_labels data (no DELETE)
+for label in ui_labels_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO ui_labels
+        (label_id, label_key, label_domain, default_text, description)
+        VALUES (?, ?, ?, ?, ?)
+    """, label)
+
+# Seed en-US translations for all baseline labels
+ui_label_translations_data = [
+    ("LBL-1000001", "en-US", "System Setup"),
+    ("LBL-1000002", "en-US", "Layout Slots"),
+    ("LBL-1000003", "en-US", "Database Layout Preview"),
+    ("LBL-1000004", "en-US", "Read-only preview from /api/frontend-layout"),
+    ("LBL-1000005", "en-US", "Refresh"),
+    ("LBL-1000006", "en-US", "Show completed phases"),
+]
+
+# Safely insert or update ui_label_translations data (no DELETE)
+for translation in ui_label_translations_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO ui_label_translations
+        (label_id, locale, translated_text)
+        VALUES (?, ?, ?)
+    """, translation)
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
