@@ -279,8 +279,8 @@ phase_data = [
     ("1W", "WebUI Bootstrap Dataset / Seed Scripts", "Create bootstrap dataset", "completed", 22),
     ("1X", "Architecture Decision Record in Frontend Roadmap", "Document architecture decisions", "completed", 23),
     ("2A", "New AI PC Resource WebUI Migration Target", "Create new AI PC WebUI target", "completed", 24),
-    ("2B", "Select 4–5 Reusable AI PC Panels", "Select reusable panels", "next", 25),
-    ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "planned", 26),
+    ("2B", "Select 4–5 Reusable AI PC Panels", "Select reusable panels", "completed", 25),
+    ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "next", 26),
     ("2D", "Migrate Selected Panels into Database-driven Layout", "Migrate panels to DB layout", "planned", 27),
     ("2E", "Wire Selected Endpoints and Status Checks", "Connect endpoints", "planned", 28),
     ("2F", "Validate New AI PC WebUI as Replacement Candidate", "Validate replacement", "planned", 29),
@@ -410,6 +410,7 @@ endpoint_registry_data = [
     ("ENDP-4000007", "bootstrap_dataset_status", "/api/bootstrap-dataset-status", "GET", "Bootstrap dataset registry status", "bootstrap dataset status JSON", "system_setup_drawer"),
     ("ENDP-4000008", "architecture_decision_records", "/api/architecture-decision-records", "GET", "Architecture Decision Record registry", "architecture decision records JSON", "system_setup_drawer"),
     ("ENDP-4000009", "webui_migration_targets", "/api/webui-migration-targets", "GET", "WebUI migration target registry", "webui migration targets JSON", "system_setup_drawer"),
+    ("ENDP-4000010", "reusable_panel_selections", "/api/reusable-panel-selections", "GET", "Reusable AI PC panel selection registry", "reusable panel selections JSON", "system_setup_drawer"),
 ]
 
 # Safely insert or update endpoint_registry data (no DELETE)
@@ -447,6 +448,7 @@ bootstrap_dataset_data = [
     ("BDS-5000006", "endpoint_registry", "endpoint_registry", "Endpoint registry seed data", "scripts/init_db.py", 6, 1, 1),
     ("BDS-5000007", "architecture_decision_records", "architecture_decision_records", "Architecture Decision Record seed data", "scripts/init_db.py", 4, 1, 1),
     ("BDS-5000008", "webui_migration_targets", "webui_migration_targets", "WebUI migration target seed data", "scripts/init_db.py", 1, 1, 1),
+    ("BDS-5000009", "reusable_panel_selections", "reusable_panel_selections", "Reusable AI PC panel selection seed data", "scripts/init_db.py", 5, 1, 1),
 ]
 
 # Safely insert or update bootstrap_dataset_registry data (no DELETE)
@@ -503,6 +505,111 @@ for target in webui_migration_targets_data:
          related_adr_id, notes, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, target)
+
+# Create reusable_panel_selections table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS reusable_panel_selections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reusable_panel_id TEXT UNIQUE NOT NULL,
+    target_project_key TEXT NOT NULL,
+    source_project_path TEXT NOT NULL,
+    panel_key TEXT NOT NULL,
+    panel_title TEXT NOT NULL,
+    source_html_id TEXT,
+    source_panel_kind TEXT NOT NULL,
+    selection_status TEXT NOT NULL,
+    selection_reason TEXT NOT NULL,
+    migration_priority INTEGER NOT NULL,
+    is_required INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed reusable_panel_selections data (no DELETE — upsert style)
+reusable_panel_selections_data = [
+    (
+        "RPN-8000001",
+        "ai_pc_resource_webui_v2",
+        "/home/svend/ai-pc-resource-webui",
+        "resources",
+        "System Resources",
+        "resources",
+        "status_panel",
+        "selected",
+        "Core system resource visibility is required for AI PC operations.",
+        1,
+        1,
+        1,
+    ),
+    (
+        "RPN-8000002",
+        "ai_pc_resource_webui_v2",
+        "/home/svend/ai-pc-resource-webui",
+        "pipeline-status-panel",
+        "Pipeline Status Panel",
+        "pipeline-status-panel",
+        "status_panel",
+        "selected",
+        "Pipeline health/status is the main overview for operational readiness.",
+        2,
+        1,
+        1,
+    ),
+    (
+        "RPN-8000003",
+        "ai_pc_resource_webui_v2",
+        "/home/svend/ai-pc-resource-webui",
+        "pipeline-action-mapping-panel",
+        "Pipeline Action Mapping Panel",
+        "pipeline-action-mapping-panel",
+        "action_mapping_panel",
+        "selected",
+        "Pipeline actions must be mapped to safe backend controls later.",
+        3,
+        1,
+        1,
+    ),
+    (
+        "RPN-8000004",
+        "ai_pc_resource_webui_v2",
+        "/home/svend/ai-pc-resource-webui",
+        "manual-runbooks",
+        "Manual Runbooks",
+        "manual-runbooks",
+        "runbook_panel",
+        "selected_pending_source_validation",
+        "Manual operational recovery steps should remain available in the clean WebUI.",
+        4,
+        1,
+        1,
+    ),
+    (
+        "RPN-8000005",
+        "ai_pc_resource_webui_v2",
+        "/home/svend/ai-pc-resource-webui",
+        "wrapper-confirmation-gates",
+        "Wrapper Confirmation Gates",
+        "wrapper-confirmation-gates",
+        "safety_panel",
+        "selected_pending_source_validation",
+        "Safety gates are required before exposing operational controls.",
+        5,
+        1,
+        1,
+    ),
+]
+
+for panel in reusable_panel_selections_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO reusable_panel_selections
+        (reusable_panel_id, target_project_key, source_project_path,
+         panel_key, panel_title, source_html_id, source_panel_kind,
+         selection_status, selection_reason, migration_priority,
+         is_required, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, panel)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS architecture_decision_records (
