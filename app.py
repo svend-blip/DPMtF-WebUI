@@ -1095,6 +1095,7 @@ ALLOWED_BOOTSTRAP_TABLES = {
     "architecture_decision_records",
     "webui_migration_targets",
     "reusable_panel_selections",
+    "webui_project_skeletons",
 }
 
 
@@ -1276,6 +1277,40 @@ async def get_reusable_panel_selections():
 
     conn.close()
     return {"reusable_panel_selections": reusable_panel_selections}
+
+
+@app.get("/api/webui-project-skeletons")
+async def get_webui_project_skeletons():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get active skeleton records ordered by skeleton_id
+    cursor.execute("""
+        SELECT skeleton_id, target_project_key, target_project_path,
+               target_port, skeleton_status, created_files_json,
+               server_start_command, health_endpoint, notes, is_active
+        FROM webui_project_skeletons
+        WHERE is_active = 1
+        ORDER BY skeleton_id
+    """)
+
+    webui_project_skeletons = []
+    for row in cursor.fetchall():
+        webui_project_skeletons.append({
+            "skeleton_id": row[0],
+            "target_project_key": row[1],
+            "target_project_path": row[2],
+            "target_port": row[3],
+            "skeleton_status": row[4],
+            "created_files_json": row[5],
+            "server_start_command": row[6],
+            "health_endpoint": row[7],
+            "notes": row[8],
+            "is_active": bool(row[9]),
+        })
+
+    conn.close()
+    return {"webui_project_skeletons": webui_project_skeletons}
 
 
 @app.get("/api/project-plans")
