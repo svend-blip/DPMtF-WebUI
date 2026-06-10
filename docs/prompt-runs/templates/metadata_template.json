@@ -1,0 +1,22 @@
+{
+  "prompt_run_id": "PRUN-000000",
+  "phase_key": "",
+  "operation_type": "",
+  "execution_mode": "conservative",
+  "project": "DPMtF-WebUI",
+  "active_project_path": "/home/svend/DPMtF-WebUI",
+  "related_project_paths": [],
+  "started_at": "",
+  "completed_at": "",
+  "commit_before": "",
+  "commit_after": "",
+  "expected_changed_files": [],
+  "actual_changed_files": [],
+  "unexpected_changed_files": [],
+  "verification_status": "",
+  "review_status": "",
+  "rollback_needed": false,
+  "verdict": "",
+  "prompt_template_changes_recommended": [],
+  "implementation_pattern_changes_recommended": []
+}
