@@ -280,8 +280,8 @@ phase_data = [
     ("1X", "Architecture Decision Record in Frontend Roadmap", "Document architecture decisions", "completed", 23),
     ("2A", "New AI PC Resource WebUI Migration Target", "Create new AI PC WebUI target", "completed", 24),
     ("2B", "Select 4–5 Reusable AI PC Panels", "Select reusable panels", "completed", 25),
-    ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "next", 26),
-    ("2D", "Migrate Selected Panels into Database-driven Layout", "Migrate panels to DB layout", "planned", 27),
+    ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "completed", 26),
+    ("2D", "Migrate Selected Panels into Database-driven Layout", "Migrate panels to DB layout", "next", 27),
     ("2E", "Wire Selected Endpoints and Status Checks", "Connect endpoints", "planned", 28),
     ("2F", "Validate New AI PC WebUI as Replacement Candidate", "Validate replacement", "planned", 29),
     ("2G", "Prompt Run Review", "Manual review form", "planned", 30),
@@ -411,6 +411,7 @@ endpoint_registry_data = [
     ("ENDP-4000008", "architecture_decision_records", "/api/architecture-decision-records", "GET", "Architecture Decision Record registry", "architecture decision records JSON", "system_setup_drawer"),
     ("ENDP-4000009", "webui_migration_targets", "/api/webui-migration-targets", "GET", "WebUI migration target registry", "webui migration targets JSON", "system_setup_drawer"),
     ("ENDP-4000010", "reusable_panel_selections", "/api/reusable-panel-selections", "GET", "Reusable AI PC panel selection registry", "reusable panel selections JSON", "system_setup_drawer"),
+    ("ENDP-4000011", "webui_project_skeletons", "/api/webui-project-skeletons", "GET", "WebUI project skeleton registry", "webui project skeletons JSON", "system_setup_drawer"),
 ]
 
 # Safely insert or update endpoint_registry data (no DELETE)
@@ -449,6 +450,7 @@ bootstrap_dataset_data = [
     ("BDS-5000007", "architecture_decision_records", "architecture_decision_records", "Architecture Decision Record seed data", "scripts/init_db.py", 4, 1, 1),
     ("BDS-5000008", "webui_migration_targets", "webui_migration_targets", "WebUI migration target seed data", "scripts/init_db.py", 1, 1, 1),
     ("BDS-5000009", "reusable_panel_selections", "reusable_panel_selections", "Reusable AI PC panel selection seed data", "scripts/init_db.py", 5, 1, 1),
+    ("BDS-5000010", "webui_project_skeletons", "webui_project_skeletons", "WebUI project skeleton seed/status data", "scripts/init_db.py", 1, 1, 1),
 ]
 
 # Safely insert or update bootstrap_dataset_registry data (no DELETE)
@@ -610,6 +612,50 @@ for panel in reusable_panel_selections_data:
          is_required, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, panel)
+
+# Create webui_project_skeletons table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS webui_project_skeletons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skeleton_id TEXT UNIQUE NOT NULL,
+    target_project_key TEXT NOT NULL,
+    target_project_path TEXT NOT NULL,
+    target_port INTEGER NOT NULL,
+    skeleton_status TEXT NOT NULL,
+    created_files_json TEXT NOT NULL,
+    server_start_command TEXT,
+    health_endpoint TEXT NOT NULL,
+    notes TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed webui_project_skeletons data (no DELETE — upsert style)
+webui_project_skeletons_data = [
+    (
+        "WSK-9000001",
+        "ai_pc_resource_webui_v2",
+        "/home/svend/ai-pc-resource-webui-v2",
+        9121,
+        "created",
+        '["app.py","requirements.txt","README.md","templates/index.html","static/css/app.css","static/js/app.js","databases/.gitkeep"]',
+        "cd /home/svend/ai-pc-resource-webui-v2 && source venv/bin/activate && uvicorn app:app --host 0.0.0.0 --port 9121",
+        "/api/health",
+        "Skeleton only. No server started and no panels implemented in Phase 2C. Selected panel requirements must be clarified with the user before panel code is generated.",
+        1,
+    ),
+]
+
+for skeleton in webui_project_skeletons_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO webui_project_skeletons
+        (skeleton_id, target_project_key, target_project_path,
+         target_port, skeleton_status, created_files_json,
+         server_start_command, health_endpoint, notes, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, skeleton)
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS architecture_decision_records (
