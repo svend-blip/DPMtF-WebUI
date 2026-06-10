@@ -1094,6 +1094,7 @@ ALLOWED_BOOTSTRAP_TABLES = {
     "endpoint_registry",
     "architecture_decision_records",
     "webui_migration_targets",
+    "reusable_panel_selections",
 }
 
 
@@ -1238,6 +1239,43 @@ async def get_webui_migration_targets():
 
     conn.close()
     return {"webui_migration_targets": webui_migration_targets}
+
+
+@app.get("/api/reusable-panel-selections")
+async def get_reusable_panel_selections():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get active reusable panel selections ordered by migration_priority
+    cursor.execute("""
+        SELECT reusable_panel_id, target_project_key, source_project_path,
+               panel_key, panel_title, source_html_id, source_panel_kind,
+               selection_status, selection_reason, migration_priority,
+               is_required, is_active
+        FROM reusable_panel_selections
+        WHERE is_active = 1
+        ORDER BY migration_priority
+    """)
+
+    reusable_panel_selections = []
+    for row in cursor.fetchall():
+        reusable_panel_selections.append({
+            "reusable_panel_id": row[0],
+            "target_project_key": row[1],
+            "source_project_path": row[2],
+            "panel_key": row[3],
+            "panel_title": row[4],
+            "source_html_id": row[5],
+            "source_panel_kind": row[6],
+            "selection_status": row[7],
+            "selection_reason": row[8],
+            "migration_priority": row[9],
+            "is_required": bool(row[10]),
+            "is_active": bool(row[11]),
+        })
+
+    conn.close()
+    return {"reusable_panel_selections": reusable_panel_selections}
 
 
 @app.get("/api/project-plans")
