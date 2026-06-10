@@ -281,7 +281,7 @@ phase_data = [
     ("2A", "New AI PC Resource WebUI Migration Target", "Create new AI PC WebUI target", "completed", 24),
     ("2B", "Select 4–5 Reusable AI PC Panels", "Select reusable panels", "completed", 25),
     ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "completed", 26),
-    ("2D", "Migrate Selected Panels into Database-driven Layout", "Migrate panels to DB layout", "next", 27),
+    ("2D", "Specify AI PC WebUI v2 Panel Requirements", "Specify v2 panel requirements", "next", 27),
     ("2E", "Wire Selected Endpoints and Status Checks", "Connect endpoints", "planned", 28),
     ("2F", "Validate New AI PC WebUI as Replacement Candidate", "Validate replacement", "planned", 29),
     ("2G", "Prompt Run Review", "Manual review form", "planned", 30),
