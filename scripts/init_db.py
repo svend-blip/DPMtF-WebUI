@@ -409,6 +409,7 @@ endpoint_registry_data = [
     ("ENDP-4000006", "endpoint_runtime_status", "/api/endpoint-runtime-status", "GET", "Runtime route registration status for endpoint registry records", "endpoint runtime status JSON", "system_setup_drawer"),
     ("ENDP-4000007", "bootstrap_dataset_status", "/api/bootstrap-dataset-status", "GET", "Bootstrap dataset registry status", "bootstrap dataset status JSON", "system_setup_drawer"),
     ("ENDP-4000008", "architecture_decision_records", "/api/architecture-decision-records", "GET", "Architecture Decision Record registry", "architecture decision records JSON", "system_setup_drawer"),
+    ("ENDP-4000009", "webui_migration_targets", "/api/webui-migration-targets", "GET", "WebUI migration target registry", "webui migration targets JSON", "system_setup_drawer"),
 ]
 
 # Safely insert or update endpoint_registry data (no DELETE)
@@ -445,6 +446,7 @@ bootstrap_dataset_data = [
     ("BDS-5000005", "ui_label_translations", "ui_label_translations", "UI label translation seed data", "scripts/init_db.py", 6, 1, 1),
     ("BDS-5000006", "endpoint_registry", "endpoint_registry", "Endpoint registry seed data", "scripts/init_db.py", 6, 1, 1),
     ("BDS-5000007", "architecture_decision_records", "architecture_decision_records", "Architecture Decision Record seed data", "scripts/init_db.py", 4, 1, 1),
+    ("BDS-5000008", "webui_migration_targets", "webui_migration_targets", "WebUI migration target seed data", "scripts/init_db.py", 1, 1, 1),
 ]
 
 # Safely insert or update bootstrap_dataset_registry data (no DELETE)
@@ -456,6 +458,52 @@ for dataset in bootstrap_dataset_data:
     """, dataset)
 
 # Create architecture_decision_records table
+# Create webui_migration_targets table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS webui_migration_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id TEXT UNIQUE NOT NULL,
+    target_project_key TEXT UNIQUE NOT NULL,
+    target_project_name TEXT NOT NULL,
+    target_project_path TEXT NOT NULL,
+    target_port INTEGER NOT NULL,
+    target_status TEXT NOT NULL,
+    source_project_path TEXT NOT NULL,
+    migration_strategy TEXT NOT NULL,
+    related_adr_id TEXT,
+    notes TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed webui_migration_targets data (no DELETE — upsert style)
+webui_migration_targets_data = [
+    (
+        "WMT-7000001",
+        "ai_pc_resource_webui_v2",
+        "AI PC Resource WebUI v2",
+        "/home/svend/ai-pc-resource-webui-v2",
+        9121,
+        "planned",
+        "/home/svend/ai-pc-resource-webui",
+        "new_clean_project_reuse_selected_panels",
+        "ADR-6000001",
+        "New clean AI PC Resource WebUI version on a different port. No project files created in this phase.",
+        1,
+    ),
+]
+
+for target in webui_migration_targets_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO webui_migration_targets
+        (target_id, target_project_key, target_project_name, target_project_path,
+         target_port, target_status, source_project_path, migration_strategy,
+         related_adr_id, notes, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, target)
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS architecture_decision_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
