@@ -1093,6 +1093,7 @@ ALLOWED_BOOTSTRAP_TABLES = {
     "ui_label_translations",
     "endpoint_registry",
     "architecture_decision_records",
+    "webui_migration_targets",
 }
 
 
@@ -1201,6 +1202,42 @@ async def get_architecture_decision_records():
 
     conn.close()
     return {"architecture_decision_records": architecture_decision_records}
+
+
+@app.get("/api/webui-migration-targets")
+async def get_webui_migration_targets():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get active migration targets ordered by target_id
+    cursor.execute("""
+        SELECT target_id, target_project_key, target_project_name,
+               target_project_path, target_port, target_status,
+               source_project_path, migration_strategy,
+               related_adr_id, notes, is_active
+        FROM webui_migration_targets
+        WHERE is_active = 1
+        ORDER BY target_id
+    """)
+
+    webui_migration_targets = []
+    for row in cursor.fetchall():
+        webui_migration_targets.append({
+            "target_id": row[0],
+            "target_project_key": row[1],
+            "target_project_name": row[2],
+            "target_project_path": row[3],
+            "target_port": row[4],
+            "target_status": row[5],
+            "source_project_path": row[6],
+            "migration_strategy": row[7],
+            "related_adr_id": row[8],
+            "notes": row[9],
+            "is_active": bool(row[10]),
+        })
+
+    conn.close()
+    return {"webui_migration_targets": webui_migration_targets}
 
 
 @app.get("/api/project-plans")
