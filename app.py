@@ -1096,6 +1096,7 @@ ALLOWED_BOOTSTRAP_TABLES = {
     "webui_migration_targets",
     "reusable_panel_selections",
     "webui_project_skeletons",
+    "v2_panel_requirements",
 }
 
 
@@ -1311,6 +1312,48 @@ async def get_webui_project_skeletons():
 
     conn.close()
     return {"webui_project_skeletons": webui_project_skeletons}
+
+
+@app.get("/api/v2-panel-requirements")
+async def get_v2_panel_requirements():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get active v2 panel requirements ordered by panel_key, display_order
+    cursor.execute("""
+        SELECT requirement_id, target_project_key, panel_key, panel_title,
+               card_key, card_title, card_type, display_order,
+               source_reference, required_data_json, visual_requirements_json,
+               behavior_requirements_json, implementation_status,
+               is_required, is_active
+        FROM v2_panel_requirements
+        WHERE is_active = 1
+        ORDER BY panel_key, display_order
+    """)
+
+    v2_panel_requirements = []
+    for row in cursor.fetchall():
+        record = {
+            "requirement_id": row[0],
+            "target_project_key": row[1],
+            "panel_key": row[2],
+            "panel_title": row[3],
+            "card_key": row[4],
+            "card_title": row[5],
+            "card_type": row[6],
+            "display_order": row[7],
+            "source_reference": row[8],
+            "required_data": json.loads(row[9]),
+            "visual_requirements": json.loads(row[10]),
+            "behavior_requirements": json.loads(row[11]),
+            "implementation_status": row[12],
+            "is_required": bool(row[13]),
+            "is_active": bool(row[14]),
+        }
+        v2_panel_requirements.append(record)
+
+    conn.close()
+    return {"v2_panel_requirements": v2_panel_requirements}
 
 
 @app.get("/api/project-plans")

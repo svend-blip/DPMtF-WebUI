@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 
 # Database path
 DB_PATH = "databases/dpmtf.db"
@@ -412,6 +413,7 @@ endpoint_registry_data = [
     ("ENDP-4000009", "webui_migration_targets", "/api/webui-migration-targets", "GET", "WebUI migration target registry", "webui migration targets JSON", "system_setup_drawer"),
     ("ENDP-4000010", "reusable_panel_selections", "/api/reusable-panel-selections", "GET", "Reusable AI PC panel selection registry", "reusable panel selections JSON", "system_setup_drawer"),
     ("ENDP-4000011", "webui_project_skeletons", "/api/webui-project-skeletons", "GET", "WebUI project skeleton registry", "webui project skeletons JSON", "system_setup_drawer"),
+    ("ENDP-4000012", "v2_panel_requirements", "/api/v2-panel-requirements", "GET", "AI PC Resource WebUI v2 panel requirements registry", "v2 panel requirements JSON", "system_setup_drawer"),
 ]
 
 # Safely insert or update endpoint_registry data (no DELETE)
@@ -451,6 +453,7 @@ bootstrap_dataset_data = [
     ("BDS-5000008", "webui_migration_targets", "webui_migration_targets", "WebUI migration target seed data", "scripts/init_db.py", 1, 1, 1),
     ("BDS-5000009", "reusable_panel_selections", "reusable_panel_selections", "Reusable AI PC panel selection seed data", "scripts/init_db.py", 5, 1, 1),
     ("BDS-5000010", "webui_project_skeletons", "webui_project_skeletons", "WebUI project skeleton seed/status data", "scripts/init_db.py", 1, 1, 1),
+    ("BDS-5000011", "v2_panel_requirements", "v2_panel_requirements", "AI PC Resource WebUI v2 panel requirements seed data", "scripts/init_db.py", 5, 1, 1),
 ]
 
 # Safely insert or update bootstrap_dataset_registry data (no DELETE)
@@ -725,6 +728,254 @@ for adr in adr_data:
         (adr_id, adr_key, adr_title, decision_status, decision_context, decision_text, consequences, related_phase_key)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, adr)
+
+# Create v2_panel_requirements table
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS v2_panel_requirements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    requirement_id TEXT UNIQUE NOT NULL,
+    target_project_key TEXT NOT NULL,
+    panel_key TEXT NOT NULL,
+    panel_title TEXT NOT NULL,
+    card_key TEXT NOT NULL,
+    card_title TEXT NOT NULL,
+    card_type TEXT NOT NULL,
+    display_order INTEGER NOT NULL,
+    source_reference TEXT,
+    required_data_json TEXT NOT NULL,
+    visual_requirements_json TEXT NOT NULL,
+    behavior_requirements_json TEXT NOT NULL,
+    implementation_status TEXT NOT NULL,
+    is_required INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed v2_panel_requirements data (no DELETE — upsert style)
+v2_panel_requirements_data = [
+    # VPR-1000001: CUDA0 - RTX5090 (gpu_gauge)
+    (
+        "VPR-1000001",
+        "ai_pc_resource_webui_v2",
+        "system_resources",
+        "System Resources",
+        "cuda0_rtx5090",
+        "CUDA0 - RTX5090",
+        "gpu_gauge",
+        1,
+        "/home/svend/ai-pc-resource-webui System Resources CUDA0 card",
+        json.dumps({
+            "data_source": "/api/status",
+            "json_collection": "gpus",
+            "match_field": "index",
+            "match_values": ["0"],
+            "fields": ["index", "name", "memory_used_mb", "memory_total_mb", "memory_free_mb", "utilization_percent"],
+            "display_fields": ["memory_used_mb", "memory_total_mb"],
+            "label": "VRAM used",
+        }),
+        json.dumps({
+            "dark_dashboard_style": True,
+            "system_resources_section_heading": True,
+            "card_grid_layout": True,
+            "dark_rounded_cards": True,
+            "subtle_border": True,
+            "white_card_titles": True,
+            "gpu_cards_use_gauge_speedometer_style": True,
+            "preserve_current_visual_appearance": True,
+        }),
+        json.dumps({
+            "read_only": True,
+            "no_wrappers": True,
+            "no_confirmation_gate_required": True,
+            "no_post_actions": True,
+            "refresh_interval_seconds": 30,
+            "exact_display_order": True,
+            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+        }),
+        "specified",
+        1,
+        1,
+    ),
+    # VPR-1000002: CUDA1 - RTX3060 (gpu_gauge)
+    (
+        "VPR-1000002",
+        "ai_pc_resource_webui_v2",
+        "system_resources",
+        "System Resources",
+        "cuda1_rtx3060",
+        "CUDA1 - RTX3060",
+        "gpu_gauge",
+        2,
+        "/home/svend/ai-pc-resource-webui System Resources CUDA1 card",
+        json.dumps({
+            "data_source": "/api/status",
+            "json_collection": "gpus",
+            "match_field": "index",
+            "match_values": ["1"],
+            "fields": ["index", "name", "memory_used_mb", "memory_total_mb", "memory_free_mb", "utilization_percent"],
+            "display_fields": ["memory_used_mb", "memory_total_mb"],
+            "label": "VRAM used",
+        }),
+        json.dumps({
+            "dark_dashboard_style": True,
+            "system_resources_section_heading": True,
+            "card_grid_layout": True,
+            "dark_rounded_cards": True,
+            "subtle_border": True,
+            "white_card_titles": True,
+            "gpu_cards_use_gauge_speedometer_style": True,
+            "preserve_current_visual_appearance": True,
+        }),
+        json.dumps({
+            "read_only": True,
+            "no_wrappers": True,
+            "no_confirmation_gate_required": True,
+            "no_post_actions": True,
+            "refresh_interval_seconds": 30,
+            "exact_display_order": True,
+            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+        }),
+        "specified",
+        1,
+        1,
+    ),
+    # VPR-1000003: /home/svend (disk_usage)
+    (
+        "VPR-1000003",
+        "ai_pc_resource_webui_v2",
+        "system_resources",
+        "System Resources",
+        "home_svend_disk",
+        "/home/svend",
+        "disk_usage",
+        3,
+        "/home/svend/ai-pc-resource-webui System Resources /home/svend disk card",
+        json.dumps({
+            "data_source": "/api/status",
+            "json_collection": "storage",
+            "match_field": "path",
+            "match_values": ["/home/svend"],
+            "fields": ["path", "size", "used", "available", "use_percent"],
+            "display_rows": ["Size", "Used", "Free", "Use"],
+        }),
+        json.dumps({
+            "dark_dashboard_style": True,
+            "system_resources_section_heading": True,
+            "card_grid_layout": True,
+            "dark_rounded_cards": True,
+            "subtle_border": True,
+            "white_card_titles": True,
+            "disk_cards_use_text_rows": True,
+            "preserve_current_visual_appearance": True,
+        }),
+        json.dumps({
+            "read_only": True,
+            "no_wrappers": True,
+            "no_confirmation_gate_required": True,
+            "no_post_actions": True,
+            "refresh_interval_seconds": 30,
+            "exact_display_order": True,
+            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+        }),
+        "specified",
+        1,
+        1,
+    ),
+    # VPR-1000004: /home/svend/ai-data (disk_usage)
+    (
+        "VPR-1000004",
+        "ai_pc_resource_webui_v2",
+        "system_resources",
+        "System Resources",
+        "ai_data_disk",
+        "/home/svend/ai-data",
+        "disk_usage",
+        4,
+        "/home/svend/ai-pc-resource-webui System Resources /home/svend/ai-data disk card",
+        json.dumps({
+            "data_source": "/api/status",
+            "json_collection": "storage",
+            "match_field": "path",
+            "match_values": ["/home/svend/ai-data"],
+            "fields": ["path", "size", "used", "available", "use_percent"],
+            "display_rows": ["Size", "Used", "Free", "Use"],
+        }),
+        json.dumps({
+            "dark_dashboard_style": True,
+            "system_resources_section_heading": True,
+            "card_grid_layout": True,
+            "dark_rounded_cards": True,
+            "subtle_border": True,
+            "white_card_titles": True,
+            "disk_cards_use_text_rows": True,
+            "preserve_current_visual_appearance": True,
+        }),
+        json.dumps({
+            "read_only": True,
+            "no_wrappers": True,
+            "no_confirmation_gate_required": True,
+            "no_post_actions": True,
+            "refresh_interval_seconds": 30,
+            "exact_display_order": True,
+            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+        }),
+        "specified",
+        1,
+        1,
+    ),
+    # VPR-1000005: Tailscale (tailscale_status)
+    (
+        "VPR-1000005",
+        "ai_pc_resource_webui_v2",
+        "system_resources",
+        "System Resources",
+        "tailscale",
+        "Tailscale",
+        "tailscale_status",
+        5,
+        "/home/svend/ai-pc-resource-webui System Resources Tailscale card",
+        json.dumps({
+            "data_source": "/api/status",
+            "json_object": "tailscale",
+            "fields": ["installed", "ip"],
+            "display_rows": ["Installed", "IP"],
+        }),
+        json.dumps({
+            "dark_dashboard_style": True,
+            "system_resources_section_heading": True,
+            "card_grid_layout": True,
+            "dark_rounded_cards": True,
+            "subtle_border": True,
+            "white_card_titles": True,
+            "tailscale_card_uses_text_rows": True,
+            "preserve_current_visual_appearance": True,
+        }),
+        json.dumps({
+            "read_only": True,
+            "no_wrappers": True,
+            "no_confirmation_gate_required": True,
+            "no_post_actions": True,
+            "refresh_interval_seconds": 30,
+            "exact_display_order": True,
+            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+        }),
+        "specified",
+        1,
+        1,
+    ),
+]
+
+for req in v2_panel_requirements_data:
+    cursor.execute("""
+        INSERT OR REPLACE INTO v2_panel_requirements
+        (requirement_id, target_project_key, panel_key, panel_title,
+         card_key, card_title, card_type, display_order, source_reference,
+         required_data_json, visual_requirements_json, behavior_requirements_json,
+         implementation_status, is_required, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, req)
 
 # Commit changes and close connection
 conn.commit()
