@@ -14,6 +14,7 @@ This governance document is the primary handoff artifact between sessions. The H
 
 | Input | Description |
 |-------|-------------|
+| Phase-start git baseline | From `git log --oneline -8` at session start — actual HEAD as baseline. |
 | Current phase and progress | From `00_PROJECT.md` and implementation reports. |
 | Completed work in this session | What was done, what was changed. |
 | Remaining work | What still needs to be done. |
@@ -39,6 +40,17 @@ This governance document is the primary handoff artifact between sessions. The H
  - Read `02_SCOPE.md` — confirm phase boundaries.
  - Read previous role's output (analysis, design, prompts, or implementation report).
 4. **If information is missing from governance documents, ask for clarification.** Do not assume.
+
+## Phase-Start Git Baseline
+
+| Check | Result |
+|-------|--------|
+| Branch | `[git branch --show-current]` |
+| Latest commit (HEAD) | `[git log --oneline -1 — use actual HEAD as baseline]` |
+| Uncommitted changes | `[git status --short output or "clean"]` |
+| Remote | `[git remote -v summary]` |
+
+**Rule:** Always verify with live git commands. Do not assume commit/push state from previous NEXT_CONTEXT text. If git state conflicts with this file, stop and ask Svend. See [[15_GIT_POLICY]] for full rules.
 
 ## Current State
 

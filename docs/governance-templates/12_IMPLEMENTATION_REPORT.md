@@ -32,6 +32,18 @@ This governance document captures what was implemented in a specific prompt-run 
 
 [Phase key and title, e.g., `3A — Governance Foundation`]
 
+## Phase-Start Git Baseline
+
+Recorded at session start per [[15_GIT_POLICY]] phase-start baseline checks. Use actual HEAD as the latest committed baseline for this phase.
+
+| Check | Result |
+|-------|--------|
+| Branch | `[git branch --show-current]` |
+| HEAD commit | `[git log --oneline -1 — actual HEAD at phase start]` |
+| Recent commits | `[git log --oneline -8 summary]` |
+| Uncommitted changes | `[git status --short output or "clean"]` |
+| Remote | `[git remote -v summary]` |
+
 ## Prompt-Run ID
 
 [PRUN-XXXXXX, if applicable. Reference the prompt-run from `docs/prompt-runs/`.]

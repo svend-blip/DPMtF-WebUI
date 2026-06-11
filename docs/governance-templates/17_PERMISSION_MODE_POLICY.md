@@ -6,7 +6,7 @@ This governance document defines when Claude Code may proceed automatically in *
 
 ## When to Use
 
-- **Every session start**: Determine whether the current work falls within Auto-mode boundaries.
+- **Every session start**: Perform phase-start git baseline checks per [[15_GIT_POLICY]] before determining mode. Determine whether the current work falls within Auto-mode boundaries.
 - **Before any action outside scope**: Stop and ask if the requested work exceeds policy boundaries.
 - **After `/clear`**: Reconstruct permission expectations without relying on chat memory.
 
