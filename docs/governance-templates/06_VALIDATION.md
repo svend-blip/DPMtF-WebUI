@@ -38,6 +38,7 @@ Every change set must pass all of the following before being considered valid:
 | 4 | Diff scope review | `git diff --stat` | Changes are within phase scope. No broad refactor. |
 | 5 | Dependency check | `git diff requirements.txt` (or equivalent) | No new dependencies added unless explicitly approved. |
 | 6 | Schema change check | Review diff for `ALTER TABLE`, `CREATE TABLE`, or migration scripts | No schema changes unless the phase explicitly allows them. |
+| 7 | Frontend innerHTML check | `grep -RIn "innerHTML" static templates --exclude-dir=__pycache__ || echo "no_innerHTML"` | Result must be `no_innerHTML` or an approved exception. If `innerHTML` is found, Claude must either remove it or report an approved exception with security justification. |
 
 ## Functional Validation
 

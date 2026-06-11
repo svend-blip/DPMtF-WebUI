@@ -23,6 +23,7 @@ This directory contains the governance documents that control the DPMtF WebUI ro
 | [`14_OFFLINE_MODE.md`](14_OFFLINE_MODE.md) | Offline Mode | How the project operates without internet; local git as source of truth; offline workflow. |
 | [`15_GIT_POLICY.md`](15_GIT_POLICY.md) | Git Policy | Branch strategy, commit conventions, push policy, temporary hiding for migration and scoped deletion rules. |
 | [`16_DATABASE_RUNTIME_STATE.md`](16_DATABASE_RUNTIME_STATE.md) | Database Runtime State | What lives in the database vs governance files; UI text slots, bindings, labels, and translations as separate registry layers; schema change policy. |
+| [`17_PERMISSION_MODE_POLICY.md`](17_PERMISSION_MODE_POLICY.md) | Permission Mode Policy | When Claude Code may run in Auto mode, when it must stop and ask Svend, phase modes, and stop-and-ask rules. |
 
 ## How to Use These Templates
 
