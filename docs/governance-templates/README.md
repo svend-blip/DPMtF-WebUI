@@ -26,7 +26,21 @@ This directory contains the governance documents that control the DPMtF WebUI ro
 
 ## How to Use These Templates
 
-1. **Project initializer**: Copy all templates before starting a new phase or target project. Fill in the placeholder sections (`[...]`).
+### Project Initializer (script)
+
+Templates are copied into a target project as `<target>/docs/dpmtf/` using the
+governance initializer script:
+
+```bash
+python3 scripts/initialize_target_project_governance.py <target-path> [--dry-run] [--overwrite]
+```
+
+This ensures every target project starts with the same governance baseline.
+See [`docs/project-initializer.md`](../project-initializer.md) for full usage details, path validation rules, and backup behavior.
+
+### Day-to-day
+
+1. **Before a new phase or target project**: Run the initializer script above, then fill in placeholder sections (`[...]`).
 2. **During a session**: Each role reads the relevant governance documents before acting (see `01_ROLES.md` for handoff rules).
 3. **After `/clear`**: Read in order: `11_NEXT_CONTEXT.md` → `00_PROJECT.md` → `01_ROLES.md` → `02_SCOPE.md`.
 4. **Between phases**: Update scope, reset reports, and update the decision log.
