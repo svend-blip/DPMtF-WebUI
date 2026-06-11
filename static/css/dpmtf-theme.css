@@ -439,3 +439,13 @@ h3 {
   font-size: 0.85em;
   word-break: break-word;
 }
+
+/*
+ * Governance-first direction — temporarily hidden panels.
+ * These sections are tied to the old panel-migration architecture
+ * and are not relevant for the governance/orchestration engine direction.
+ * Code is NOT deleted — remove the class below to restore visibility.
+ */
+.dpmtf-hidden-governance {
+  display: none !important;
+}
