@@ -57,6 +57,15 @@ This governance document captures what was implemented in a specific prompt-run 
 | Page loads without errors | Browser test | Pass / Fail | Console checked for errors. |
 | Backend health endpoint | `curl http://localhost:9130/api/health` | Pass / Fail | |
 
+## Permission Mode Compliance
+
+| Item | Result |
+|------|--------|
+| Permission policy result | allowed / blocked / ask_human |
+| Actual Claude Code mode | Auto mode |
+| Frontend innerHTML check | no_innerHTML / approved_innerHTML_exception — [details] |
+| Stopped before commit? | Yes / No — (should always be Yes unless explicitly told otherwise.) |
+
 ## Known Issues
 
 - [Issue 1 — description, severity, and impact. If any.]

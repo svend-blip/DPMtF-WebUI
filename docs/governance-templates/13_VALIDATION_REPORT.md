@@ -50,6 +50,8 @@ This governance document records the results of the Validator role's checks for 
 | Migration hiding correct (if applicable) | Verify hidden panels use named class, are reversible, and cleanup is documented | Pass / Fail / N/A | N/A for new projects or clean implementation phases. |
 | Scoped deletion verified (if applicable) | Verify removed code has no dangling references, validation passes, approval obtained | Pass / Fail / N/A | N/A if nothing was deleted in this phase. |
 | No broad refactor | Review diff for unrelated rewrites | Pass / Fail | |
+| Permission policy followed | Check `17_PERMISSION_MODE_POLICY.md` — was Auto mode appropriate? Were stop-and-ask rules observed? | Pass / Fail | |
+| Frontend innerHTML absent | `grep -RIn "innerHTML" static templates --exclude-dir=__pycache__ || echo "no_innerHTML"` | Pass / Fail / N/A | Must be `no_innerHTML` or documented as `approved_innerHTML_exception`. |
 
 ## Scope Compliance
 

@@ -53,13 +53,24 @@ The following patterns are forbidden unless explicitly approved:
 4. Database queries must use parameterized statements (no string interpolation for SQL).
 5. Import ordering: standard library → third-party → local imports, separated by blank lines.
 
-## JavaScript
+## JavaScript / Frontend DOM Safety
 
 1. Run `node --check <file>` to verify syntax before committing.
 2. Use `camelCase` for variables and functions; match existing naming patterns.
 3. No global state mutation without an explicit comment explaining why.
 4. DOM manipulation should be localized — avoid side effects on unrelated elements.
 5. Event handlers must be properly removed when panels are hidden or destroyed.
+
+### Frontend DOM Safety (XSS Prevention)
+
+The following rules prevent XSS and DOM-injection vulnerabilities:
+
+1. **Do not use `innerHTML`** for rendering dynamic content. Using `innerHTML` with user-supplied or dynamically generated data is an auto-fail in validation unless explicitly approved at the phase level.
+2. **Use safe DOM APIs** — construct elements using `document.createElement()`, set text via `textContent`, and attach nodes with `appendChild()` or `replaceChildren()`.
+3. **Clearing containers** — to empty a container, use `element.replaceChildren()` rather than `element.innerHTML = ""`.
+4. **Approved exceptions** — if `innerHTML` must be used (e.g., rendering pre-authenticated static markup), it requires explicit phase-level approval AND a short security justification documented in the implementation report. Any exception is recorded as `approved_innerHTML_exception` in the validation report.
+
+---
 
 ## CSS
 
