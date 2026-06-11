@@ -45,6 +45,26 @@ This governance document defines the git conventions, branching strategy, commit
 4. **Do not commit hidden files or generated artifacts** (`__pycache__/`, `.env`, secrets).
 5. **Stage related changes together** — use `git add` selectively, not `git add -A`.
 
+## Phase-Start Git Baseline Checks
+
+Every phase must begin with actual git baseline checks before any work begins. Claude must run these commands at the start of every session:
+
+1. `git status --short` — check for uncommitted or unstaged changes.
+2. `git log --oneline -8` — review recent commit history.
+3. `git branch --show-current` — confirm active branch.
+4. `git remote -v` — verify remote configuration.
+
+### Baseline Rules
+
+- **Use actual HEAD as the latest committed baseline.** The most recent commit in the local repository is the authoritative reference point for all subsequent work in this phase.
+- **Do not assume commit/push state from chat history or old NEXT_CONTEXT text.** Previously recorded sync status may be stale; always verify with live git commands.
+- **If git state conflicts with NEXT_CONTEXT,** stop and ask Svend before proceeding. Do not silently override governance records.
+- **Record the phase-start baseline** in the implementation report (see [[12_IMPLEMENTATION_REPORT]]).
+
+### Manual Git Operations
+
+- Manual `git add`, `git commit`, and `git push` still require explicit human approval per [[17_PERMISSION_MODE_POLICY]]. This section only governs read-only baseline checks.
+
 ## Before Committing
 
 1. Run syntax checks per `06_VALIDATION.md`:
