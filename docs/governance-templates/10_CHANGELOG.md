@@ -108,3 +108,16 @@ This governance document records all notable changes to the target project in ch
 - Returns: template_key, template_name, suitable_for, prompt text, params_used.
 - Muliggør ENO's prompt-generering til lokal/cloud model eksekvering.
 
+
+### [2026-06-12] — 2J: Validation Automation
+- Added: `validation_rules` tabel — 7 baseline regler fra 06_VALIDATION.md (syntax, scope, dependencies, schema, innerHTML checks).
+- Added: `validation_runs` tabel — kørselshistorik med overall_verdict, rules_total/passed/failed.
+- Added: `validation_results` tabel — per-regel resultater med passed, actual_output, notes.
+- Added: `POST /api/validate` — kører valideringsregler mod et projekt, returnerer struktureret rapport med verdict. Sikkerhedsfilter blokerer destruktive kommandoer.
+- Added: `GET /api/validation-runs` — seneste valideringskørsler.
+- Added: `GET /api/validation-rules` — alle aktive regler.
+- Added: Frontend validation panel i System Setup drawer — viser regler, "Run Validation" knap, farvekodet verdict + per-regel resultat tabel.
+- Registered: ENDP-4000022 + 3 bootstrap datasets (BDS-5000016-18).
+- Phase tracking: 2H/2I→completed, 2J→next.
+- No schema migrations — CREATE TABLE IF NOT EXISTS.
+
