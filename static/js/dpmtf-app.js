@@ -1674,6 +1674,129 @@ let allPanels = [];
             document.getElementById('system-setup-drawer').classList.remove('open');
         }
 
+        // ── Phase 2F: Hitrate Scoring ──────────────────────────────
+
+        function loadHitrates() {
+            var statusEl = document.getElementById("hitrate-status");
+            var table = document.getElementById("hitrate-table");
+            var tbody = document.getElementById("hitrate-table-body");
+            var loadingEl = document.getElementById("hitrate-loading");
+
+            statusEl.textContent = "";
+            loadingEl.style.display = "block";
+            table.style.display = "none";
+
+            fetch("/api/prompt-hirates")
+                .then(function (res) {
+                    if (!res.ok) throw new Error("HTTP " + res.status);
+                    return res.json();
+                })
+                .then(function (data) {
+                    loadingEl.style.display = "none";
+                    var hitrates = data.hitrates || [];
+
+                    if (!hitrates.length) {
+                        tbody.replaceChildren();
+                        var row = document.createElement("tr");
+                        var cell = document.createElement("td");
+                        cell.colSpan = 4;
+                        cell.textContent = "No hitrate data yet. Run a prompt phase to populate.";
+                        row.appendChild(cell);
+                        tbody.appendChild(row);
+                        table.style.display = "table";
+                        statusEl.textContent = "0 phases tracked";
+                        return;
+                    }
+
+                    tbody.replaceChildren();
+                    hitrates.forEach(function (h) {
+                        var row = document.createElement("tr");
+                        var pct = (h.rolling_success_rate * 100).toFixed(0);
+
+                        // Color-code the success rate
+                        var rateClass = pct >= 80 ? "hitrate-good" :
+                                        pct >= 50 ? "hitrate-ok" : "hitrate-low";
+
+                        row.appendChild(td(h.phase_key));
+                        row.appendChild(td(pct + "%", rateClass));
+                        row.appendChild(td(h.successful_runs + " / " + h.total_runs));
+                        row.appendChild(td(h.last_run_timestamp ?
+                            new Date(h.last_run_timestamp).toLocaleString() : "-"));
+                        tbody.appendChild(row);
+                    });
+
+                    table.style.display = "table";
+                    statusEl.textContent = hitrates.length + " phase(s) tracked";
+                })
+                .catch(function (err) {
+                    loadingEl.style.display = "none";
+                    statusEl.textContent = "Error: " + err.message;
+                });
+        }
+
+        function loadPromptRuns() {
+            var tbody = document.getElementById("prompt-runs-table-body");
+            var table = document.getElementById("prompt-runs-table");
+            var loadingEl = document.getElementById("prompt-runs-loading");
+
+            loadingEl.style.display = "block";
+            table.style.display = "none";
+
+            fetch("/api/prompt-runs?limit=20")
+                .then(function (res) {
+                    if (!res.ok) throw new Error("HTTP " + res.status);
+                    return res.json();
+                })
+                .then(function (data) {
+                    loadingEl.style.display = "none";
+                    var runs = data.runs || [];
+
+                    if (!runs.length) {
+                        tbody.replaceChildren();
+                        var row = document.createElement("tr");
+                        var cell = document.createElement("td");
+                        cell.colSpan = 7;
+                        cell.textContent = "No prompt runs recorded yet.";
+                        row.appendChild(cell);
+                        tbody.appendChild(row);
+                        table.style.display = "table";
+                        return;
+                    }
+
+                    tbody.replaceChildren();
+                    runs.forEach(function (r) {
+                        var row = document.createElement("tr");
+                        row.appendChild(td(r.run_id));
+                        row.appendChild(td(r.phase_key));
+                        row.appendChild(td(r.target_project));
+                        row.appendChild(td(r.success ? "✓" : "✗",
+                            r.success ? "hitrate-good" : "hitrate-low"));
+                        row.appendChild(td(r.duration_seconds != null ?
+                            r.duration_seconds + "s" : "-"));
+                        row.appendChild(td(r.model_used || "-"));
+                        row.appendChild(td(r.run_timestamp ?
+                            new Date(r.run_timestamp).toLocaleString() : "-"));
+                        tbody.appendChild(row);
+                    });
+
+                    table.style.display = "table";
+                })
+                .catch(function (err) {
+                    loadingEl.style.display = "none";
+                });
+        }
+
+        function td(text, className) {
+            var cell = document.createElement("td");
+            cell.textContent = text;
+            if (className) cell.className = className;
+            return cell;
+        }
+
+        // Initialize hitrate display
+        loadHitrates();
+        loadPromptRuns();
+
         // Initialize system setup drawer before other startup calls
         initSystemSetupDrawer();
 

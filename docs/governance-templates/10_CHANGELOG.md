@@ -54,4 +54,17 @@ This governance document records all notable changes to the target project in ch
 - Ændret: 01_ROLES, 03_FILE_ACCESS_POLICY, 08_TESTPLAN, 09_DECISIONS, 13_VALIDATION_REPORT, 14_OFFLINE_MODE forblev uændrede (identiske mellem master og v3).
 - Skrevet: `docs/project-report.md` — tværgående analyse af DPMtF-WebUI, ai-pc-resource-webui-v2, og ai-pc-resource-webui-v3 med anbefalinger til governance, automatisering, og transition til lokal model.
 
+### [2026-06-12] — 2F: Hitrate Scoring
+- Added: `prompt_runs` tabel — individuelle prompt-kørsler med run_id, phase_key, target_project, success, duration_seconds, error_summary, model_used, timestamp.
+- Added: `prompt_hitrates` tabel — aggregerede success rates grupperet efter phase_key med rolling_success_rate, total_runs, successful_runs.
+- Added: `GET /api/prompt-runs` — list prompt runs med valgfri filtre (phase_key, target_project, success, limit/offset).
+- Added: `POST /api/prompt-runs` — record en ny prompt-kørsel og opdatér hitrate-aggregatet atomisk via INSERT + ON CONFLICT UPDATE.
+- Added: `GET /api/prompt-hirates` — aggregerede hitrate-statistikker sorteret efter success rate (værst først).
+- Added: Frontend hitrate-panel i `templates/index.html` med farvekodede success rates (grøn ≥80%, orange ≥50%, rød <50%) og expandable "Recent Prompt Runs" tabel.
+- Added: `loadHitrates()` og `loadPromptRuns()` funktioner i `static/js/dpmtf-app.js` — bruger `createElement`/`textContent`/`replaceChildren` (ingen innerHTML).
+- Added: CSS styles for `.hitrate-section`, `.hitrate-good`, `.hitrate-ok`, `.hitrate-low` i `static/css/dpmtf-theme.css`.
+- Seeded: 2E run som første prompt_runs record (PRUN-2E-0001) og tilhørende hitrate-aggregat.
+- Registered: 3 nye endpoints i endpoint_registry (ENDP-4000013 til ENDP-4000015) og 2 bootstrap datasets (BDS-5000012, BDS-5000013).
+- No schema migrations — nye tabeller via CREATE TABLE IF NOT EXISTS.
+
 ---

@@ -88,6 +88,51 @@
             </div>
         </div>
 
+        <!-- Phase 2F: Hitrate Scoring Panel -->
+        <div class="hitrate-section">
+            <h3>Prompt Hitrates</h3>
+            <div id="hitrate-controls" style="margin-bottom: 10px;">
+                <button id="refresh-hitrates-btn" type="button" onclick="loadHitrates()">Refresh</button>
+                <span id="hitrate-status" style="margin-left: 10px; font-size: 0.8em;"></span>
+            </div>
+            <div id="hitrate-table-container">
+                <p id="hitrate-loading">Loading hitrate data...</p>
+                <table id="hitrate-table" class="panel-table" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Phase</th>
+                            <th>Success Rate</th>
+                            <th>Successful / Total</th>
+                            <th>Last Run</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hitrate-table-body">
+                    </tbody>
+                </table>
+            </div>
+            <details style="margin-top: 15px;">
+                <summary>Recent Prompt Runs</summary>
+                <div id="prompt-runs-container">
+                    <p id="prompt-runs-loading">Loading recent runs...</p>
+                    <table id="prompt-runs-table" class="panel-table" style="display: none;">
+                        <thead>
+                            <tr>
+                                <th>Run ID</th>
+                                <th>Phase</th>
+                                <th>Project</th>
+                                <th>Success</th>
+                                <th>Duration</th>
+                                <th>Model</th>
+                                <th>Timestamp</th>
+                            </tr>
+                        </thead>
+                        <tbody id="prompt-runs-table-body">
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        </div>
+
         <!-- App Profiles Section — temporarily hidden for governance-first direction -->
         <div class="app-profiles-section dpmtf-hidden-governance">
             <h3>App Profiles</h3>

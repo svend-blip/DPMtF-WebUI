@@ -449,3 +449,44 @@ h3 {
 .dpmtf-hidden-governance {
   display: none !important;
 }
+
+/*
+ * Phase 2F — Hitrate Scoring panel
+ */
+.hitrate-section {
+  margin: 20px 0;
+  padding: 15px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #1a1a2e;
+}
+
+.hitrate-section h3 {
+  margin: 0 0 10px 0;
+  color: #e0e0e0;
+}
+
+.hitrate-good {
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.hitrate-ok {
+  color: #ff9800;
+  font-weight: bold;
+}
+
+.hitrate-low {
+  color: #f44336;
+  font-weight: bold;
+}
+
+.hitrate-section details {
+  cursor: pointer;
+}
+
+.hitrate-section summary {
+  color: #aaa;
+  font-size: 0.9em;
+  margin-bottom: 8px;
+}

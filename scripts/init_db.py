@@ -1425,6 +1425,91 @@ for req in v2_panel_requirements_data:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, req)
 
+# ── Phase 2F: Hitrate Scoring ──────────────────────────────────────────
+# prompt_runs: individual prompt execution records
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS prompt_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT UNIQUE NOT NULL,
+    phase_key TEXT NOT NULL,
+    target_project TEXT NOT NULL,
+    prompt_summary TEXT,
+    success INTEGER NOT NULL DEFAULT 0,
+    duration_seconds INTEGER,
+    error_summary TEXT,
+    model_used TEXT,
+    run_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+)
+""")
+
+# prompt_hitrates: aggregated success rates grouped by phase_key
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS prompt_hitrates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    phase_key TEXT UNIQUE NOT NULL,
+    total_runs INTEGER NOT NULL DEFAULT 0,
+    successful_runs INTEGER NOT NULL DEFAULT 0,
+    rolling_success_rate REAL NOT NULL DEFAULT 0.0,
+    last_run_timestamp TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed empty hitrate records for known phases so the frontend has
+# something to display immediately (INSERT OR IGNORE — idempotent).
+hitrate_seeds = [
+    ("2E", 1, 1, 1.0),   # Governance-template opgradering — 1 run, success
+]
+for phase_key, total, success, rate in hitrate_seeds:
+    cursor.execute("""
+        INSERT OR IGNORE INTO prompt_hitrates
+        (phase_key, total_runs, successful_runs, rolling_success_rate)
+        VALUES (?, ?, ?, ?)
+    """, (phase_key, total, success, rate))
+
+# Seed the 2E run that was just completed so the table is not empty
+cursor.execute("""
+    INSERT OR IGNORE INTO prompt_runs
+    (run_id, phase_key, target_project, prompt_summary, success,
+     duration_seconds, model_used, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", (
+    "PRUN-2E-0001",
+    "2E",
+    "DPMtF-WebUI",
+    "Upgrade 10 governance templates from v3 learnings, restructure phase roadmap to 6-block plan (2E-2O), write cross-project analysis report",
+    1,
+    240,
+    "claude-fable-5",
+    "Completed in one session. All 10 templates upgraded, init_db.py restructured, project-report.md written. Committed as bd671f5.",
+))
+
+# Register the new endpoints in endpoint_registry
+endpoint_registry_2f = [
+    ("ENDP-4000013", "prompt_runs", "/api/prompt-runs", "GET", "List prompt runs with optional phase/project filters", "prompt_runs JSON array", "hitrate_panel"),
+    ("ENDP-4000014", "prompt_runs_create", "/api/prompt-runs", "POST", "Record a new prompt run result and update hitrate aggregate", "created run JSON", "hitrate_panel"),
+    ("ENDP-4000015", "prompt_hitrates", "/api/prompt-hirates", "GET", "Aggregated hitrate statistics grouped by phase", "prompt_hitrates JSON array", "hitrate_panel"),
+]
+for endpoint in endpoint_registry_2f:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap datasets for the new tables
+bootstrap_2f = [
+    ("BDS-5000012", "prompt_runs", "prompt_runs", "Prompt execution records for hitrate tracking", "scripts/init_db.py", 1, 1, 1),
+    ("BDS-5000013", "prompt_hitrates", "prompt_hitrates", "Aggregated hitrate statistics by phase", "scripts/init_db.py", 1, 1, 1),
+]
+for ds in bootstrap_2f:
+    cursor.execute("""
+        INSERT OR REPLACE INTO bootstrap_dataset_registry
+        (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, ds)
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
