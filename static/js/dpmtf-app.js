@@ -1291,6 +1291,56 @@ function buildDrawerContent() {
       sessBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
     });
 
+  // ── Workflow (P→I→V loop) ────────────────────────────
+  var wfCard = el("div", "dpmtf-card");
+  wfCard.appendChild(el("h4", null, "Workflow — P→I→V Loop"));
+  var wfBody = el("div", null);
+  wfBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  wfCard.appendChild(wfBody);
+  content.appendChild(wfCard);
+
+  fetch("/api/workflow/runs?limit=5")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(wfBody);
+      var runs = data.runs || [];
+      if (!runs.length) {
+        wfBody.appendChild(el("p", "dpmtf-muted", "No workflow runs yet."));
+        return;
+      }
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      ["Run", "Phase", "Status", "Started"].forEach(function (h) {
+        thr.appendChild(el("th", null, h));
+      });
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      runs.forEach(function (r) {
+        var row = el("tr", null);
+        row.appendChild(td(r.run_id));
+        row.appendChild(td(r.phase_key));
+        var statusCell = el("td", null);
+        var badge = el("span", "dpmtf-badge " +
+          (r.status === "done" ? "dpmtf-badge-success" :
+           r.status === "failed" ? "dpmtf-badge-danger" :
+           r.status === "implementing" ? "dpmtf-badge-warning" :
+           "dpmtf-badge-info"));
+        badge.textContent = r.status;
+        statusCell.appendChild(badge);
+        row.appendChild(statusCell);
+        row.appendChild(td(r.started_at ? new Date(r.started_at).toLocaleString() : "-"));
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      wfBody.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(wfBody);
+      wfBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
+
   // ── Git Sync ─────────────────────────────────────────
   var gitCard = el("div", "dpmtf-card");
   gitCard.appendChild(el("h4", null, "Git Sync Status"));
