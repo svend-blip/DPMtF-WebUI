@@ -1,348 +1,46 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="da">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DPMtF WebUI</title>
-    <link rel="stylesheet" href="/static/css/dpmtf-theme.css">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="locale" content="da-DK" />
+    <title data-slot="lbl_page_title">Loading...</title>
+    <link rel="stylesheet" href="/static/css/dpmtf-theme.css" />
 </head>
 <body>
-    <div class="container">
-        <h1>DPMtF WebUI</h1>
-        <h2>Deterministic Prompt – MockUp to Finalised</h2>
+    <main class="container">
+        <h1 data-slot="lbl_heading_main">Loading...</h1>
 
-        <div class="system-setup-button-container">
-            <button id="system-setup-btn" type="button">System Setup</button>
+        <section id="db-status-section">
+            <h2 data-slot="lbl_panel_db_status">Database Status</h2>
+            <div id="db-status-content"></div>
+        </section>
+
+        <section id="phase-status-section">
+            <h2 data-slot="lbl_panel_phase_status">Phase Status</h2>
+            <div id="phase-status-content"></div>
+        </section>
+
+        <section id="hitrate-section">
+            <h2 data-slot="lbl_panel_hitrates">Prompt Hitrates</h2>
+            <div id="hitrate-content"></div>
+        </section>
+
+        <section id="prompt-sequence-section">
+            <h2 data-slot="lbl_panel_prompt_sequences">Prompt Sequence Planner</h2>
+            <div id="prompt-sequence-content"></div>
+        </section>
+
+        <section id="project-planning-section">
+            <h2 data-slot="lbl_panel_project_planning">New Project Planning</h2>
+            <div id="project-planning-content"></div>
+        </section>
+
+        <button id="system-setup-btn" type="button" data-slot="lbl_btn_system_setup">System Setup</button>
+        <div id="system-setup-drawer" class="drawer">
+            <div id="drawer-content"></div>
         </div>
-
-        <div class="status-section">
-            <h3>Database Status</h3>
-            <p id="database-status">Loading...</p>
-        </div>
-
-        <!-- Temporarily hidden for governance-first direction — see CSS class dpmtf-hidden-governance -->
-        <div class="imported-panels-section dpmtf-hidden-governance">
-            <h3>Imported Panels</h3>
-            <div id="panels-controls">
-                <div style="margin-bottom: 10px;">
-                    <input type="text" id="panel-search" placeholder="Search panel_key, panel_title, html_id..." style="width: 300px; margin-right: 10px;">
-                    <select id="panel-classification-filter">
-                        <option value="">All Classifications</option>
-                        <option value="unknown">unknown</option>
-                        <option value="starter">starter</option>
-                        <option value="advanced">advanced</option>
-                        <option value="project_specific">project_specific</option>
-                        <option value="debug">debug</option>
-                        <option value="skip">skip</option>
-                    </select>
-                    <select id="panel-sort-field" style="margin-left: 10px;">
-                        <option value="sort_order">Sort by Sort Order</option>
-                        <option value="panel_key">Sort by Panel Key</option>
-                        <option value="panel_title">Sort by Panel Title</option>
-                        <option value="classification">Sort by Classification</option>
-                    </select>
-                    <select id="panel-sort-direction" style="margin-left: 10px;">
-                        <option value="asc">Ascending</option>
-                        <option value="desc">Descending</option>
-                    </select>
-                </div>
-            </div>
-            <div id="panels-count">Loading panel data...</div>
-            <div id="panels-error" class="error-message" style="display: none;"></div>
-            <div id="panels-table-container">
-                <table id="panels-table" class="panel-table">
-                    <thead>
-                        <tr>
-                            <th>Sort Order</th>
-                            <th>Panel Key</th>
-                            <th>Panel Title</th>
-                            <th>HTML ID</th>
-                            <th>Classification</th>
-                        </tr>
-                    </thead>
-                    <tbody id="panels-table-body">
-                        <!-- Panel rows will be inserted here by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="planned-phases">
-            <h3>Completed Phases</h3>
-            <div id="completed-phases-container">
-                <p>Loading completed phases...</p>
-            </div>
-        </div>
-
-        <div class="planned-phases">
-            <h3>Next Planned Phase</h3>
-            <div id="next-phases-container">
-                <p>Loading next phases...</p>
-            </div>
-        </div>
-
-        <div class="planned-phases">
-            <h3>Planned Phases</h3>
-            <div id="planned-phases-container">
-                <p>Loading planned phases...</p>
-            </div>
-        </div>
-
-        <!-- Phase 2F: Hitrate Scoring Panel -->
-        <div class="hitrate-section">
-            <h3>Prompt Hitrates</h3>
-            <div id="hitrate-controls" style="margin-bottom: 10px;">
-                <button id="refresh-hitrates-btn" type="button" onclick="loadHitrates()">Refresh</button>
-                <span id="hitrate-status" style="margin-left: 10px; font-size: 0.8em;"></span>
-            </div>
-            <div id="hitrate-table-container">
-                <p id="hitrate-loading">Loading hitrate data...</p>
-                <table id="hitrate-table" class="panel-table" style="display: none;">
-                    <thead>
-                        <tr>
-                            <th>Phase</th>
-                            <th>Success Rate</th>
-                            <th>Successful / Total</th>
-                            <th>Last Run</th>
-                        </tr>
-                    </thead>
-                    <tbody id="hitrate-table-body">
-                    </tbody>
-                </table>
-            </div>
-            <details style="margin-top: 15px;">
-                <summary>Recent Prompt Runs</summary>
-                <div id="prompt-runs-container">
-                    <p id="prompt-runs-loading">Loading recent runs...</p>
-                    <table id="prompt-runs-table" class="panel-table" style="display: none;">
-                        <thead>
-                            <tr>
-                                <th>Run ID</th>
-                                <th>Phase</th>
-                                <th>Project</th>
-                                <th>Success</th>
-                                <th>Duration</th>
-                                <th>Model</th>
-                                <th>Timestamp</th>
-                            </tr>
-                        </thead>
-                        <tbody id="prompt-runs-table-body">
-                        </tbody>
-                    </table>
-                </div>
-            </details>
-        </div>
-
-        <!-- App Profiles Section — temporarily hidden for governance-first direction -->
-        <div class="app-profiles-section dpmtf-hidden-governance">
-            <h3>App Profiles</h3>
-            <div id="app-profiles-controls">
-                <button id="create-default-profiles-btn" onclick="createDefaultProfiles()">Create Default Profiles</button>
-                <select id="profile-selector" onchange="loadProfilePanels()">
-                    <option value="">Select a profile...</option>
-                </select>
-                <button id="create-draft-sequence-btn" onclick="createDraftPromptSequence()" style="margin-left: 10px;">Create Draft Prompt Sequence</button>
-                <span id="draft-sequence-status" style="margin-left: 10px; font-size: 0.8em;"></span>
-            </div>
-            <div id="app-profiles-error" class="error-message" style="display: none;"></div>
-            <div id="profile-panels-container">
-                <table id="profile-panels-table" class="panel-table" style="display: none;">
-                    <thead>
-                        <tr>
-                            <th>Select</th>
-                            <th>Sort Order</th>
-                            <th>Panel Key</th>
-                            <th>Panel Title</th>
-                            <th>HTML ID</th>
-                        </tr>
-                    </thead>
-                    <tbody id="profile-panels-body">
-                        <!-- Panel rows will be inserted here by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Prompt Sequence Planner Section -->
-        <div class="prompt-sequence-planner-section">
-            <h3>Prompt Sequence Planner</h3>
-            <div id="prompt-sequence-error" class="error-message" style="display: none;"></div>
-            <div id="prompt-sequence-counts" style="margin-bottom: 15px; font-weight: bold;">
-                Sequences: <span id="sequence-count">0</span>, Steps: <span id="step-count">0</span>
-            </div>
-
-            <div class="create-sequence-form">
-                <h4>Create New Prompt Sequence</h4>
-                <div>
-                    <label for="sequence-name">Name:</label>
-                    <input type="text" id="sequence-name" placeholder="Enter sequence name">
-                </div>
-                <div>
-                    <label for="sequence-goal">Goal:</label>
-                    <textarea id="sequence-goal" placeholder="Enter sequence goal"></textarea>
-                </div>
-                <button id="create-sequence-btn" onclick="createPromptSequence()">Create Sequence</button>
-            </div>
-
-            <div class="select-sequence-section">
-                <h4>Select Existing Sequence</h4>
-                <select id="sequence-selector" onchange="loadSequenceSteps()">
-                    <option value="">Select a sequence...</option>
-                </select>
-                <div id="sequence-status" style="margin-top: 10px; font-weight: bold;"></div>
-            </div>
-
-            <div class="sequence-steps-section">
-                <h4>Sequence Steps</h4>
-                <div id="sequence-steps-container">
-                    <p id="empty-steps-message">No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts. Add steps to your sequence to generate prompts.</p>
-                </div>
-            </div>
-
-            <div class="add-step-form">
-                <h4>Add New Step</h4>
-                <div>
-                    <label for="step-title">Step Title:</label>
-                    <input type="text" id="step-title" placeholder="Enter step title">
-                </div>
-                <div>
-                    <label for="target-layer">Target Layer:</label>
-                    <select id="target-layer">
-                        <option value="skeleton">skeleton</option>
-                        <option value="database">database</option>
-                        <option value="frontend">frontend</option>
-                        <option value="css">css</option>
-                        <option value="backend">backend</option>
-                        <option value="config">config</option>
-                        <option value="tests">tests</option>
-                        <option value="docs">docs</option>
-                        <option value="verification">verification</option>
-                        <option value="other">other</option>
-                    </select>
-                </div>
-                <div>
-                    <label for="prompt-text">Prompt Text:</label>
-                    <textarea id="prompt-text" placeholder="Enter prompt text"></textarea>
-                </div>
-                <button id="add-step-btn" onclick="addPromptSequenceStep()">Add Step</button>
-            </div>
-
-            <div class="prompt-preview-section">
-                <h4>Generate Next Prompt Preview</h4>
-                <button id="generate-prompt-btn" onclick="generateNextPrompt()">Generate Next Prompt Preview</button>
-                <div id="prompt-preview-container" style="margin-top: 10px;">
-                    <p id="prompt-preview-message">No prompt generated yet. Select a sequence with planned steps and click "Generate Next Prompt Preview".</p>
-                    <textarea id="prompt-preview" style="width: 100%; height: 200px; display: none;" readonly></textarea>
-                    <button id="copy-prompt-btn" onclick="copyPrompt()" style="display: none; margin-top: 10px;">Copy Prompt</button>
-                    <div id="save-prompt-section" style="margin-top: 10px; display: none;">
-                        <button id="save-generated-prompt-btn" onclick="saveGeneratedPrompt()">Save Generated Prompt</button>
-                        <span id="save-prompt-status" style="margin-left: 10px; font-size: 0.8em;"></span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="prompt-history-section">
-                <h4>Prompt History / Generated Archive</h4>
-                <div id="prompt-history-container">
-                    <p id="prompt-history-message">No generated prompts yet. Generate and save prompts to see them appear here.</p>
-                    <div id="prompt-history-list" style="margin-top: 10px; display: none;"></div>
-                </div>
-            </div>
-
-            <div class="new-project-planning-section">
-                <h3>New Project Planning</h3>
-                <div id="project-plan-error" class="error-message" style="display: none;"></div>
-                <div class="create-project-plan-form">
-                    <div>
-                        <label for="project-name">Project Name:</label>
-                        <input type="text" id="project-name" placeholder="Enter project name">
-                    </div>
-                    <div>
-                        <label for="target-folder">Target Folder:</label>
-                        <input type="text" id="target-folder" placeholder="Enter absolute target folder path">
-                    </div>
-                    <div>
-                        <label for="app-port">App Port:</label>
-                        <input type="number" id="app-port" placeholder="Enter app port (optional)">
-                    </div>
-                    <div>
-                        <label for="app-profile">App Profile:</label>
-                        <select id="app-profile">
-                            <option value="">Select an app profile</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="prompt-sequence">Prompt Sequence:</label>
-                        <select id="prompt-sequence">
-                            <option value="">Select a prompt sequence</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label for="notes">Notes:</label>
-                        <textarea id="notes" placeholder="Enter project notes (optional)"></textarea>
-                    </div>
-                    <button id="create-project-plan-btn" onclick="createProjectPlan()">Create Project Plan</button>
-                    <span id="project-plan-status" style="margin-left: 10px; font-size: 0.8em;"></span>
-                </div>
-                <div id="project-plans-list">
-                    <h4>Existing Project Plans</h4>
-                    <div id="project-plans-container">
-                        <p>Loading project plans...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- System Setup Drawer -->
-        <div id="system-setup-drawer" class="system-setup-drawer">
-            <div class="system-setup-drawer-content">
-                <button id="system-setup-close-btn" class="close-btn" type="button">&times;</button>
-                <h3>System Setup</h3>
-                <div class="drawer-sections">
-                    <div class="drawer-section">
-                        <h4>Layout Slots</h4>
-                        <p>Layout slot management placeholder</p>
-                    </div>
-                    <div class="drawer-section">
-                        <h4>Database Layout Preview</h4>
-                        <p>Read-only preview from /api/frontend-layout</p>
-                        <button id="refresh-layout-preview-btn" type="button">Refresh</button>
-                        <div id="database-layout-preview-container"></div>
-                        <div id="database-layout-preview-status"></div>
-                    </div>
-                    <div class="drawer-section">
-                        <h4>UI Labels / i18n</h4>
-                        <p>Resolved label preview from /api/ui-labels</p>
-                        <div id="i18n-preview-controls" class="i18n-preview-controls">
-                            <select id="i18n-preview-locale">
-                                <option value="en-US" selected>en-US</option>
-                                <option value="da-DK">da-DK</option>
-                            </select>
-                            <button id="refresh-i18n-preview-btn" type="button">Refresh</button>
-                        </div>
-                        <div id="i18n-label-preview-container"></div>
-                        <div id="i18n-label-preview-status"></div>
-                    </div>
-                    <div class="drawer-section">
-                        <h4>Endpoint Registry</h4>
-                        <p>Read-only preview from /api/endpoint-registry</p>
-                        <button id="refresh-endpoint-registry-btn" type="button">Refresh</button>
-                        <div id="endpoint-registry-preview-container"></div>
-                        <div id="endpoint-registry-preview-status"></div>
-                    </div>
-                    <div class="drawer-section">
-                        <h4>Bootstrap Dataset</h4>
-                        <p>Bootstrap dataset management placeholder</p>
-                    </div>
-                    <div class="drawer-section">
-                        <h4>Security / Permissions</h4>
-                        <p>Security and permissions management placeholder</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
+    </main>
     <script src="/static/js/dpmtf-app.js"></script>
 </body>
 </html>
