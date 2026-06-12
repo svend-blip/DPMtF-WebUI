@@ -101,3 +101,10 @@ This governance document records all notable changes to the target project in ch
 - suitable_for feltet muliggør ENO model-valg logik (local/cloud/both).
 - No schema migrations — CREATE TABLE IF NOT EXISTS.
 
+
+### [2026-06-12] — 2I: Local Prompt Compiler
+- Added: `POST /api/prompt-templates/{key}/compile` — kompilerer et prompt fra en template med parametre. Erstatter {placeholders} i fixed-sektioner, indsætter param-værdier, genererer list-punkter.
+- Added: Frontend compile-form i template detail view — felter for project path, phase ID, goal, constraints, allowed files, validation commands. Viser kompileret prompt med copy-knap.
+- Returns: template_key, template_name, suitable_for, prompt text, params_used.
+- Muliggør ENO's prompt-generering til lokal/cloud model eksekvering.
+
