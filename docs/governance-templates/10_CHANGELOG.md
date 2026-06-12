@@ -133,3 +133,13 @@ This governance document records all notable changes to the target project in ch
 - Phase tracking: 2J→completed, 2K→next.
 - No schema migrations — CREATE TABLE IF NOT EXISTS.
 
+
+### [2026-06-12] — 2L: Platform Adapter Framework
+- Added: `platform_adapter.py` — PlatformAdapter ABC med abstrakte metoder for GPU, disk, port, processer.
+- Added: `LinuxPlatformAdapter` — fuld implementation via nvidia-smi, df, ss, ps, fuser.
+- Added: `WindowsPlatformAdapter` — stub for fremtidig Windows-understøttelse.
+- Added: `GET /api/platform` — returnerer OS, Python version, GPU count/details, home disk usage.
+- Added: Platform info panel i System Setup drawer.
+- Phase tracking: 2K→completed, 2L→next.
+- ADR-6000003 compliance: Linux-first, platform-abstraheret.
+
