@@ -886,6 +886,57 @@ async def get_phase_status():
         "planned": planned
     }
 
+@app.post("/api/phases/sync-from-git")
+async def sync_phases_from_git():
+    """Manually sync phase status based on git sync state.
+
+    Checks git_sync_status for all projects. If all tracked projects
+    have unpushed_commits = 0 and last_push_success = 1, advances phases.
+    Otherwise returns current state without changes.
+
+    Returns what was advanced (if anything).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Check git sync status
+    cursor.execute("SELECT * FROM git_sync_status")
+    projects = [dict(r) for r in cursor.fetchall()]
+
+    # Determine if we should advance
+    can_advance = len(projects) > 0
+    for p in projects:
+        if p.get("unpushed_commits", 0) > 0 or not p.get("last_push_success"):
+            can_advance = False
+            break
+
+    if not can_advance:
+        conn.close()
+        return {
+            "advanced": [],
+            "new_next": [],
+            "unchanged": [],
+            "reason": "Unpushed commits exist or no successful push recorded.",
+        }
+
+    # Use the same cursor for phase advancement (avoid DB lock)
+    result = _advance_phase_on_push(cursor)
+
+    # Get remaining planned phases
+    cursor.execute(
+        "SELECT phase_key FROM phase_status WHERE phase_state = 'planned'"
+        " ORDER BY sort_order"
+    )
+    unchanged = [row[0] for row in cursor.fetchall()]
+    conn.close()
+
+    return {
+        "advanced": result["advanced"],
+        "new_next": result["new_next"],
+        "unchanged": unchanged,
+    }
+
 @app.get("/api/frontend-layout")
 async def get_frontend_layout():
     conn = sqlite3.connect(DB_PATH)
