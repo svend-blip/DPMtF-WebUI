@@ -3,6 +3,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import json
+import sys
+import platform
 import sqlite3
 from fastapi import HTTPException
 
@@ -2378,6 +2380,46 @@ async def get_git_operations(limit: int = 20):
 
     conn.close()
     return {"operations": ops}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2L — Platform Adapter Framework
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/platform")
+async def get_platform_info():
+    """Return current platform information.
+
+    Uses the PlatformAdapter to report platform type, available
+    tools, and sample system queries (GPU count, home dir).
+    """
+    from platform_adapter import get_adapter
+    adapter = get_adapter()
+
+    info = {
+        "platform": adapter.get_platform_name(),
+        "python_version": sys.version,
+        "os_release": platform.release(),
+        "home_dir": adapter.get_home_dir(),
+        "path_separator": adapter.get_env_path_separator(),
+    }
+
+    # Lightweight system queries
+    try:
+        gpus = adapter.get_gpu_info()
+        info["gpu_count"] = len(gpus)
+        info["gpus"] = gpus[:2]  # First two GPUs
+    except Exception:
+        info["gpu_count"] = 0
+
+    try:
+        home_usage = adapter.get_disk_usage(adapter.get_home_dir())
+        info["home_disk"] = home_usage
+    except Exception:
+        info["home_disk"] = None
+
+    return info
 
 
 if __name__ == "__main__":
