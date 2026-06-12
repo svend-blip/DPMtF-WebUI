@@ -42,8 +42,8 @@ This governance document is the primary handoff artifact between sessions. The H
 | Check | Result |
 |-------|--------|
 | Branch | `master` |
-| Latest commit (HEAD) | `5aa54e1` (2F-bis: Rewrite dpmtf-app.js) — actual HEAD as baseline |
-| Uncommitted changes | Phase 2F-bis documentation (see Current State below) |
+| Latest commit (HEAD) | `d6259b1` (2G: Add pattern table + extended runs) — actual HEAD as baseline |
+| Uncommitted changes | Phase 2G documentation (see Current State below) |
 | Remote | `origin → https://github.com/svend-blip/DPMtF-WebUI.git` |
 
 **Rule:** Always verify with live git commands. Do not assume commit/push state from previous NEXT_CONTEXT text. If git state conflicts with this file, stop and ask Svend. See [[15_GIT_POLICY]] for full rules.
@@ -51,9 +51,9 @@ This governance document is the primary handoff artifact between sessions. The H
 ## Current State
 
 - **Project**: DPMtF WebUI — governance-first orchestration engine
-- **Current phase**: Phase 2F-bis — Frontend i18n + Dark Theme Refactoring (uncommitted docs)
-- **Latest committed baseline before this phase**: b28fac5 (2F: Hitrate Scoring)
-- **Blok 1-4 (1A-2F) er completed og committed.** Blok 4-bis (2F-bis) er implementeret, docs uncommitted. Blok 5-6 (2G-2O) er planned.
+- **Current phase**: Phase 2G — Implementation Pattern Manager (uncommitted docs)
+- **Latest committed baseline before this phase**: 26f5c81 (2F-bis: Documentation update)
+- **Blok 1-5 (1A-2G) er completed og committed.** Blok 6 (2H-2O) er planned.
 
 ### Phase Progress
 
@@ -61,11 +61,11 @@ This governance document is the primary handoff artifact between sessions. The H
 |-------|--------|-------------|
 | **Blok 1: Core infrastructure (1A-1X)** | **24 faser — alle completed** | Skeleton, panel import, classification, app profiles, prompt sequences, layout schema, i18n, endpoint registry, bootstrap dataset, ADR |
 | **Blok 2: Migration prep (2A-2D)** | **4 faser — alle completed** | AI PC WebUI migration target, reusable panel selection, project skeleton, v2 panel requirements |
-| **2E** | **Completed — committed (bd671f5)** | **Governance-template opgradering: 10 templates upgraded fra v3-læringer. Fase-tracking restruktureret med nyt 6-blok roadmap (2F-2O). Projektrapport skrevet.** |
-| **2F** | **Completed — committed (b28fac5)** | **Hitrate Scoring: prompt_runs + prompt_hitrates tabeller, GET/POST /api/prompt-runs, GET /api/prompt-hirates, frontend hitrate-panel.** |
-| **2F-bis** | **In progress (docs uncommitted)** | **Frontend i18n + Dark Theme Refactoring: 46 nye labels, skeleton HTML (46 linjer), 0 dynamisk innerHTML, mørkt dashboard-tema, 54 lbl() i18n opslag, fire-lags i18n arkitektur.** |
-| **2G** | **Next** | **Implementation Pattern Manager: Capture successful implementation patterns fra completed faser.** |
-| **2H** | Planned | Prompt Template Manager |
+| **2E** | **Completed — committed (bd671f5)** | **Governance-template opgradering** |
+| **2F** | **Completed — committed (b28fac5)** | **Hitrate Scoring: prompt_runs + prompt_hitrates, API, frontend** |
+| **2F-bis** | **Completed — committed (26f5c81)** | **Frontend i18n + Dark Theme: 46 labels, skeleton HTML, 0 dynamic innerHTML, dark dashboard** |
+| **2G** | **In progress (docs uncommitted)** | **Implementation Pattern Manager: implementation_patterns tabel, pattern-matching i POST /api/prompt-runs, GET /api/implementation-patterns, frontend pattern-tabel med expandable runs, model metadata (type/tokens/cost)** |
+| **2H** | **Next** | **Prompt Template Manager: Migrate static templates to database-driven** |
 | **2I** | Planned | Local Prompt Compiler |
 | **2J** | Planned | Validation Automation |
 | **2K** | Planned | Git Sync Management |
@@ -76,18 +76,16 @@ This governance document is the primary handoff artifact between sessions. The H
 
 ## Completed in This Session
 
-- **Phase 2F-bis — Frontend i18n + Dark Theme Refactoring**: Komplet frontend-oprydning til v3-standard.
-  - i18n: 46 nye labels (LBL-1000007 til LBL-1000052), 104 oversættelser (52 da-DK + 52 en-US), ui_text_slots + ui_text_slot_labels tabeller oprettet.
-  - HTML: Reduceret fra 348 til 46 linjers skeleton med 8 data-slot attributter.
-  - JS: Omskrevet fra 1813 til 840 linjer, 9 logiske sektioner, 54 lbl() i18n opslag, 1 statisk innerHTML (&times;).
-  - CSS: Komplet mørkt dashboard-tema (#0d1117, #21262d cards), .dpmtf- prefix konvention.
-  - Backend: app.py uændret — alle eksisterende endpoints og funktionalitet bevaret.
+- **Phase 2G — Implementation Pattern Manager**: Komplet pattern-infrastruktur.
+  - Database: `implementation_patterns` tabel med UNIQUE(file_signature, constraint_set). prompt_runs udvidet med 7 kolonner (model_type, idle_seconds, token_count_input/output, token_cost_eur/dkk, pattern_id).
+  - API: POST /api/prompt-runs auto-matcher runs til patterns. GET /api/implementation-patterns + GET /api/implementation-patterns/{id}/runs.
+  - Frontend: Pattern-tabel med farvekodede success rates, klikbare rækker, expandable pattern-specifikke runs. Runs-tabel udvidet med Model Type badge, Tokens, Cost kolonner.
+  - Seed: PRUN-2E-0001 backfillet, PAT-0001 oprettet.
 
 ## Remaining Work
 
-- Commit/push documentation for phase 2F-bis.
-- Phase 2G (Implementation Pattern Manager): Design `implementation_patterns` tabel, capture-mekanisme fra succesfulde faser. Spec allerede godkendt.
-- Phase 2H (Prompt Template Manager): Migrér statiske templates til database-drevne.
+- Commit/push documentation for phase 2G.
+- Phase 2H (Prompt Template Manager): Migrér statiske templates til database-drevne, parametriserbare templates.
 - Phase 2I (Local Prompt Compiler): Byg prompt-samler fra templates + hitrate-data + governance-kontekst.
 
 ## Important Notes for Next Session
@@ -143,5 +141,17 @@ This governance document is the primary handoff artifact between sessions. The H
 | `static/css/dpmtf-theme.css` | Complete dark dashboard theme rewrite. #0d1117 background, #21262d cards. .dpmtf- prefix convention. |
 | `docs/governance-templates/10_CHANGELOG.md` | Added 2F-bis entry. |
 | `docs/governance-templates/11_NEXT_CONTEXT.md` | This file — updated for 2F-bis handoff. |
+
+---
+
+## Files Changed (Phase 2G)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | ALTER TABLE prompt_runs: 7 new columns. CREATE TABLE implementation_patterns. Backfill PRUN-2E-0001. Seed PAT-0001. Register 2 endpoints + 1 bootstrap dataset. Phase tracking: 2F/2F-bis completed, 2G next. |
+| `app.py` | Extended POST /api/prompt-runs: 7 new optional fields, model_type derivation, pattern-matching logic. Added _next_pattern_id(), _update_pattern_hitrate(). Added GET /api/implementation-patterns + GET /api/implementation-patterns/{pattern_id}/runs. |
+| `static/js/dpmtf-app.js` | Added pattern table to loadHitrates() with clickable rows. Added loadPatternRuns() for expandable detail. Extended runs table with Model Type, Tokens, Cost columns. Added truncate(), formatTokens() helpers. |
+| `docs/governance-templates/10_CHANGELOG.md` | Added 2G entry. |
+| `docs/governance-templates/11_NEXT_CONTEXT.md` | This file — updated for 2G handoff. |
 
 ---

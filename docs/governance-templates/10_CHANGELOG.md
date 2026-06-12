@@ -75,4 +75,16 @@ This governance document records all notable changes to the target project in ch
 - Preserved: Alle eksisterende API-endpoints og backend-funktionalitet (app.py uændret). System Setup drawer med 6 i18n-kompatible sektioner. Prompt Sequence Planner og New Project Planning funktionalitet.
 - No schema migrations — nye tabeller via CREATE TABLE IF NOT EXISTS. No backend changes.
 
+### [2026-06-12] — 2G: Implementation Pattern Manager
+- Added: `implementation_patterns` tabel — grupperer prompt_runs efter file_signature + constraint_set med egen hitrate (rolling_success_rate, best_model, avg_duration_seconds, avg_idle_seconds). UNIQUE(file_signature, constraint_set).
+- Changed: `prompt_runs` — 7 nye kolonner via ALTER TABLE (model_type, idle_seconds, token_count_input/output, token_cost_eur/dkk, pattern_id FK).
+- Changed: `POST /api/prompt-runs` — accepterer 7 nye valgfri felter. Auto-deriver model_type fra model_used (:cloud suffix → cloud). Pattern-matching: hvis file_signature + constraint_set angives, findes eller oprettes implementation_pattern, pattern-hitrate opdateres, pattern_id sættes på run.
+- Added: `GET /api/implementation-patterns` — list patterns sorteret efter success rate (værst først). Valgfrit ?constraint_set filter.
+- Added: `GET /api/implementation-patterns/{pattern_id}/runs` — alle runs for et givet pattern.
+- Added: Frontend pattern-tabel i hitrate-panelet med farvekodede success rates, klikbare rækker der viser pattern-specifikke runs. Recent runs tabel udvidet med Model Type (local/cloud badge), Tokens (in/out), Cost (EUR/DKK) kolonner.
+- Added: `_next_pattern_id()`, `_update_pattern_hitrate()`, `truncate()`, `formatTokens()` hjælpefunktioner.
+- Seeded: PRUN-2E-0001 backfillet med model_type=cloud, pattern_id=PAT-0001. PAT-0001 oprettet som første pattern.
+- Registered: 2 nye endpoints (ENDP-4000016/17) + 1 bootstrap dataset (BDS-5000014).
+- No schema migrations — ALTER TABLE med try/except for idempotens, CREATE TABLE IF NOT EXISTS.
+
 ---
