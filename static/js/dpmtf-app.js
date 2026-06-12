@@ -88,11 +88,9 @@ function loadPhaseStatus() {
       return res.json();
     })
     .then(function (data) {
-      var phases = data.phases || [];
-
-      var completed = phases.filter(function (p) { return p.phase_state === "completed"; });
-      var next = phases.filter(function (p) { return p.phase_state === "next"; });
-      var planned = phases.filter(function (p) { return p.phase_state === "planned"; });
+      var completed = data.completed || [];
+      var next = data.next || [];
+      var planned = data.planned || [];
 
       // Completed
       var compCard = el("div", "dpmtf-card");
@@ -791,12 +789,12 @@ function loadProjectPlanning() {
   formCard.appendChild(el("h4", null, lbl("lbl_btn_create_project_plan", "Create Project Plan")));
 
   var fields = [
-    ["lbl_project_name", "project-name", "text", "Enter project name"],
-    ["lbl_target_folder", "target-folder", "text", "Enter absolute target folder path"],
-    ["lbl_app_port", "app-port", "number", "Enter app port (optional)"],
+    ["lbl_project_name", "project-name", "text", "Enter project name", "Project Name"],
+    ["lbl_target_folder", "target-folder", "text", "Enter absolute target folder path", "Target Folder"],
+    ["lbl_app_port", "app-port", "number", "Enter app port (optional)", "App Port"],
   ];
   fields.forEach(function (f) {
-    var label = el("label", "dpmtf-label", lbl(f[0], f[0]) + ":");
+    var label = el("label", "dpmtf-label", lbl(f[0], f[4]) + ":");
     formCard.appendChild(label);
     var input = el("input", "dpmtf-input");
     input.id = f[1];
