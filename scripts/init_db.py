@@ -2282,6 +2282,15 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 )
 """)
 
+# ── Phase 3C: User language preference ─────────────────
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_language (
+        user_id    TEXT    NOT NULL PRIMARY KEY,
+        locale     TEXT    NOT NULL DEFAULT 'en-US',
+        updated_at TEXT    DEFAULT (datetime('now'))
+    )
+""")
+
 # Register new endpoints
 endpoint_registry_2n = [
     ("ENDP-4000030", "workflow_start", "/api/workflow/start", "POST", "Compile prompt and start a workflow run through the P→I→V loop", "workflow run JSON", "workflow_panel"),
@@ -2314,6 +2323,12 @@ cursor.execute("""
     (phase_key, phase_title, phase_description, phase_state, sort_order)
     VALUES (?, ?, ?, ?, ?)
 """, ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated.", "next", 38))
+
+# Seed default user language
+cursor.execute("""
+    INSERT OR IGNORE INTO user_language (user_id, locale, updated_at)
+    VALUES ('default', 'en-US', datetime('now'))
+""")
 
 # Commit changes and close connection
 conn.commit()
