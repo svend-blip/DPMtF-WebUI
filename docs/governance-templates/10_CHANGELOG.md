@@ -155,3 +155,15 @@ This governance document records all notable changes to the target project in ch
 - Phase tracking: 2L→completed, 2M→next.
 - No schema migrations — CREATE TABLE IF NOT EXISTS.
 
+
+### [2026-06-12] — 2N: Prompt→Implementer→Validator loop
+- Added: `workflow_runs` tabel — tracker faser gennem P→I→V loopet (prompt_compiled → implementing → validating → done/failed).
+- Added: `POST /api/workflow/start` — kompilerer prompt internt, opretter workflow run, returnerer prompt + next step.
+- Added: `PUT /api/workflow/{id}/status` — opdatér status gennem loopet.
+- Added: `GET /api/workflow/runs` — list seneste runs med farvekodede status badges.
+- Added: `_compile_prompt_internal()` — kompilerer prompt direkte fra database uden HTTP-kald til sig selv.
+- Added: Frontend workflow panel i System Setup drawer — viser runs med status badges (grøn=done, rød=failed, orange=implementing, blå=compiled).
+- Registered: 3 endpoints (ENDP-4000030-32) + 1 bootstrap dataset (BDS-5000022).
+- Phase tracking: 2M→completed, 2N→next.
+- No schema migrations — CREATE TABLE IF NOT EXISTS.
+
