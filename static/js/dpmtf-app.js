@@ -965,21 +965,211 @@ function buildDrawerContent() {
   if (!content) return;
   while (content.children.length > 1) content.removeChild(content.lastChild);
 
-  var sections = [
-    ["lbl_drawer_layout_slots", "Layout Slots", "Layout slot management placeholder"],
-    ["lbl_drawer_db_layout", "Database Layout Preview", "Read-only preview from /api/frontend-layout"],
-    ["lbl_drawer_i18n", "UI Labels / i18n", "Resolved label preview from /api/ui-labels"],
-    ["lbl_drawer_endpoint_registry", "Endpoint Registry", "Read-only preview from /api/endpoint-registry"],
-    ["lbl_drawer_bootstrap", "Bootstrap Dataset", "Bootstrap dataset management placeholder"],
-    ["lbl_drawer_security", "Security / Permissions", "Security and permissions management placeholder"],
-  ];
+  // ── Layout Slots ─────────────────────────────────────
+  var layoutCard = el("div", "dpmtf-card");
+  layoutCard.appendChild(el("h4", null, lbl("lbl_drawer_layout_slots", "Layout Slots")));
+  var layoutBody = el("div", null);
+  layoutBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  layoutCard.appendChild(layoutBody);
+  content.appendChild(layoutCard);
 
-  sections.forEach(function (s) {
-    var card = el("div", "dpmtf-card");
-    card.appendChild(el("h4", null, lbl(s[0], s[1])));
-    card.appendChild(el("p", "dpmtf-muted", s[2]));
-    content.appendChild(card);
-  });
+  fetch("/api/frontend-layout")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(layoutBody);
+      var slots = data.layout_slots || [];
+      var panels = data.layout_panels || [];
+      if (!slots.length && !panels.length) {
+        layoutBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
+        return;
+      }
+      var p = el("p", "dpmtf-small", null);
+      p.textContent = slots.length + " slots, " + panels.length + " panels";
+      layoutBody.appendChild(p);
+    })
+    .catch(function (err) {
+      clear(layoutBody);
+      layoutBody.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+
+  // ── Database Layout Preview ──────────────────────────
+  var dbLayoutCard = el("div", "dpmtf-card");
+  dbLayoutCard.appendChild(el("h4", null, lbl("lbl_drawer_db_layout", "Database Layout Preview")));
+  var dbLayoutBody = el("div", null);
+  dbLayoutBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  dbLayoutCard.appendChild(dbLayoutBody);
+  content.appendChild(dbLayoutCard);
+
+  fetch("/api/frontend-layout")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(dbLayoutBody);
+      var panels = data.layout_panels || [];
+      if (!panels.length) {
+        dbLayoutBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
+        return;
+      }
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      thr.appendChild(el("th", null, "Panel"));
+      thr.appendChild(el("th", null, "Slot"));
+      thr.appendChild(el("th", null, "Type"));
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      panels.forEach(function (p) {
+        var row = el("tr", null);
+        row.appendChild(td(escapeHtml(p.panel_title)));
+        row.appendChild(td(p.slot_id));
+        row.appendChild(td(p.panel_type));
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      dbLayoutBody.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(dbLayoutBody);
+      dbLayoutBody.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+
+  // ── UI Labels / i18n ─────────────────────────────────
+  var i18nCard = el("div", "dpmtf-card");
+  i18nCard.appendChild(el("h4", null, lbl("lbl_drawer_i18n", "UI Labels / i18n")));
+  var i18nBody = el("div", null);
+  i18nBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  i18nCard.appendChild(i18nBody);
+  content.appendChild(i18nCard);
+
+  fetch("/api/ui-labels/main?locale=" + locale)
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(i18nBody);
+      var labels = data.labels || {};
+      var keys = Object.keys(labels);
+      if (!keys.length) {
+        i18nBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
+        return;
+      }
+      var p = el("p", "dpmtf-small", null);
+      p.textContent = keys.length + " labels loaded for " + (data.locale || locale);
+      i18nBody.appendChild(p);
+      // Show first 10 labels as sample
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      thr.appendChild(el("th", null, "Key"));
+      thr.appendChild(el("th", null, "Text"));
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      keys.slice(0, 10).forEach(function (k) {
+        var row = el("tr", null);
+        row.appendChild(td(k));
+        row.appendChild(td(labels[k]));
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      i18nBody.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(i18nBody);
+      i18nBody.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+
+  // ── Endpoint Registry ────────────────────────────────
+  var epCard = el("div", "dpmtf-card");
+  epCard.appendChild(el("h4", null, lbl("lbl_drawer_endpoint_registry", "Endpoint Registry")));
+  var epBody = el("div", null);
+  epBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  epCard.appendChild(epBody);
+  content.appendChild(epCard);
+
+  fetch("/api/endpoint-registry")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(epBody);
+      var endpoints = data.endpoint_registry || [];
+      if (!endpoints.length) {
+        epBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
+        return;
+      }
+      var p = el("p", "dpmtf-small", null);
+      p.textContent = endpoints.length + " endpoints registered";
+      epBody.appendChild(p);
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      thr.appendChild(el("th", null, "Method"));
+      thr.appendChild(el("th", null, "Path"));
+      thr.appendChild(el("th", null, "Purpose"));
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      endpoints.forEach(function (ep) {
+        var row = el("tr", null);
+        row.appendChild(td(ep.http_method));
+        row.appendChild(td(ep.route_path));
+        row.appendChild(td(escapeHtml(ep.endpoint_purpose)));
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      epBody.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(epBody);
+      epBody.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+
+  // ── Bootstrap Dataset ────────────────────────────────
+  var bsCard = el("div", "dpmtf-card");
+  bsCard.appendChild(el("h4", null, lbl("lbl_drawer_bootstrap", "Bootstrap Dataset")));
+  var bsBody = el("div", null);
+  bsBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  bsCard.appendChild(bsBody);
+  content.appendChild(bsCard);
+
+  fetch("/api/bootstrap-dataset-status")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(bsBody);
+      var datasets = data.bootstrap_dataset_status || [];
+      if (!datasets.length) {
+        bsBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
+        return;
+      }
+      var p = el("p", "dpmtf-small", null);
+      p.textContent = datasets.length + " datasets";
+      bsBody.appendChild(p);
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      thr.appendChild(el("th", null, "Dataset"));
+      thr.appendChild(el("th", null, "Table"));
+      thr.appendChild(el("th", null, "Script"));
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      datasets.forEach(function (ds) {
+        var row = el("tr", null);
+        row.appendChild(td(ds.dataset_key));
+        row.appendChild(td(ds.table_name));
+        row.appendChild(td(ds.source_script));
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      bsBody.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(bsBody);
+      bsBody.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+
+  // ── Security / Permissions (placeholder) ─────────────
+  var secCard = el("div", "dpmtf-card");
+  secCard.appendChild(el("h4", null, lbl("lbl_drawer_security", "Security / Permissions")));
+  secCard.appendChild(el("p", "dpmtf-muted", "Security and permissions management — planned for future phase."));
+  content.appendChild(secCard);
 }
 
 /* ── 9. Init ───────────────────────────────────────── */
