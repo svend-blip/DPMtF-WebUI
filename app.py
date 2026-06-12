@@ -1532,18 +1532,26 @@ async def get_prompt_runs(
 
 @app.post("/api/prompt-runs")
 async def create_prompt_run(request: Request):
-    """Record a new prompt run and update the hitrate aggregate.
+    """Record a new prompt run and update hitrate aggregates.
 
     Body (JSON):
-      run_id          — unique run identifier (required)
-      phase_key       — phase this run belongs to (required)
-      target_project  — project the prompt targeted (required)
-      prompt_summary  — brief description of the prompt
-      success         — 1 = success, 0 = failure (required)
+      run_id           — unique run identifier (required)
+      phase_key        — phase this run belongs to (required)
+      target_project   — project the prompt targeted (required)
+      prompt_summary   — brief description of the prompt
+      success          — 1 = success, 0 = failure (required)
       duration_seconds — execution time in seconds
-      error_summary   — error description if failed
-      model_used      — model that executed the prompt
-      notes           — optional human notes
+      error_summary    — error description if failed
+      model_used       — model that executed the prompt
+      model_type       — 'local' or 'cloud' (derived from model_used if omitted)
+      idle_seconds     — wait time before model started
+      token_count_input  — input tokens (cloud only)
+      token_count_output — output tokens (cloud only)
+      token_cost_eur   — estimated EUR cost (cloud only)
+      token_cost_dkk   — estimated DKK cost (cloud only)
+      file_signature   — comma-separated changed files (for pattern matching)
+      constraint_set   — comma-separated constraints (for pattern matching)
+      notes            — optional human notes
     """
     data = await request.json()
 
@@ -1554,15 +1562,59 @@ async def create_prompt_run(request: Request):
                 status_code=400, detail=f"Missing required field: {field}"
             )
 
+    # Derive model_type from model_used if not explicit
+    model_type = data.get("model_type")
+    if not model_type and data.get("model_used"):
+        model_type = "cloud" if ":cloud" in data["model_used"] else "local"
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    # ── Pattern matching ──────────────────────────────────────────
+    pattern_id = None
+    file_sig = data.get("file_signature")
+    constraint_set = data.get("constraint_set")
+
+    if file_sig and constraint_set:
+        # Find existing pattern
+        cursor.execute("""
+            SELECT pattern_id FROM implementation_patterns
+            WHERE file_signature = ? AND constraint_set = ?
+        """, (file_sig, constraint_set))
+        row = cursor.fetchone()
+        if row:
+            pattern_id = row[0]
+        else:
+            # Create new pattern
+            pattern_id = _next_pattern_id(cursor)
+            cursor.execute("""
+                INSERT INTO implementation_patterns
+                (pattern_id, file_signature, constraint_set, phase_key,
+                 total_runs, successful_runs, rolling_success_rate,
+                 best_model, avg_duration_seconds, last_used_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """, (
+                pattern_id,
+                file_sig,
+                constraint_set,
+                data["phase_key"],
+                data["success"],
+                1.0 if data["success"] else 0.0,
+                data.get("model_used") or model_type,
+                data.get("duration_seconds"),
+            ))
+        # Update pattern hitrate
+        _update_pattern_hitrate(cursor, pattern_id, data)
+
+    # ── Insert run ───────────────────────────────────────────────
     try:
         cursor.execute("""
             INSERT INTO prompt_runs
             (run_id, phase_key, target_project, prompt_summary, success,
-             duration_seconds, error_summary, model_used, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             duration_seconds, error_summary, model_used, model_type,
+             idle_seconds, token_count_input, token_count_output,
+             token_cost_eur, token_cost_dkk, pattern_id, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["run_id"],
             data["phase_key"],
@@ -1572,6 +1624,13 @@ async def create_prompt_run(request: Request):
             data.get("duration_seconds"),
             data.get("error_summary"),
             data.get("model_used"),
+            model_type,
+            data.get("idle_seconds"),
+            data.get("token_count_input"),
+            data.get("token_count_output"),
+            data.get("token_cost_eur"),
+            data.get("token_cost_dkk"),
+            pattern_id,
             data.get("notes"),
         ))
     except sqlite3.IntegrityError:
@@ -1581,7 +1640,7 @@ async def create_prompt_run(request: Request):
             detail=f"Run ID '{data['run_id']}' already exists.",
         )
 
-    # Update or create the hitrate aggregate for this phase
+    # Update phase hitrate aggregate
     cursor.execute("""
         INSERT INTO prompt_hitrates
         (phase_key, total_runs, successful_runs, rolling_success_rate,
@@ -1608,7 +1667,64 @@ async def create_prompt_run(request: Request):
         "status": "recorded",
         "run_id": data["run_id"],
         "phase_key": data["phase_key"],
+        "pattern_id": pattern_id,
     }
+
+
+def _next_pattern_id(cursor) -> str:
+    """Generate the next pattern ID in sequence PAT-0001, PAT-0002, ..."""
+    cursor.execute("SELECT MAX(pattern_id) FROM implementation_patterns")
+    row = cursor.fetchone()
+    if row and row[0]:
+        num = int(row[0].split("-")[1]) + 1
+    else:
+        num = 1
+    return f"PAT-{num:04d}"
+
+
+def _update_pattern_hitrate(cursor, pattern_id: str, data: dict) -> None:
+    """Update hitrate aggregate and best_model for a pattern."""
+    success = data["success"]
+    duration = data.get("duration_seconds")
+    idle = data.get("idle_seconds")
+    model = data.get("model_used") or data.get("model_type")
+
+    # Update aggregate
+    cursor.execute("""
+        UPDATE implementation_patterns SET
+            total_runs = total_runs + 1,
+            successful_runs = successful_runs + ?,
+            rolling_success_rate = CAST(successful_runs + ? AS REAL) / (total_runs + 1),
+            avg_duration_seconds = CASE
+                WHEN ? IS NOT NULL THEN
+                    CAST((avg_duration_seconds * total_runs + ?) AS REAL) / (total_runs + 1)
+                ELSE avg_duration_seconds END,
+            avg_idle_seconds = CASE
+                WHEN ? IS NOT NULL THEN
+                    CAST((avg_idle_seconds * total_runs + ?) AS REAL) / (total_runs + 1)
+                ELSE avg_idle_seconds END,
+            last_used_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE pattern_id = ?
+    """, (
+        success, success,
+        duration, duration,
+        idle, idle,
+        pattern_id,
+    ))
+
+    # Update best_model: set to the model with most successful runs
+    if model:
+        cursor.execute("""
+            UPDATE implementation_patterns SET best_model = (
+                SELECT model_used FROM prompt_runs
+                WHERE pattern_id = ? AND success = 1
+                GROUP BY model_used
+                ORDER BY COUNT(*) DESC
+                LIMIT 1
+            )
+            WHERE pattern_id = ?
+        """, (pattern_id, pattern_id))
 
 
 @app.get("/api/prompt-hirates")
@@ -1631,6 +1747,57 @@ async def get_prompt_hitrates():
 
     conn.close()
     return {"hitrates": hitrates}
+
+
+@app.get("/api/implementation-patterns")
+async def get_implementation_patterns(
+    constraint_set: str | None = None,
+):
+    """Return implementation patterns with hitrate statistics.
+
+    Optional filter: ?constraint_set=read-only,no-schema
+    Sorted by rolling_success_rate ASC (worst first).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if constraint_set:
+        cursor.execute("""
+            SELECT * FROM implementation_patterns
+            WHERE constraint_set LIKE ?
+            ORDER BY rolling_success_rate ASC, total_runs DESC
+        """, (f"%{constraint_set}%",))
+    else:
+        cursor.execute("""
+            SELECT * FROM implementation_patterns
+            ORDER BY rolling_success_rate ASC, total_runs DESC
+        """)
+    rows = cursor.fetchall()
+    patterns = [dict(r) for r in rows]
+
+    conn.close()
+    return {"patterns": patterns}
+
+
+@app.get("/api/implementation-patterns/{pattern_id}/runs")
+async def get_pattern_runs(pattern_id: str, limit: int = 50):
+    """Return all prompt_runs linked to a specific pattern."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM prompt_runs
+        WHERE pattern_id = ?
+        ORDER BY run_timestamp DESC
+        LIMIT ?
+    """, (pattern_id, limit))
+    rows = cursor.fetchall()
+    runs = [dict(r) for r in rows]
+
+    conn.close()
+    return {"pattern_id": pattern_id, "runs": runs}
 
 
 if __name__ == "__main__":
