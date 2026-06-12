@@ -77,6 +77,8 @@ function loadDbStatus() {
 }
 
 /* ── 4. Phase Status ───────────────────────────────── */
+var showCompleted = true;
+
 function loadPhaseStatus() {
   var container = document.getElementById("phase-status-content");
   if (!container) return;
@@ -92,8 +94,32 @@ function loadPhaseStatus() {
       var next = data.next || [];
       var planned = data.planned || [];
 
+      // Toggle bar (built after labels are loaded)
+      var toggleBar = el("div", null);
+      toggleBar.style.marginBottom = "10px";
+      var toggleLabel = el("label", null);
+      toggleLabel.style.cursor = "pointer";
+      toggleLabel.style.color = "#8b949e";
+      toggleLabel.style.fontSize = "0.85em";
+      var toggleCheck = el("input", null);
+      toggleCheck.type = "checkbox";
+      toggleCheck.checked = showCompleted;
+      toggleCheck.style.marginRight = "6px";
+      toggleCheck.onchange = function () {
+        showCompleted = this.checked;
+        var card = document.getElementById("phase-completed-card");
+        if (card) card.style.display = showCompleted ? "block" : "none";
+      };
+      toggleLabel.appendChild(toggleCheck);
+      toggleLabel.appendChild(document.createTextNode(
+        lbl("phase_status.show_completed", "Show completed phases")));
+      toggleBar.appendChild(toggleLabel);
+      container.appendChild(toggleBar);
+
       // Completed
       var compCard = el("div", "dpmtf-card");
+      compCard.id = "phase-completed-card";
+      if (!showCompleted) compCard.style.display = "none";
       compCard.appendChild(el("h3", null, lbl("lbl_status_completed", "Completed") + " (" + completed.length + ")"));
       if (completed.length) {
         var compList = el("ul", null);
