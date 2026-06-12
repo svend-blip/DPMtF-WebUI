@@ -1800,6 +1800,184 @@ async def get_pattern_runs(pattern_id: str, limit: int = 50):
     return {"pattern_id": pattern_id, "runs": runs}
 
 
+# ---------------------------------------------------------------------------
+# Phase 2H — Prompt Template Manager endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/prompt-templates")
+async def get_prompt_templates():
+    """List all active prompt templates."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM prompt_templates
+        WHERE is_active = 1
+        ORDER BY template_key
+    """)
+    rows = cursor.fetchall()
+    templates = [dict(r) for r in rows]
+
+    conn.close()
+    return {"templates": templates}
+
+
+@app.post("/api/prompt-templates")
+async def create_prompt_template(request: Request):
+    """Create a new prompt template.
+
+    Body (JSON):
+      template_key           — unique key (required)
+      template_name          — human-readable name (required)
+      description            — optional description
+      structure_json         — template structure (required, JSON string)
+      constraints_json       — default constraints (optional, JSON string)
+      suitable_for           — 'local', 'cloud', or 'both' (default 'both')
+      avg_token_count_input  — estimated input tokens
+      avg_token_count_output — estimated output tokens
+    """
+    data = await request.json()
+
+    required = ["template_key", "template_name", "structure_json"]
+    for field in required:
+        if field not in data:
+            raise HTTPException(
+                status_code=400, detail=f"Missing required field: {field}"
+            )
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO prompt_templates
+            (template_key, template_name, description, structure_json,
+             constraints_json, suitable_for, avg_token_count_input,
+             avg_token_count_output)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["template_key"],
+            data["template_name"],
+            data.get("description"),
+            data["structure_json"],
+            data.get("constraints_json"),
+            data.get("suitable_for", "both"),
+            data.get("avg_token_count_input"),
+            data.get("avg_token_count_output"),
+        ))
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Template key '{data['template_key']}' already exists.",
+        )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "created",
+        "template_key": data["template_key"],
+    }
+
+
+@app.get("/api/prompt-templates/{template_key}")
+async def get_prompt_template(template_key: str):
+    """Get a single template with rendered preview.
+
+    Returns the template with structure_json parsed and a preview
+    of how the template looks with placeholder values filled in.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM prompt_templates
+        WHERE template_key = ? AND is_active = 1
+    """, (template_key,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template = dict(row)
+    # Parse JSON fields for convenience
+    try:
+        template["structure"] = json.loads(template["structure_json"])
+    except json.JSONDecodeError:
+        template["structure"] = {"error": "Invalid JSON"}
+    try:
+        template["constraints"] = json.loads(template["constraints_json"] or "{}")
+    except json.JSONDecodeError:
+        template["constraints"] = {}
+
+    # Generate a preview with placeholder values
+    preview_parts = []
+    for section in template.get("structure", {}).get("sections", []):
+        label = section.get("label", "")
+        if section.get("type") == "fixed":
+            preview_parts.append(f"{label} {section.get('value', '')}".strip())
+        elif section.get("type") == "param":
+            preview_parts.append(f"{label} <{section.get('param_key', '?')}>")
+        elif section.get("type") == "list":
+            preview_parts.append(f"{label}")
+            preview_parts.append("  - <item 1>")
+            preview_parts.append("  - <item 2>")
+    template["preview"] = "\n".join(preview_parts)
+
+    conn.close()
+    return template
+
+
+@app.put("/api/prompt-templates/{template_key}")
+async def update_prompt_template(template_key: str, request: Request):
+    """Update an existing template. Only provided fields are updated."""
+    data = await request.json()
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT template_key FROM prompt_templates
+        WHERE template_key = ? AND is_active = 1
+    """, (template_key,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Build SET clause from provided fields
+    updatable = [
+        "template_name", "description", "structure_json",
+        "constraints_json", "suitable_for",
+        "avg_token_count_input", "avg_token_count_output", "is_active",
+    ]
+    sets = []
+    params = []
+    for field in updatable:
+        if field in data:
+            sets.append(f"{field} = ?")
+            params.append(data[field])
+
+    if not sets:
+        conn.close()
+        return {"status": "no changes", "template_key": template_key}
+
+    sets.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(template_key)
+
+    cursor.execute(
+        f"UPDATE prompt_templates SET {', '.join(sets)} WHERE template_key = ?",
+        params,
+    )
+    conn.commit()
+    conn.close()
+
+    return {"status": "updated", "template_key": template_key}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
