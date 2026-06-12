@@ -1885,6 +1885,143 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """, ("BDS-5000014", "implementation_patterns", "implementation_patterns", "Implementation pattern registry with hitrate aggregates", "scripts/init_db.py", 1, 1, 1))
 
+# ── Phase 2H: Prompt Template Manager ──────────────────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_key TEXT UNIQUE NOT NULL,
+    template_name TEXT NOT NULL,
+    description TEXT,
+    structure_json TEXT NOT NULL,
+    constraints_json TEXT,
+    suitable_for TEXT NOT NULL DEFAULT 'both',
+    avg_token_count_input INTEGER,
+    avg_token_count_output INTEGER,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed baseline templates from existing prompt-run template patterns
+template_seeds = [
+    ("tpl_implementation_small", "Small Implementation Prompt",
+     "For 10-15 minute phases: single-file or few-file changes, read-only, no schema migration.",
+     json.dumps({
+         "sections": [
+             {"name": "context", "label": "You are working in:", "type": "fixed", "value": "{project_path}"},
+             {"name": "phase", "label": "Start phase", "type": "param", "param_key": "phase_id"},
+             {"name": "goal", "label": "Goal:", "type": "param", "param_key": "goal"},
+             {"name": "rules", "label": "Rules:", "type": "list", "param_key": "constraints"},
+             {"name": "implementation", "label": "Implementation target:", "type": "param", "param_key": "implementation"},
+             {"name": "allowed_files", "label": "Allowed files:", "type": "list", "param_key": "allowed_files"},
+             {"name": "validate", "label": "Validate:", "type": "list", "param_key": "validation_commands"},
+             {"name": "stop", "label": "Do not commit.", "type": "fixed", "value": ""}
+         ]
+     }),
+     json.dumps({
+         "default_constraints": ["read-only", "no-schema-migration", "no-innerHTML", "no-POST/PUT/DELETE", "no-service-control"]
+     }),
+     "both", 800, 1200, 1),
+
+    ("tpl_implementation_medium", "Medium Implementation Prompt",
+     "For larger phases: multiple files, backend + frontend changes, new endpoints allowed.",
+     json.dumps({
+         "sections": [
+             {"name": "context", "label": "You are working in:", "type": "fixed", "value": "{project_path}"},
+             {"name": "phase", "label": "Start phase", "type": "param", "param_key": "phase_id"},
+             {"name": "goal", "label": "Goal:", "type": "param", "param_key": "goal"},
+             {"name": "rules", "label": "Rules:", "type": "list", "param_key": "constraints"},
+             {"name": "implementation", "label": "Implementation target:", "type": "param", "param_key": "implementation"},
+             {"name": "allowed_files", "label": "Allowed files:", "type": "list", "param_key": "allowed_files"},
+             {"name": "validate", "label": "Validate:", "type": "list", "param_key": "validation_commands"},
+             {"name": "docs", "label": "Update docs/dpmtf/10_CHANGELOG.md, 11_NEXT_CONTEXT.md, 12_IMPLEMENTATION_REPORT.md", "type": "fixed", "value": ""},
+             {"name": "stop", "label": "Stop before commit and report.", "type": "fixed", "value": ""}
+         ]
+     }),
+     json.dumps({
+         "default_constraints": ["no-innerHTML", "no-service-control"]
+     }),
+     "both", 1200, 2000, 1),
+
+    ("tpl_validation", "Validation Prompt",
+     "Read-only validation of changes. No edits, no commits.",
+     json.dumps({
+         "sections": [
+             {"name": "context", "label": "You are validating changes in:", "type": "fixed", "value": "{project_path}"},
+             {"name": "task", "label": "Task:", "type": "param", "param_key": "task"},
+             {"name": "baseline", "label": "Expected baseline:", "type": "param", "param_key": "baseline"},
+             {"name": "goal", "label": "Expected goal:", "type": "param", "param_key": "goal"},
+             {"name": "checks", "label": "Check:", "type": "list", "param_key": "checks"},
+             {"name": "report", "label": "Report:", "type": "fixed", "value": "1. PASS or FAIL\n2. Specific issues found\n3. Whether it is safe for Svend to commit\n4. If FAIL, provide a short correction prompt"},
+             {"name": "stop", "label": "Do not fix anything yourself.", "type": "fixed", "value": ""}
+         ]
+     }),
+     json.dumps({
+         "default_constraints": ["read-only", "no-edits", "no-commits"]
+     }),
+     "local", 600, 800, 1),
+
+    ("tpl_brainstorm", "Brainstorm / Design Prompt",
+     "High-level design and brainstorming. No code changes.",
+     json.dumps({
+         "sections": [
+             {"name": "context", "label": "This is a brainstorm session.", "type": "fixed", "value": ""},
+             {"name": "scope", "label": "Scope:", "type": "param", "param_key": "scope"},
+             {"name": "constraints", "label": "Constraints:", "type": "list", "param_key": "constraints"},
+             {"name": "deliverable", "label": "Deliverable:", "type": "param", "param_key": "deliverable"},
+             {"name": "stop", "label": "This is an investigation and report task only.", "type": "fixed", "value": ""}
+         ]
+     }),
+     json.dumps({
+         "default_constraints": ["read-only", "no-code-changes", "no-commits"]
+     }),
+     "cloud", 500, 1500, 1),
+]
+
+for tpl in template_seeds:
+    cursor.execute("""
+        INSERT OR IGNORE INTO prompt_templates
+        (template_key, template_name, description, structure_json,
+         constraints_json, suitable_for, avg_token_count_input,
+         avg_token_count_output, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, tpl)
+
+# Register new endpoints
+endpoint_registry_2h = [
+    ("ENDP-4000018", "prompt_templates_list", "/api/prompt-templates", "GET", "List all prompt templates", "templates JSON array", "template_manager"),
+    ("ENDP-4000019", "prompt_templates_create", "/api/prompt-templates", "POST", "Create a new prompt template", "created template JSON", "template_manager"),
+    ("ENDP-4000020", "prompt_templates_detail", "/api/prompt-templates/{template_key}", "GET", "Get a single template with rendered preview", "template JSON", "template_manager"),
+    ("ENDP-4000021", "prompt_templates_update", "/api/prompt-templates/{template_key}", "PUT", "Update an existing template", "updated template JSON", "template_manager"),
+]
+for endpoint in endpoint_registry_2h:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap dataset
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000015", "prompt_templates", "prompt_templates", "Prompt template registry for parametrisable prompt generation", "scripts/init_db.py", 4, 1, 1))
+
+# Update phase tracking: 2G→completed, 2H→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2G", "Implementation Pattern Manager", "Capture successful implementation patterns from completed phases.", "completed", 31))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates.", "next", 32))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
