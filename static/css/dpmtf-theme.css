@@ -12,6 +12,44 @@ body {
   padding: 24px;
 }
 
+/* ── Header row & language selector ────────────────── */
+.header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.header-row h1 {
+    margin-bottom: 0;
+}
+
+.lang-selector {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.lang-label {
+    font-size: 0.8rem;
+    color: #8b949e;
+}
+
+.lang-selector select {
+    padding: 4px 8px;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: #21262d;
+    color: #c9d1d9;
+    cursor: pointer;
+}
+
+.lang-selector select:focus {
+    outline: none;
+    border-color: #58a6ff;
+}
+
 /* ── Headings ─────────────────────────────────────── */
 h1 { color: #e6edf3; font-size: 1.6em; margin: 0 0 8px 0; }
 h2 { color: #e6edf3; font-size: 1.2em; border-bottom: 1px solid #30363d; padding-bottom: 8px; margin: 24px 0 12px 0; }
