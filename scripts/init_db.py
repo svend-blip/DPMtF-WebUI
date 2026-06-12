@@ -2262,6 +2262,59 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?)
 """, ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "completed", 37))
 
+# ── Phase 2N: Prompt→Implementer→Validator loop ─────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS workflow_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT UNIQUE NOT NULL,
+    phase_key TEXT NOT NULL,
+    target_project TEXT NOT NULL,
+    template_key TEXT,
+    prompt_text TEXT,
+    session_id TEXT,
+    status TEXT NOT NULL DEFAULT 'prompt_compiled',
+    validation_run_id TEXT,
+    hitrate_run_id TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Register new endpoints
+endpoint_registry_2n = [
+    ("ENDP-4000030", "workflow_start", "/api/workflow/start", "POST", "Compile prompt and start a workflow run through the P→I→V loop", "workflow run JSON", "workflow_panel"),
+    ("ENDP-4000031", "workflow_status", "/api/workflow/{run_id}/status", "PUT", "Update workflow run status as it progresses through the loop", "updated run JSON", "workflow_panel"),
+    ("ENDP-4000032", "workflow_runs", "/api/workflow/runs", "GET", "List recent workflow runs with status", "runs JSON array", "workflow_panel"),
+]
+for endpoint in endpoint_registry_2n:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap dataset
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000022", "workflow_runs", "workflow_runs", "Workflow runs tracking the Prompt→Implementer→Validator loop", "scripts/init_db.py", 0, 0, 1))
+
+# Update phase tracking: 2M→completed, 2N→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama.", "completed", 37))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated.", "next", 38))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

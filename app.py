@@ -2544,6 +2544,223 @@ async def update_session(session_id: str, request: Request):
     return {"status": "updated", "session_id": session_id}
 
 
+# ---------------------------------------------------------------------------
+# Phase 2N — Prompt→Implementer→Validator loop
+# ---------------------------------------------------------------------------
+
+
+def _compile_prompt_internal(
+    template_key: str,
+    project_path: str,
+    phase_id: str,
+    params: dict,
+) -> str:
+    """Compile a prompt from a template without making HTTP calls.
+
+    Uses the same logic as POST /api/prompt-templates/{key}/compile
+    but operates directly on the database.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM prompt_templates
+        WHERE template_key = ? AND is_active = 1
+    """, (template_key,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return f"Error: Template '{template_key}' not found"
+
+    template = dict(row)
+    conn.close()
+
+    try:
+        structure = json.loads(template["structure_json"])
+    except json.JSONDecodeError:
+        return "Error: Template structure is invalid JSON"
+
+    # Merge params with defaults
+    data = {
+        "project_path": project_path,
+        "phase_id": phase_id,
+        "goal": params.get("goal", phase_id),
+        "constraints": params.get("constraints", []),
+        "implementation": params.get("implementation", ""),
+        "allowed_files": params.get("allowed_files", []),
+        "validation_commands": params.get("validation_commands", []),
+    }
+    # Add any extra params
+    for k, v in params.items():
+        if k not in data:
+            data[k] = v
+
+    lines = []
+    for section in structure.get("sections", []):
+        label = section.get("label", "")
+        sec_type = section.get("type", "fixed")
+
+        if sec_type == "fixed":
+            value = section.get("value", "")
+            for key, val in data.items():
+                if isinstance(val, list):
+                    val = ", ".join(str(v) for v in val)
+                value = value.replace("{" + key + "}", str(val))
+            if label and value:
+                lines.append(f"{label} {value}".strip())
+            elif label:
+                lines.append(label)
+            elif value:
+                lines.append(value)
+
+        elif sec_type == "param":
+            param_key = section.get("param_key", "")
+            value = data.get(param_key, f"<{param_key}>")
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            lines.append(f"{label} {value}")
+
+        elif sec_type == "list":
+            param_key = section.get("param_key", "")
+            items = data.get(param_key, [])
+            if not isinstance(items, list):
+                items = [str(items)]
+            lines.append(label)
+            for item in items:
+                lines.append(f"  - {item}")
+
+    return "\n".join(lines)
+
+
+@app.post("/api/workflow/start")
+async def start_workflow(request: Request):
+    """Compile a prompt and start a workflow run through the P→I→V loop.
+
+    Body (JSON):
+      phase_key       — phase to execute (required)
+      target_project  — project path (required)
+      template_key    — template to use (default: tpl_implementation_small)
+      params          — template parameters (goal, constraints, etc.)
+      session_id      — Claude Code session ID (optional)
+    """
+    data = await request.json()
+    required = ["phase_key", "target_project"]
+    for field in required:
+        if field not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+    template_key = data.get("template_key", "tpl_implementation_small")
+    params = data.get("params", {})
+
+    # Compile prompt directly (avoid HTTP call to self)
+    prompt_text = _compile_prompt_internal(
+        template_key,
+        data["target_project"],
+        data["phase_key"],
+        params,
+    )
+
+    # Create workflow run
+    import uuid
+    run_id = f"WF-{uuid.uuid4().hex[:8].upper()}"
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO workflow_runs
+        (run_id, phase_key, target_project, template_key,
+         prompt_text, session_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'prompt_compiled')
+    """, (
+        run_id,
+        data["phase_key"],
+        data["target_project"],
+        template_key,
+        prompt_text,
+        data.get("session_id"),
+    ))
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "prompt_compiled",
+        "run_id": run_id,
+        "phase_key": data["phase_key"],
+        "prompt": prompt_text,
+        "next_step": "Copy prompt to Claude Code session → implement → validate → update status",
+    }
+
+
+@app.put("/api/workflow/{run_id}/status")
+async def update_workflow_status(run_id: str, request: Request):
+    """Update workflow run status as it progresses through the loop.
+
+    Body (JSON):
+      status            — 'implementing', 'validating', 'done', 'failed'
+      validation_run_id — validation run ID (when status='validating')
+      hitrate_run_id    — prompt run ID (when status='done')
+      notes             — optional notes
+    """
+    data = await request.json()
+    if "status" not in data:
+        raise HTTPException(status_code=400, detail="Missing status")
+
+    valid_statuses = ["prompt_compiled", "implementing", "validating", "done", "failed"]
+    if data["status"] not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT run_id FROM workflow_runs WHERE run_id = ?", (run_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+
+    updates = ["status = ?"]
+    params = [data["status"]]
+
+    if data.get("validation_run_id"):
+        updates.append("validation_run_id = ?")
+        params.append(data["validation_run_id"])
+    if data.get("hitrate_run_id"):
+        updates.append("hitrate_run_id = ?")
+        params.append(data["hitrate_run_id"])
+    if data.get("notes"):
+        updates.append("notes = COALESCE(notes, '') || ? || '; '")
+        params.append(data["notes"])
+    if data["status"] in ("done", "failed"):
+        updates.append("completed_at = CURRENT_TIMESTAMP")
+
+    params.append(run_id)
+    cursor.execute(
+        f"UPDATE workflow_runs SET {', '.join(updates)} WHERE run_id = ?",
+        params,
+    )
+    conn.commit()
+    conn.close()
+
+    return {"status": "updated", "run_id": run_id, "new_status": data["status"]}
+
+
+@app.get("/api/workflow/runs")
+async def get_workflow_runs(limit: int = 20):
+    """List recent workflow runs with status."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM workflow_runs
+        ORDER BY started_at DESC LIMIT ?
+    """, (limit,))
+    runs = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {"runs": runs}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
