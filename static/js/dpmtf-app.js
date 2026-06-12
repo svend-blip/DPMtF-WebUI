@@ -1191,11 +1191,101 @@ function buildDrawerContent() {
       bsBody.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
     });
 
+  // ── Validation ───────────────────────────────────────
+  var valCard = el("div", "dpmtf-card");
+  valCard.appendChild(el("h4", null, "Validation"));
+  var valBody = el("div", null);
+  valBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  valCard.appendChild(valBody);
+  content.appendChild(valCard);
+
+  fetch("/api/validation-rules")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(valBody);
+      var rules = data.rules || [];
+      if (!rules.length) {
+        valBody.appendChild(el("p", "dpmtf-muted", "No validation rules."));
+        return;
+      }
+      var p = el("p", "dpmtf-small", null);
+      p.textContent = rules.length + " rules available";
+      valBody.appendChild(p);
+
+      // Run validation button
+      var runBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      runBtn.textContent = "Run Validation";
+      runBtn.onclick = function () { runValidationDrawer(); };
+      valBody.appendChild(runBtn);
+
+      // Results container
+      var resultsDiv = el("div", null);
+      resultsDiv.id = "drawer-validation-results";
+      resultsDiv.style.marginTop = "10px";
+      valBody.appendChild(resultsDiv);
+    })
+    .catch(function (err) {
+      clear(valBody);
+      valBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
+
   // ── Security / Permissions (placeholder) ─────────────
   var secCard = el("div", "dpmtf-card");
   secCard.appendChild(el("h4", null, lbl("lbl_drawer_security", "Security / Permissions")));
   secCard.appendChild(el("p", "dpmtf-muted", "Security and permissions management — planned for future phase."));
   content.appendChild(secCard);
+}
+
+function runValidationDrawer() {
+  var resultsDiv = document.getElementById("drawer-validation-results");
+  if (!resultsDiv) return;
+  clear(resultsDiv);
+  resultsDiv.appendChild(el("p", "dpmtf-muted", "Running validation..."));
+
+  fetch("/api/validate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target_project: "/home/svend/DPMtF-WebUI",
+      rule_keys: ["all"]
+    })
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(resultsDiv);
+      var verdictClass = data.verdict === "PASS" ? "hitrate-good" :
+                         data.verdict === "FAIL" ? "hitrate-low" : "hitrate-ok";
+      var verdictEl = el("p", null);
+      verdictEl.appendChild(document.createTextNode("Verdict: "));
+      var verdictSpan = el("span", verdictClass, data.verdict);
+      verdictEl.appendChild(verdictSpan);
+      verdictEl.appendChild(document.createTextNode(
+        " (" + data.rules_passed + "/" + data.rules_total + " passed)"));
+      resultsDiv.appendChild(verdictEl);
+
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      thr.appendChild(el("th", null, "Rule"));
+      thr.appendChild(el("th", null, "Result"));
+      thr.appendChild(el("th", null, "Notes"));
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      (data.results || []).forEach(function (r) {
+        var row = el("tr", null);
+        row.appendChild(td(r.rule_name));
+        row.appendChild(td(r.passed ? "✓" : "✗", r.passed ? "hitrate-good" : "hitrate-low"));
+        row.appendChild(td(r.notes || r.actual_output || ""));
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      resultsDiv.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(resultsDiv);
+      resultsDiv.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
 }
 
 /* ── 9. Prompt Template Manager ────────────────────── */
