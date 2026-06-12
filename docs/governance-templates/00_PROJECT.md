@@ -10,51 +10,48 @@ This governance document defines the target project for the current role-based p
 - **After `/clear`**: Read first to reconstruct project context without relying on chat memory.
 - **Role handoff**: All roles reference this file to confirm scope alignment.
 
-## Required Inputs
+---
 
-| Input | Description |
-|-------|-------------|
-| Project name | The target project being governed in this session. |
-| Purpose statement | One-sentence description of what the project does and why it exists. |
-| Owner / Maintainer | Person or team responsible for the project. |
-| Repository location | URL or local filesystem path. |
-
-## Required Outputs
-
-- A filled-in version of this document in `docs/governance-templates/00_PROJECT.md`.
-- Status set to one of: `Active`, `Planning`, `Paused`, `Archived`.
-- Last updated date in `YYYY-MM-DD` format.
-
-## Rules / Constraints
-
-- This file is the source of truth for project identity across governance documents.
-- Do not rely on chat history or memory as the only source of project facts.
-- Related projects (e.g., DPMtF WebUI as governance engine) must be listed explicitly.
-
-## Example Placeholder Sections
-
-```markdown
 ## Project Name
-DPMtF WebUI — Phase 3A Governance Foundation
+
+AI PC Resource WebUI v3
 
 ## Purpose
-Governance-first orchestration engine for local AI-driven project development using role-based prompt loops and Markdown-driven process control.
+
+Database-driven web UI for local AI-powered PC resource management, service card orchestration, and Ollama model interaction — built clean from the ground up using DPMtF governance-first principles.
 
 ## Owner / Maintainer
+
 Svend Blip
 
 ## Repository
-/home/svend/DPMtF-WebUI (local git)
+
+/home/svend/ai-pc-resource-webui-v3 (local git)
+
+Remote: https://github.com/svend-blip/ai-pc-resource-webui-v3.git
+
+## Port
+
+9123
+
+## Current Status
+
+Initial skeleton created and pushed. Governance documents initialized in phase 3C-3.
+
+## Current Commit
+
+934a578 3C-2: Create initial v3 skeleton
+
+## Runtime Command
+
+```bash
+cd /home/svend/ai-pc-resource-webui-v3
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9123
+```
 
 ## Related Projects
-- DPMtF WebUI v2 — Pipeline Status and System Resources panels.
-- AI PC Resource WebUI — predecessor project with Ollama integration.
 
-## Status
-Active
-
-## Last Updated
-2026-06-11
-```
+- **DPMtF WebUI** — Governance engine. This project is governed by DPMtF governance documents, initialized via `scripts/initialize_target_project_governance.py`.
+- **AI PC Resource WebUI v2** (/home/svend/ai-pc-resource-webui-v2) — Functional/design reference only. v3 does not copy v2 code 1:1; v2 serves as inspiration for intended end-state, not as a source to migrate from.
 
 ---

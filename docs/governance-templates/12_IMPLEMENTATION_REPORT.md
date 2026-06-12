@@ -30,7 +30,7 @@ This governance document captures what was implemented in a specific prompt-run 
 
 ## Phase
 
-[Phase key and title, e.g., `3A — Governance Foundation`]
+`3C-14: Complete Pipeline Status i18n coverage`
 
 ## Phase-Start Git Baseline
 
@@ -38,53 +38,64 @@ Recorded at session start per [[15_GIT_POLICY]] phase-start baseline checks. Use
 
 | Check | Result |
 |-------|--------|
-| Branch | `[git branch --show-current]` |
-| HEAD commit | `[git log --oneline -1 — actual HEAD at phase start]` |
-| Recent commits | `[git log --oneline -8 summary]` |
-| Uncommitted changes | `[git status --short output or "clean"]` |
-| Remote | `[git remote -v summary]` |
+| Branch | `master` |
+| HEAD commit | `8f68795` (3C-13: Localize pipeline service readiness text) — actual HEAD at phase start |
+| Recent commits | `8f68795 3C-13`, `190b2e1 3C-12`, `9691cf9 3C-11`, `28499f2 3C-10`, `f0cdacb Propagate governance` |
+| Uncommitted changes | None at phase start — clean working tree. Phase 3C-14 is current work. |
+| Remote | `origin → https://github.com/svend-blip/ai-pc-resource-webui-v3.git` |
 
 ## Prompt-Run ID
 
-[PRUN-XXXXXX, if applicable. Reference the prompt-run from `docs/prompt-runs/`.]
+Inline prompt — phase 3C-14.
 
 ## What Was Implemented
 
 | Item | File(s) | Status | Notes |
 |------|---------|--------|-------|
-| [Item 1] | [file path] | Done / In Progress / Blocked | [Context if relevant.] |
-| [Item 2] | [file path] | Done / In Progress / Blocked | [Context if relevant.] |
+| Seed `lbl_requires` label + translations | `scripts/seed_database.py` | Done | da-DK: "Kræver:", en-US: "Requires:". Replaces non-existent `slot_pipeline_required_list` key. |
+| Seed `lbl_no_pipelines` label + translations | `scripts/seed_database.py` | Done | da-DK: "Ingen pipelines konfigureret.", en-US: "No pipelines configured.". |
+| Seed `lbl_pipeline_error` label + translations | `scripts/seed_database.py` | Done | da-DK: "Kunne ikke hente pipeline status: ", en-US: "Could not load pipeline status: ". |
+| Fix required-services header bug | `static/js/app.js` | Done | Replaced `labelMap["slot_pipeline_required_list"]` (never seeded) with `labelMap["lbl_requires"]`. |
+| Localize missing-services header | `static/js/app.js` | Done | Uses `(labelMap["lbl_missing"] \|\| "Missing") + ":"` — reuses existing label. |
+| Localize warnings header | `static/js/app.js` | Done | Uses `(labelMap["lbl_warnings"] \|\| "Warnings") + ":"` — reuses existing label. |
+| Localize empty-state message | `static/js/app.js` | Done | Uses `labelMap["lbl_no_pipelines"]`. |
+| Localize error prefix | `static/js/app.js` | Done | Uses `labelMap["lbl_pipeline_error"]`. |
+| Update CHANGELOG | `docs/dpmtf/10_CHANGELOG.md` | Done | Appended entry for 3C-14. |
+| Update NEXT_CONTEXT | `docs/dpmtf/11_NEXT_CONTEXT.md` | Done | Updated baseline, phase progress, completed work, file tables, label counts (24 labels, 48 translations). |
 
 ## Deviations from Plan
 
-- [Any deviation from the original plan, with reason and Human Approval Gate reference if applicable.]
+- None. Implementation followed the prompt exactly. Read-only only, no schema changes, no new endpoints, no service control added. Small change — 3 labels + 6 translations seeded; ~5 lines frontend JS. No backend changes.
 
 ## Verification Results
 
 | Check | Method | Result | Notes |
 |-------|--------|--------|-------|
-| Syntax check (Python) | `python3 -m py_compile app.py` | Pass / Fail | |
-| Syntax check (JavaScript) | `node --check static/js/*.js` | Pass / Fail | Only if JS was modified. |
-| Shell script syntax | `bash -n <file>` | Pass / Fail | Only if shell scripts were modified. |
-| Page loads without errors | Browser test | Pass / Fail | Console checked for errors. |
-| Backend health endpoint | `curl http://localhost:9130/api/health` | Pass / Fail | |
+| Python syntax (seed script) | `python3 -m py_compile scripts/seed_database.py` | Pass | No errors. |
+| Seed script run | `python3 scripts/seed_database.py` | Pass | 24 labels, 48 translations — matches target. |
+| JavaScript syntax | `node --check static/js/app.js` | Pass | No errors. |
+| No innerHTML | `grep -RIn "innerHTML"` | Pass | Not found in static/templates. |
+| No mutating routes | `grep -RIn "@app.post\|@app.put\|@app.delete\|Start\|Stop\|Prepare CUDA0"` | Pass | Not found — no backend changes. |
+| `slot_pipeline_required_list` not used | `grep` in JS and seed | Pass | Only appears in docs as historical explanation of bug fix. |
+| `lbl_requires` seeded and used | `grep` in JS and seed | Pass | Appears in app.js (labelMap key), seed_database.py (seed + translations). |
+| Live validation | curl/uvicorn | Not required | Structural JS-only change; labels seeded idempotently. No new routes, no schema migration. Optional if human requests. |
 
 ## Permission Mode Compliance
 
 | Item | Result |
 |------|--------|
-| Permission policy result | allowed / blocked / ask_human |
+| Permission policy result | allowed — phase mode is `implementation`; all six Auto-mode items explicit from prompt; changes within scope per prompt's Allowed files list. |
 | Actual Claude Code mode | Auto mode |
-| Frontend innerHTML check | no_innerHTML / approved_innerHTML_exception — [details] |
-| Stopped before commit? | Yes / No — (should always be Yes unless explicitly told otherwise.) |
+| Frontend innerHTML check | Pass — `grep` found no `innerHTML` in static/templates. |
+| Stopped before commit? | Yes — changes are unstaged. No git commit or push attempted. |
 
 ## Known Issues
 
-- [Issue 1 — description, severity, and impact. If any.]
+- None.
 
 ## Next Steps
 
-- [Next action item 1, assigned to which role.]
-- [Next action item 2, assigned to which role.]
+- Run syntax validation (`py_compile`, seed script, `node --check`, grep checks).
+- Commit/push only after human approval (live validation optional — structural change only).
 
 ---

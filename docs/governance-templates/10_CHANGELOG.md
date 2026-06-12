@@ -47,6 +47,11 @@ This governance document records all notable changes to the target project in ch
 
 ## Entries
 
-(No entries yet. Append new entries below.)
+### [2026-06-12] — 2E: Governance-template opgradering fra v3-læringer
+- Opgraderet: 10 governance-templates fra ai-pc-resource-webui-v3's forbedrede versioner (00_PROJECT, 02_SCOPE, 04_ARCHITECTURE, 05_CODING_STANDARD, 07_RESTART, 11_NEXT_CONTEXT, 12_IMPLEMENTATION_REPORT, 15_GIT_POLICY, 16_DATABASE_RUNTIME_STATE).
+- Tilføjet: 06_VALIDATION.md og 17_PERMISSION_MODE_POLICY.md var allerede identiske — ingen ændring nødvendig.
+- Opdateret: `scripts/init_db.py` — fase-tracking restruktureret efter projektrapportens 6-blok roadmap. 2D markeret completed. 2E (Governance-template opgradering) tilføjet som completed. Nye faser 2F-2O for prompt-infrastruktur, automatisering, og lokal model integration.
+- Ændret: 01_ROLES, 03_FILE_ACCESS_POLICY, 08_TESTPLAN, 09_DECISIONS, 13_VALIDATION_REPORT, 14_OFFLINE_MODE forblev uændrede (identiske mellem master og v3).
+- Skrevet: `docs/project-report.md` — tværgående analyse af DPMtF-WebUI, ai-pc-resource-webui-v2, og ai-pc-resource-webui-v3 med anbefalinger til governance, automatisering, og transition til lokal model.
 
 ---
