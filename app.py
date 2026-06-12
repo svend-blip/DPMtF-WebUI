@@ -1978,6 +1978,93 @@ async def update_prompt_template(template_key: str, request: Request):
     return {"status": "updated", "template_key": template_key}
 
 
+# ---------------------------------------------------------------------------
+# Phase 2I — Local Prompt Compiler
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/prompt-templates/{template_key}/compile")
+async def compile_prompt(template_key: str, request: Request):
+    """Compile a prompt from a template with provided parameters.
+
+    Body (JSON):
+      project_path   — target project path (replaces {project_path})
+      phase_id       — phase key (replaces {phase_id})
+      goal           — what this prompt should achieve
+      constraints    — list of constraint strings
+      implementation — implementation target description
+      allowed_files  — list of allowed file paths
+      validation_commands — list of validation shell commands
+      scope          — scope description (for brainstorm)
+      deliverable    — deliverable description (for brainstorm)
+      <any other key> — replaces {key} in template sections
+    """
+    data = await request.json()
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM prompt_templates
+        WHERE template_key = ? AND is_active = 1
+    """, (template_key,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    template = dict(row)
+    conn.close()
+
+    try:
+        structure = json.loads(template["structure_json"])
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Template structure is invalid JSON")
+
+    # Build the prompt by processing each section
+    lines = []
+    for section in structure.get("sections", []):
+        label = section.get("label", "")
+        sec_type = section.get("type", "fixed")
+
+        if sec_type == "fixed":
+            value = section.get("value", "")
+            # Replace {placeholders} in value
+            for key, val in data.items():
+                value = value.replace("{" + key + "}", str(val))
+            if label and value:
+                lines.append(f"{label} {value}".strip())
+            elif label:
+                lines.append(label)
+            elif value:
+                lines.append(value)
+
+        elif sec_type == "param":
+            param_key = section.get("param_key", "")
+            value = data.get(param_key, f"<{param_key}>")
+            lines.append(f"{label} {value}")
+
+        elif sec_type == "list":
+            param_key = section.get("param_key", "")
+            items = data.get(param_key, [])
+            if not isinstance(items, list):
+                items = [str(items)]
+            lines.append(label)
+            for item in items:
+                lines.append(f"  - {item}")
+
+    prompt_text = "\n".join(lines)
+
+    return {
+        "template_key": template_key,
+        "template_name": template["template_name"],
+        "suitable_for": template["suitable_for"],
+        "prompt": prompt_text,
+        "params_used": list(data.keys()),
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
