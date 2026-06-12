@@ -1229,6 +1229,34 @@ function buildDrawerContent() {
       valBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
     });
 
+  // ── Platform ─────────────────────────────────────────
+  var platCard = el("div", "dpmtf-card");
+  platCard.appendChild(el("h4", null, "Platform"));
+  var platBody = el("div", null);
+  platBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  platCard.appendChild(platBody);
+  content.appendChild(platCard);
+
+  fetch("/api/platform")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(platBody);
+      var info = [];
+      info.push("OS: " + (data.platform || "?") + " (" + (data.os_release || "?") + ")");
+      info.push("Python: " + (data.python_version || "?"));
+      info.push("Home: " + (data.home_dir || "?"));
+      info.push("GPUs: " + (data.gpu_count || 0));
+      if (data.home_disk) {
+        info.push("Home disk: " + data.home_disk.use_percent + "% used (" +
+          data.home_disk.available + " free)");
+      }
+      platBody.appendChild(el("div", "dpmtf-small", info.join(" | ")));
+    })
+    .catch(function (err) {
+      clear(platBody);
+      platBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
+
   // ── Git Sync ─────────────────────────────────────────
   var gitCard = el("div", "dpmtf-card");
   gitCard.appendChild(el("h4", null, "Git Sync Status"));

@@ -2199,6 +2199,19 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?)
 """, ("2K", "Git Sync Management", "Database-driven git tracking: git_sync_status, git_operations tables.", "next", 35))
 
+# Update phase tracking: 2K→completed, 2L→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2K", "Git Sync Management", "Database-driven git tracking: git_sync_status, git_operations tables.", "completed", 35))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub.", "next", 36))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
