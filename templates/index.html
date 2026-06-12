@@ -9,7 +9,16 @@
 </head>
 <body>
     <main class="container">
-        <h1 data-slot="lbl_heading_main">Loading...</h1>
+        <div class="header-row">
+            <h1 data-slot="lbl_heading_main">Loading...</h1>
+            <div class="lang-selector">
+                <label for="lang-dropdown" class="lang-label">Language</label>
+                <select id="lang-dropdown">
+                    <option value="da-DK">Dansk</option>
+                    <option value="en-US">English</option>
+                </select>
+            </div>
+        </div>
 
         <section id="db-status-section">
             <h2 data-slot="lbl_panel_db_status">Database Status</h2>
