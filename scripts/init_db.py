@@ -254,7 +254,14 @@ for panel in layout_panels_data:
     """, panel)
 
 # Seed phase status data
+# Blok 1 (1A-1X): Core infrastructure — all completed
+# Blok 2 (2A-2D): AI PC Resource WebUI migration prep — all completed
+# Blok 3 (2E): Governance-template opgradering — completed 2026-06-12
+# Blok 4 (2F-2I): Prompt-infrastruktur (hitrate, patterns, templates, compiler)
+# Blok 5 (2J-2L): Automatisering (validation, git-sync, platform-adapter)
+# Blok 6 (2M-2O): Lokal model integration (session manager, auto-loop, parallel-test)
 phase_data = [
+    # ── Blok 1: Core infrastructure (1A-1X) — completed ──
     ("1A", "Skeleton", "Initial project structure", "completed", 0),
     ("1B", "Panel import", "Import reference panels", "completed", 1),
     ("1C", "Read-only panel table", "Display panels in read-only table", "completed", 2),
@@ -279,17 +286,26 @@ phase_data = [
     ("1V", "Endpoint Runtime Status Checks", "Check endpoint status", "completed", 21),
     ("1W", "WebUI Bootstrap Dataset / Seed Scripts", "Create bootstrap dataset", "completed", 22),
     ("1X", "Architecture Decision Record in Frontend Roadmap", "Document architecture decisions", "completed", 23),
+    # ── Blok 2: AI PC Resource WebUI migration prep (2A-2D) — completed ──
     ("2A", "New AI PC Resource WebUI Migration Target", "Create new AI PC WebUI target", "completed", 24),
     ("2B", "Select 4–5 Reusable AI PC Panels", "Select reusable panels", "completed", 25),
     ("2C", "Create New AI PC WebUI Project Skeleton on New Port", "Create project skeleton", "completed", 26),
-    ("2D", "Specify AI PC WebUI v2 Panel Requirements", "Specify v2 panel requirements", "next", 27),
-    ("2E", "Wire Selected Endpoints and Status Checks", "Connect endpoints", "planned", 28),
-    ("2F", "Validate New AI PC WebUI as Replacement Candidate", "Validate replacement", "planned", 29),
-    ("2G", "Prompt Run Review", "Manual review form", "planned", 30),
-    ("2H", "Hitrate Scoring", "Score prompt effectiveness", "planned", 31),
-    ("2I", "Implementation Pattern Manager", "Manage implementation patterns", "planned", 32),
-    ("2J", "Prompt Template Manager", "Manage prompt templates", "planned", 33),
-    ("2K", "Local Prompt Compiler", "Compile prompts locally", "planned", 34),
+    ("2D", "Specify AI PC WebUI v2 Panel Requirements", "Specify v2 panel requirements", "completed", 27),
+    # ── Blok 3: Governance-template opgradering (2E) ──
+    ("2E", "Governance-template opgradering", "Upgrade master templates from v3 learnings: 17_PERMISSION_MODE_POLICY, NEXT_CONTEXT, IMPLEMENTATION_REPORT, GIT_POLICY, CODING_STANDARD, VALIDATION, PROJECT, SCOPE, ARCHITECTURE, RESTART, DATABASE_RUNTIME_STATE", "completed", 28),
+    # ── Blok 4: Prompt-infrastruktur (2F-2I) ──
+    ("2F", "Hitrate Scoring", "Database tables for prompt success/failure tracking: prompt_runs, prompt_hitrates. API endpoints for hitrate queries.", "next", 29),
+    ("2G", "Implementation Pattern Manager", "Capture successful implementation patterns from completed phases. Table: implementation_patterns. Pattern extraction from phase reports.", "planned", 30),
+    ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates. Table: prompt_templates with variable fields.", "planned", 31),
+    ("2I", "Local Prompt Compiler", "Generate prompts from templates + hitrate data + governance context. Assembles project-specific prompts without cloud dependency.", "planned", 32),
+    # ── Blok 5: Automatisering (2J-2L) ──
+    ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables. /api/validate endpoint runs all relevant rules.", "planned", 33),
+    ("2K", "Git Sync Management", "Database-driven git tracking: git_sync_status, git_operations tables. /api/git/status and /api/git/push endpoints.", "planned", 34),
+    ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub. Service actions get platform field.", "planned", 35),
+    # ── Blok 6: Lokal model integration (2M-2O) ──
+    ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "planned", 36),
+    ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated. Full closed loop.", "planned", 37),
+    ("2O", "Parallel-kørsel test", "Same prompt executed in cloud (Claude Code) and local model. Results compared for hitrate ground-truth calibration.", "planned", 38),
 ]
 
 # Safely insert or update phase status data (no DELETE)

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This governance document defines the git conventions, branching strategy, commit rules, and synchronization policy for the DPMtF WebUI project. Local git is the source of truth; GitHub push is an optional sync operation. This document ensures consistent version control across all sessions, especially after `/clear` when the new session needs to understand the repository's state.
+This governance document defines the git conventions, branching strategy, commit rules, and synchronization policy for AI PC Resource WebUI v3. Local git is the source of truth; GitHub push is an optional sync operation. This document ensures consistent version control across all sessions, especially after `/clear` when the new session needs to understand the repository's state.
 
 ## When to Use
 
@@ -10,21 +10,16 @@ This governance document defines the git conventions, branching strategy, commit
 - **Any role making file changes**: Know when to stage, what to commit, and how to write messages.
 - **After `/clear`**: Read to reconstruct git conventions and current sync status.
 
-## Required Inputs
-
-| Input | Description |
-|-------|-------------|
-| Changed files | Files staged or modified in the working tree. |
-| Phase scope | Defined in `02_SCOPE.md`. |
-| Network status | Online or offline (see [[14_OFFLINE_MODE]]). |
-
-## Required Outputs
-
-- Changes committed following the conventions below.
-- Push status tracked (synced, pending, or not applicable).
-- If offline, push marked as pending in `NEXT_CONTEXT.md`.
-
 ---
+
+## Repository Details
+
+| Item | Value |
+|------|-------|
+| **Local path** | `/home/svend/ai-pc-resource-webui-v3` |
+| **Remote** | `https://github.com/svend-blip/ai-pc-resource-webui-v3.git` |
+| **Default branch** | `master` |
+| **Current baseline commit** | Do not store a static baseline here. Use phase-start git baseline checks and actual HEAD. |
 
 ## Core Principle
 
@@ -40,7 +35,7 @@ This governance document defines the git conventions, branching strategy, commit
 ## Commit Conventions
 
 1. **One logical change per commit** — do not mix unrelated fixes.
-2. **Commit messages describe what changed and why** — include the phase key: `[3A] Harden governance templates`.
+2. **Commit messages describe what changed and why** — include the phase key: `[3C-3] Initialize governance docs`.
 3. **Include `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`** when AI-assisted.
 4. **Do not commit hidden files or generated artifacts** (`__pycache__/`, `.env`, secrets).
 5. **Stage related changes together** — use `git add` selectively, not `git add -A`.
@@ -78,21 +73,17 @@ Every phase must begin with actual git baseline checks before any work begins. C
 
 ## Temporary Hiding and Deletion Policy
 
-### Existing Projects — Migration Work
+### New Projects — Clean Implementation
 
-1. When temporarily hiding code or UI panels during migration, use a CSS class or conditional guard and an inline comment explaining the temporary nature and planned cleanup phase.
-2. Hidden code must be reversible with a single change (one line removal or one class rename).
-3. Document each hidden item in `DECISIONS.md` with the planned removal phase.
-4. Do not preserve obsolete code indefinitely — hiding is a bridge, not a permanent strategy.
-
-### New Projects and Clean Implementations
+AI PC Resource WebUI v3 is a clean implementation:
 
 1. Implement cleanly — do not create hidden panels or unused code by default.
-2. AI PC Resource WebUI v3 and new target projects should build the intended structure from scratch without irrelevant legacy artifacts.
+2. Build the intended structure from scratch without irrelevant legacy artifacts.
+3. No migration from v2 — v2 is reference only, not source material.
 
 ### Scoped Deletion (All Projects)
 
-1. Deleting code is allowed when: the phase scope explicitly authorizes it, all references are verified, validation passes, Human Approval Gate approves (if user-visible behavior changes), and the change is documented in `CHANGELOG.md`.
+1. Deleting code is allowed when: the phase scope explicitly authorizes it, all references are verified, validation passes, Human Approval Gate approves (if user-visible behavior changes), and the change is documented in `10_CHANGELOG.md`.
 2. Do not delete governance documents, decision logs, or changelog entries — these are append-only per their own rules.
 
 ## Push Policy
@@ -100,7 +91,7 @@ Every phase must begin with actual git baseline checks before any work begins. C
 | Scenario | Action |
 |----------|--------|
 | Online + all checks pass | Commit and push to `origin/master`. |
-| Offline + all checks pass | Commit locally. Mark push as pending in `NEXT_CONTEXT.md`. |
+| Offline + all checks pass | Commit locally. Mark push as pending in `11_NEXT_CONTEXT.md`. |
 | Online + checks fail | Do not commit. Return changes to Implementer. |
 | Experimental worktree | Do not push until merged, tested, and verified on master. |
 
@@ -109,7 +100,7 @@ Every phase must begin with actual git baseline checks before any work begins. C
 1. Check for unpushed commits: `git log origin/master..master --oneline`.
 2. Review the unpushed commit messages for scope alignment.
 3. If satisfied: `git push origin master`.
-4. Update `NEXT_CONTEXT.md` to reflect sync completion.
+4. Update `11_NEXT_CONTEXT.md` to reflect sync completion.
 
 ## Forbidden Git Operations
 
@@ -117,5 +108,9 @@ Every phase must begin with actual git baseline checks before any work begins. C
 - Do not rebase shared history.
 - Do not force-push to `master`.
 - Do not commit files from forbidden paths (see `03_FILE_ACCESS_POLICY.md`).
+
+## Phase 3C-3 Rule
+
+**Stop before commit in this phase.** No commit is made during phase 3C-3 governance initialization. All changes remain unstaged and uncommitted until explicitly instructed to commit in a later phase.
 
 ---
