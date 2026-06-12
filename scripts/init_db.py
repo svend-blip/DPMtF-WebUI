@@ -394,7 +394,7 @@ ui_labels_data = [
     ("LBL-1000003", "system_setup.database_layout_preview.title", "system_setup", "Database Layout Preview", "Title for the database layout preview section"),
     ("LBL-1000004", "system_setup.database_layout_preview.description", "system_setup", "Read-only preview from /api/frontend-layout", "Description for the database layout preview section"),
     ("LBL-1000005", "system_setup.database_layout_preview.refresh", "system_setup", "Refresh", "Label for the refresh button in database layout preview"),
-    ("LBL-1000006", "phase_status.show_completed", "phase_status", "Show completed phases", "Toggle label to show/hide completed phases"),
+    ("LBL-1000006", "phase_status.show_completed", "main", "Show completed phases", "Toggle label to show/hide completed phases"),
     # ── 2F-bis: Main layout labels ──
     ("LBL-1000007", "lbl_page_title", "main", "DPMtF WebUI", "Page title"),
     ("LBL-1000008", "lbl_heading_main", "main", "Deterministic Prompt – MockUp to Finalised", "Main heading"),
