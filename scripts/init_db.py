@@ -2126,6 +2126,79 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?)
 """, ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables.", "next", 34))
 
+# ── Phase 2K: Git Sync Management ────────────────────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS git_sync_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_key TEXT UNIQUE NOT NULL,
+    project_path TEXT NOT NULL,
+    branch TEXT NOT NULL DEFAULT 'master',
+    unpushed_commits INTEGER DEFAULT 0,
+    last_push_timestamp TIMESTAMP,
+    last_push_success INTEGER,
+    last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS git_operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id TEXT UNIQUE NOT NULL,
+    project_key TEXT NOT NULL,
+    operation_type TEXT NOT NULL,
+    details TEXT,
+    success INTEGER NOT NULL DEFAULT 1,
+    error_log TEXT,
+    operator TEXT,
+    operation_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed DPMtF-WebUI's own git status
+cursor.execute("""
+    INSERT OR IGNORE INTO git_sync_status
+    (project_key, project_path, branch, unpushed_commits)
+    VALUES (?, ?, ?, ?)
+""", ("DPMtF-WebUI", "/home/svend/DPMtF-WebUI", "master", 0))
+
+# Register new endpoints
+endpoint_registry_2k = [
+    ("ENDP-4000023", "git_status", "/api/git/status", "GET", "Read-only git sync status for tracked projects", "git status JSON", "git_panel"),
+    ("ENDP-4000024", "git_operations", "/api/git/operations", "POST", "Record a git operation (commit/push) that happened externally", "operation JSON", "git_panel"),
+    ("ENDP-4000025", "git_operations_list", "/api/git/operations", "GET", "List recent git operations", "operations JSON array", "git_panel"),
+]
+for endpoint in endpoint_registry_2k:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap datasets
+for ds in [
+    ("BDS-5000019", "git_sync_status", "git_sync_status", "Git sync status for tracked projects", "scripts/init_db.py", 1, 1, 1),
+    ("BDS-5000020", "git_operations", "git_operations", "Git operation history log", "scripts/init_db.py", 0, 0, 1),
+]:
+    cursor.execute("""
+        INSERT OR REPLACE INTO bootstrap_dataset_registry
+        (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, ds)
+
+# Update phase tracking: 2J→completed, 2K→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables.", "completed", 34))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2K", "Git Sync Management", "Database-driven git tracking: git_sync_status, git_operations tables.", "next", 35))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

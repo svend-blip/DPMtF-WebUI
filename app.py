@@ -2237,6 +2237,149 @@ async def get_validation_rules():
     return {"rules": rules}
 
 
+# ---------------------------------------------------------------------------
+# Phase 2K — Git Sync Management
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/git/status")
+async def get_git_status(project_key: str | None = None):
+    """Return git sync status for tracked projects.
+
+    If project_key is provided, returns status for that project only.
+    Otherwise returns all tracked projects.
+
+    This is a read-only status check. It does NOT perform git operations.
+    Actual commit/push remain manual (Claude Code or Svend).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    if project_key:
+        cursor.execute("""
+            SELECT * FROM git_sync_status WHERE project_key = ?
+        """, (project_key,))
+    else:
+        cursor.execute("""
+            SELECT * FROM git_sync_status ORDER BY project_key
+        """)
+    rows = cursor.fetchall()
+    statuses = [dict(r) for r in rows]
+
+    # Enrich with live git info if project path exists
+    import subprocess
+    import os
+    for s in statuses:
+        path = s.get("project_path", "")
+        if os.path.isdir(os.path.join(path, ".git")):
+            try:
+                # Count unpushed commits
+                proc = subprocess.run(
+                    ["git", "-C", path, "log", "origin/master..master", "--oneline"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                commits = [l for l in proc.stdout.strip().split("\n") if l]
+                s["unpushed_commits"] = len(commits)
+                s["unpushed_list"] = commits[:10]
+
+                # Last commit
+                proc = subprocess.run(
+                    ["git", "-C", path, "log", "-1", "--format=%h %s"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                s["last_commit"] = proc.stdout.strip()
+
+                # Branch
+                proc = subprocess.run(
+                    ["git", "-C", path, "branch", "--show-current"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                s["branch"] = proc.stdout.strip()
+            except Exception:
+                pass
+
+    conn.close()
+    return {"projects": statuses}
+
+
+@app.post("/api/git/operations")
+async def record_git_operation(request: Request):
+    """Record a git operation that happened externally.
+
+    This does NOT perform git operations — it only records them.
+    Actual commit/push are done manually by Claude Code or Svend.
+
+    Body (JSON):
+      project_key    — which project (required)
+      operation_type — 'commit' or 'push' (required)
+      details        — commit message or push summary
+      success        — 1 = success, 0 = failure (default 1)
+      error_log      — error output if failed
+      operator       — who performed the operation
+    """
+    data = await request.json()
+    required = ["project_key", "operation_type"]
+    for field in required:
+        if field not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+    import uuid
+    op_id = f"GITOP-{uuid.uuid4().hex[:8].upper()}"
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO git_operations
+        (operation_id, project_key, operation_type, details,
+         success, error_log, operator)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        op_id,
+        data["project_key"],
+        data["operation_type"],
+        data.get("details"),
+        data.get("success", 1),
+        data.get("error_log"),
+        data.get("operator", "Claude Code"),
+    ))
+
+    # Update sync status
+    if data["operation_type"] == "push" and data.get("success", 1):
+        cursor.execute("""
+            INSERT INTO git_sync_status
+            (project_key, project_path, branch, unpushed_commits,
+             last_push_timestamp, last_push_success)
+            VALUES (?, ?, 'master', 0, CURRENT_TIMESTAMP, 1)
+            ON CONFLICT(project_key) DO UPDATE SET
+                unpushed_commits = 0,
+                last_push_timestamp = CURRENT_TIMESTAMP,
+                last_push_success = 1,
+                updated_at = CURRENT_TIMESTAMP
+        """, (data["project_key"], data.get("project_path", "")))
+
+    conn.commit()
+    conn.close()
+    return {"status": "recorded", "operation_id": op_id}
+
+
+@app.get("/api/git/operations")
+async def get_git_operations(limit: int = 20):
+    """Return recent git operations."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM git_operations
+        ORDER BY operation_timestamp DESC LIMIT ?
+    """, (limit,))
+    ops = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {"operations": ops}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
