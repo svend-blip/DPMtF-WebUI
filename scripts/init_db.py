@@ -333,6 +333,29 @@ CREATE TABLE IF NOT EXISTS project_plans (
 )
 """)
 
+# ── Phase 2F-bis: i18n four-layer architecture ─────────────────────
+# Layer 1: ui_text_slots — stable frontend text placement IDs
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ui_text_slots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot_key TEXT UNIQUE NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Layer 2: ui_text_slot_labels — binds slots to labels
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS ui_text_slot_labels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot_key TEXT NOT NULL,
+    label_key TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(slot_key, label_key)
+)
+""")
+
 # Create ui_labels table for i18n label registry
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS ui_labels (
@@ -362,14 +385,66 @@ CREATE TABLE IF NOT EXISTS ui_label_translations (
 )
 """)
 
-# Seed baseline ui_labels data
+# Seed baseline ui_labels data (existing + 45 new for 2F-bis)
 ui_labels_data = [
+    # Existing system_setup labels
     ("LBL-1000001", "system_setup.title", "system_setup", "System Setup", "Title for the system setup section"),
     ("LBL-1000002", "system_setup.layout_slots.title", "system_setup", "Layout Slots", "Title for the layout slots section"),
     ("LBL-1000003", "system_setup.database_layout_preview.title", "system_setup", "Database Layout Preview", "Title for the database layout preview section"),
     ("LBL-1000004", "system_setup.database_layout_preview.description", "system_setup", "Read-only preview from /api/frontend-layout", "Description for the database layout preview section"),
     ("LBL-1000005", "system_setup.database_layout_preview.refresh", "system_setup", "Refresh", "Label for the refresh button in database layout preview"),
     ("LBL-1000006", "phase_status.show_completed", "phase_status", "Show completed phases", "Toggle label to show/hide completed phases"),
+    # ── 2F-bis: Main layout labels ──
+    ("LBL-1000007", "lbl_page_title", "main", "DPMtF WebUI", "Page title"),
+    ("LBL-1000008", "lbl_heading_main", "main", "Deterministic Prompt – MockUp to Finalised", "Main heading"),
+    ("LBL-1000009", "lbl_panel_db_status", "main", "Database Status", "Database Status panel heading"),
+    ("LBL-1000010", "lbl_panel_phase_status", "main", "Phase Status", "Phase Status panel heading"),
+    ("LBL-1000011", "lbl_panel_hitrates", "main", "Prompt Hitrates", "Prompt Hitrates panel heading"),
+    ("LBL-1000012", "lbl_panel_prompt_sequences", "main", "Prompt Sequence Planner", "Prompt Sequence Planner panel heading"),
+    ("LBL-1000013", "lbl_panel_project_planning", "main", "New Project Planning", "New Project Planning panel heading"),
+    ("LBL-1000014", "lbl_btn_system_setup", "main", "System Setup", "System Setup button"),
+    ("LBL-1000015", "lbl_btn_refresh", "main", "Refresh", "Refresh button"),
+    ("LBL-1000016", "lbl_btn_create", "main", "Create", "Create button"),
+    ("LBL-1000017", "lbl_btn_add_step", "main", "Add Step", "Add Step button"),
+    ("LBL-1000018", "lbl_btn_generate_prompt", "main", "Generate Next Prompt Preview", "Generate Next Prompt Preview button"),
+    ("LBL-1000019", "lbl_btn_copy_prompt", "main", "Copy Prompt", "Copy Prompt button"),
+    ("LBL-1000020", "lbl_btn_save_prompt", "main", "Save Generated Prompt", "Save Generated Prompt button"),
+    ("LBL-1000021", "lbl_btn_create_project_plan", "main", "Create Project Plan", "Create Project Plan button"),
+    ("LBL-1000022", "lbl_btn_close_drawer", "main", "Close", "Close drawer button"),
+    # ── 2F-bis: Status labels ──
+    ("LBL-1000023", "lbl_status_loading", "main", "Loading...", "Loading indicator"),
+    ("LBL-1000024", "lbl_status_no_data", "main", "No data available.", "No data message"),
+    ("LBL-1000025", "lbl_status_error_prefix", "main", "Error: ", "Error message prefix"),
+    ("LBL-1000026", "lbl_status_success", "main", "Success", "Success status"),
+    ("LBL-1000027", "lbl_status_failed", "main", "Failed", "Failed status"),
+    ("LBL-1000028", "lbl_status_planned", "main", "Planned", "Planned phase status"),
+    ("LBL-1000029", "lbl_status_completed", "main", "Completed", "Completed phase status"),
+    ("LBL-1000030", "lbl_status_next", "main", "Next", "Next phase status"),
+    # ── 2F-bis: Prompt Sequence labels ──
+    ("LBL-1000031", "lbl_sequence_count", "main", "Sequences", "Sequence count label"),
+    ("LBL-1000032", "lbl_step_count", "main", "Steps", "Step count label"),
+    ("LBL-1000033", "lbl_sequences", "main", "Sequences", "Sequences label"),
+    ("LBL-1000034", "lbl_steps", "main", "Steps", "Steps label"),
+    ("LBL-1000035", "lbl_select_sequence", "main", "Select a sequence...", "Select sequence prompt"),
+    ("LBL-1000036", "lbl_empty_sequences", "main", "No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts.", "Empty sequences message"),
+    ("LBL-1000037", "lbl_empty_steps", "main", "No steps yet. Add steps to the sequence to generate prompts.", "Empty steps message"),
+    ("LBL-1000038", "lbl_prompt_preview", "main", "Generate Next Prompt Preview", "Prompt preview heading"),
+    ("LBL-1000039", "lbl_prompt_history", "main", "Prompt History / Generated Archive", "Prompt history heading"),
+    ("LBL-1000040", "lbl_no_prompts_yet", "main", "No generated prompts yet. Generate and save prompts to see them appear here.", "No prompts message"),
+    # ── 2F-bis: Project Planning labels ──
+    ("LBL-1000041", "lbl_project_name", "main", "Project Name", "Project name field"),
+    ("LBL-1000042", "lbl_target_folder", "main", "Target Folder", "Target folder field"),
+    ("LBL-1000043", "lbl_app_port", "main", "App Port", "App port field"),
+    ("LBL-1000044", "lbl_app_profile", "main", "App Profile", "App profile field"),
+    ("LBL-1000045", "lbl_prompt_sequence_select", "main", "Prompt Sequence", "Prompt sequence selector"),
+    ("LBL-1000046", "lbl_notes", "main", "Notes", "Notes field"),
+    # ── 2F-bis: Drawer section labels ──
+    ("LBL-1000047", "lbl_drawer_layout_slots", "main", "Layout Slots", "Layout Slots drawer section"),
+    ("LBL-1000048", "lbl_drawer_db_layout", "main", "Database Layout Preview", "Database Layout Preview drawer section"),
+    ("LBL-1000049", "lbl_drawer_i18n", "main", "UI Labels / i18n", "UI Labels / i18n drawer section"),
+    ("LBL-1000050", "lbl_drawer_endpoint_registry", "main", "Endpoint Registry", "Endpoint Registry drawer section"),
+    ("LBL-1000051", "lbl_drawer_bootstrap", "main", "Bootstrap Dataset", "Bootstrap Dataset drawer section"),
+    ("LBL-1000052", "lbl_drawer_security", "main", "Security / Permissions", "Security / Permissions drawer section"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -380,14 +455,119 @@ for label in ui_labels_data:
         VALUES (?, ?, ?, ?, ?)
     """, label)
 
-# Seed en-US translations for all baseline labels
+# Seed translations (en-US + da-DK) for all labels
 ui_label_translations_data = [
+    # Existing en-US
     ("LBL-1000001", "en-US", "System Setup"),
     ("LBL-1000002", "en-US", "Layout Slots"),
     ("LBL-1000003", "en-US", "Database Layout Preview"),
     ("LBL-1000004", "en-US", "Read-only preview from /api/frontend-layout"),
     ("LBL-1000005", "en-US", "Refresh"),
     ("LBL-1000006", "en-US", "Show completed phases"),
+    # Existing da-DK
+    ("LBL-1000001", "da-DK", "System Opsætning"),
+    ("LBL-1000002", "da-DK", "Layout Slots"),
+    ("LBL-1000003", "da-DK", "Database Layout Preview"),
+    ("LBL-1000004", "da-DK", "Read-only preview fra /api/frontend-layout"),
+    ("LBL-1000005", "da-DK", "Opdatér"),
+    ("LBL-1000006", "da-DK", "Vis fuldførte faser"),
+    # ── 2F-bis: Main layout (en-US + da-DK) ──
+    ("LBL-1000007", "en-US", "DPMtF WebUI"),
+    ("LBL-1000007", "da-DK", "DPMtF WebUI"),
+    ("LBL-1000008", "en-US", "Deterministic Prompt – MockUp to Finalised"),
+    ("LBL-1000008", "da-DK", "Deterministisk Prompt — MockUp til Finaliseret"),
+    ("LBL-1000009", "en-US", "Database Status"),
+    ("LBL-1000009", "da-DK", "Database Status"),
+    ("LBL-1000010", "en-US", "Phase Status"),
+    ("LBL-1000010", "da-DK", "Fase Status"),
+    ("LBL-1000011", "en-US", "Prompt Hitrates"),
+    ("LBL-1000011", "da-DK", "Prompt Hitrates"),
+    ("LBL-1000012", "en-US", "Prompt Sequence Planner"),
+    ("LBL-1000012", "da-DK", "Prompt Sekvens Planlægger"),
+    ("LBL-1000013", "en-US", "New Project Planning"),
+    ("LBL-1000013", "da-DK", "Nyt Projekt Planlægning"),
+    ("LBL-1000014", "en-US", "System Setup"),
+    ("LBL-1000014", "da-DK", "System Opsætning"),
+    ("LBL-1000015", "en-US", "Refresh"),
+    ("LBL-1000015", "da-DK", "Opdatér"),
+    ("LBL-1000016", "en-US", "Create"),
+    ("LBL-1000016", "da-DK", "Opret"),
+    ("LBL-1000017", "en-US", "Add Step"),
+    ("LBL-1000017", "da-DK", "Tilføj Trin"),
+    ("LBL-1000018", "en-US", "Generate Next Prompt Preview"),
+    ("LBL-1000018", "da-DK", "Generér Næste Prompt Preview"),
+    ("LBL-1000019", "en-US", "Copy Prompt"),
+    ("LBL-1000019", "da-DK", "Kopiér Prompt"),
+    ("LBL-1000020", "en-US", "Save Generated Prompt"),
+    ("LBL-1000020", "da-DK", "Gem Genereret Prompt"),
+    ("LBL-1000021", "en-US", "Create Project Plan"),
+    ("LBL-1000021", "da-DK", "Opret Projekt Plan"),
+    ("LBL-1000022", "en-US", "Close"),
+    ("LBL-1000022", "da-DK", "Luk"),
+    # ── 2F-bis: Status (en-US + da-DK) ──
+    ("LBL-1000023", "en-US", "Loading..."),
+    ("LBL-1000023", "da-DK", "Indlæser..."),
+    ("LBL-1000024", "en-US", "No data available."),
+    ("LBL-1000024", "da-DK", "Ingen data tilgængelig."),
+    ("LBL-1000025", "en-US", "Error: "),
+    ("LBL-1000025", "da-DK", "Fejl: "),
+    ("LBL-1000026", "en-US", "Success"),
+    ("LBL-1000026", "da-DK", "Gennemført"),
+    ("LBL-1000027", "en-US", "Failed"),
+    ("LBL-1000027", "da-DK", "Fejlet"),
+    ("LBL-1000028", "en-US", "Planned"),
+    ("LBL-1000028", "da-DK", "Planlagt"),
+    ("LBL-1000029", "en-US", "Completed"),
+    ("LBL-1000029", "da-DK", "Færdig"),
+    ("LBL-1000030", "en-US", "Next"),
+    ("LBL-1000030", "da-DK", "Næste"),
+    # ── 2F-bis: Prompt Sequences (en-US + da-DK) ──
+    ("LBL-1000031", "en-US", "Sequences"),
+    ("LBL-1000031", "da-DK", "Sekvenser"),
+    ("LBL-1000032", "en-US", "Steps"),
+    ("LBL-1000032", "da-DK", "Trin"),
+    ("LBL-1000033", "en-US", "Sequences"),
+    ("LBL-1000033", "da-DK", "Sekvenser"),
+    ("LBL-1000034", "en-US", "Steps"),
+    ("LBL-1000034", "da-DK", "Trin"),
+    ("LBL-1000035", "en-US", "Select a sequence..."),
+    ("LBL-1000035", "da-DK", "Vælg en sekvens..."),
+    ("LBL-1000036", "en-US", "No prompt sequences yet. Create the first sequence to begin planning small Claude Code prompts."),
+    ("LBL-1000036", "da-DK", "Ingen prompt sekvenser endnu. Opret den første sekvens for at begynde at planlægge små Claude Code prompts."),
+    ("LBL-1000037", "en-US", "No steps yet. Add steps to the sequence to generate prompts."),
+    ("LBL-1000037", "da-DK", "Ingen trin endnu. Tilføj trin til sekvensen for at generere prompts."),
+    ("LBL-1000038", "en-US", "Generate Next Prompt Preview"),
+    ("LBL-1000038", "da-DK", "Generér Næste Prompt Preview"),
+    ("LBL-1000039", "en-US", "Prompt History / Generated Archive"),
+    ("LBL-1000039", "da-DK", "Prompt Historik / Genereret Arkiv"),
+    ("LBL-1000040", "en-US", "No generated prompts yet. Generate and save prompts to see them appear here."),
+    ("LBL-1000040", "da-DK", "Ingen genererede prompts endnu. Generér og gem prompts for at se dem her."),
+    # ── 2F-bis: Project Planning (en-US + da-DK) ──
+    ("LBL-1000041", "en-US", "Project Name"),
+    ("LBL-1000041", "da-DK", "Projekt Navn"),
+    ("LBL-1000042", "en-US", "Target Folder"),
+    ("LBL-1000042", "da-DK", "Mål Mappe"),
+    ("LBL-1000043", "en-US", "App Port"),
+    ("LBL-1000043", "da-DK", "App Port"),
+    ("LBL-1000044", "en-US", "App Profile"),
+    ("LBL-1000044", "da-DK", "App Profil"),
+    ("LBL-1000045", "en-US", "Prompt Sequence"),
+    ("LBL-1000045", "da-DK", "Prompt Sekvens"),
+    ("LBL-1000046", "en-US", "Notes"),
+    ("LBL-1000046", "da-DK", "Noter"),
+    # ── 2F-bis: Drawer (en-US + da-DK) ──
+    ("LBL-1000047", "en-US", "Layout Slots"),
+    ("LBL-1000047", "da-DK", "Layout Slots"),
+    ("LBL-1000048", "en-US", "Database Layout Preview"),
+    ("LBL-1000048", "da-DK", "Database Layout Preview"),
+    ("LBL-1000049", "en-US", "UI Labels / i18n"),
+    ("LBL-1000049", "da-DK", "UI Labels / i18n"),
+    ("LBL-1000050", "en-US", "Endpoint Registry"),
+    ("LBL-1000050", "da-DK", "Endpoint Registry"),
+    ("LBL-1000051", "en-US", "Bootstrap Dataset"),
+    ("LBL-1000051", "da-DK", "Bootstrap Dataset"),
+    ("LBL-1000052", "en-US", "Security / Permissions"),
+    ("LBL-1000052", "da-DK", "Sikkerhed / Rettigheder"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
@@ -397,6 +577,116 @@ for translation in ui_label_translations_data:
         (label_id, locale, translated_text)
         VALUES (?, ?, ?)
     """, translation)
+
+# ── 2F-bis: Seed ui_text_slots ──
+ui_text_slots_data = [
+    ("lbl_page_title", "Page title"),
+    ("lbl_heading_main", "Main heading"),
+    ("lbl_panel_db_status", "Database Status panel heading"),
+    ("lbl_panel_phase_status", "Phase Status panel heading"),
+    ("lbl_panel_hitrates", "Prompt Hitrates panel heading"),
+    ("lbl_panel_prompt_sequences", "Prompt Sequence Planner panel heading"),
+    ("lbl_panel_project_planning", "New Project Planning panel heading"),
+    ("lbl_btn_system_setup", "System Setup button"),
+    ("lbl_btn_refresh", "Refresh button"),
+    ("lbl_btn_create", "Create button"),
+    ("lbl_btn_add_step", "Add Step button"),
+    ("lbl_btn_generate_prompt", "Generate Next Prompt Preview button"),
+    ("lbl_btn_copy_prompt", "Copy Prompt button"),
+    ("lbl_btn_save_prompt", "Save Generated Prompt button"),
+    ("lbl_btn_create_project_plan", "Create Project Plan button"),
+    ("lbl_btn_close_drawer", "Close drawer button"),
+    ("lbl_status_loading", "Loading indicator"),
+    ("lbl_status_no_data", "No data message"),
+    ("lbl_status_error_prefix", "Error message prefix"),
+    ("lbl_status_success", "Success status"),
+    ("lbl_status_failed", "Failed status"),
+    ("lbl_status_planned", "Planned phase status"),
+    ("lbl_status_completed", "Completed phase status"),
+    ("lbl_status_next", "Next phase status"),
+    ("lbl_sequence_count", "Sequence count label"),
+    ("lbl_step_count", "Step count label"),
+    ("lbl_sequences", "Sequences label"),
+    ("lbl_steps", "Steps label"),
+    ("lbl_select_sequence", "Select sequence prompt"),
+    ("lbl_empty_sequences", "Empty sequences message"),
+    ("lbl_empty_steps", "Empty steps message"),
+    ("lbl_prompt_preview", "Prompt preview heading"),
+    ("lbl_prompt_history", "Prompt history heading"),
+    ("lbl_no_prompts_yet", "No prompts message"),
+    ("lbl_project_name", "Project name field"),
+    ("lbl_target_folder", "Target folder field"),
+    ("lbl_app_port", "App port field"),
+    ("lbl_app_profile", "App profile field"),
+    ("lbl_prompt_sequence_select", "Prompt sequence selector"),
+    ("lbl_notes", "Notes field"),
+    ("lbl_drawer_layout_slots", "Layout Slots drawer section"),
+    ("lbl_drawer_db_layout", "Database Layout Preview drawer section"),
+    ("lbl_drawer_i18n", "UI Labels / i18n drawer section"),
+    ("lbl_drawer_endpoint_registry", "Endpoint Registry drawer section"),
+    ("lbl_drawer_bootstrap", "Bootstrap Dataset drawer section"),
+    ("lbl_drawer_security", "Security / Permissions drawer section"),
+]
+for slot_key, description in ui_text_slots_data:
+    cursor.execute("""
+        INSERT OR IGNORE INTO ui_text_slots (slot_key, description)
+        VALUES (?, ?)
+    """, (slot_key, description))
+
+# ── 2F-bis: Seed ui_text_slot_labels (bind each slot to its label) ──
+ui_text_slot_labels_data = [
+    ("lbl_page_title", "lbl_page_title"),
+    ("lbl_heading_main", "lbl_heading_main"),
+    ("lbl_panel_db_status", "lbl_panel_db_status"),
+    ("lbl_panel_phase_status", "lbl_panel_phase_status"),
+    ("lbl_panel_hitrates", "lbl_panel_hitrates"),
+    ("lbl_panel_prompt_sequences", "lbl_panel_prompt_sequences"),
+    ("lbl_panel_project_planning", "lbl_panel_project_planning"),
+    ("lbl_btn_system_setup", "lbl_btn_system_setup"),
+    ("lbl_btn_refresh", "lbl_btn_refresh"),
+    ("lbl_btn_create", "lbl_btn_create"),
+    ("lbl_btn_add_step", "lbl_btn_add_step"),
+    ("lbl_btn_generate_prompt", "lbl_btn_generate_prompt"),
+    ("lbl_btn_copy_prompt", "lbl_btn_copy_prompt"),
+    ("lbl_btn_save_prompt", "lbl_btn_save_prompt"),
+    ("lbl_btn_create_project_plan", "lbl_btn_create_project_plan"),
+    ("lbl_btn_close_drawer", "lbl_btn_close_drawer"),
+    ("lbl_status_loading", "lbl_status_loading"),
+    ("lbl_status_no_data", "lbl_status_no_data"),
+    ("lbl_status_error_prefix", "lbl_status_error_prefix"),
+    ("lbl_status_success", "lbl_status_success"),
+    ("lbl_status_failed", "lbl_status_failed"),
+    ("lbl_status_planned", "lbl_status_planned"),
+    ("lbl_status_completed", "lbl_status_completed"),
+    ("lbl_status_next", "lbl_status_next"),
+    ("lbl_sequence_count", "lbl_sequence_count"),
+    ("lbl_step_count", "lbl_step_count"),
+    ("lbl_sequences", "lbl_sequences"),
+    ("lbl_steps", "lbl_steps"),
+    ("lbl_select_sequence", "lbl_select_sequence"),
+    ("lbl_empty_sequences", "lbl_empty_sequences"),
+    ("lbl_empty_steps", "lbl_empty_steps"),
+    ("lbl_prompt_preview", "lbl_prompt_preview"),
+    ("lbl_prompt_history", "lbl_prompt_history"),
+    ("lbl_no_prompts_yet", "lbl_no_prompts_yet"),
+    ("lbl_project_name", "lbl_project_name"),
+    ("lbl_target_folder", "lbl_target_folder"),
+    ("lbl_app_port", "lbl_app_port"),
+    ("lbl_app_profile", "lbl_app_profile"),
+    ("lbl_prompt_sequence_select", "lbl_prompt_sequence_select"),
+    ("lbl_notes", "lbl_notes"),
+    ("lbl_drawer_layout_slots", "lbl_drawer_layout_slots"),
+    ("lbl_drawer_db_layout", "lbl_drawer_db_layout"),
+    ("lbl_drawer_i18n", "lbl_drawer_i18n"),
+    ("lbl_drawer_endpoint_registry", "lbl_drawer_endpoint_registry"),
+    ("lbl_drawer_bootstrap", "lbl_drawer_bootstrap"),
+    ("lbl_drawer_security", "lbl_drawer_security"),
+]
+for slot_key, label_key in ui_text_slot_labels_data:
+    cursor.execute("""
+        INSERT OR IGNORE INTO ui_text_slot_labels (slot_key, label_key)
+        VALUES (?, ?)
+    """, (slot_key, label_key))
 
 # Create endpoint_registry table
 cursor.execute("""
