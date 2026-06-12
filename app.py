@@ -2335,6 +2335,47 @@ async def get_validation_rules():
 # ---------------------------------------------------------------------------
 
 
+def _advance_phase_on_push(cursor):
+    """Advance phase status when a successful push occurs.
+
+    Moves all 'next' phases to 'completed', and promotes the first
+    'planned' phase (by sort_order) to 'next'.
+
+    Uses the caller's cursor — caller is responsible for commit/close.
+    """
+    # Find all current 'next' phases
+    cursor.execute(
+        "SELECT phase_key FROM phase_status WHERE phase_state = 'next'"
+    )
+    next_phases = [row[0] for row in cursor.fetchall()]
+
+    # Mark them as completed
+    for phase_key in next_phases:
+        cursor.execute(
+            "UPDATE phase_status SET phase_state = 'completed',"
+            " updated_at = datetime('now') WHERE phase_key = ?",
+            (phase_key,),
+        )
+
+    # Find first planned phase and promote to next
+    cursor.execute(
+        "SELECT phase_key FROM phase_status WHERE phase_state = 'planned'"
+        " ORDER BY sort_order LIMIT 1"
+    )
+    first_planned = cursor.fetchone()
+    if first_planned:
+        cursor.execute(
+            "UPDATE phase_status SET phase_state = 'next',"
+            " updated_at = datetime('now') WHERE phase_key = ?",
+            (first_planned[0],),
+        )
+
+    return {
+        "advanced": next_phases,
+        "new_next": [first_planned[0]] if first_planned else [],
+    }
+
+
 @app.get("/api/git/status")
 async def get_git_status(project_key: str | None = None):
     """Return git sync status for tracked projects.
@@ -2437,8 +2478,9 @@ async def record_git_operation(request: Request):
         data.get("operator", "Claude Code"),
     ))
 
-    # Update sync status
+    phase_result = None
     if data["operation_type"] == "push" and data.get("success", 1):
+        # Update sync status
         cursor.execute("""
             INSERT INTO git_sync_status
             (project_key, project_path, branch, unpushed_commits,
@@ -2451,9 +2493,16 @@ async def record_git_operation(request: Request):
                 updated_at = CURRENT_TIMESTAMP
         """, (data["project_key"], data.get("project_path", "")))
 
+        # Advance phase status on successful push
+        phase_result = _advance_phase_on_push(cursor)
+
     conn.commit()
     conn.close()
-    return {"status": "recorded", "operation_id": op_id}
+
+    result = {"status": "recorded", "operation_id": op_id}
+    if phase_result is not None:
+        result["phases_advanced"] = phase_result
+    return result
 
 
 @app.get("/api/git/operations")
