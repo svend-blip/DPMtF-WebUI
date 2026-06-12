@@ -1468,6 +1468,171 @@ async def create_project_plan(project_data: dict):
         "project_plan_id": project_plan_id
     }
 
+# ---------------------------------------------------------------------------
+# Phase 2F — Hitrate Scoring endpoints
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/prompt-runs")
+async def get_prompt_runs(
+    phase_key: str | None = None,
+    target_project: str | None = None,
+    success: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List prompt runs with optional filters.
+
+    Query params:
+      phase_key     — filter by phase (e.g. "2E", "3C-14")
+      target_project — filter by project path or name
+      success       — 1 for successes, 0 for failures, omit for all
+      limit         — max rows (default 50)
+      offset        — pagination offset (default 0)
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    where: list[str] = []
+    params: list = []
+
+    if phase_key:
+        where.append("phase_key = ?")
+        params.append(phase_key)
+    if target_project:
+        where.append("target_project LIKE ?")
+        params.append(f"%{target_project}%")
+    if success is not None:
+        where.append("success = ?")
+        params.append(success)
+
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    params.extend([limit, offset])
+
+    cursor.execute(
+        f"SELECT * FROM prompt_runs{clause} "
+        "ORDER BY run_timestamp DESC LIMIT ? OFFSET ?",
+        params,
+    )
+    rows = cursor.fetchall()
+    runs = [dict(r) for r in rows]
+
+    # Total count (without limit/offset)
+    count_params = params[:-2]
+    cursor.execute(
+        f"SELECT COUNT(*) FROM prompt_runs{clause}",
+        count_params,
+    )
+    total = cursor.fetchone()[0]
+
+    conn.close()
+    return {"runs": runs, "total": total, "limit": limit, "offset": offset}
+
+
+@app.post("/api/prompt-runs")
+async def create_prompt_run(request: Request):
+    """Record a new prompt run and update the hitrate aggregate.
+
+    Body (JSON):
+      run_id          — unique run identifier (required)
+      phase_key       — phase this run belongs to (required)
+      target_project  — project the prompt targeted (required)
+      prompt_summary  — brief description of the prompt
+      success         — 1 = success, 0 = failure (required)
+      duration_seconds — execution time in seconds
+      error_summary   — error description if failed
+      model_used      — model that executed the prompt
+      notes           — optional human notes
+    """
+    data = await request.json()
+
+    required = ["run_id", "phase_key", "target_project", "success"]
+    for field in required:
+        if field not in data:
+            raise HTTPException(
+                status_code=400, detail=f"Missing required field: {field}"
+            )
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO prompt_runs
+            (run_id, phase_key, target_project, prompt_summary, success,
+             duration_seconds, error_summary, model_used, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["run_id"],
+            data["phase_key"],
+            data["target_project"],
+            data.get("prompt_summary"),
+            data["success"],
+            data.get("duration_seconds"),
+            data.get("error_summary"),
+            data.get("model_used"),
+            data.get("notes"),
+        ))
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run ID '{data['run_id']}' already exists.",
+        )
+
+    # Update or create the hitrate aggregate for this phase
+    cursor.execute("""
+        INSERT INTO prompt_hitrates
+        (phase_key, total_runs, successful_runs, rolling_success_rate,
+         last_run_timestamp)
+        VALUES (?, 1, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(phase_key) DO UPDATE SET
+            total_runs = total_runs + 1,
+            successful_runs = successful_runs + ?,
+            rolling_success_rate = CAST(successful_runs + ? AS REAL) / (total_runs + 1),
+            last_run_timestamp = CURRENT_TIMESTAMP,
+            last_updated = CURRENT_TIMESTAMP
+    """, (
+        data["phase_key"],
+        data["success"],
+        1.0 if data["success"] else 0.0,
+        data["success"],
+        data["success"],
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "status": "recorded",
+        "run_id": data["run_id"],
+        "phase_key": data["phase_key"],
+    }
+
+
+@app.get("/api/prompt-hirates")
+async def get_prompt_hitrates():
+    """Return aggregated hitrate statistics grouped by phase_key.
+
+    Sorted by rolling_success_rate ascending (worst first) so the
+    frontend can highlight phases that need template improvement.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM prompt_hitrates
+        ORDER BY rolling_success_rate ASC, total_runs DESC
+    """)
+    rows = cursor.fetchall()
+    hitrates = [dict(r) for r in rows]
+
+    conn.close()
+    return {"hitrates": hitrates}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
