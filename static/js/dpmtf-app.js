@@ -135,7 +135,7 @@ function loadDbStatus() {
 }
 
 /* ── 4. Phase Status ───────────────────────────────── */
-var showCompleted = true;
+var showCompleted = false;
 
 function loadPhaseStatus() {
   var container = document.getElementById("phase-status-content");
