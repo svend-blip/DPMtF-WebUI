@@ -2022,6 +2022,110 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?)
 """, ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates.", "next", 32))
 
+# ── Phase 2J: Validation Automation ────────────────────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS validation_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_key TEXT UNIQUE NOT NULL,
+    rule_name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    expected_output TEXT,
+    severity TEXT NOT NULL DEFAULT 'error',
+    applies_to TEXT NOT NULL DEFAULT 'all',
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS validation_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT UNIQUE NOT NULL,
+    phase_key TEXT,
+    target_project TEXT,
+    overall_verdict TEXT,
+    rules_total INTEGER DEFAULT 0,
+    rules_passed INTEGER DEFAULT 0,
+    rules_failed INTEGER DEFAULT 0,
+    run_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS validation_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    rule_key TEXT NOT NULL,
+    passed INTEGER NOT NULL DEFAULT 0,
+    actual_output TEXT,
+    notes TEXT,
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed the 7 baseline validation rules from 06_VALIDATION.md
+validation_rules_seed = [
+    ("val_backend_syntax", "Backend syntax check",
+     "python3 -m py_compile app.py", "Exit code 0, no errors", "error", "python"),
+    ("val_frontend_syntax", "Frontend syntax check",
+     "node --check static/js/*.js", "Exit code 0 for each modified file", "error", "javascript"),
+    ("val_shell_syntax", "Shell script syntax check",
+     "bash -n <file>", "Exit code 0", "error", "shell"),
+    ("val_diff_scope", "Diff scope review",
+     "git diff --stat", "Changes are within phase scope. No broad refactor.", "error", "all"),
+    ("val_dependency_check", "Dependency check",
+     "git diff requirements.txt", "No new dependencies added unless explicitly approved.", "error", "dependencies"),
+    ("val_schema_change", "Schema change check",
+     "grep -E 'ALTER TABLE|CREATE TABLE' <diff>", "No schema changes unless phase explicitly allows them.", "error", "schema"),
+    ("val_innerHTML", "Frontend innerHTML check",
+     "grep -RIn 'innerHTML' static templates --exclude-dir=__pycache__ || echo 'no_innerHTML'",
+     "Result must be no_innerHTML or an approved exception.", "error", "javascript"),
+]
+for rule in validation_rules_seed:
+    cursor.execute("""
+        INSERT OR IGNORE INTO validation_rules
+        (rule_key, rule_name, command, expected_output, severity, applies_to)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, rule)
+
+# Register new endpoint
+cursor.execute("""
+    INSERT OR REPLACE INTO endpoint_registry
+    (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+""", ("ENDP-4000022", "validate", "/api/validate", "POST", "Run validation rules against a project and return structured report", "validation report JSON", "validation_panel"))
+
+# Register bootstrap datasets
+for ds in [
+    ("BDS-5000016", "validation_rules", "validation_rules", "Validation rule definitions", "scripts/init_db.py", 7, 1, 1),
+    ("BDS-5000017", "validation_runs", "validation_runs", "Validation run history", "scripts/init_db.py", 0, 0, 1),
+    ("BDS-5000018", "validation_results", "validation_results", "Per-rule validation results", "scripts/init_db.py", 0, 0, 1),
+]:
+    cursor.execute("""
+        INSERT OR REPLACE INTO bootstrap_dataset_registry
+        (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, ds)
+
+# Update phase tracking: 2H→completed, 2I→completed, 2J→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates.", "completed", 32))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2I", "Local Prompt Compiler", "Generate prompts from templates + hitrate data + governance context.", "completed", 33))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables.", "next", 34))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
