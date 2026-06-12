@@ -2422,6 +2422,128 @@ async def get_platform_info():
     return info
 
 
+# ---------------------------------------------------------------------------
+# Phase 2M — Local Claude Code Session Manager
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/sessions")
+async def get_sessions(limit: int = 20):
+    """List recent Claude Code sessions."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM claude_sessions
+        ORDER BY started_at DESC LIMIT ?
+    """, (limit,))
+    sessions = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {"sessions": sessions}
+
+
+@app.get("/api/sessions/current")
+async def get_current_session():
+    """Return the currently active Claude Code session, if any."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM claude_sessions
+        WHERE status = 'active'
+        ORDER BY started_at DESC LIMIT 1
+    """)
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return {"active": True, "session": dict(row)}
+    return {"active": False, "session": None}
+
+
+@app.post("/api/sessions")
+async def create_session(request: Request):
+    """Record a new Claude Code session (started manually by Svend).
+
+    Body (JSON):
+      model_used      — model name (e.g. 'qwen36-27b-q4km:latest')
+      project_context — which project is being worked on
+      notes           — optional notes
+    """
+    data = await request.json()
+    import uuid
+
+    session_id = f"CS-{uuid.uuid4().hex[:8].upper()}"
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO claude_sessions
+        (session_id, model_used, project_context, status, notes)
+        VALUES (?, ?, ?, 'active', ?)
+    """, (
+        session_id,
+        data.get("model_used"),
+        data.get("project_context"),
+        data.get("notes"),
+    ))
+    conn.commit()
+    conn.close()
+
+    return {"status": "recorded", "session_id": session_id}
+
+
+@app.put("/api/sessions/{session_id}")
+async def update_session(session_id: str, request: Request):
+    """Update a session (stop, update activity timestamp, add notes).
+
+    Body (JSON):
+      status   — 'active', 'idle', or 'stopped'
+      notes    — optional notes to append
+    """
+    data = await request.json()
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT session_id FROM claude_sessions WHERE session_id = ?
+    """, (session_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if "status" in data:
+        cursor.execute("""
+            UPDATE claude_sessions SET
+                status = ?,
+                last_activity_at = CURRENT_TIMESTAMP,
+                ended_at = CASE WHEN ? = 'stopped' THEN CURRENT_TIMESTAMP ELSE ended_at END
+            WHERE session_id = ?
+        """, (data["status"], data["status"], session_id))
+    else:
+        cursor.execute("""
+            UPDATE claude_sessions SET
+                last_activity_at = CURRENT_TIMESTAMP
+            WHERE session_id = ?
+        """, (session_id,))
+
+    if "notes" in data and data["notes"]:
+        cursor.execute("""
+            UPDATE claude_sessions SET
+                notes = COALESCE(notes, '') || ? || '; '
+            WHERE session_id = ?
+        """, (data["notes"], session_id))
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "updated", "session_id": session_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
