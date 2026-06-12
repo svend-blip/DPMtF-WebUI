@@ -1443,6 +1443,36 @@ function buildDrawerContent() {
       gitBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
     });
 
+  // ── Sync Phases button ─────────────────────────────────
+  var syncBtn = el("button", "dpmtf-btn");
+  syncBtn.textContent = "Sync Phases from Git";
+  syncBtn.style.marginTop = "8px";
+  syncBtn.onclick = function () {
+    syncBtn.disabled = true;
+    syncBtn.textContent = "Syncing...";
+    fetch("/api/phases/sync-from-git", { method: "POST" })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        syncBtn.disabled = false;
+        syncBtn.textContent = "Sync Phases from Git";
+        if (data.advanced && data.advanced.length) {
+          alert("Phases advanced: " + data.advanced.join(", ") +
+            "\nNew next: " + (data.new_next || []).join(", "));
+          if (typeof loadPhaseStatus === "function") loadPhaseStatus();
+        } else if (data.reason) {
+          alert("No phases advanced.\n" + data.reason);
+        } else {
+          alert("No changes. All phases up to date.");
+        }
+      })
+      .catch(function (err) {
+        syncBtn.disabled = false;
+        syncBtn.textContent = "Sync Phases from Git";
+        alert("Sync failed: " + err.message);
+      });
+  };
+  gitCard.appendChild(syncBtn);
+
   // ── Security / Permissions (placeholder) ─────────────
   var secCard = el("div", "dpmtf-card");
   secCard.appendChild(el("h4", null, lbl("lbl_drawer_security", "Security / Permissions")));
