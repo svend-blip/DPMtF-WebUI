@@ -305,7 +305,7 @@ phase_data = [
     ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub. Service actions get platform field.", "planned", 36),
     # ── Blok 6: Lokal model integration (2M-2O) ──
     ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "planned", 37),
-    ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated. Full closed loop.", "planned", 38),
+    ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated. Full closed loop.", "next", 38),
     ("2O", "Parallel-kørsel test", "Same prompt executed in cloud (Claude Code) and local model. Results compared for hitrate ground-truth calibration.", "planned", 39),
 ]
 
@@ -2260,7 +2260,7 @@ cursor.execute("""
     INSERT OR REPLACE INTO phase_status
     (phase_key, phase_title, phase_description, phase_state, sort_order)
     VALUES (?, ?, ?, ?, ?)
-""", ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "next", 37))
+""", ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "completed", 37))
 
 # Commit changes and close connection
 conn.commit()
