@@ -294,18 +294,19 @@ phase_data = [
     # ── Blok 3: Governance-template opgradering (2E) ──
     ("2E", "Governance-template opgradering", "Upgrade master templates from v3 learnings: 17_PERMISSION_MODE_POLICY, NEXT_CONTEXT, IMPLEMENTATION_REPORT, GIT_POLICY, CODING_STANDARD, VALIDATION, PROJECT, SCOPE, ARCHITECTURE, RESTART, DATABASE_RUNTIME_STATE", "completed", 28),
     # ── Blok 4: Prompt-infrastruktur (2F-2I) ──
-    ("2F", "Hitrate Scoring", "Database tables for prompt success/failure tracking: prompt_runs, prompt_hitrates. API endpoints for hitrate queries.", "next", 29),
-    ("2G", "Implementation Pattern Manager", "Capture successful implementation patterns from completed phases. Table: implementation_patterns. Pattern extraction from phase reports.", "planned", 30),
-    ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates. Table: prompt_templates with variable fields.", "planned", 31),
-    ("2I", "Local Prompt Compiler", "Generate prompts from templates + hitrate data + governance context. Assembles project-specific prompts without cloud dependency.", "planned", 32),
+    ("2F", "Hitrate Scoring", "Database tables for prompt success/failure tracking: prompt_runs, prompt_hitrates. API endpoints for hitrate queries.", "completed", 29),
+    ("2F-bis", "Frontend i18n + Dark Theme Refactoring", "Skeleton HTML (46 lines), 0 dynamic innerHTML, dark dashboard theme, 54 lbl() i18n calls, four-layer i18n architecture.", "completed", 30),
+    ("2G", "Implementation Pattern Manager", "Capture successful implementation patterns from completed phases. Table: implementation_patterns. Pattern extraction from phase reports.", "next", 31),
+    ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates. Table: prompt_templates with variable fields.", "planned", 32),
+    ("2I", "Local Prompt Compiler", "Generate prompts from templates + hitrate data + governance context. Assembles project-specific prompts without cloud dependency.", "planned", 33),
     # ── Blok 5: Automatisering (2J-2L) ──
-    ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables. /api/validate endpoint runs all relevant rules.", "planned", 33),
-    ("2K", "Git Sync Management", "Database-driven git tracking: git_sync_status, git_operations tables. /api/git/status and /api/git/push endpoints.", "planned", 34),
-    ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub. Service actions get platform field.", "planned", 35),
+    ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables. /api/validate endpoint runs all relevant rules.", "planned", 34),
+    ("2K", "Git Sync Management", "Database-driven git tracking: git_sync_status, git_operations tables. /api/git/status and /api/git/push endpoints.", "planned", 35),
+    ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub. Service actions get platform field.", "planned", 36),
     # ── Blok 6: Lokal model integration (2M-2O) ──
-    ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "planned", 36),
-    ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated. Full closed loop.", "planned", 37),
-    ("2O", "Parallel-kørsel test", "Same prompt executed in cloud (Claude Code) and local model. Results compared for hitrate ground-truth calibration.", "planned", 38),
+    ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "planned", 37),
+    ("2N", "Prompt→Implementer→Validator loop", "DPMtF generates prompt → local Claude Code session implements → auto-validation runs → hitrate updated. Full closed loop.", "planned", 38),
+    ("2O", "Parallel-kørsel test", "Same prompt executed in cloud (Claude Code) and local model. Results compared for hitrate ground-truth calibration.", "planned", 39),
 ]
 
 # Safely insert or update phase status data (no DELETE)
@@ -1799,6 +1800,90 @@ for ds in bootstrap_2f:
         (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, ds)
+
+# ── Phase 2G: Implementation Pattern Manager ─────────────────────────
+# Extend prompt_runs with model metadata + pattern linking
+alter_runs = [
+    ("model_type", "TEXT"),
+    ("idle_seconds", "INTEGER"),
+    ("token_count_input", "INTEGER"),
+    ("token_count_output", "INTEGER"),
+    ("token_cost_eur", "REAL"),
+    ("token_cost_dkk", "REAL"),
+    ("pattern_id", "TEXT"),
+]
+for col_name, col_type in alter_runs:
+    try:
+        cursor.execute(
+            f"ALTER TABLE prompt_runs ADD COLUMN {col_name} {col_type}"
+        )
+    except sqlite3.OperationalError:
+        pass  # Column already exists — idempotent
+
+# implementation_patterns: aggregated by file_signature + constraint_set
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS implementation_patterns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_id TEXT UNIQUE NOT NULL,
+    file_signature TEXT NOT NULL,
+    constraint_set TEXT NOT NULL,
+    phase_key TEXT,
+    total_runs INTEGER NOT NULL DEFAULT 0,
+    successful_runs INTEGER NOT NULL DEFAULT 0,
+    rolling_success_rate REAL NOT NULL DEFAULT 0.0,
+    best_model TEXT,
+    avg_duration_seconds INTEGER,
+    avg_idle_seconds INTEGER,
+    last_used_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(file_signature, constraint_set)
+)
+""")
+
+# Backfill PRUN-2E-0001 with model type and pattern link
+cursor.execute("""
+    UPDATE prompt_runs SET
+        model_type = 'cloud',
+        pattern_id = 'PAT-0001'
+    WHERE run_id = 'PRUN-2E-0001'
+""")
+
+# Seed PAT-0001
+cursor.execute("""
+    INSERT OR IGNORE INTO implementation_patterns
+    (pattern_id, file_signature, constraint_set, phase_key,
+     total_runs, successful_runs, rolling_success_rate,
+     best_model, avg_duration_seconds, last_used_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+""", (
+    "PAT-0001",
+    "docs/governance-templates/*,scripts/init_db.py,docs/project-report.md",
+    "read-only,no-schema,no-POST/PUT/DELETE,no-service-control",
+    "2E",
+    1, 1, 1.0,
+    "claude-fable-5",
+    240,
+))
+
+# Register new endpoints
+endpoint_registry_2g = [
+    ("ENDP-4000016", "implementation_patterns", "/api/implementation-patterns", "GET", "List implementation patterns grouped by file_signature + constraint_set with hitrate stats", "patterns JSON array", "hitrate_panel"),
+    ("ENDP-4000017", "pattern_runs", "/api/implementation-patterns/{pattern_id}/runs", "GET", "List prompt runs for a specific implementation pattern", "runs JSON array", "hitrate_panel"),
+]
+for endpoint in endpoint_registry_2g:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap dataset
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000014", "implementation_patterns", "implementation_patterns", "Implementation pattern registry with hitrate aggregates", "scripts/init_db.py", 1, 1, 1))
 
 # Commit changes and close connection
 conn.commit()
