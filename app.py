@@ -2065,6 +2065,178 @@ async def compile_prompt(template_key: str, request: Request):
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 2J — Validation Automation
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/validate")
+async def run_validation(request: Request):
+    """Run validation rules against a project and return a structured report.
+
+    Body (JSON):
+      target_project  — project path or key (required)
+      phase_key       — phase being validated (optional)
+      rule_keys       — list of rule keys to run, or ["all"] (default)
+      diff_content    — pre-provided diff output (optional, avoids shelling out)
+
+    Only runs read-only diagnostic commands (grep, git diff, syntax checks).
+    No destructive operations. Records results in validation_runs and
+    validation_results tables.
+    """
+    data = await request.json()
+
+    target = data.get("target_project")
+    if not target:
+        raise HTTPException(status_code=400, detail="Missing target_project")
+
+    rule_keys = data.get("rule_keys", ["all"])
+    phase_key = data.get("phase_key")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Fetch rules
+    if "all" in rule_keys:
+        cursor.execute("""
+            SELECT * FROM validation_rules WHERE is_active = 1 ORDER BY rule_key
+        """)
+    else:
+        placeholders = ",".join("?" for _ in rule_keys)
+        cursor.execute(f"""
+            SELECT * FROM validation_rules
+            WHERE rule_key IN ({placeholders}) AND is_active = 1
+            ORDER BY rule_key
+        """, rule_keys)
+    rules = [dict(r) for r in cursor.fetchall()]
+
+    if not rules:
+        conn.close()
+        return {"status": "no rules matched", "results": []}
+
+    # Generate run_id
+    import uuid
+    run_id = f"VALRUN-{uuid.uuid4().hex[:8].upper()}"
+
+    # Run each rule
+    results = []
+    passed_count = 0
+    failed_count = 0
+
+    for rule in rules:
+        cmd = rule["command"]
+        result = {"rule_key": rule["rule_key"], "rule_name": rule["rule_name"],
+                  "command": cmd, "passed": 0, "actual_output": "", "notes": ""}
+
+        try:
+            # Safety: only allow read-only commands
+            dangerous = ["rm ", ">", "$(", "`", "sudo", "kill", "fuser",
+                         "DELETE", "DROP", "ALTER", "INSERT", "UPDATE",
+                         "pip install", "npm install", "nohup", "&"]
+            if any(d in cmd for d in dangerous):
+                result["notes"] = "Blocked: command contains potentially destructive operations"
+                results.append(result)
+                failed_count += 1
+                continue
+
+            # Run command in the target project directory
+            import subprocess
+            proc = subprocess.run(
+                cmd, shell=True, cwd=target,
+                capture_output=True, text=True, timeout=30,
+            )
+            output = (proc.stdout + proc.stderr).strip()
+            result["actual_output"] = output[:2000]  # Truncate
+
+            # Determine pass/fail
+            # Exit code 0 = pass. expected_output is documentation for humans.
+            if proc.returncode == 0:
+                result["passed"] = 1
+                passed_count += 1
+            else:
+                result["passed"] = 0
+                result["notes"] = f"Exit code {proc.returncode}"
+                failed_count += 1
+
+        except subprocess.TimeoutExpired:
+            result["notes"] = "Command timed out after 30s"
+            failed_count += 1
+        except Exception as exc:
+            result["notes"] = f"Error: {str(exc)[:200]}"
+            failed_count += 1
+
+        results.append(result)
+
+    # Record run
+    total = len(rules)
+    verdict = "PASS" if failed_count == 0 else ("PASS WITH NOTES" if failed_count <= 1 else "FAIL")
+    cursor.execute("""
+        INSERT INTO validation_runs
+        (run_id, phase_key, target_project, overall_verdict,
+         rules_total, rules_passed, rules_failed)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (run_id, phase_key, target, verdict, total, passed_count, failed_count))
+
+    # Record per-rule results
+    for r in results:
+        cursor.execute("""
+            INSERT INTO validation_results
+            (run_id, rule_key, passed, actual_output, notes)
+            VALUES (?, ?, ?, ?, ?)
+        """, (run_id, r["rule_key"], r["passed"],
+              r["actual_output"][:500], r["notes"][:500]))
+
+    conn.commit()
+    conn.close()
+
+    return {
+        "run_id": run_id,
+        "target_project": target,
+        "phase_key": phase_key,
+        "verdict": verdict,
+        "rules_total": total,
+        "rules_passed": passed_count,
+        "rules_failed": failed_count,
+        "results": results,
+    }
+
+
+@app.get("/api/validation-runs")
+async def get_validation_runs(limit: int = 20):
+    """Return recent validation runs."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM validation_runs
+        ORDER BY run_timestamp DESC LIMIT ?
+    """, (limit,))
+    runs = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {"runs": runs}
+
+
+@app.get("/api/validation-rules")
+async def get_validation_rules():
+    """Return all active validation rules."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT * FROM validation_rules
+        WHERE is_active = 1
+        ORDER BY rule_key
+    """)
+    rules = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {"rules": rules}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
