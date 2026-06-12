@@ -1317,11 +1317,130 @@ function showTemplateDetail(templateKey) {
         pre.textContent = t.preview;
         card.appendChild(pre);
       }
+
+      // ── Compile form (2I) ─────────────────────────────
+      card.appendChild(el("h4", null, "Compile Prompt"));
+      var compileForm = el("div", null);
+
+      // Project path
+      compileForm.appendChild(el("label", "dpmtf-label", "Project Path:"));
+      var pathInput = el("input", "dpmtf-input");
+      pathInput.id = "compile-project-path";
+      pathInput.placeholder = "/home/svend/ai-pc-resource-webui-v3";
+      compileForm.appendChild(pathInput);
+
+      // Phase ID
+      compileForm.appendChild(el("label", "dpmtf-label", "Phase ID:"));
+      var phaseInput = el("input", "dpmtf-input");
+      phaseInput.id = "compile-phase-id";
+      phaseInput.placeholder = "3C-15";
+      compileForm.appendChild(phaseInput);
+
+      // Goal
+      compileForm.appendChild(el("label", "dpmtf-label", "Goal:"));
+      var goalInput = el("input", "dpmtf-input");
+      goalInput.id = "compile-goal";
+      goalInput.placeholder = "Add feature X to panel Y";
+      compileForm.appendChild(goalInput);
+
+      // Constraints
+      compileForm.appendChild(el("label", "dpmtf-label", "Constraints (one per line):"));
+      var constraintsInput = el("textarea", "dpmtf-textarea");
+      constraintsInput.id = "compile-constraints";
+      constraintsInput.placeholder = "read-only\nno-innerHTML\nno-schema-migration";
+      constraintsInput.style.minHeight = "60px";
+      compileForm.appendChild(constraintsInput);
+
+      // Allowed files
+      compileForm.appendChild(el("label", "dpmtf-label", "Allowed files (one per line):"));
+      var filesInput = el("textarea", "dpmtf-textarea");
+      filesInput.id = "compile-files";
+      filesInput.placeholder = "static/js/app.js\nscripts/seed_database.py";
+      filesInput.style.minHeight = "60px";
+      compileForm.appendChild(filesInput);
+
+      // Validation commands
+      compileForm.appendChild(el("label", "dpmtf-label", "Validation commands (one per line):"));
+      var validationInput = el("textarea", "dpmtf-textarea");
+      validationInput.id = "compile-validation";
+      validationInput.placeholder = "node --check static/js/app.js\ngrep -RIn innerHTML static";
+      validationInput.style.minHeight = "60px";
+      compileForm.appendChild(validationInput);
+
+      var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      compileBtn.textContent = "Compile Prompt";
+      compileBtn.onclick = function () { compilePrompt(templateKey); };
+      compileForm.appendChild(compileBtn);
+
+      card.appendChild(compileForm);
+
+      // Compiled output
+      var outputDiv = el("div", null);
+      outputDiv.id = "compile-output";
+      outputDiv.style.display = "none";
+      outputDiv.style.marginTop = "12px";
+      card.appendChild(outputDiv);
     })
     .catch(function (err) {
       clear(card);
       card.appendChild(closeBtn);
       card.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+}
+
+function compilePrompt(templateKey) {
+  var outputDiv = document.getElementById("compile-output");
+  if (!outputDiv) return;
+  outputDiv.style.display = "block";
+  clear(outputDiv);
+  outputDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Compiling...")));
+
+  var body = {
+    project_path: document.getElementById("compile-project-path").value.trim(),
+    phase_id: document.getElementById("compile-phase-id").value.trim(),
+    goal: document.getElementById("compile-goal").value.trim(),
+    constraints: document.getElementById("compile-constraints").value.trim().split("\n").filter(Boolean),
+    allowed_files: document.getElementById("compile-files").value.trim().split("\n").filter(Boolean),
+    validation_commands: document.getElementById("compile-validation").value.trim().split("\n").filter(Boolean),
+  };
+
+  fetch("/api/prompt-templates/" + encodeURIComponent(templateKey) + "/compile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(outputDiv);
+      outputDiv.appendChild(el("h4", null, "Compiled Prompt"));
+      var pre = el("pre", null);
+      pre.style.whiteSpace = "pre-wrap";
+      pre.style.fontSize = "0.85em";
+      pre.style.background = "#0d1117";
+      pre.style.padding = "12px";
+      pre.style.borderRadius = "4px";
+      pre.textContent = data.prompt;
+      outputDiv.appendChild(pre);
+
+      var copyBtn = el("button", "dpmtf-btn");
+      copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
+      copyBtn.onclick = function () {
+        var ta = el("textarea", null);
+        ta.value = data.prompt;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        copyBtn.textContent = "Copied!";
+        setTimeout(function () { copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt"); }, 2000);
+      };
+      outputDiv.appendChild(copyBtn);
+    })
+    .catch(function (err) {
+      clear(outputDiv);
+      outputDiv.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
     });
 }
 
