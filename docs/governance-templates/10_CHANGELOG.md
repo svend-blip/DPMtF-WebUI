@@ -143,3 +143,15 @@ This governance document records all notable changes to the target project in ch
 - Phase tracking: 2K→completed, 2L→next.
 - ADR-6000003 compliance: Linux-first, platform-abstraheret.
 
+
+### [2026-06-12] — 2M: Local Claude Code Session Manager
+- Added: `claude_sessions` tabel — tracker Claude Code sessioner med model_used, project_context, status (active/idle/stopped), started_at, ended_at, last_activity.
+- Added: `GET /api/sessions` — list seneste sessioner.
+- Added: `GET /api/sessions/current` — check om en session er aktiv nu.
+- Added: `POST /api/sessions` — registrer ny session (startes manuelt af Svend).
+- Added: `PUT /api/sessions/{id}` — opdatér status, aktivitet, noter.
+- Added: Frontend session panel i System Setup drawer — viser Active/No active badge med model, project, started tid.
+- Registered: 4 endpoints (ENDP-4000026-29) + 1 bootstrap dataset (BDS-5000021).
+- Phase tracking: 2L→completed, 2M→next.
+- No schema migrations — CREATE TABLE IF NOT EXISTS.
+
