@@ -2212,6 +2212,56 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?)
 """, ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub.", "next", 36))
 
+# ── Phase 2M: Local Claude Code Session Manager ──────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS claude_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT UNIQUE NOT NULL,
+    model_used TEXT,
+    project_context TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ended_at TIMESTAMP,
+    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Register new endpoints
+endpoint_registry_2m = [
+    ("ENDP-4000026", "sessions_list", "/api/sessions", "GET", "List recent Claude Code sessions", "sessions JSON array", "session_panel"),
+    ("ENDP-4000027", "sessions_create", "/api/sessions", "POST", "Record a new Claude Code session (started manually)", "session JSON", "session_panel"),
+    ("ENDP-4000028", "sessions_current", "/api/sessions/current", "GET", "Check if a Claude Code session is currently active", "session JSON or null", "session_panel"),
+    ("ENDP-4000029", "sessions_update", "/api/sessions/{session_id}", "PUT", "Update session status (stop, update activity)", "updated session JSON", "session_panel"),
+]
+for endpoint in endpoint_registry_2m:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap dataset
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000021", "claude_sessions", "claude_sessions", "Claude Code session tracking for local model usage monitoring", "scripts/init_db.py", 0, 0, 1))
+
+# Update phase tracking: 2L→completed, 2M→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub.", "completed", 36))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "next", 37))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

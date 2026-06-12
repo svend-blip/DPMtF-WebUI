@@ -1257,6 +1257,40 @@ function buildDrawerContent() {
       platBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
     });
 
+  // ── Claude Code Sessions ─────────────────────────────
+  var sessCard = el("div", "dpmtf-card");
+  sessCard.appendChild(el("h4", null, "Claude Code Sessions"));
+  var sessBody = el("div", null);
+  sessBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  sessCard.appendChild(sessBody);
+  content.appendChild(sessCard);
+
+  fetch("/api/sessions/current")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(sessBody);
+      if (data.active && data.session) {
+        var s = data.session;
+        var statusBadge = el("span", "dpmtf-badge dpmtf-badge-success");
+        statusBadge.textContent = "Active";
+        sessBody.appendChild(statusBadge);
+        sessBody.appendChild(el("div", "dpmtf-small", null));
+        var info = [];
+        info.push("Model: " + (s.model_used || "unknown"));
+        info.push("Project: " + (s.project_context || "unknown"));
+        info.push("Started: " + (s.started_at ? new Date(s.started_at).toLocaleString() : "?"));
+        sessBody.appendChild(el("div", "dpmtf-small", info.join(" | ")));
+      } else {
+        var inactiveBadge = el("span", "dpmtf-badge dpmtf-badge-info");
+        inactiveBadge.textContent = "No active session";
+        sessBody.appendChild(inactiveBadge);
+      }
+    })
+    .catch(function (err) {
+      clear(sessBody);
+      sessBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
+
   // ── Git Sync ─────────────────────────────────────────
   var gitCard = el("div", "dpmtf-card");
   gitCard.appendChild(el("h4", null, "Git Sync Status"));
