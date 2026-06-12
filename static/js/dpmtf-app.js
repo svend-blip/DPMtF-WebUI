@@ -1,11 +1,20 @@
 /* ── 1. i18n loader ─────────────────────────────────── */
 var labelMap = {};
-var locale = "da-DK";
+var currentLocale = "en-US";  // fallback indtil API svarer
 
 function loadLabels() {
-  var metaLocale = document.querySelector("meta[name=locale]");
-  if (metaLocale) locale = metaLocale.getAttribute("content") || locale;
-  fetch("/api/ui-labels/main?locale=" + locale)
+  // Hent brugerens gemte sprog fra API
+  fetch("/api/user-language")
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      currentLocale = data.locale || "en-US";
+      var dropdown = document.getElementById("lang-dropdown");
+      if (dropdown) dropdown.value = currentLocale;
+      return fetch("/api/ui-labels/main?locale=" + encodeURIComponent(currentLocale));
+    })
     .then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
@@ -19,6 +28,55 @@ function loadLabels() {
     })
     .catch(function (err) {
       console.warn("Failed to load labels:", err.message);
+      // Fallback: prøv med nuværende locale direkte
+      fetch("/api/ui-labels/main?locale=" + encodeURIComponent(currentLocale))
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          labelMap = data.labels || data;
+          document.querySelectorAll("[data-slot]").forEach(function (el) {
+            var key = el.getAttribute("data-slot");
+            if (labelMap[key]) el.textContent = labelMap[key];
+          });
+        })
+        .catch(function () {});
+    });
+}
+
+function switchLanguage(newLocale) {
+  if (newLocale === currentLocale) return;
+  currentLocale = newLocale;
+
+  // Gem valg på server
+  fetch("/api/user-language", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ locale: newLocale }),
+  }).catch(function (err) {
+    console.warn("Failed to save language preference:", err.message);
+  });
+
+  // Genindlæs labels
+  fetch("/api/ui-labels/main?locale=" + encodeURIComponent(newLocale))
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      labelMap = data.labels || data;
+      document.querySelectorAll("[data-slot]").forEach(function (el) {
+        var key = el.getAttribute("data-slot");
+        if (labelMap[key]) el.textContent = labelMap[key];
+      });
+      // Genindlæs alle panels med nye labels
+      if (typeof loadDbStatus === "function") loadDbStatus();
+      if (typeof loadPhaseStatus === "function") loadPhaseStatus();
+      if (typeof loadHitrates === "function") loadHitrates();
+      if (typeof loadPromptSequences === "function") loadPromptSequences();
+      if (typeof loadTemplates === "function") loadTemplates();
+      if (typeof loadProjectPlans === "function") loadProjectPlans();
+    })
+    .catch(function (err) {
+      console.warn("Failed to switch language:", err.message);
     });
 }
 
@@ -1693,6 +1751,13 @@ function compilePrompt(templateKey) {
 /* ── 10. Init ──────────────────────────────────────── */
 function onReady() {
   loadLabels();
+  // Language dropdown handler
+  var langDropdown = document.getElementById("lang-dropdown");
+  if (langDropdown) {
+    langDropdown.addEventListener("change", function () {
+      switchLanguage(this.value);
+    });
+  }
   loadDbStatus();
   loadPhaseStatus();
   loadHitrates();
