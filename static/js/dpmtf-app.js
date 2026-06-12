@@ -1229,6 +1229,50 @@ function buildDrawerContent() {
       valBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
     });
 
+  // ── Git Sync ─────────────────────────────────────────
+  var gitCard = el("div", "dpmtf-card");
+  gitCard.appendChild(el("h4", null, "Git Sync Status"));
+  var gitBody = el("div", null);
+  gitBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  gitCard.appendChild(gitBody);
+  content.appendChild(gitCard);
+
+  fetch("/api/git/status")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(gitBody);
+      var projects = data.projects || [];
+      if (!projects.length) {
+        gitBody.appendChild(el("p", "dpmtf-muted", "No projects tracked."));
+        return;
+      }
+      projects.forEach(function (p) {
+        var projDiv = el("div", null);
+        projDiv.style.marginBottom = "8px";
+        projDiv.appendChild(el("div", null, escapeHtml(p.project_key)));
+
+        var info = [];
+        info.push("Branch: " + (p.branch || "?"));
+        info.push("Unpushed: " + (p.unpushed_commits || 0));
+        if (p.last_commit) info.push("Last: " + p.last_commit);
+        projDiv.appendChild(el("div", "dpmtf-small dpmtf-muted", info.join(" | ")));
+
+        if (p.unpushed_list && p.unpushed_list.length) {
+          var listDiv = el("div", "dpmtf-small");
+          listDiv.style.marginTop = "4px";
+          p.unpushed_list.forEach(function (c) {
+            listDiv.appendChild(el("div", null, c));
+          });
+          projDiv.appendChild(listDiv);
+        }
+        gitBody.appendChild(projDiv);
+      });
+    })
+    .catch(function (err) {
+      clear(gitBody);
+      gitBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
+
   // ── Security / Permissions (placeholder) ─────────────
   var secCard = el("div", "dpmtf-card");
   secCard.appendChild(el("h4", null, lbl("lbl_drawer_security", "Security / Permissions")));
