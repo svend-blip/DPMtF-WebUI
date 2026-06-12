@@ -166,7 +166,7 @@ function loadHitrates() {
   headerRow.appendChild(statusEl);
   container.appendChild(headerRow);
 
-  // Hitrate table
+  // ── Phase Hitrate table ────────────────────────────
   var table = el("table", "dpmtf-table");
   var thead = el("thead", null);
   var thr = el("tr", null);
@@ -218,14 +218,77 @@ function loadHitrates() {
       tbody.appendChild(row);
     });
 
-  // Recent runs (expandable)
+  // ── Implementation Patterns table ───────────────────
+  var patHeading = el("h4", null, "Implementation Patterns");
+  patHeading.style.marginTop = "20px";
+  container.appendChild(patHeading);
+  var patTable = el("table", "dpmtf-table");
+  var patThead = el("thead", null);
+  var patThr = el("tr", null);
+  ["Pattern ID", "Files", "Constraints", "Success Rate", "Best Model", "Avg Dur", "Runs"].forEach(function (h) {
+    patThr.appendChild(el("th", null, h));
+  });
+  patThead.appendChild(patThr);
+  patTable.appendChild(patThead);
+  var patTbody = el("tbody", null);
+  patTable.appendChild(patTbody);
+  container.appendChild(patTable);
+
+  // Detail container for expanded pattern runs
+  var detailDiv = el("div", null);
+  detailDiv.id = "pattern-detail";
+  detailDiv.style.display = "none";
+  container.appendChild(detailDiv);
+
+  fetch("/api/implementation-patterns")
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      clear(patTbody);
+      var patterns = data.patterns || [];
+      if (!patterns.length) {
+        var row = el("tr", null);
+        var cell = el("td", null, lbl("lbl_status_no_data", "No patterns yet. Record runs with file_signature + constraint_set to create patterns."));
+        cell.colSpan = 7;
+        row.appendChild(cell);
+        patTbody.appendChild(row);
+        return;
+      }
+      patterns.forEach(function (p) {
+        var row = el("tr", null);
+        row.style.cursor = "pointer";
+        row.onclick = function () { loadPatternRuns(p.pattern_id); };
+        var pct = (p.rolling_success_rate * 100).toFixed(0);
+        var rateClass = pct >= 80 ? "hitrate-good" : (pct >= 50 ? "hitrate-ok" : "hitrate-low");
+        row.appendChild(td(p.pattern_id));
+        row.appendChild(td(truncate(p.file_signature, 50)));
+        row.appendChild(td(truncate(p.constraint_set, 40)));
+        row.appendChild(td(pct + "%", rateClass));
+        row.appendChild(td(p.best_model || "-"));
+        row.appendChild(td(p.avg_duration_seconds ? p.avg_duration_seconds + "s" : "-"));
+        row.appendChild(td(p.successful_runs + " / " + p.total_runs));
+        patTbody.appendChild(row);
+      });
+    })
+    .catch(function (err) {
+      clear(patTbody);
+      var row = el("tr", null);
+      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+      cell.colSpan = 7;
+      row.appendChild(cell);
+      patTbody.appendChild(row);
+    });
+
+  // ── Recent runs (expandable) ────────────────────────
   var details = el("details", "dpmtf-details");
   var summary = el("summary", null, "Recent Prompt Runs");
   details.appendChild(summary);
   var runsTable = el("table", "dpmtf-table");
   var runsThead = el("thead", null);
   var runsThr = el("tr", null);
-  ["Run ID", "Phase", "Project", "Success", "Duration", "Model", "Timestamp"].forEach(function (h) {
+  ["Run ID", "Phase", "Project", "Success", "Duration", "Model", "Type", "Tokens", "Cost", "Timestamp"].forEach(function (h) {
     runsThr.appendChild(el("th", null, h));
   });
   runsThead.appendChild(runsThr);
@@ -246,7 +309,7 @@ function loadHitrates() {
       if (!runs.length) {
         var row = el("tr", null);
         var cell = el("td", null, lbl("lbl_status_no_data", "No prompt runs recorded yet."));
-        cell.colSpan = 7;
+        cell.colSpan = 10;
         row.appendChild(cell);
         runsTbody.appendChild(row);
         return;
@@ -259,6 +322,31 @@ function loadHitrates() {
         row.appendChild(td(r.success ? "✓" : "✗", r.success ? "hitrate-good" : "hitrate-low"));
         row.appendChild(td(r.duration_seconds != null ? r.duration_seconds + "s" : "-"));
         row.appendChild(td(r.model_used || "-"));
+        // Model type badge
+        var typeCell = el("td", null);
+        if (r.model_type) {
+          var badge = el("span", r.model_type === "cloud" ? "model-badge-cloud" : "model-badge-local");
+          badge.textContent = r.model_type;
+          typeCell.appendChild(badge);
+        } else {
+          typeCell.textContent = "-";
+        }
+        row.appendChild(typeCell);
+        // Tokens (cloud only)
+        if (r.token_count_input || r.token_count_output) {
+          row.appendChild(td(formatTokens(r.token_count_input) + " in / " + formatTokens(r.token_count_output) + " out"));
+        } else {
+          row.appendChild(td("-"));
+        }
+        // Cost (cloud only)
+        if (r.token_cost_eur != null || r.token_cost_dkk != null) {
+          var costStr = "";
+          if (r.token_cost_eur != null) costStr += "€" + r.token_cost_eur.toFixed(2);
+          if (r.token_cost_dkk != null) costStr += (costStr ? " / " : "") + r.token_cost_dkk.toFixed(2) + " DKK";
+          row.appendChild(td(costStr || "-"));
+        } else {
+          row.appendChild(td("-"));
+        }
         row.appendChild(td(r.run_timestamp ? new Date(r.run_timestamp).toLocaleString() : "-"));
         runsTbody.appendChild(row);
       });
@@ -267,10 +355,84 @@ function loadHitrates() {
       clear(runsTbody);
       var row = el("tr", null);
       var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 7;
+      cell.colSpan = 10;
       row.appendChild(cell);
       runsTbody.appendChild(row);
     });
+}
+
+function loadPatternRuns(patternId) {
+  var detailDiv = document.getElementById("pattern-detail");
+  if (!detailDiv) return;
+  detailDiv.style.display = "block";
+  clear(detailDiv);
+
+  var heading = el("h4", null, "Runs for " + patternId);
+  detailDiv.appendChild(heading);
+  var closeBtn = el("button", "dpmtf-btn dpmtf-small");
+  closeBtn.textContent = lbl("lbl_btn_close_drawer", "Close");
+  closeBtn.onclick = function () { detailDiv.style.display = "none"; };
+  detailDiv.appendChild(closeBtn);
+
+  var table = el("table", "dpmtf-table");
+  var thead = el("thead", null);
+  var thr = el("tr", null);
+  ["Run ID", "Phase", "Success", "Duration", "Model", "Timestamp"].forEach(function (h) {
+    thr.appendChild(el("th", null, h));
+  });
+  thead.appendChild(thr);
+  table.appendChild(thead);
+  var tbody = el("tbody", null);
+  table.appendChild(tbody);
+  detailDiv.appendChild(table);
+
+  fetch("/api/implementation-patterns/" + encodeURIComponent(patternId) + "/runs?limit=50")
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      clear(tbody);
+      var runs = data.runs || [];
+      if (!runs.length) {
+        var row = el("tr", null);
+        var cell = el("td", null, "No runs for this pattern.");
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        tbody.appendChild(row);
+        return;
+      }
+      runs.forEach(function (r) {
+        var row = el("tr", null);
+        row.appendChild(td(r.run_id));
+        row.appendChild(td(r.phase_key));
+        row.appendChild(td(r.success ? "✓" : "✗", r.success ? "hitrate-good" : "hitrate-low"));
+        row.appendChild(td(r.duration_seconds != null ? r.duration_seconds + "s" : "-"));
+        row.appendChild(td(r.model_used || "-"));
+        row.appendChild(td(r.run_timestamp ? new Date(r.run_timestamp).toLocaleString() : "-"));
+        tbody.appendChild(row);
+      });
+    })
+    .catch(function (err) {
+      clear(tbody);
+      var row = el("tr", null);
+      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+      cell.colSpan = 6;
+      row.appendChild(cell);
+      tbody.appendChild(row);
+    });
+}
+
+function truncate(str, maxLen) {
+  if (!str) return "";
+  if (str.length <= maxLen) return str;
+  return str.substring(0, maxLen) + "...";
+}
+
+function formatTokens(n) {
+  if (n == null) return "-";
+  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+  return String(n);
 }
 
 /* ── 6. Prompt Sequence Planner ────────────────────── */
