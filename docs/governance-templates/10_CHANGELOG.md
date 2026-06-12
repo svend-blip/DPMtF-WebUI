@@ -121,3 +121,15 @@ This governance document records all notable changes to the target project in ch
 - Phase tracking: 2H/2I→completed, 2J→next.
 - No schema migrations — CREATE TABLE IF NOT EXISTS.
 
+
+### [2026-06-12] — 2K: Git Sync Management
+- Added: `git_sync_status` tabel — tracker projekters git status (branch, unpushed_commits, last_push).
+- Added: `git_operations` tabel — historik over git operationer (commit/push) med success, error_log, operator.
+- Added: `GET /api/git/status` — read-only status med live git enrichment (unpushed commits, last commit, branch fra faktisk git).
+- Added: `POST /api/git/operations` — registrerer eksterne git operationer (udfører IKKE git — commit/push forbliver manuelle).
+- Added: `GET /api/git/operations` — seneste git operationer.
+- Added: Frontend git panel i System Setup drawer — viser branch, unpushed commits, last commit per projekt.
+- Registered: 3 endpoints (ENDP-4000023-25) + 2 bootstrap datasets (BDS-5000019-20).
+- Phase tracking: 2J→completed, 2K→next.
+- No schema migrations — CREATE TABLE IF NOT EXISTS.
+
