@@ -1198,12 +1198,140 @@ function buildDrawerContent() {
   content.appendChild(secCard);
 }
 
-/* ── 9. Init ───────────────────────────────────────── */
+/* ── 9. Prompt Template Manager ────────────────────── */
+function loadTemplateManager() {
+  var container = document.getElementById("template-manager-content");
+  if (!container) return;
+  clear(container);
+
+  // Template list
+  var listCard = el("div", "dpmtf-card");
+  listCard.appendChild(el("h4", null, "Templates"));
+  var table = el("table", "dpmtf-table");
+  var thead = el("thead", null);
+  var thr = el("tr", null);
+  ["Key", "Name", "Suitable For", "Tokens (in/out)", "Preview"].forEach(function (h) {
+    thr.appendChild(el("th", null, h));
+  });
+  thead.appendChild(thr);
+  table.appendChild(thead);
+  var tbody = el("tbody", null);
+  table.appendChild(tbody);
+  listCard.appendChild(table);
+  container.appendChild(listCard);
+
+  // Detail card (hidden until click)
+  var detailCard = el("div", "dpmtf-card");
+  detailCard.id = "template-detail";
+  detailCard.style.display = "none";
+  container.appendChild(detailCard);
+
+  fetch("/api/prompt-templates")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(tbody);
+      var templates = data.templates || [];
+      if (!templates.length) {
+        var row = el("tr", null);
+        var cell = el("td", null, "No templates.");
+        cell.colSpan = 5;
+        row.appendChild(cell);
+        tbody.appendChild(row);
+        return;
+      }
+      templates.forEach(function (t) {
+        var row = el("tr", null);
+        row.style.cursor = "pointer";
+        row.onclick = function () { showTemplateDetail(t.template_key); };
+        row.appendChild(td(t.template_key));
+        row.appendChild(td(t.template_name));
+        var suitableCell = el("td", null);
+        var badge = el("span", t.suitable_for === "local" ? "model-badge-local" :
+                              t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
+        badge.textContent = t.suitable_for;
+        suitableCell.appendChild(badge);
+        row.appendChild(suitableCell);
+        row.appendChild(td((t.avg_token_count_input || "-") + " / " + (t.avg_token_count_output || "-")));
+        row.appendChild(td("Click to view"));
+        tbody.appendChild(row);
+      });
+    })
+    .catch(function (err) {
+      clear(tbody);
+      var row = el("tr", null);
+      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+      cell.colSpan = 5;
+      row.appendChild(cell);
+      tbody.appendChild(row);
+    });
+}
+
+function showTemplateDetail(templateKey) {
+  var card = document.getElementById("template-detail");
+  if (!card) return;
+  card.style.display = "block";
+  clear(card);
+
+  var closeBtn = el("button", "dpmtf-btn dpmtf-small");
+  closeBtn.textContent = lbl("lbl_btn_close_drawer", "Close");
+  closeBtn.onclick = function () { card.style.display = "none"; };
+  card.appendChild(closeBtn);
+
+  var loadingEl = el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading..."));
+  card.appendChild(loadingEl);
+
+  fetch("/api/prompt-templates/" + encodeURIComponent(templateKey))
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (t) {
+      clear(card);
+      card.appendChild(closeBtn);
+
+      card.appendChild(el("h4", null, t.template_name + " (" + t.template_key + ")"));
+      if (t.description) card.appendChild(el("p", "dpmtf-muted", t.description));
+
+      // Suitable for badge
+      var suitableP = el("p", null);
+      var badge = el("span", t.suitable_for === "local" ? "model-badge-local" :
+                            t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
+      badge.textContent = "Suitable for: " + t.suitable_for;
+      suitableP.appendChild(badge);
+      card.appendChild(suitableP);
+
+      // Token estimates
+      card.appendChild(el("p", "dpmtf-small", "Estimated tokens: " +
+        (t.avg_token_count_input || "?") + " in / " +
+        (t.avg_token_count_output || "?") + " out"));
+
+      // Preview
+      if (t.preview) {
+        card.appendChild(el("h4", null, "Preview"));
+        var pre = el("pre", null);
+        pre.style.whiteSpace = "pre-wrap";
+        pre.style.fontSize = "0.85em";
+        pre.style.background = "#0d1117";
+        pre.style.padding = "12px";
+        pre.style.borderRadius = "4px";
+        pre.textContent = t.preview;
+        card.appendChild(pre);
+      }
+    })
+    .catch(function (err) {
+      clear(card);
+      card.appendChild(closeBtn);
+      card.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+}
+
+/* ── 10. Init ──────────────────────────────────────── */
 function onReady() {
   loadLabels();
   loadDbStatus();
   loadPhaseStatus();
   loadHitrates();
+  loadTemplateManager();
   loadPromptSequences();
   loadProjectPlanning();
   initDrawer();
