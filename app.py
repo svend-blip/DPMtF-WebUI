@@ -729,6 +729,97 @@ async def get_all_generated_prompts():
     conn.close()
     return {"generated_prompts": generated_prompts}
 
+@app.get("/api/user-language")
+async def get_user_language():
+    """Return the current user's language preference.
+
+    Identifies user via os.getlogin(). Falls back to 'default' row,
+    then to hardcoded 'en-US' if table is empty.
+    """
+    try:
+        user_id = os.getlogin()
+    except Exception:
+        user_id = "default"
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT locale FROM user_language WHERE user_id = ?",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        if row:
+            conn.close()
+            return {"user_id": user_id, "locale": row["locale"]}
+
+        cursor.execute(
+            "SELECT locale FROM user_language WHERE user_id = 'default'",
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return {"user_id": user_id, "locale": row["locale"]}
+        return {"user_id": user_id, "locale": "en-US"}
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {"user_id": user_id, "locale": "en-US"}
+
+@app.post("/api/user-language")
+async def set_user_language(request: Request):
+    """Store the user's language preference.
+
+    Body (JSON): {"locale": "da-DK"}
+    Validates that the locale exists in ui_label_translations.
+    """
+    data = await request.json()
+    locale = data.get("locale", "").strip()
+
+    if not locale:
+        raise HTTPException(status_code=400, detail="Missing required field: locale")
+
+    # Validate locale exists in translations
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM ui_label_translations WHERE locale = ? AND is_active = 1",
+            (locale,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row or row[0] == 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported locale: {locale}. No translations found.",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    try:
+        user_id = os.getlogin()
+    except Exception:
+        user_id = "default"
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO user_language (user_id, locale, updated_at)
+            VALUES (?, ?, datetime('now'))
+        """, (user_id, locale))
+        conn.commit()
+        conn.close()
+        return {"user_id": user_id, "locale": locale, "status": "stored"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to store preference: {exc}")
+
 @app.get("/api/phase-status")
 async def get_phase_status():
     conn = sqlite3.connect(DB_PATH)
