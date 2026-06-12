@@ -67,4 +67,12 @@ This governance document records all notable changes to the target project in ch
 - Registered: 3 nye endpoints i endpoint_registry (ENDP-4000013 til ENDP-4000015) og 2 bootstrap datasets (BDS-5000012, BDS-5000013).
 - No schema migrations — nye tabeller via CREATE TABLE IF NOT EXISTS.
 
+### [2026-06-12] — 2F-bis: Frontend i18n + Dark Theme Refactoring
+- Changed: `templates/index.html` — reduceret fra 348 til 46 linjers skeleton med 8 data-slot attributter. Al panel-HTML fjernet — JS renderer nu alt indhold.
+- Changed: `static/js/dpmtf-app.js` — omskrevet fra 1813 linjers monolit med 39 innerHTML til 840 linjer organiseret i 9 sektioner. 1 statisk innerHTML (drawer close button &times;). 54 lbl() i18n opslag. Al tekst via labelMap med da-DK/en-US fallbacks.
+- Changed: `static/css/dpmtf-theme.css` — komplet omskrivning til mørkt dashboard-tema (#0d1117 baggrund, #21262d cards). .dpmtf- prefix konvention. Farvepalet matcher ai-pc-resource-webui-v3.
+- Added: ui_text_slots og ui_text_slot_labels tabeller (fire-lags i18n lag 1-2). 46 nye ui_labels (LBL-1000007 til LBL-1000052). 104 nye ui_label_translations (52 en-US + 52 da-DK). 46 ui_text_slot_labels bindings. 46 ui_text_slots entries.
+- Preserved: Alle eksisterende API-endpoints og backend-funktionalitet (app.py uændret). System Setup drawer med 6 i18n-kompatible sektioner. Prompt Sequence Planner og New Project Planning funktionalitet.
+- No schema migrations — nye tabeller via CREATE TABLE IF NOT EXISTS. No backend changes.
+
 ---

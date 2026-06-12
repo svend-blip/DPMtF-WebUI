@@ -42,8 +42,8 @@ This governance document is the primary handoff artifact between sessions. The H
 | Check | Result |
 |-------|--------|
 | Branch | `master` |
-| Latest commit (HEAD) | `bd671f5` (2E: Upgrade governance templates from v3 learnings) — actual HEAD as baseline |
-| Uncommitted changes | Phase 2F changes (see Current State below) |
+| Latest commit (HEAD) | `5aa54e1` (2F-bis: Rewrite dpmtf-app.js) — actual HEAD as baseline |
+| Uncommitted changes | Phase 2F-bis documentation (see Current State below) |
 | Remote | `origin → https://github.com/svend-blip/DPMtF-WebUI.git` |
 
 **Rule:** Always verify with live git commands. Do not assume commit/push state from previous NEXT_CONTEXT text. If git state conflicts with this file, stop and ask Svend. See [[15_GIT_POLICY]] for full rules.
@@ -51,9 +51,9 @@ This governance document is the primary handoff artifact between sessions. The H
 ## Current State
 
 - **Project**: DPMtF WebUI — governance-first orchestration engine
-- **Current phase**: Phase 2F — Hitrate Scoring (uncommitted)
-- **Latest committed baseline before this phase**: bd671f5 (2E: Upgrade governance templates from v3 learnings)
-- **Blok 1-3 (1A-2E) er completed og committed.** Blok 4 (2F) er implementeret men uncommitted. Blok 5-6 (2G-2O) er planned.
+- **Current phase**: Phase 2F-bis — Frontend i18n + Dark Theme Refactoring (uncommitted docs)
+- **Latest committed baseline before this phase**: b28fac5 (2F: Hitrate Scoring)
+- **Blok 1-4 (1A-2F) er completed og committed.** Blok 4-bis (2F-bis) er implementeret, docs uncommitted. Blok 5-6 (2G-2O) er planned.
 
 ### Phase Progress
 
@@ -62,7 +62,8 @@ This governance document is the primary handoff artifact between sessions. The H
 | **Blok 1: Core infrastructure (1A-1X)** | **24 faser — alle completed** | Skeleton, panel import, classification, app profiles, prompt sequences, layout schema, i18n, endpoint registry, bootstrap dataset, ADR |
 | **Blok 2: Migration prep (2A-2D)** | **4 faser — alle completed** | AI PC WebUI migration target, reusable panel selection, project skeleton, v2 panel requirements |
 | **2E** | **Completed — committed (bd671f5)** | **Governance-template opgradering: 10 templates upgraded fra v3-læringer. Fase-tracking restruktureret med nyt 6-blok roadmap (2F-2O). Projektrapport skrevet.** |
-| **2F** | **In progress (uncommitted)** | **Hitrate Scoring: prompt_runs + prompt_hitrates tabeller, GET/POST /api/prompt-runs, GET /api/prompt-hirates, frontend hitrate-panel med farvekodede success rates. Seedet med 2E run.** |
+| **2F** | **Completed — committed (b28fac5)** | **Hitrate Scoring: prompt_runs + prompt_hitrates tabeller, GET/POST /api/prompt-runs, GET /api/prompt-hirates, frontend hitrate-panel.** |
+| **2F-bis** | **In progress (docs uncommitted)** | **Frontend i18n + Dark Theme Refactoring: 46 nye labels, skeleton HTML (46 linjer), 0 dynamisk innerHTML, mørkt dashboard-tema, 54 lbl() i18n opslag, fire-lags i18n arkitektur.** |
 | **2G** | **Next** | **Implementation Pattern Manager: Capture successful implementation patterns fra completed faser.** |
 | **2H** | Planned | Prompt Template Manager |
 | **2I** | Planned | Local Prompt Compiler |
@@ -75,17 +76,17 @@ This governance document is the primary handoff artifact between sessions. The H
 
 ## Completed in This Session
 
-- **Phase 2F — Hitrate Scoring**: Implementeret komplet hitrate-infrastruktur.
-  - Database: `prompt_runs` og `prompt_hitrates` tabeller med seed data (PRUN-2E-0001).
-  - API: `GET /api/prompt-runs` (med filtre), `POST /api/prompt-runs` (med atomisk hitrate-opdatering), `GET /api/prompt-hirates`.
-  - Frontend: Hitrate-panel med farvekodede success rates (grøn ≥80%, orange ≥50%, rød <50%) og expandable recent runs tabel.
-  - Ingen innerHTML i ny kode — bruger `createElement`/`textContent`/`replaceChildren`.
-  - 3 nye endpoint_registry entries, 2 nye bootstrap_dataset entries.
+- **Phase 2F-bis — Frontend i18n + Dark Theme Refactoring**: Komplet frontend-oprydning til v3-standard.
+  - i18n: 46 nye labels (LBL-1000007 til LBL-1000052), 104 oversættelser (52 da-DK + 52 en-US), ui_text_slots + ui_text_slot_labels tabeller oprettet.
+  - HTML: Reduceret fra 348 til 46 linjers skeleton med 8 data-slot attributter.
+  - JS: Omskrevet fra 1813 til 840 linjer, 9 logiske sektioner, 54 lbl() i18n opslag, 1 statisk innerHTML (&times;).
+  - CSS: Komplet mørkt dashboard-tema (#0d1117, #21262d cards), .dpmtf- prefix konvention.
+  - Backend: app.py uændret — alle eksisterende endpoints og funktionalitet bevaret.
 
 ## Remaining Work
 
-- Commit/push efter validering for phase 2F.
-- Phase 2G (Implementation Pattern Manager): Design `implementation_patterns` tabel, capture-mekanisme fra succesfulde faser.
+- Commit/push documentation for phase 2F-bis.
+- Phase 2G (Implementation Pattern Manager): Design `implementation_patterns` tabel, capture-mekanisme fra succesfulde faser. Spec allerede godkendt.
 - Phase 2H (Prompt Template Manager): Migrér statiske templates til database-drevne.
 - Phase 2I (Local Prompt Compiler): Byg prompt-samler fra templates + hitrate-data + governance-kontekst.
 
@@ -129,5 +130,18 @@ This governance document is the primary handoff artifact between sessions. The H
 | `static/css/dpmtf-theme.css` | Tilføjet `.hitrate-section`, `.hitrate-good` (grøn), `.hitrate-ok` (orange), `.hitrate-low` (rød) styles. |
 | `docs/governance-templates/10_CHANGELOG.md` | Tilføjet 2F entry. |
 | `docs/governance-templates/11_NEXT_CONTEXT.md` | Denne fil — opdateret for 2F handoff. |
+
+---
+
+## Files Changed (Phase 2F-bis)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | Added ui_text_slots and ui_text_slot_labels tables. 46 new ui_labels, 104 new ui_label_translations, 46 ui_text_slots, 46 ui_text_slot_labels bindings. |
+| `templates/index.html` | Reduced from 348 to 46 line skeleton. 8 data-slot attributes. All panel HTML removed — JS renders all content. |
+| `static/js/dpmtf-app.js` | Rewritten from 1813 to 840 lines. 9 sections. 54 lbl() i18n calls. 1 static innerHTML. 39 dynamic innerHTML replaced with safe DOM APIs. |
+| `static/css/dpmtf-theme.css` | Complete dark dashboard theme rewrite. #0d1117 background, #21262d cards. .dpmtf- prefix convention. |
+| `docs/governance-templates/10_CHANGELOG.md` | Added 2F-bis entry. |
+| `docs/governance-templates/11_NEXT_CONTEXT.md` | This file — updated for 2F-bis handoff. |
 
 ---
