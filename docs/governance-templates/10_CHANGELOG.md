@@ -88,3 +88,16 @@ This governance document records all notable changes to the target project in ch
 - No schema migrations — ALTER TABLE med try/except for idempotens, CREATE TABLE IF NOT EXISTS.
 
 ---
+
+### [2026-06-12] — 2H: Prompt Template Manager
+- Added: `prompt_templates` tabel — database-drevne, parametriserbare prompt templates med structure_json (sektioner med fixed/param/list typer), constraints_json, suitable_for (local/cloud/both), token estimates.
+- Added: `GET /api/prompt-templates` — list alle aktive templates.
+- Added: `POST /api/prompt-templates` — opret nyt template med structure_json og constraints_json.
+- Added: `GET /api/prompt-templates/{key}` — hent enkelt template med parsed structure, constraints, og rendered preview.
+- Added: `PUT /api/prompt-templates/{key}` — opdatér template felter selektivt.
+- Added: Frontend template manager panel — tabel med template_key, navn, suitable_for badge (farvekodet), token estimates, klikbare rækker med detalje-visning og preview.
+- Seeded: 4 baseline templates (tpl_implementation_small, tpl_implementation_medium, tpl_validation, tpl_brainstorm) fra eksisterende prompt-run mønstre.
+- Registered: 4 endpoints (ENDP-4000018-21) + 1 bootstrap dataset (BDS-5000015).
+- suitable_for feltet muliggør ENO model-valg logik (local/cloud/both).
+- No schema migrations — CREATE TABLE IF NOT EXISTS.
+
