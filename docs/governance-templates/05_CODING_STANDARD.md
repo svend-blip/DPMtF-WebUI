@@ -70,18 +70,35 @@ The following rules prevent XSS and DOM-injection vulnerabilities:
 3. **Clearing containers** — to empty a container, use `element.replaceChildren()` rather than `element.innerHTML = ""`.
 4. **Approved exceptions** — if `innerHTML` must be used (e.g., rendering pre-authenticated static markup), it requires explicit phase-level approval AND a short security justification documented in the implementation report. Any exception is recorded as `approved_innerHTML_exception` in the validation report.
 
-### Frontend i18n (Internationalization)
+### Frontend i18n (Internationalization) — 4-Layer Architecture
 
-**ALL user-visible frontend text MUST use the i18n system.** This is not optional — it is a mandatory routine, same priority as the innerHTML rule.
+**ALL user-visible frontend text MUST use the full 4-layer i18n system.** This is not optional — it is a mandatory routine, same priority as the innerHTML rule.
 
-1. **Use `lbl(key, fallback)` for every user-visible string** — table headers, button labels, headings, status messages, placeholder text, badge labels. The `fallback` is the English default shown when a translation is missing.
-2. **Every `lbl()` key must have a corresponding `ui_labels` row** — the label key is registered in the `ui_labels` table with `label_type = 'ui'`.
-3. **Every label must have `da-DK` and `en-US` translations** — seeded in `ui_label_translations`. Danish is the primary language; English is the fallback.
-4. **No hardcoded English strings in DOM construction** — `el("th", null, "Name")` is forbidden. Use `el("th", null, lbl("lbl_col_name", "Name"))`.
-5. **Validation check:** `grep -RIn '"[A-Z][a-z]' static/js/` should return ONLY `lbl()` fallback strings and CSS class names — no bare user-visible English.
-6. **New phases must include i18n seed data** — the phase's implementation report must list all new `lbl()` keys added and confirm both da-DK and en-US translations exist.
+The 4-layer architecture (aligned with ENO, documented 2026-06-13):
 
-**Rationale:** DPMtF-WebUI's i18n infrastructure (`ui_labels` + `ui_label_translations` + `lbl()` JS helper) is already built. Not using it creates technical debt that requires a separate cleanup phase. Every new phase must extend the i18n coverage, not erode it.
+```
+Lag 1: ui_text_slots        — stable frontend placement IDs (slot_key)
+         ↓
+Lag 2: ui_text_slot_labels  — mapping table: slot_key → label_key
+         ↓                    (multiple slots CAN map to same label)
+Lag 3: ui_labels            — semantic label with default_text fallback
+         ↓
+Lag 4: ui_label_translations — locale-specific translated_text
+```
+
+**API contract:** `/api/ui-labels/{domain}?locale=` MUST traverse all 4 layers and return `{slot_key: resolved_text}`. The frontend `lbl()` function and `data-slot` attributes use `slot_key` as the lookup key.
+
+**Rules:**
+1. **Use `lbl(slot_key, fallback)` for every user-visible string** — table headers, button labels, headings, status messages, placeholder text, badge labels. The first argument is a `slot_key` (unique position ID). The `fallback` is the English default shown when a translation is missing.
+2. **Every `slot_key` must have a `ui_text_slots` row** — registered in the slots table with a description.
+3. **Every `slot_key` must have a `ui_text_slot_labels` mapping** — binding it to a `label_key`.
+4. **Every `label_key` must have a `ui_labels` row** — with `label_domain`, `default_text`, and `label_id`.
+5. **Every label must have `da-DK` and `en-US` translations** — seeded in `ui_label_translations`. Danish is the primary language; English is the fallback.
+6. **No hardcoded English strings in DOM construction** — `el("th", null, "Name")` is forbidden. Use `el("th", null, lbl("slot_col_name", "Name"))`.
+7. **Validation check:** `grep -RIn '"[A-Z][a-z]' static/js/` should return ONLY `lbl()` fallback strings and CSS class names — no bare user-visible English.
+8. **New phases must include complete 4-layer i18n seed data** — the phase's implementation report must list all new `slot_key`s, `label_key`s, and confirm all 4 layers are populated with both da-DK and en-US translations.
+
+**Rationale:** The 4-layer architecture enables changing frontend text at the database level without touching HTML: (a) update a translation in layer 4 to change text for all slots using that label, (b) update a mapping in layer 2 to point a slot to a different label. This is the standard aligned with ENO and must be preserved in all future DPMtF-derived projects.
 
 ## CSS
 
