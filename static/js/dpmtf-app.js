@@ -80,6 +80,69 @@ function switchLanguage(newLocale) {
     });
 }
 
+/* ── 1b. Panel group collapse/expand ────────────────── */
+var panelGroupStates = {};
+
+function loadPanelGroupStates() {
+  fetch("/api/user-panel-groups")
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      panelGroupStates = data.groups || {};
+      applyPanelGroupStates();
+    })
+    .catch(function () {
+      applyPanelGroupStates();
+    });
+}
+
+function applyPanelGroupStates() {
+  var groups = ["daily", "journals", "reports", "periodic", "setup"];
+  for (var i = 0; i < groups.length; i++) {
+    var name = groups[i];
+    var pg = document.getElementById("pg-" + name);
+    if (!pg) continue;
+    var state = panelGroupStates[name] || "expanded";
+    var toggle = pg.querySelector(".panel-group-toggle");
+    var body = pg.querySelector(".panel-group-body");
+    if (state === "collapsed") {
+      pg.classList.add("collapsed");
+      if (body) body.style.display = "none";
+      if (toggle) toggle.textContent = "▶";
+    } else {
+      pg.classList.remove("collapsed");
+      if (body) body.style.display = "";
+      if (toggle) toggle.textContent = "▼";
+    }
+  }
+}
+
+function initPanelGroupToggles() {
+  var headers = document.querySelectorAll(".panel-group-header");
+  for (var i = 0; i < headers.length; i++) {
+    headers[i].addEventListener("click", function () {
+      var groupName = this.getAttribute("data-group");
+      var pg = document.getElementById("pg-" + groupName);
+      if (!pg) return;
+      var isCollapsed = pg.classList.contains("collapsed");
+      var newState = isCollapsed ? "expanded" : "collapsed";
+
+      panelGroupStates[groupName] = newState;
+      applyPanelGroupStates();
+
+      fetch("/api/user-panel-groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_name: groupName, state: newState }),
+      }).catch(function (err) {
+        console.warn("Failed to save panel group state:", err.message);
+      });
+    });
+  }
+}
+
 /* ── 2. DOM helpers ─────────────────────────────────── */
 function el(tag, className, text) {
   var e = document.createElement(tag);
@@ -1788,6 +1851,8 @@ function onReady() {
       switchLanguage(this.value);
     });
   }
+  loadPanelGroupStates();
+  initPanelGroupToggles();
   loadDbStatus();
   loadPhaseStatus();
   loadHitrates();
