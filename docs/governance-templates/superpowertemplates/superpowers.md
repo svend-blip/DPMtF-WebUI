@@ -40,6 +40,7 @@ Komprimeret fra de 19 governance templates. Ved detaljeret opslag, se den enkelt
 ### Kode-standard (kritiske regler)
 
 - **INGEN `innerHTML` til dynamisk indhold** — auto-fail i validation. Brug `createElement()` / `textContent` / `appendChild()` / `replaceChildren()`
+- **ALLE brugervendte frontend-tekster SKAL bruge `lbl(key, fallback)`** — auto-fail i validation. Ingen hardcodede engelske strenge i DOM-konstruktion. Hver label skal have `ui_labels` + `ui_label_translations` (da-DK + en-US) seed-data. Dette er fast rutine, ikke valgfrit.
 - **Ingen gæt på operationelle targets** — porte, paths, model-navne skal være eksplicitte argumenter, ikke hardcodede
 - **Ingen nye dependencies** uden Human Approval Gate
 - **Stop efter 2 fejlede patching forsøg** — eskaler, gæt ikke videre
@@ -59,8 +60,9 @@ Komprimeret fra de 19 governance templates. Ved detaljeret opslag, se den enkelt
 5. Dependency check: ingen nye i `requirements.txt`
 6. Schema change check: ingen `ALTER TABLE`/`CREATE TABLE` uden fase-godkendelse
 7. **Frontend innerHTML check:** `grep -RIn "innerHTML"` — skal være `no_innerHTML`
+8. **Frontend i18n check:** `grep -RIn '"[A-Z][a-z]' static/js/` — kun `lbl()` fallbacks og CSS klasser, ingen bare bruger-synlige engelske strenge
 
-**7 auto-fail ændringer:** Broad refactor, nye dependencies, schema changes, unapproved visual changes, unscoped deletion, hardcoded operational targets, direct frontend binding til reusable labels.
+**8 auto-fail ændringer:** Broad refactor, nye dependencies, schema changes, unapproved visual changes, unscoped deletion, hardcoded operational targets, direct frontend binding til reusable labels, hardcodede engelske frontend-tekster uden `lbl()`.
 
 ### Git-policy
 
@@ -191,3 +193,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 |---|---|
 | 2026-06-13 | Oprettet — initiale aggregerede regler, model decision tree, projekt-hierarki |
 | 2026-06-13 | Opdateret — model decision tree: tilføjet per-template hitrate opslag, complexity_tier ≥ 3 threshold for cloud. Workflow: tilføjet template-valg (trin 5) og prompt-run registrering (trin 7). Baseret på 2H redesign og Excel-dataanalyse. |
+| 2026-06-13 | Tilføjet obligatorisk i18n-regel — alle brugervendte frontend-tekster SKAL bruge `lbl()` med `ui_labels` + `ui_label_translations` seed-data. Validering udvidet fra 7 til 8 pre-commit checks (nyt check #8: frontend i18n). Auto-fail ændringer udvidet fra 7 til 8. |
