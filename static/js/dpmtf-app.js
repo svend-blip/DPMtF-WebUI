@@ -315,10 +315,10 @@ function loadHitrates() {
   var table = el("table", "dpmtf-table");
   var thead = el("thead", null);
   var thr = el("tr", null);
-  thr.appendChild(el("th", null, "Phase"));
-  thr.appendChild(el("th", null, "Success Rate"));
-  thr.appendChild(el("th", null, "Successful / Total"));
-  thr.appendChild(el("th", null, "Last Run"));
+  thr.appendChild(el("th", null, lbl("lbl_col_phase", "Phase")));
+  thr.appendChild(el("th", null, lbl("lbl_col_success_rate", "Success Rate")));
+  thr.appendChild(el("th", null, lbl("lbl_col_successful_total", "Successful / Total")));
+  thr.appendChild(el("th", null, lbl("lbl_col_last_run", "Last Run")));
   thead.appendChild(thr);
   table.appendChild(thead);
   var tbody = el("tbody", null);
@@ -364,13 +364,21 @@ function loadHitrates() {
     });
 
   // ── Implementation Patterns table ───────────────────
-  var patHeading = el("h4", null, "Implementation Patterns");
+  var patHeading = el("h4", null, lbl("lbl_pat_heading", "Implementation Patterns"));
   patHeading.style.marginTop = "20px";
   container.appendChild(patHeading);
   var patTable = el("table", "dpmtf-table");
   var patThead = el("thead", null);
   var patThr = el("tr", null);
-  ["Pattern ID", "Files", "Constraints", "Success Rate", "Best Model", "Avg Dur", "Runs"].forEach(function (h) {
+  [
+    lbl("lbl_col_pattern_id", "Pattern ID"),
+    lbl("lbl_col_files", "Files"),
+    lbl("lbl_col_constraints", "Constraints"),
+    lbl("lbl_col_success_rate", "Success Rate"),
+    lbl("lbl_col_best_model", "Best Model"),
+    lbl("lbl_col_avg_dur", "Avg Dur"),
+    lbl("lbl_col_runs", "Runs")
+  ].forEach(function (h) {
     patThr.appendChild(el("th", null, h));
   });
   patThead.appendChild(patThr);
@@ -428,12 +436,26 @@ function loadHitrates() {
 
   // ── Recent runs (expandable) ────────────────────────
   var details = el("details", "dpmtf-details");
-  var summary = el("summary", null, "Recent Prompt Runs");
+  var summary = el("summary", null, lbl("lbl_runs_heading", "Recent Prompt Runs"));
   details.appendChild(summary);
   var runsTable = el("table", "dpmtf-table");
   var runsThead = el("thead", null);
   var runsThr = el("tr", null);
-  ["Run ID", "Phase", "Project", "Status", "Success", "1st-Try", "Corr", "Duration", "Model", "Type", "Tokens", "Cost", "Timestamp"].forEach(function (h) {
+  [
+    lbl("lbl_col_run_id", "Run ID"),
+    lbl("lbl_col_phase", "Phase"),
+    lbl("lbl_col_project", "Project"),
+    lbl("lbl_col_status", "Status"),
+    lbl("lbl_status_success", "Success"),
+    lbl("lbl_col_first_try", "1st-Try"),
+    lbl("lbl_col_corrections", "Corr"),
+    lbl("lbl_col_duration", "Duration"),
+    lbl("lbl_col_model", "Model"),
+    lbl("lbl_tpl_suitable_for", "Type"),
+    lbl("lbl_tpl_tokens", "Tokens"),
+    lbl("lbl_col_cost", "Cost"),
+    lbl("lbl_col_timestamp", "Timestamp")
+  ].forEach(function (h) {
     runsThr.appendChild(el("th", null, h));
   });
   runsThead.appendChild(runsThr);
@@ -1375,7 +1397,7 @@ function buildDrawerContent() {
       clear(valBody);
       var rules = data.rules || [];
       if (!rules.length) {
-        valBody.appendChild(el("p", "dpmtf-muted", "No validation rules."));
+        valBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_val_no_rules", "No validation rules.")));
         return;
       }
       var p = el("p", "dpmtf-small", null);
@@ -1596,7 +1618,7 @@ function runValidationDrawer() {
   var resultsDiv = document.getElementById("drawer-validation-results");
   if (!resultsDiv) return;
   clear(resultsDiv);
-  resultsDiv.appendChild(el("p", "dpmtf-muted", "Running validation..."));
+  resultsDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_val_running", "Running validation...")));
 
   fetch("/api/validate", {
     method: "POST",
@@ -1622,9 +1644,9 @@ function runValidationDrawer() {
       var table = el("table", "dpmtf-table");
       var thead = el("thead", null);
       var thr = el("tr", null);
-      thr.appendChild(el("th", null, "Rule"));
-      thr.appendChild(el("th", null, "Result"));
-      thr.appendChild(el("th", null, "Notes"));
+      thr.appendChild(el("th", null, lbl("lbl_col_rule", "Rule")));
+      thr.appendChild(el("th", null, lbl("lbl_col_result", "Result")));
+      thr.appendChild(el("th", null, lbl("lbl_col_notes", "Notes")));
       thead.appendChild(thr);
       table.appendChild(thead);
       var tbody = el("tbody", null);
@@ -1652,11 +1674,21 @@ function loadTemplateManager() {
 
   // Template list
   var listCard = el("div", "dpmtf-card");
-  listCard.appendChild(el("h4", null, "Templates"));
+  listCard.appendChild(el("h4", null, lbl("lbl_tpl_templates", "Templates")));
   var table = el("table", "dpmtf-table");
   var thead = el("thead", null);
   var thr = el("tr", null);
-  ["Key", "Name", "Tier", "Suitable For", "Capture", "Local SR", "Cloud SR", "Tokens (in/out)", "Preview"].forEach(function (h) {
+  [
+    lbl("lbl_tpl_key", "Key"),
+    lbl("lbl_tpl_name", "Name"),
+    lbl("lbl_tpl_tier", "Tier"),
+    lbl("lbl_tpl_suitable_for", "Suitable For"),
+    lbl("lbl_tpl_capture", "Capture"),
+    lbl("lbl_tpl_local_sr", "Local SR"),
+    lbl("lbl_tpl_cloud_sr", "Cloud SR"),
+    lbl("lbl_tpl_tokens", "Tokens (in/out)"),
+    lbl("lbl_tpl_preview", "Preview")
+  ].forEach(function (h) {
     thr.appendChild(el("th", null, h));
   });
   thead.appendChild(thr);
@@ -1679,7 +1711,7 @@ function loadTemplateManager() {
       var templates = data.templates || [];
       if (!templates.length) {
         var row = el("tr", null);
-        var cell = el("td", null, "No templates.");
+        var cell = el("td", null, lbl("lbl_status_no_data", "No templates."));
         cell.colSpan = 9;
         row.appendChild(cell);
         tbody.appendChild(row);
@@ -1720,7 +1752,7 @@ function loadTemplateManager() {
         row.appendChild(td(formatRate(t.cloud_success_rate)));
 
         row.appendChild(td((t.avg_token_count_input || "-") + " / " + (t.avg_token_count_output || "-")));
-        row.appendChild(td("Click to view"));
+        row.appendChild(td(lbl("lbl_tpl_click_to_view", "Click to view")));
         tbody.appendChild(row);
       });
     })
@@ -1776,13 +1808,14 @@ function showTemplateDetail(templateKey) {
 
       // Success rates
       var rateRow = el("p", "dpmtf-small");
-      rateRow.textContent = "Local SR: " + formatRate(t.local_success_rate) +
-        " (" + (t.total_local_runs || 0) + " runs) | Cloud SR: " +
-        formatRate(t.cloud_success_rate) + " (" + (t.total_cloud_runs || 0) + " runs)";
+      rateRow.textContent = lbl("lbl_tpl_local_sr_label", "Local SR:") + " " + formatRate(t.local_success_rate) +
+        " (" + (t.total_local_runs || 0) + " " + lbl("lbl_tpl_runs_count", "runs") + ") | " +
+        lbl("lbl_tpl_cloud_sr_label", "Cloud SR:") + " " +
+        formatRate(t.cloud_success_rate) + " (" + (t.total_cloud_runs || 0) + " " + lbl("lbl_tpl_runs_count", "runs") + ")";
       card.appendChild(rateRow);
 
       // Token estimates
-      card.appendChild(el("p", "dpmtf-small", "Estimated tokens: " +
+      card.appendChild(el("p", "dpmtf-small", lbl("lbl_tpl_estimated_tokens", "Estimated tokens:") + " " +
         (t.avg_token_count_input || "?") + " in / " +
         (t.avg_token_count_output || "?") + " out"));
 
@@ -1791,11 +1824,16 @@ function showTemplateDetail(templateKey) {
         .then(function (res) { return res.json(); })
         .then(function (hitData) {
           if (hitData.model_hitrates && hitData.model_hitrates.length) {
-            card.appendChild(el("h4", null, "Model Hitrates"));
+            card.appendChild(el("h4", null, lbl("lbl_tpl_model_hitrates", "Model Hitrates")));
             var hitTable = el("table", "dpmtf-table dpmtf-compact");
             var hitThead = el("thead", null);
             var hitThr = el("tr", null);
-            ["Model", "Runs", "Success Rate", "Avg Duration"].forEach(function (h) {
+            [
+              lbl("lbl_col_model", "Model"),
+              lbl("lbl_col_runs", "Runs"),
+              lbl("lbl_col_success_rate", "Success Rate"),
+              lbl("lbl_col_avg_duration", "Avg Duration")
+            ].forEach(function (h) {
               hitThr.appendChild(el("th", null, h));
             });
             hitThead.appendChild(hitThr);
@@ -1820,7 +1858,7 @@ function showTemplateDetail(templateKey) {
 
       // Preview
       if (t.preview) {
-        card.appendChild(el("h4", null, "Preview"));
+        card.appendChild(el("h4", null, lbl("lbl_tpl_preview", "Preview")));
         var pre = el("pre", null);
         pre.style.whiteSpace = "pre-wrap";
         pre.style.fontSize = "0.85em";
@@ -1832,32 +1870,32 @@ function showTemplateDetail(templateKey) {
       }
 
       // ── Compile form (2I) ─────────────────────────────
-      card.appendChild(el("h4", null, "Compile Prompt"));
+      card.appendChild(el("h4", null, lbl("lbl_tpl_compile_prompt", "Compile Prompt")));
       var compileForm = el("div", null);
 
       // Project path
-      compileForm.appendChild(el("label", "dpmtf-label", "Project Path:"));
+      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_project_path", "Project Path:")));
       var pathInput = el("input", "dpmtf-input");
       pathInput.id = "compile-project-path";
       pathInput.placeholder = "/home/svend/ai-pc-resource-webui-v3";
       compileForm.appendChild(pathInput);
 
       // Phase ID
-      compileForm.appendChild(el("label", "dpmtf-label", "Phase ID:"));
+      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_phase_id", "Phase ID:")));
       var phaseInput = el("input", "dpmtf-input");
       phaseInput.id = "compile-phase-id";
       phaseInput.placeholder = "3C-15";
       compileForm.appendChild(phaseInput);
 
       // Goal
-      compileForm.appendChild(el("label", "dpmtf-label", "Goal:"));
+      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_goal", "Goal:")));
       var goalInput = el("input", "dpmtf-input");
       goalInput.id = "compile-goal";
       goalInput.placeholder = "Add feature X to panel Y";
       compileForm.appendChild(goalInput);
 
       // Constraints
-      compileForm.appendChild(el("label", "dpmtf-label", "Constraints (one per line):"));
+      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_constraints", "Constraints (one per line):")));
       var constraintsInput = el("textarea", "dpmtf-textarea");
       constraintsInput.id = "compile-constraints";
       constraintsInput.placeholder = "read-only\nno-innerHTML\nno-schema-migration";
@@ -1865,7 +1903,7 @@ function showTemplateDetail(templateKey) {
       compileForm.appendChild(constraintsInput);
 
       // Allowed files
-      compileForm.appendChild(el("label", "dpmtf-label", "Allowed files (one per line):"));
+      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_allowed_files", "Allowed files (one per line):")));
       var filesInput = el("textarea", "dpmtf-textarea");
       filesInput.id = "compile-files";
       filesInput.placeholder = "static/js/app.js\nscripts/seed_database.py";
@@ -1873,7 +1911,7 @@ function showTemplateDetail(templateKey) {
       compileForm.appendChild(filesInput);
 
       // Validation commands
-      compileForm.appendChild(el("label", "dpmtf-label", "Validation commands (one per line):"));
+      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_validation_cmds", "Validation commands (one per line):")));
       var validationInput = el("textarea", "dpmtf-textarea");
       validationInput.id = "compile-validation";
       validationInput.placeholder = "node --check static/js/app.js\ngrep -RIn innerHTML static";
@@ -1881,7 +1919,7 @@ function showTemplateDetail(templateKey) {
       compileForm.appendChild(validationInput);
 
       var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-      compileBtn.textContent = "Compile Prompt";
+      compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
       compileBtn.onclick = function () { compilePrompt(templateKey); };
       compileForm.appendChild(compileBtn);
 
