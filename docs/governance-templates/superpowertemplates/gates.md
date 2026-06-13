@@ -65,6 +65,22 @@ KONSEKVENS:
   - Bruger siger NEJ → marker som DPMtF-WebUI only i alignmentstructure.md
 ```
 
+### GATE-GOVERNANCE-SYNC: Governance template synkronisering
+
+```
+TRIGGER: Governance templates i et søn-projekt (ENO, v3) er divergeret
+         fra DPMtF-WebUI's master-kopier.
+
+SPØRGSMÅL: "Governance templates in [projekt] have diverged from DPMtF-WebUI
+master. Is this divergence intentional, or should they be synchronized?"
+
+KONSEKVENS:
+  - Bruger siger BEVIDST → dokumenter i alignmentstructure.md at divergensen er
+                           intentional, opdater ikke templates
+  - Bruger siger SYNC  → overskriv sønnens templates med DPMtF-WebUI's master,
+                         dokumenter i alignmentstructure.md
+```
+
 ---
 
 ## 2. Gate-regler
@@ -78,7 +94,7 @@ KONSEKVENS:
 ### Dokumentation
 
 - Brugerens svar på en gate dokumenteres i:
-  - `alignmentstructure.md` for GATE-V3 og GATE-FEATURE-ROLLOUT
+  - `alignmentstructure.md` for GATE-V3, GATE-FEATURE-ROLLOUT, og GATE-GOVERNANCE-SYNC
   - `09_DECISIONS.md` for GATE-SCOPE
   - `superpowers.md` decision tree for GATE-MODEL
 
@@ -90,6 +106,7 @@ Hvis flere gates trigger samtidigt, stil dem i denne rækkefølge:
 2. GATE-V3 (projekt-beskyttelse)
 3. GATE-MODEL (model-valg)
 4. GATE-FEATURE-ROLLOUT (udrulning)
+5. GATE-GOVERNANCE-SYNC (template synkronisering)
 
 ### Nye gates
 
@@ -105,3 +122,4 @@ Nye gates kan tilføjes efter behov:
 | Dato | Ændring |
 |---|---|
 | 2026-06-13 | Oprettet — GATE-V3, GATE-SCOPE, GATE-MODEL, GATE-FEATURE-ROLLOUT |
+| 2026-06-13 | Tilføjet GATE-GOVERNANCE-SYNC — governance template divergens spørgsmål |

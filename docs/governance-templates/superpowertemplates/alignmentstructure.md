@@ -80,9 +80,12 @@ Nuværende alignment mellem projekter:
 
 | Alignment-område | DPMtF-WebUI ↔ ENO | DPMtF-WebUI ↔ v3 | Note |
 |---|---|---|---|
-| Governance templates | ⏳ Afventer første sync | Synkroniseret 2026-06-12 | 10 af 19 templates opgraderet fra v3 |
-| Sprog/language | ✅ Synkroniseret | ✅ Synkroniseret | user_language tabel + dropdown i begge |
-| Frontend-struktur | ⏳ Afventer | ⏳ Afventer | Forskellige formål — ikke alignment-krævende |
+| Governance templates | ✅ Synkroniseret (strukturelle) | Synkroniseret 2026-06-12 | 14/19 identiske. 5 ENO-specifikke (CHANGELOG, NEXT_CONTEXT, IMPLEMENTATION_REPORT, README) — bevidst divergens |
+| Sprog/language | ⏳ Afventer udrulning | ✅ Synkroniseret | ENO mangler user_language tabel + dropdown — udrulles nu |
+| i18n database schema | ⏳ Afventer alignment | ✅ Synkroniseret | ENO har forked schema — alignes til DPMtF standard |
+| Database struktur | ⏳ Afventer merge | — | ENO får fuld merge af DPMtF-WebUI tabeller + beholder egne domæne-tabeller |
+| CSS theme | ✅ Synkroniseret | — | Begge bruger dark theme (GitHub-dark) — allerede aligned |
+| Frontend features | ✅ Afklaret | — | Kun language dropdown udrulles. Resten er domæne-specifikke paneler |
 | | | | |
 
 ---
