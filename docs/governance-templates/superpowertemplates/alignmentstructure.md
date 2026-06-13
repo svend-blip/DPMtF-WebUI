@@ -16,7 +16,7 @@ Tracker hvilke features der gælder for hvilke projekter.
 | "Vis fuldførte faser" filter default false | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only |
 | GitHub fase-synkronisering | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only |
 | Panelgrupper (collapse/expand) | ✅ | ✅ | ⏳ | 2026-06-13 | ENO: 4 commits (dfaa96c→320a7a6). Udrulles senere til v3 |
-| i18n database schema alignment | ✅ | ✅ | — | 2026-06-13 | ENO: 9073de2. v3 har allerede standard |
+| i18n 4-lags arkitektur alignment | ✅ | ✅ | — | 2026-06-13 | DPMtF-WebUI API rettet til fuld 4-lags traversering (slot→label→translation). ENO: 9073de2 — allerede korrekt 4-lags flow. v3 har allerede standard. |
 | Database merge (DPMtF governance tables) | ✅ | ✅ | — | 2026-06-13 | ENO: 05f9b0d. v3 har eget schema |
 | Prompt Template Manager (2H) | ✅ | — | — | 2026-06-13 | DPMtF-WebUI only — redesigned based on Excel data analysis of 8 prompt runs. 6 templates, complexity tiers, per-model hitrate tracking, mandatory outcome fields. |
 | Local Prompt Compiler (2I) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
@@ -93,7 +93,7 @@ Nuværende alignment mellem projekter:
 |---|---|---|---|
 | Governance templates | ✅ Synkroniseret (strukturelle) | Synkroniseret 2026-06-12 | 14/19 identiske. 5 ENO-specifikke (CHANGELOG, NEXT_CONTEXT, IMPLEMENTATION_REPORT, README) — bevidst divergens |
 | Sprog/language | ✅ Synkroniseret | ✅ Synkroniseret | ENO: e867ad8 — user_language tabel + /api/user-language endpoints + dropdown |
-| i18n database schema | ✅ Synkroniseret | ✅ Synkroniseret | ENO: 9073de2 — aligned til DPMtF standard |
+| i18n 4-lags arkitektur | ✅ Synkroniseret | ✅ Synkroniseret | DPMtF-WebUI API rettet 2026-06-13 til fuld 4-lags traversering (slot→label→translation). ENO havde allerede korrekt flow. Begge returnerer nu {slot_key: text}. |
 | Database struktur | ✅ Synkroniseret | — | ENO: 05f9b0d — fuld merge af DPMtF-WebUI tabeller + egne domæne-tabeller |
 | Panelgrupper | ✅ Synkroniseret | ⏳ Afventer udrulning | ENO: 4 commits (dfaa96c→320a7a6). v3 udrulles senere |
 | CSS theme | ✅ Synkroniseret | — | Begge bruger dark theme (GitHub-dark) — allerede aligned |
@@ -110,3 +110,4 @@ Nuværende alignment mellem projekter:
 | 2026-06-13 | Oprettet — initial alignment matrix, projekt-registre, rollout regler |
 | 2026-06-13 | Opdateret alignment matrix: ENO sprog/i18n/database/panelgrupper rettet fra ⏳ til ✅ (allerede committed). Tilføjet DPMtF-WebUI 2H-2O roadmap som DPMtF-WebUI-only. Alignment-status sektion opdateret med commit-referencer. GATE-FEATURE-ROLLOUT: 2H-2O er DPMtF-WebUI-only governance-infrastruktur — udrulles ikke til ENO eller v3. |
 | 2026-06-13 | 2H markeret som ✅ — Prompt Template Manager redesign implementeret. 6 templates med complexity tiers, capture sources, per-model hitrate tracking, og obligatoriske outcome-felter. Baseret på Excel-dataanalyse af 8 prompt-runs fra claude_ollama_prompt_history.xlsx. |
+| 2026-06-13 | i18n 4-lags arkitektur alignment gennemført. DPMtF-WebUI's `get_ui_labels_for_domain()` omskrevet til at traversere alle 4 lag (slot→slot_label→label→translation) og returnere `{slot_key: text}` — samme flow som ENO. 108 slots, 108 mappings, 108 labels, 216 translations. Panel-gruppe labels (pg_daily, pg_journals, pg_reports, pg_periodic, pg_setup) tilføjet. 05_CODING_STANDARD.md og superpowers.md opdateret med 4-lags arkitektur som obligatorisk standard. |

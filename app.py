@@ -99,31 +99,50 @@ def get_ui_label_by_key(label_key, locale="en-US"):
 
 
 def get_ui_labels_for_domain(label_domain, locale="en-US"):
-    """Return a dict of label_key -> resolved text for all active labels in a domain.
+    """Return a dict of slot_key -> resolved text for all active slots in a domain.
 
-    Uses the same fallback chain per label. Sorted by label_id for determinism.
+    Traverses the full 4-layer i18n architecture:
+      1. ui_text_slots        — stable frontend placement IDs (slot_key)
+      2. ui_text_slot_labels  — maps slot_key → label_key
+      3. ui_labels            — semantic label with default_text fallback
+      4. ui_label_translations — locale-specific translated_text
+
+    Multiple slots CAN map to the same label. The returned dict is keyed by
+    slot_key so that frontend data-slot attributes and lbl() calls resolve
+    correctly through the mapping table.
+
+    Fallback chain per slot: requested locale → en-US → default_text → label_key.
     """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT label_id, label_key, label_domain, default_text, description, is_active "
-        "FROM ui_labels WHERE label_domain = ? AND is_active = 1 "
-        "ORDER BY label_id",
-        (label_domain,),
-    )
+    # Traverse all 4 layers in one query:
+    # slot → slot_label mapping → label → translation (with locale fallback)
+    cursor.execute("""
+        SELECT
+            s.slot_key,
+            l.label_key,
+            l.default_text,
+            COALESCE(
+                (SELECT t1.translated_text FROM ui_label_translations t1
+                 WHERE t1.label_id = l.label_id AND t1.locale = ? AND t1.is_active = 1),
+                (SELECT t2.translated_text FROM ui_label_translations t2
+                 WHERE t2.label_id = l.label_id AND t2.locale = 'en-US' AND t2.is_active = 1),
+                l.default_text,
+                l.label_key
+            ) AS resolved_text
+        FROM ui_text_slots s
+        JOIN ui_text_slot_labels m ON m.slot_key = s.slot_key
+        JOIN ui_labels l ON l.label_key = m.label_key AND l.is_active = 1
+        WHERE l.label_domain = ?
+        ORDER BY s.slot_key
+    """, (locale, label_domain))
 
     result = {}
     for row in cursor.fetchall():
-        label_row = {
-            "label_id": row[0],
-            "label_key": row[1],
-            "label_domain": row[2],
-            "default_text": row[3],
-            "description": row[4],
-            "is_active": bool(row[5]),
-        }
-        result[label_row["label_key"]] = _resolve_ui_label_text(label_row, locale)
+        slot_key = row[0]
+        resolved_text = row[3]
+        result[slot_key] = resolved_text
 
     conn.close()
     return result
@@ -1208,6 +1227,14 @@ async def get_ui_label_registry():
 
 @app.get("/api/ui-labels/{label_domain}")
 async def get_ui_labels_by_domain(label_domain: str, locale: str = "en-US"):
+    """Return resolved labels for a domain via the full 4-layer i18n architecture.
+
+    Traverses ui_text_slots → ui_text_slot_labels → ui_labels → ui_label_translations.
+    Returns {slot_key: resolved_text} so frontend data-slot attributes and lbl() calls
+    resolve correctly through the slot→label mapping table.
+
+    Fallback chain: requested locale → en-US → default_text → label_key.
+    """
     labels = get_ui_labels_for_domain(label_domain, locale)
     return {
         "label_domain": label_domain,

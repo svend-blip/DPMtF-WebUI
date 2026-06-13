@@ -41,6 +41,7 @@ Komprimeret fra de 19 governance templates. Ved detaljeret opslag, se den enkelt
 
 - **INGEN `innerHTML` til dynamisk indhold** — auto-fail i validation. Brug `createElement()` / `textContent` / `appendChild()` / `replaceChildren()`
 - **ALLE brugervendte frontend-tekster SKAL bruge `lbl(key, fallback)`** — auto-fail i validation. Ingen hardcodede engelske strenge i DOM-konstruktion. Hver label skal have `ui_labels` + `ui_label_translations` (da-DK + en-US) seed-data. Dette er fast rutine, ikke valgfrit.
+- **4-lags i18n arkitektur er obligatorisk:** `ui_text_slots` (slot_key = unik position-ID) → `ui_text_slot_labels` (slot→label mapping) → `ui_labels` (semantisk label med default_text) → `ui_label_translations` (locale-specific tekst). API'et SKAL traversere alle 4 lag og returnere `{slot_key: text}`. Flere slots KAN mappe til samme label. Frontend `data-slot` attributter og `lbl()` kald bruger `slot_key` som nøgle.
 - **Ingen gæt på operationelle targets** — porte, paths, model-navne skal være eksplicitte argumenter, ikke hardcodede
 - **Ingen nye dependencies** uden Human Approval Gate
 - **Stop efter 2 fejlede patching forsøg** — eskaler, gæt ikke videre
@@ -194,3 +195,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 | 2026-06-13 | Oprettet — initiale aggregerede regler, model decision tree, projekt-hierarki |
 | 2026-06-13 | Opdateret — model decision tree: tilføjet per-template hitrate opslag, complexity_tier ≥ 3 threshold for cloud. Workflow: tilføjet template-valg (trin 5) og prompt-run registrering (trin 7). Baseret på 2H redesign og Excel-dataanalyse. |
 | 2026-06-13 | Tilføjet obligatorisk i18n-regel — alle brugervendte frontend-tekster SKAL bruge `lbl()` med `ui_labels` + `ui_label_translations` seed-data. Validering udvidet fra 7 til 8 pre-commit checks (nyt check #8: frontend i18n). Auto-fail ændringer udvidet fra 7 til 8. |
+| 2026-06-13 | Tilføjet 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API SKAL traversere alle 4 lag og returnere `{slot_key: text}`. Alignment med ENO gennemført (DPMtF-WebUI's API rettet til samme flow som ENO). Dokumenteret i 05_CODING_STANDARD.md. |

@@ -143,3 +143,4 @@ Denne fil opdateres når:
 |---|---|
 | 2026-06-13 | Oprettet — lokal/cloud afgørelses-flow, prompt compiler flow, model-konfiguration, ROLELOCAL |
 | 2026-06-13 | Opdateret — suitable_for default ændret til `local` (100% af 8 analyserede runs bruger lokal model). Prompt compiler flow opdateret med nye API endpoints (template filtering, per-model hitrate, obligatoriske outcome-felter). |
+| 2026-06-13 | Dokumenteret 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API skal returnere `{slot_key: text}`. Alignment med ENO gennemført. |
