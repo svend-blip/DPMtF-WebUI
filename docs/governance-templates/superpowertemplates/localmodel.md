@@ -91,6 +91,7 @@ Når DPMtF-WebUI's prompt compiler bruges til at generere prompts til lokal mode
 
 - **Model-navne skal være eksplicitte argumenter** — ikke hardcodede i scripts (fra `05_CODING_STANDARD.md`)
 - **Ollama service control kræver ALTID human approval** — start/stop/restart af Ollama må IKKE gøres automatisk (fra `17_PERMISSION_MODE_POLICY.md`)
+- **Tmux bridge protokol:** Cloud→lokal kommunikation via tmux session `review_claude`. Se [[bridge-protocol]] for fuld workflow, kommando-reference, og handoff fil-format.
 - **Model downloads er one-time setup** — kræver internet første gang, derefter offline-brug (fra `14_OFFLINE_MODE.md`)
 - **Model state per GPU** — spores i `ollama_card_state` tabellen i v3's database (planlagt, ikke implementeret endnu)
 
