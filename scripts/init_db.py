@@ -2330,6 +2330,17 @@ cursor.execute("""
     VALUES ('default', 'en-US', datetime('now'))
 """)
 
+# Panel group collapse/expand user preferences
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS user_panel_groups (
+    user_id    TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    state      TEXT NOT NULL DEFAULT 'expanded',
+    updated_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, group_name)
+)
+""")
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
