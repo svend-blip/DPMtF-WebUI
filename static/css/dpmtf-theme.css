@@ -257,3 +257,46 @@ h4 { color: #8b949e; font-size: 0.9em; margin: 12px 0 6px 0; }
   font-size: 0.8em;
   margin-left: 10px;
 }
+
+/* ── Panel Groups (collapse/expand) ─────────────────── */
+.panel-group {
+    margin-bottom: 16px;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.panel-group-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+    background: #161b22;
+}
+
+.panel-group-header:hover {
+    background: #1c2129;
+}
+
+.panel-group-header h2 {
+    font-size: 1.1rem;
+    margin: 0;
+    color: #e6edf3;
+}
+
+.panel-group-toggle {
+    font-size: 0.8rem;
+    color: #8b949e;
+}
+
+.panel-group-body {
+    padding: 10px 14px;
+    border-top: 1px solid #30363d;
+    background: #0d1117;
+}
+
+.panel-group.collapsed .panel-group-body {
+    display: none;
+}
