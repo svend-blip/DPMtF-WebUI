@@ -17,6 +17,47 @@
 DPMtF-WebUI's `docs/governance-templates/` er den **autoritative kilde** til alle
 governance-regler. Andre projekter får kopier via `scripts/initialize_target_project_governance.py`.
 
+### Father-Child Governance Sync (obligatorisk)
+
+Dette er den **formelle protokol** for hvordan governance-filer vedligeholdes på tværs af
+Father og Child projects. Protokollen sikrer at hvert projekt har korrekte governance-filer
+der afspejler projektets egen identitet, samtidig med at strukturelle regler forbliver synkroniseret.
+
+#### Fil-klassifikation
+
+| Klassifikation | Filer | Synkronisering | Beskrivelse |
+|---|---|---|---|
+| **Strukturelle templates** | 01_ROLES, 03_FILE_ACCESS_POLICY, 04_ARCHITECTURE, 05_CODING_STANDARD, 06_VALIDATION, 07_RESTART, 08_TESTPLAN, 09_DECISIONS, 13_VALIDATION_REPORT, 14_OFFLINE_MODE, 15_GIT_POLICY, 16_DATABASE_RUNTIME_STATE, 17_PERMISSION_MODE_POLICY | **Synkroniseret med Father** — opdateres via `initialize_target_project_governance.py` | Regler der gælder ens for alle projekter. Father's version er master. |
+| **Projekt-specifikke** | 00_PROJECT, 02_SCOPE, 10_CHANGELOG, 11_NEXT_CONTEXT, 12_IMPLEMENTATION_REPORT, README | **Uafhængige** — hvert Child projekt vedligeholder sin egen version | Indeholder projektets navn, port, repository, fase, historik, og status. SKAL afspejle det enkelte projekts identitet. |
+
+#### Audit-regler
+
+1. **Ved hver superpowers-session:** Tjek at alle Child projects' projekt-specifikke filer afspejler deres egen identitet. Trigger: bruger refererer til `superpowers.md`.
+2. **Audit-checkliste per Child project:**
+   - `00_PROJECT.md`: Projektnavn, port, repository, formål — matcher projektets faktiske identitet?
+   - `02_SCOPE.md`: Fase — matcher projektets faktiske nuværende fase?
+   - `10_CHANGELOG.md`: Indeholder projektets egen git-historik — ikke Father's?
+   - `11_NEXT_CONTEXT.md`: Afspejler projektets egen status og næste skridt — ikke Father's?
+   - `12_IMPLEMENTATION_REPORT.md`: Afspejler projektets seneste implementering — ikke Father's?
+   - `README.md`: Er projekt-specifik — ikke en generisk template-index?
+3. **Ved discrepancy:** Trigger GATE-GOVERNANCE-SYNC (se [[gates]]).
+4. **Strukturelle templates:** Tjekkes for sync-status. Hvis divergeret, trigger GATE-GOVERNANCE-SYNC for at afklare om divergensen er bevidst.
+
+#### Opdateringsproces for projekt-specifikke filer
+
+Når GATE-GOVERNANCE-SYNC bekræfter at et Child project's projekt-specifikke filer skal opdateres:
+
+1. **Læs** Child project's git-historik (`git log --oneline --all`) for at forstå projektets faktiske udvikling.
+2. **Opdatér** `00_PROJECT.md` — projektnavn, port, repository, formål, nuværende commit, related projects.
+3. **Opdatér** `02_SCOPE.md` — nuværende fase, in/out of scope, constraints, success criteria.
+4. **Opdatér** `10_CHANGELOG.md` — erstat Father's historik med Child's egen git-historik, organiseret i faser.
+5. **Opdatér** `11_NEXT_CONTEXT.md` — erstat Father's handoff med Child's egen status, fase-progress, remaining work.
+6. **Opdatér** `12_IMPLEMENTATION_REPORT.md` — erstat med Child's seneste implementering.
+7. **Opdatér** `README.md` — gør projekt-specifik med governance sync noter.
+8. **Bevar** strukturelle templates (01, 03-09, 13-17) uændrede — de forbliver synkroniseret med Father.
+9. **Dokumentér** opdateringen i Child's `10_CHANGELOG.md` og `11_NEXT_CONTEXT.md`.
+10. **Opdatér** `alignmentstructure.md`'s alignment-status sektion hvis relevant.
+
 ---
 
 ## 2. Aggregerede regelsæt
@@ -151,39 +192,53 @@ Disse filer ligger i samme mappe og loads efter behov:
    ├─ Model decision tree konsulteres
    └─ Nuværende model identificeres
 
-2. TJEK alignmentstructure.md
+2. KØR Father-Child governance audit (OBLIGATORISK — se Sektion 1)
+   ├─ Tjek ALLE Child projects' projekt-specifikke filer (00_PROJECT, 02_SCOPE, 10_CHANGELOG, 11_NEXT_CONTEXT, 12_IMPLEMENTATION_REPORT, README)
+   ├─ Audit-spørgsmål per Child:
+   │  • 00_PROJECT.md: Afspejler projektets faktiske navn, port, repository?
+   │  • 02_SCOPE.md: Afspejler projektets faktiske nuværende fase?
+   │  • 10_CHANGELOG.md: Indeholder projektets egen git-historik (ikke Father's)?
+   │  • 11_NEXT_CONTEXT.md: Afspejler projektets egen status (ikke Father's)?
+   │  • 12_IMPLEMENTATION_REPORT.md: Afspejler projektets seneste implementering?
+   │  • README.md: Er projekt-specifik?
+   ├─ Ved discrepancy → trigger GATE-GOVERNANCE-SYNC (se [[gates]])
+   └─ Dokumentér fund i alignmentstructure.md's alignment-status sektion
+
+3. TJEK alignmentstructure.md
    ├─ Hvilke projekter berøres af opgaven?
    ├─ Er feature-rollout specificeret?
    └─ Hvis ikke → stil GATE-FEATURE-ROLLOUT
 
-3. TJEK gates.md
+4. TJEK gates.md
    ├─ Trigger GATE-V3 hvis v3 berøres
    ├─ Trigger GATE-SCOPE hvis scope overskrides
-   └─ Trigger GATE-MODEL hvis billigere model kan bruges
+   ├─ Trigger GATE-MODEL hvis billigere model kan bruges
+   └─ Trigger GATE-GOVERNANCE-SYNC hvis step 2 fandt discrepancies
 
-4. TJEK localmodel.md
+5. TJEK localmodel.md
    ├─ Er opgaven egnet til lokal model?
    └─ Brug prompt compiler flow hvis relevant
 
-5. VÆLG prompt template (hvis relevant)
+6. VÆLG prompt template (hvis relevant)
    ├─ Query /api/prompt-templates med complexity_tier og suitable_for filtre
    ├─ Tjek per-model hitrate via /api/prompt-templates/{key}/hitrate
    └─ Vælg template med bedst historisk performance for opgavetypen
 
-6. UDFØR opgave
+7. UDFØR opgave
    ├─ Følg aggregerede regler
    └─ Dokumenter afvigelser
 
-7. REGISTRER prompt-run
+8. REGISTRER prompt-run
    ├─ POST /api/prompt-runs med obligatoriske outcome-felter
    ├─ Angiv template_key for at opdatere hitrate-statistik
    └─ Dette muliggør data-drevet template-forbedring over tid
 
-8. OPDATER .md filer
-   ├─ superpowers.md: nye regler, model-ændringer
-   ├─ alignmentstructure.md: nye features i matrix
+9. OPDATER .md filer
+   ├─ superpowers.md: nye regler, model-ændringer, governance sync protokol ændringer
+   ├─ alignmentstructure.md: nye features i matrix, governance doc-status
    ├─ gates.md: nye gates hvis nødvendigt
-   └─ localmodel.md: nye model-regler
+   ├─ localmodel.md: nye model-regler
+   └─ Child projects' projekt-specifikke filer: hvis GATE-GOVERNANCE-SYNC godkendte opdatering
 ```
 
 ---
@@ -196,3 +251,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 | 2026-06-13 | Opdateret — model decision tree: tilføjet per-template hitrate opslag, complexity_tier ≥ 3 threshold for cloud. Workflow: tilføjet template-valg (trin 5) og prompt-run registrering (trin 7). Baseret på 2H redesign og Excel-dataanalyse. |
 | 2026-06-13 | Tilføjet obligatorisk i18n-regel — alle brugervendte frontend-tekster SKAL bruge `lbl()` med `ui_labels` + `ui_label_translations` seed-data. Validering udvidet fra 7 til 8 pre-commit checks (nyt check #8: frontend i18n). Auto-fail ændringer udvidet fra 7 til 8. |
 | 2026-06-13 | Tilføjet 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API SKAL traversere alle 4 lag og returnere `{slot_key: text}`. Alignment med ENO gennemført (DPMtF-WebUI's API rettet til samme flow som ENO). Dokumenteret i 05_CODING_STANDARD.md. |
+| 2026-06-13 | Tilføjet **Father-Child Governance Sync protokol** (Sektion 1) — formelle regler for fil-klassifikation (strukturelle vs projekt-specifikke), audit-checkliste per Child project, opdateringsproces for projekt-specifikke filer. Workflow (Sektion 5) opdateret: nyt step 2 (Governance audit) med audit-spørgsmål og GATE-GOVERNANCE-SYNC trigger. Step 9 udvidet med Child project fil-opdatering. Baseret på ENO governance documentation update (ENO-5). |
