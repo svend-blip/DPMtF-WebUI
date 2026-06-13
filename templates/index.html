@@ -20,40 +20,86 @@
             </div>
         </div>
 
-        <section id="db-status-section">
-            <h2 data-slot="lbl_panel_db_status">Database Status</h2>
-            <div id="db-status-content"></div>
+        <!-- Daily -->
+        <section class="panel-group" id="pg-daily">
+            <div class="panel-group-header" data-group="daily">
+                <h2 data-slot="pg_daily">📋 Daily</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+                <section id="prompt-sequence-section">
+                    <h2 data-slot="lbl_panel_prompt_sequences">Prompt Sequence Planner</h2>
+                    <div id="prompt-sequence-content"></div>
+                </section>
+
+                <section id="template-manager-section">
+                    <h2 data-slot="lbl_panel_templates">Prompt Templates</h2>
+                    <div id="template-manager-content"></div>
+                </section>
+            </div>
         </section>
 
-        <section id="phase-status-section">
-            <h2 data-slot="lbl_panel_phase_status">Phase Status</h2>
-            <div id="phase-status-content"></div>
+        <!-- Journals -->
+        <section class="panel-group" id="pg-journals">
+            <div class="panel-group-header" data-group="journals">
+                <h2 data-slot="pg_journals">📓 Journals</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+            </div>
         </section>
 
-        <section id="hitrate-section">
-            <h2 data-slot="lbl_panel_hitrates">Prompt Hitrates</h2>
-            <div id="hitrate-content"></div>
+        <!-- Reports -->
+        <section class="panel-group" id="pg-reports">
+            <div class="panel-group-header" data-group="reports">
+                <h2 data-slot="pg_reports">📊 Reports</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+                <section id="hitrate-section">
+                    <h2 data-slot="lbl_panel_hitrates">Prompt Hitrates</h2>
+                    <div id="hitrate-content"></div>
+                </section>
+            </div>
         </section>
 
-        <section id="prompt-sequence-section">
-            <h2 data-slot="lbl_panel_prompt_sequences">Prompt Sequence Planner</h2>
-            <div id="prompt-sequence-content"></div>
+        <!-- Periodic -->
+        <section class="panel-group" id="pg-periodic">
+            <div class="panel-group-header" data-group="periodic">
+                <h2 data-slot="pg_periodic">🔄 Periodic</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+                <section id="phase-status-section">
+                    <h2 data-slot="lbl_panel_phase_status">Phase Status</h2>
+                    <div id="phase-status-content"></div>
+                </section>
+
+                <section id="project-planning-section">
+                    <h2 data-slot="lbl_panel_project_planning">New Project Planning</h2>
+                    <div id="project-planning-content"></div>
+                </section>
+            </div>
         </section>
 
-        <section id="template-manager-section">
-            <h2 data-slot="lbl_panel_templates">Prompt Templates</h2>
-            <div id="template-manager-content"></div>
-        </section>
+        <!-- Setup -->
+        <section class="panel-group" id="pg-setup">
+            <div class="panel-group-header" data-group="setup">
+                <h2 data-slot="pg_setup">⚙️ Setup</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+                <section id="db-status-section">
+                    <h2 data-slot="lbl_panel_db_status">Database Status</h2>
+                    <div id="db-status-content"></div>
+                </section>
 
-        <section id="project-planning-section">
-            <h2 data-slot="lbl_panel_project_planning">New Project Planning</h2>
-            <div id="project-planning-content"></div>
+                <button id="system-setup-btn" type="button" data-slot="lbl_btn_system_setup">System Setup</button>
+                <div id="system-setup-drawer" class="drawer">
+                    <div id="drawer-content"></div>
+                </div>
+            </div>
         </section>
-
-        <button id="system-setup-btn" type="button" data-slot="lbl_btn_system_setup">System Setup</button>
-        <div id="system-setup-drawer" class="drawer">
-            <div id="drawer-content"></div>
-        </div>
     </main>
     <script src="/static/js/dpmtf-app.js"></script>
 </body>
