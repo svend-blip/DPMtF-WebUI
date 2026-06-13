@@ -167,3 +167,16 @@ This governance document records all notable changes to the target project in ch
 - Phase tracking: 2M→completed, 2N→next.
 - No schema migrations — CREATE TABLE IF NOT EXISTS.
 
+
+### [2026-06-13] — 2H Redesign: Prompt Template Manager
+- **Redesign-begrundelse:** Analyse af 8 prompt-runs fra `claude_ollama_prompt_history.xlsx` afslørede 6 kritiske mismatch: 62% rekonstruerede prompts, 100% lokal model-brug, DPMtF-WebUI SR 0.65 vs v2's 1.0, 37.5% ukendte outcomes, 4.6x prompt-længde-variation, kun 2 model-tags brugt.
+- **Database:** ALTER TABLE prompt_templates: 6 nye kolonner (complexity_tier, capture_source, local_success_rate, cloud_success_rate, total_local_runs, total_cloud_runs). ALTER TABLE prompt_runs: 5 nye kolonner (template_key, execution_status, first_try_success, manual_corrections, validation_passed). CREATE TABLE template_model_hitrates med UNIQUE(template_key, model_used).
+- **Seed data:** 4 eksisterende templates opdateret med nye felter. 2 nye templates tilføjet: tpl_create_add_local (baseret på 6 Create/Add runs, SR 0.83) og tpl_update_edit_local (baseret på 2 Update/Edit runs). PRUN-2E-0001 backfill'et med outcome-felter og template_key. template_model_hitrates seedet for claude-fable-5 + tpl_implementation_medium.
+- **API:** GET /api/prompt-templates: nye filtre (suitable_for, complexity_tier, capture_source, is_active). POST /api/prompt-templates: nye felter + validering (suitable_for, complexity_tier, capture_source, structure_json). PUT /api/prompt-templates: 6 nye updatable felter. GET /api/prompt-templates/{key}/hitrate: nyt endpoint for per-model hitrate. POST /api/prompt-runs: obligatoriske outcome-felter (execution_status, first_try_success, validation_passed) + template_key logik + template_model_hitrates UPSERT. GET /api/prompt-runs: nye filtre (template_key, execution_status, first_try_success).
+- **Frontend:** Template Manager tabel: 9 kolonner (Key, Name, Tier, Suitable For, Capture, Local SR, Cloud SR, Tokens, Preview). Template detail: complexity/capture/suitable badges, success rates, per-model hitrate tabel. Prompt Runs tabel: 13 kolonner (tilføjet Status, 1st-Try, Corr). Nye JS helpers: complexityBadge(), formatRate(), rateClass().
+- **CSS:** 12 nye klasser: complexity-tier-1/2/3, capture-verbatim/designed/reconstructed, status-completed/failed/unknown/sent, template-detail-panel.
+- **Governance:** alignmentstructure.md: 2H ⏳→✅. localmodel.md: suitable_for default → local, prompt compiler flow opdateret. superpowers.md: model decision tree opdateret (per-template hitrate opslag, complexity_tier ≥ 3 → cloud), workflow tilføjet template-valg + run-registrering.
+- Registered: 1 nyt endpoint (ENDP-4000022) + 1 bootstrap dataset (BDS-5000016). BDS-5000015 min_expected_count: 4→6.
+- Phase tracking: 2G→completed, 2H→completed.
+- All 10 validation checks passed. Seed script idempotent.
+

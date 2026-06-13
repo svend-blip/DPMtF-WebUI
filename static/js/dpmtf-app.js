@@ -433,7 +433,7 @@ function loadHitrates() {
   var runsTable = el("table", "dpmtf-table");
   var runsThead = el("thead", null);
   var runsThr = el("tr", null);
-  ["Run ID", "Phase", "Project", "Success", "Duration", "Model", "Type", "Tokens", "Cost", "Timestamp"].forEach(function (h) {
+  ["Run ID", "Phase", "Project", "Status", "Success", "1st-Try", "Corr", "Duration", "Model", "Type", "Tokens", "Cost", "Timestamp"].forEach(function (h) {
     runsThr.appendChild(el("th", null, h));
   });
   runsThead.appendChild(runsThr);
@@ -454,7 +454,7 @@ function loadHitrates() {
       if (!runs.length) {
         var row = el("tr", null);
         var cell = el("td", null, lbl("lbl_status_no_data", "No prompt runs recorded yet."));
-        cell.colSpan = 10;
+        cell.colSpan = 13;
         row.appendChild(cell);
         runsTbody.appendChild(row);
         return;
@@ -464,7 +464,34 @@ function loadHitrates() {
         row.appendChild(td(r.run_id));
         row.appendChild(td(r.phase_key));
         row.appendChild(td(r.target_project));
+
+        // Execution status badge
+        var statusCell = el("td", null);
+        var statusBadge = el("span", "status-" + (r.execution_status || "unknown"));
+        statusBadge.textContent = r.execution_status || "unknown";
+        statusCell.appendChild(statusBadge);
+        row.appendChild(statusCell);
+
         row.appendChild(td(r.success ? "✓" : "✗", r.success ? "hitrate-good" : "hitrate-low"));
+
+        // First-try success
+        var ftCell = el("td", null);
+        if (r.first_try_success === 1) ftCell.textContent = "✅";
+        else if (r.first_try_success === 0) ftCell.textContent = "❌";
+        else ftCell.textContent = "◻";
+        row.appendChild(ftCell);
+
+        // Manual corrections
+        var corrCell = el("td", null);
+        if (r.manual_corrections > 0) {
+          var corrBadge = el("span", "dpmtf-badge dpmtf-badge-warning");
+          corrBadge.textContent = r.manual_corrections;
+          corrCell.appendChild(corrBadge);
+        } else {
+          corrCell.textContent = "0";
+        }
+        row.appendChild(corrCell);
+
         row.appendChild(td(r.duration_seconds != null ? r.duration_seconds + "s" : "-"));
         row.appendChild(td(r.model_used || "-"));
         // Model type badge
@@ -500,7 +527,7 @@ function loadHitrates() {
       clear(runsTbody);
       var row = el("tr", null);
       var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 10;
+      cell.colSpan = 13;
       row.appendChild(cell);
       runsTbody.appendChild(row);
     });
@@ -578,6 +605,28 @@ function formatTokens(n) {
   if (n == null) return "-";
   if (n >= 1000) return (n / 1000).toFixed(1) + "K";
   return String(n);
+}
+
+/* ── 2H Redesign helpers ────────────────────────────── */
+
+function formatRate(rate) {
+  if (rate == null || rate === 0) return "-";
+  return (rate * 100).toFixed(0) + "%";
+}
+
+function rateClass(rate) {
+  if (rate == null) return "";
+  var pct = rate * 100;
+  if (pct >= 80) return "hitrate-good";
+  if (pct >= 50) return "hitrate-ok";
+  return "hitrate-low";
+}
+
+function complexityBadge(tier) {
+  var badge = el("span", "complexity-tier-" + (tier || 2));
+  var labels = {1: "🟢 T1", 2: "🟡 T2", 3: "🔴 T3"};
+  badge.textContent = labels[tier] || "T" + tier;
+  return badge;
 }
 
 /* ── 6. Prompt Sequence Planner ────────────────────── */
@@ -1607,7 +1656,7 @@ function loadTemplateManager() {
   var table = el("table", "dpmtf-table");
   var thead = el("thead", null);
   var thr = el("tr", null);
-  ["Key", "Name", "Suitable For", "Tokens (in/out)", "Preview"].forEach(function (h) {
+  ["Key", "Name", "Tier", "Suitable For", "Capture", "Local SR", "Cloud SR", "Tokens (in/out)", "Preview"].forEach(function (h) {
     thr.appendChild(el("th", null, h));
   });
   thead.appendChild(thr);
@@ -1631,7 +1680,7 @@ function loadTemplateManager() {
       if (!templates.length) {
         var row = el("tr", null);
         var cell = el("td", null, "No templates.");
-        cell.colSpan = 5;
+        cell.colSpan = 9;
         row.appendChild(cell);
         tbody.appendChild(row);
         return;
@@ -1642,12 +1691,34 @@ function loadTemplateManager() {
         row.onclick = function () { showTemplateDetail(t.template_key); };
         row.appendChild(td(t.template_key));
         row.appendChild(td(t.template_name));
+
+        // Complexity tier badge
+        var tierCell = el("td", null);
+        var tierBadge = complexityBadge(t.complexity_tier);
+        tierCell.appendChild(tierBadge);
+        row.appendChild(tierCell);
+
+        // Suitable for badge
         var suitableCell = el("td", null);
         var badge = el("span", t.suitable_for === "local" ? "model-badge-local" :
                               t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
         badge.textContent = t.suitable_for;
         suitableCell.appendChild(badge);
         row.appendChild(suitableCell);
+
+        // Capture source badge
+        var captureCell = el("td", null);
+        var captureBadge = el("span", "capture-" + (t.capture_source || "designed"));
+        captureBadge.textContent = t.capture_source || "designed";
+        captureCell.appendChild(captureBadge);
+        row.appendChild(captureCell);
+
+        // Local success rate
+        row.appendChild(td(formatRate(t.local_success_rate)));
+
+        // Cloud success rate
+        row.appendChild(td(formatRate(t.cloud_success_rate)));
+
         row.appendChild(td((t.avg_token_count_input || "-") + " / " + (t.avg_token_count_output || "-")));
         row.appendChild(td("Click to view"));
         tbody.appendChild(row);
@@ -1657,7 +1728,7 @@ function loadTemplateManager() {
       clear(tbody);
       var row = el("tr", null);
       var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 5;
+      cell.colSpan = 9;
       row.appendChild(cell);
       tbody.appendChild(row);
     });
@@ -1689,18 +1760,63 @@ function showTemplateDetail(templateKey) {
       card.appendChild(el("h4", null, t.template_name + " (" + t.template_key + ")"));
       if (t.description) card.appendChild(el("p", "dpmtf-muted", t.description));
 
-      // Suitable for badge
-      var suitableP = el("p", null);
-      var badge = el("span", t.suitable_for === "local" ? "model-badge-local" :
-                            t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
-      badge.textContent = "Suitable for: " + t.suitable_for;
-      suitableP.appendChild(badge);
-      card.appendChild(suitableP);
+      // Badge row: complexity + suitable_for + capture_source
+      var badgeRow = el("p", null);
+      badgeRow.appendChild(complexityBadge(t.complexity_tier));
+      badgeRow.appendChild(el("span", null, " "));
+      var suitableBadge = el("span", t.suitable_for === "local" ? "model-badge-local" :
+                                t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
+      suitableBadge.textContent = t.suitable_for;
+      badgeRow.appendChild(suitableBadge);
+      badgeRow.appendChild(el("span", null, " "));
+      var captureBadge = el("span", "capture-" + (t.capture_source || "designed"));
+      captureBadge.textContent = t.capture_source || "designed";
+      badgeRow.appendChild(captureBadge);
+      card.appendChild(badgeRow);
+
+      // Success rates
+      var rateRow = el("p", "dpmtf-small");
+      rateRow.textContent = "Local SR: " + formatRate(t.local_success_rate) +
+        " (" + (t.total_local_runs || 0) + " runs) | Cloud SR: " +
+        formatRate(t.cloud_success_rate) + " (" + (t.total_cloud_runs || 0) + " runs)";
+      card.appendChild(rateRow);
 
       // Token estimates
       card.appendChild(el("p", "dpmtf-small", "Estimated tokens: " +
         (t.avg_token_count_input || "?") + " in / " +
         (t.avg_token_count_output || "?") + " out"));
+
+      // ── Per-model hitrate (2H redesign) ─────────────────
+      fetch("/api/prompt-templates/" + encodeURIComponent(templateKey) + "/hitrate")
+        .then(function (res) { return res.json(); })
+        .then(function (hitData) {
+          if (hitData.model_hitrates && hitData.model_hitrates.length) {
+            card.appendChild(el("h4", null, "Model Hitrates"));
+            var hitTable = el("table", "dpmtf-table dpmtf-compact");
+            var hitThead = el("thead", null);
+            var hitThr = el("tr", null);
+            ["Model", "Runs", "Success Rate", "Avg Duration"].forEach(function (h) {
+              hitThr.appendChild(el("th", null, h));
+            });
+            hitThead.appendChild(hitThr);
+            hitTable.appendChild(hitThead);
+            var hitTbody = el("tbody", null);
+            hitData.model_hitrates.forEach(function (mh) {
+              var hitRow = el("tr", null);
+              hitRow.appendChild(td(mh.model_used));
+              hitRow.appendChild(td(mh.successful_runs + " / " + mh.total_runs));
+              var srCell = el("td", null);
+              srCell.textContent = formatRate(mh.rolling_success_rate);
+              srCell.className = rateClass(mh.rolling_success_rate);
+              hitRow.appendChild(srCell);
+              hitRow.appendChild(td(mh.avg_duration_seconds ? mh.avg_duration_seconds + "s" : "-"));
+              hitTbody.appendChild(hitRow);
+            });
+            hitTable.appendChild(hitTbody);
+            card.appendChild(hitTable);
+          }
+        })
+        .catch(function () { /* hitrate fetch optional — don't block detail view */ });
 
       // Preview
       if (t.preview) {

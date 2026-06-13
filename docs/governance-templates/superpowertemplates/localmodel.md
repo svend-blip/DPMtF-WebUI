@@ -20,7 +20,7 @@
 1. **Kompleks arkitektur/design** — kræver stærk reasoning på tværs af mange filer
 2. **Multi-fil integration** — mange afhængigheder der skal koordineres
 3. **Internet er tilgængeligt OG opgaven kræver det** — ikke tving cloud hvis lokal kan klare det
-4. **Prompt template har `suitable_for: cloud` eller `suitable_for: both`**
+4. **Prompt template har `suitable_for: cloud` eller `suitable_for: both`** — men bemærk: default er nu `local` (ændret 2026-06-13 baseret på data der viser 100% lokal model-brug)
 
 ### Afgørelses-flow
 
@@ -52,7 +52,9 @@ Når DPMtF-WebUI's prompt compiler bruges til at generere prompts til lokal mode
 ```
 1. VÆLG prompt template fra DPMtF-WebUI
    - Gennemse tilgængelige templates via /api/prompt-templates
-   - Vælg baseret på opgavetype og suitable_for flag
+   - Filtrer på complexity_tier, suitable_for, capture_source
+   - Tjek per-model hitrate via /api/prompt-templates/{key}/hitrate
+   - Vælg baseret på opgavetype, complexity tier, og historisk model-performance
 
 2. KOMPILER prompt
    - Kald POST /api/prompt-templates/{key}/compile
@@ -69,8 +71,10 @@ Når DPMtF-WebUI's prompt compiler bruges til at generere prompts til lokal mode
    - Lokal: send til Ollama via API eller CLI
 
 5. DOKUMENTER resultat
-   - Gem prompt-run i DPMtF-WebUI's database
-   - Registrer success/failure, model brugt, tokens, duration
+   - Gem prompt-run i DPMtF-WebUI's database via POST /api/prompt-runs
+   - Obligatoriske felter: execution_status, first_try_success, validation_passed
+   - Angiv template_key for at opdatere template- og model-hitrates
+   - Registrer success/failure, model brugt, tokens, duration, corrections
 ```
 
 ---
@@ -138,3 +142,4 @@ Denne fil opdateres når:
 | Dato | Ændring |
 |---|---|
 | 2026-06-13 | Oprettet — lokal/cloud afgørelses-flow, prompt compiler flow, model-konfiguration, ROLELOCAL |
+| 2026-06-13 | Opdateret — suitable_for default ændret til `local` (100% af 8 analyserede runs bruger lokal model). Prompt compiler flow opdateret med nye API endpoints (template filtering, per-model hitrate, obligatoriske outcome-felter). |
