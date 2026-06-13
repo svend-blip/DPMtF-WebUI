@@ -122,6 +122,7 @@ Analyst (lokal) → Solution Architect (lokal) → Prompt Engineer (lokal)
 - Ingen eksterne API kald uden eksplicit autorisation
 - `/clear` mellem hver rolle-overgang — governance docs genindlæses
 - Prompt templates med `suitable_for: local` eller `suitable_for: both` bruges
+- **Father-Child governance audit gælder også ved lokal model-brug** — Child projects' projekt-specifikke filer skal stadig afspejle deres egen identitet. Følg audit-processen i superpowers.md Sektion 1. Lokal model fritager IKKE fra governance sync ansvar.
 
 ---
 
@@ -144,3 +145,5 @@ Denne fil opdateres når:
 | 2026-06-13 | Oprettet — lokal/cloud afgørelses-flow, prompt compiler flow, model-konfiguration, ROLELOCAL |
 | 2026-06-13 | Opdateret — suitable_for default ændret til `local` (100% af 8 analyserede runs bruger lokal model). Prompt compiler flow opdateret med nye API endpoints (template filtering, per-model hitrate, obligatoriske outcome-felter). |
 | 2026-06-13 | Dokumenteret 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API skal returnere `{slot_key: text}`. Alignment med ENO gennemført. |
+| 2026-06-13 | Tilføjet **Father-Child governance audit regel** til ROLELOCAL — lokal model-brug fritager IKKE fra governance sync ansvar. Child projects' projekt-specifikke filer skal stadig afspejle egen identitet. Følg audit-processen i superpowers.md Sektion 1. |
+| 2026-06-13 | **ENO-6 Prompt #1 baseline:** qwen36-27b-q4km klarede medium-lav opgave (2 .md filer, dokumentation-only) med first-try success. 8/8 review-checks passeret, 0 rettelser, perfekt scope-compliance. Prompt-struktur med XML-lignende sektioner og eksplicitte governance-referencer fungerede optimalt. Næste: test medium opgave (JS ændring) med Prompt #2. |
