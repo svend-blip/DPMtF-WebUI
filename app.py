@@ -820,6 +820,87 @@ async def set_user_language(request: Request):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to store preference: {exc}")
 
+VALID_PANEL_GROUPS = {"daily", "journals", "reports", "periodic", "setup"}
+VALID_PANEL_STATES = {"expanded", "collapsed"}
+
+
+@app.get("/api/user-panel-groups")
+async def get_user_panel_groups():
+    """Return the current user's panel group collapse/expand states.
+
+    Identifies user via os.getlogin(). Falls back to 'default'.
+    Returns empty groups object if no data or database unavailable.
+    """
+    try:
+        user_id = os.getlogin()
+    except Exception:
+        user_id = "default"
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT group_name, state FROM user_panel_groups WHERE user_id = ?",
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        groups = {}
+        for row in rows:
+            groups[row["group_name"]] = row["state"]
+        return {"user_id": user_id, "groups": groups}
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {"user_id": user_id, "groups": {}}
+
+
+@app.post("/api/user-panel-groups")
+async def set_user_panel_group(request: Request):
+    """Store a panel group collapse/expand state for the current user.
+
+    Body (JSON): {"group_name": "journals", "state": "collapsed"}
+    """
+    data = await request.json()
+    group_name = data.get("group_name", "").strip()
+    state = data.get("state", "").strip()
+
+    if not group_name:
+        raise HTTPException(status_code=400, detail="Missing required field: group_name")
+    if group_name not in VALID_PANEL_GROUPS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid group_name: {group_name}. Must be one of: {', '.join(sorted(VALID_PANEL_GROUPS))}",
+        )
+    if not state:
+        raise HTTPException(status_code=400, detail="Missing required field: state")
+    if state not in VALID_PANEL_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid state: {state}. Must be one of: {', '.join(sorted(VALID_PANEL_STATES))}",
+        )
+
+    try:
+        user_id = os.getlogin()
+    except Exception:
+        user_id = "default"
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+        """, (user_id, group_name, state))
+        conn.commit()
+        conn.close()
+        return {"user_id": user_id, "group_name": group_name, "state": state, "status": "stored"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to store panel group state: {exc}")
+
 @app.get("/api/phase-status")
 async def get_phase_status():
     conn = sqlite3.connect(DB_PATH)
