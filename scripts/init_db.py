@@ -1820,6 +1820,23 @@ for col_name, col_type in alter_runs:
     except sqlite3.OperationalError:
         pass  # Column already exists — idempotent
 
+# ── Phase 2H Redesign: Extend prompt_runs ────────────────────────────
+# 5 new columns for mandatory outcome tracking + template linking
+alter_runs_2h = [
+    ("template_key", "TEXT"),
+    ("execution_status", "TEXT NOT NULL DEFAULT 'unknown'"),
+    ("first_try_success", "INTEGER"),
+    ("manual_corrections", "INTEGER DEFAULT 0"),
+    ("validation_passed", "INTEGER"),
+]
+for col_name, col_type in alter_runs_2h:
+    try:
+        cursor.execute(
+            f"ALTER TABLE prompt_runs ADD COLUMN {col_name} {col_type}"
+        )
+    except sqlite3.OperationalError:
+        pass  # Column already exists — idempotent
+
 # implementation_patterns: aggregated by file_signature + constraint_set
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS implementation_patterns (
@@ -1841,11 +1858,16 @@ CREATE TABLE IF NOT EXISTS implementation_patterns (
 )
 """)
 
-# Backfill PRUN-2E-0001 with model type and pattern link
+# Backfill PRUN-2E-0001 with model type, pattern link, and 2H outcome fields
 cursor.execute("""
     UPDATE prompt_runs SET
         model_type = 'cloud',
-        pattern_id = 'PAT-0001'
+        pattern_id = 'PAT-0001',
+        template_key = 'tpl_implementation_medium',
+        execution_status = 'completed',
+        first_try_success = 1,
+        manual_corrections = 0,
+        validation_passed = 1
     WHERE run_id = 'PRUN-2E-0001'
 """)
 
@@ -1903,6 +1925,24 @@ CREATE TABLE IF NOT EXISTS prompt_templates (
 )
 """)
 
+# ── Phase 2H Redesign: Extend prompt_templates ───────────────────────
+# 6 new columns based on Excel data analysis (2026-06-13)
+alter_templates = [
+    ("complexity_tier", "INTEGER DEFAULT 2"),
+    ("capture_source", "TEXT DEFAULT 'designed'"),
+    ("local_success_rate", "REAL DEFAULT 0.0"),
+    ("cloud_success_rate", "REAL DEFAULT 0.0"),
+    ("total_local_runs", "INTEGER DEFAULT 0"),
+    ("total_cloud_runs", "INTEGER DEFAULT 0"),
+]
+for col_name, col_type in alter_templates:
+    try:
+        cursor.execute(
+            f"ALTER TABLE prompt_templates ADD COLUMN {col_name} {col_type}"
+        )
+    except sqlite3.OperationalError:
+        pass  # Column already exists — idempotent
+
 # Seed baseline templates from existing prompt-run template patterns
 template_seeds = [
     ("tpl_implementation_small", "Small Implementation Prompt",
@@ -1922,7 +1962,7 @@ template_seeds = [
      json.dumps({
          "default_constraints": ["read-only", "no-schema-migration", "no-innerHTML", "no-POST/PUT/DELETE", "no-service-control"]
      }),
-     "both", 800, 1200, 1),
+     "both", 1, "designed", 800, 1200, 0.0, 0.0, 0, 0, 1),
 
     ("tpl_implementation_medium", "Medium Implementation Prompt",
      "For larger phases: multiple files, backend + frontend changes, new endpoints allowed.",
@@ -1942,7 +1982,7 @@ template_seeds = [
      json.dumps({
          "default_constraints": ["no-innerHTML", "no-service-control"]
      }),
-     "both", 1200, 2000, 1),
+     "both", 2, "designed", 1200, 2000, 0.0, 0.0, 0, 0, 1),
 
     ("tpl_validation", "Validation Prompt",
      "Read-only validation of changes. No edits, no commits.",
@@ -1960,7 +2000,7 @@ template_seeds = [
      json.dumps({
          "default_constraints": ["read-only", "no-edits", "no-commits"]
      }),
-     "local", 600, 800, 1),
+     "local", 1, "designed", 600, 800, 0.0, 0.0, 0, 0, 1),
 
     ("tpl_brainstorm", "Brainstorm / Design Prompt",
      "High-level design and brainstorming. No code changes.",
@@ -1976,17 +2016,87 @@ template_seeds = [
      json.dumps({
          "default_constraints": ["read-only", "no-code-changes", "no-commits"]
      }),
-     "cloud", 500, 1500, 1),
+     "cloud", 3, "designed", 500, 1500, 0.0, 0.0, 0, 0, 1),
+
+    # ── Phase 2H Redesign: New templates from Excel data patterns ──────
+    ("tpl_create_add_local", "Create/Add — Local Model",
+     "For create/add operations with local Ollama model. 1-3 files, no schema changes. Based on 6 prompt runs averaging 83% success rate.",
+     json.dumps({
+         "sections": [
+             {"name": "context", "label": "You are working in:", "type": "fixed", "value": "{project_path}", "required": True},
+             {"name": "phase", "label": "Start phase", "type": "param", "param_key": "phase_id", "required": True},
+             {"name": "goal", "label": "Goal:", "type": "param", "param_key": "goal", "required": True, "min_length": 20, "max_length": 300},
+             {"name": "rules", "label": "Rules:", "type": "list", "param_key": "constraints", "required": True},
+             {"name": "implementation", "label": "Implementation target:", "type": "param", "param_key": "implementation", "required": True, "max_length": 200},
+             {"name": "allowed_files", "label": "Allowed files:", "type": "list", "param_key": "allowed_files", "required": True},
+             {"name": "validate", "label": "Validate:", "type": "list", "param_key": "validation_commands", "required": True},
+             {"name": "notes", "label": "Additional notes:", "type": "param", "param_key": "notes", "required": False, "max_length": 300},
+             {"name": "stop", "label": "Do not commit.", "type": "fixed", "value": "", "required": True}
+         ]
+     }),
+     json.dumps({
+         "default_constraints": ["no-schema-migration", "no-innerHTML", "no-service-control", "no-new-dependencies"]
+     }),
+     "local", 1, "verbatim", 300, 600, 0.0, 0.0, 0, 0, 1),
+
+    ("tpl_update_edit_local", "Update/Edit — Local Model",
+     "For update/edit operations with local Ollama model. Read-only context, targeted edits. Based on 2 prompt runs (v3 phases 3C-6, 3C-14).",
+     json.dumps({
+         "sections": [
+             {"name": "context", "label": "You are working in:", "type": "fixed", "value": "{project_path}", "required": True},
+             {"name": "phase", "label": "Start phase", "type": "param", "param_key": "phase_id", "required": True},
+             {"name": "baseline", "label": "First run phase-start git baseline checks:", "type": "list", "param_key": "baseline_commands", "required": True},
+             {"name": "goal", "label": "Goal:", "type": "param", "param_key": "goal", "required": True, "min_length": 30, "max_length": 500},
+             {"name": "rules", "label": "Rules:", "type": "list", "param_key": "constraints", "required": True},
+             {"name": "implementation", "label": "Implementation target:", "type": "param", "param_key": "implementation", "required": True, "max_length": 300},
+             {"name": "allowed_files", "label": "Allowed files:", "type": "list", "param_key": "allowed_files", "required": True},
+             {"name": "validate", "label": "Validate:", "type": "list", "param_key": "validation_commands", "required": True},
+             {"name": "docs", "label": "Update docs/dpmtf/10_CHANGELOG.md, 11_NEXT_CONTEXT.md, 12_IMPLEMENTATION_REPORT.md", "type": "fixed", "value": "", "required": False},
+             {"name": "stop", "label": "Stop before commit and report.", "type": "fixed", "value": "", "required": True}
+         ]
+     }),
+     json.dumps({
+         "default_constraints": ["read-only", "no-schema-migration", "no-innerHTML", "no-POST/PUT/DELETE", "no-service-control"]
+     }),
+     "local", 2, "verbatim", 500, 1000, 0.0, 0.0, 0, 0, 1),
 ]
 
 for tpl in template_seeds:
     cursor.execute("""
         INSERT OR IGNORE INTO prompt_templates
         (template_key, template_name, description, structure_json,
-         constraints_json, suitable_for, avg_token_count_input,
-         avg_token_count_output, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         constraints_json, suitable_for, complexity_tier, capture_source,
+         avg_token_count_input, avg_token_count_output,
+         local_success_rate, cloud_success_rate,
+         total_local_runs, total_cloud_runs, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, tpl)
+
+# ── Phase 2H Redesign: template_model_hitrates ───────────────────────
+# Tracks per-model success rates for each template.
+# Enables data-driven model selection — not just suitable_for flag.
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS template_model_hitrates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_key TEXT NOT NULL,
+    model_used TEXT NOT NULL,
+    total_runs INTEGER NOT NULL DEFAULT 0,
+    successful_runs INTEGER NOT NULL DEFAULT 0,
+    rolling_success_rate REAL NOT NULL DEFAULT 0.0,
+    avg_duration_seconds INTEGER,
+    last_run_timestamp TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(template_key, model_used)
+)
+""")
+
+# Seed template_model_hitrates for PRUN-2E-0001
+cursor.execute("""
+    INSERT OR IGNORE INTO template_model_hitrates
+    (template_key, model_used, total_runs, successful_runs,
+     rolling_success_rate, avg_duration_seconds)
+    VALUES (?, ?, ?, ?, ?, ?)
+""", ("tpl_implementation_medium", "claude-fable-5", 1, 1, 1.0, 240))
 
 # Register new endpoints
 endpoint_registry_2h = [
@@ -1994,6 +2104,7 @@ endpoint_registry_2h = [
     ("ENDP-4000019", "prompt_templates_create", "/api/prompt-templates", "POST", "Create a new prompt template", "created template JSON", "template_manager"),
     ("ENDP-4000020", "prompt_templates_detail", "/api/prompt-templates/{template_key}", "GET", "Get a single template with rendered preview", "template JSON", "template_manager"),
     ("ENDP-4000021", "prompt_templates_update", "/api/prompt-templates/{template_key}", "PUT", "Update an existing template", "updated template JSON", "template_manager"),
+    ("ENDP-4000022", "template_model_hitrates", "/api/prompt-templates/{template_key}/hitrate", "GET", "Per-model hitrate statistics for a template", "model_hitrates JSON array", "template_manager"),
 ]
 for endpoint in endpoint_registry_2h:
     cursor.execute("""
@@ -2007,9 +2118,16 @@ cursor.execute("""
     INSERT OR REPLACE INTO bootstrap_dataset_registry
     (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-""", ("BDS-5000015", "prompt_templates", "prompt_templates", "Prompt template registry for parametrisable prompt generation", "scripts/init_db.py", 4, 1, 1))
+""", ("BDS-5000015", "prompt_templates", "prompt_templates", "Prompt template registry for parametrisable prompt generation", "scripts/init_db.py", 6, 1, 1))
 
-# Update phase tracking: 2G→completed, 2H→next
+# Register bootstrap dataset for template_model_hitrates
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000016", "template_model_hitrates", "template_model_hitrates", "Per-model hitrate statistics for prompt templates", "scripts/init_db.py", 1, 1, 1))
+
+# Update phase tracking: 2G→completed, 2H→completed (redesign implemented)
 cursor.execute("""
     INSERT OR REPLACE INTO phase_status
     (phase_key, phase_title, phase_description, phase_state, sort_order)
@@ -2020,7 +2138,7 @@ cursor.execute("""
     INSERT OR REPLACE INTO phase_status
     (phase_key, phase_title, phase_description, phase_state, sort_order)
     VALUES (?, ?, ?, ?, ?)
-""", ("2H", "Prompt Template Manager", "Migrate static Markdown templates to database-driven parametrisable templates.", "next", 32))
+""", ("2H", "Prompt Template Manager", "Database-driven parametrisable templates with complexity tiers, capture sources, and per-model hitrate tracking. Redesigned based on Excel data analysis of 8 prompt runs.", "completed", 32))
 
 # ── Phase 2J: Validation Automation ────────────────────────────────
 cursor.execute("""

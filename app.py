@@ -1703,17 +1703,23 @@ async def get_prompt_runs(
     phase_key: str | None = None,
     target_project: str | None = None,
     success: int | None = None,
+    template_key: str | None = None,
+    execution_status: str | None = None,
+    first_try_success: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
     """List prompt runs with optional filters.
 
     Query params:
-      phase_key     — filter by phase (e.g. "2E", "3C-14")
-      target_project — filter by project path or name
-      success       — 1 for successes, 0 for failures, omit for all
-      limit         — max rows (default 50)
-      offset        — pagination offset (default 0)
+      phase_key        — filter by phase (e.g. "2E", "3C-14")
+      target_project   — filter by project path or name
+      success          — 1 for successes, 0 for failures, omit for all
+      template_key     — filter by template (e.g. "tpl_implementation_small")
+      execution_status — filter by status: 'completed', 'failed', 'unknown', 'sent'
+      first_try_success — 1 for first-try wins, 0 for failures, omit for all
+      limit            — max rows (default 50)
+      offset           — pagination offset (default 0)
     """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -1731,6 +1737,15 @@ async def get_prompt_runs(
     if success is not None:
         where.append("success = ?")
         params.append(success)
+    if template_key:
+        where.append("template_key = ?")
+        params.append(template_key)
+    if execution_status:
+        where.append("execution_status = ?")
+        params.append(execution_status)
+    if first_try_success is not None:
+        where.append("first_try_success = ?")
+        params.append(first_try_success)
 
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     params.extend([limit, offset])
@@ -1760,31 +1775,57 @@ async def create_prompt_run(request: Request):
     """Record a new prompt run and update hitrate aggregates.
 
     Body (JSON):
-      run_id           — unique run identifier (required)
-      phase_key        — phase this run belongs to (required)
-      target_project   — project the prompt targeted (required)
-      prompt_summary   — brief description of the prompt
-      success          — 1 = success, 0 = failure (required)
-      duration_seconds — execution time in seconds
-      error_summary    — error description if failed
-      model_used       — model that executed the prompt
-      model_type       — 'local' or 'cloud' (derived from model_used if omitted)
-      idle_seconds     — wait time before model started
-      token_count_input  — input tokens (cloud only)
-      token_count_output — output tokens (cloud only)
-      token_cost_eur   — estimated EUR cost (cloud only)
-      token_cost_dkk   — estimated DKK cost (cloud only)
-      file_signature   — comma-separated changed files (for pattern matching)
-      constraint_set   — comma-separated constraints (for pattern matching)
-      notes            — optional human notes
+      run_id              — unique run identifier (required)
+      phase_key           — phase this run belongs to (required)
+      target_project      — project the prompt targeted (required)
+      prompt_summary      — brief description of the prompt
+      success             — 1 = success, 0 = failure (required)
+      execution_status    — 'completed', 'failed', 'unknown', 'sent' (required)
+      first_try_success   — 0=no, 1=yes (required when execution_status='completed')
+      validation_passed   — 0=no, 1=yes (required when execution_status='completed')
+      manual_corrections  — number of corrective prompts (default 0)
+      template_key        — FK to prompt_templates (optional)
+      duration_seconds    — execution time in seconds
+      error_summary       — error description if failed
+      model_used          — model that executed the prompt
+      model_type          — 'local' or 'cloud' (derived from model_used if omitted)
+      idle_seconds        — wait time before model started
+      token_count_input   — input tokens (cloud only)
+      token_count_output  — output tokens (cloud only)
+      token_cost_eur      — estimated EUR cost (cloud only)
+      token_cost_dkk      — estimated DKK cost (cloud only)
+      file_signature      — comma-separated changed files (for pattern matching)
+      constraint_set      — comma-separated constraints (for pattern matching)
+      notes               — optional human notes
     """
     data = await request.json()
 
-    required = ["run_id", "phase_key", "target_project", "success"]
+    required = ["run_id", "phase_key", "target_project", "success", "execution_status"]
     for field in required:
         if field not in data:
             raise HTTPException(
                 status_code=400, detail=f"Missing required field: {field}"
+            )
+
+    # Validate execution_status
+    execution_status = data["execution_status"]
+    if execution_status not in ("completed", "failed", "unknown", "sent"):
+        raise HTTPException(
+            status_code=400,
+            detail="execution_status must be 'completed', 'failed', 'unknown', or 'sent'",
+        )
+
+    # Mandatory outcome fields when status is 'completed'
+    if execution_status == "completed":
+        if "first_try_success" not in data or data["first_try_success"] is None:
+            raise HTTPException(
+                status_code=400,
+                detail="first_try_success is required when execution_status='completed'",
+            )
+        if "validation_passed" not in data or data["validation_passed"] is None:
+            raise HTTPException(
+                status_code=400,
+                detail="validation_passed is required when execution_status='completed'",
             )
 
     # Derive model_type from model_used if not explicit
@@ -1838,8 +1879,10 @@ async def create_prompt_run(request: Request):
             (run_id, phase_key, target_project, prompt_summary, success,
              duration_seconds, error_summary, model_used, model_type,
              idle_seconds, token_count_input, token_count_output,
-             token_cost_eur, token_cost_dkk, pattern_id, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             token_cost_eur, token_cost_dkk, pattern_id,
+             template_key, execution_status, first_try_success,
+             manual_corrections, validation_passed, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["run_id"],
             data["phase_key"],
@@ -1856,6 +1899,11 @@ async def create_prompt_run(request: Request):
             data.get("token_cost_eur"),
             data.get("token_cost_dkk"),
             pattern_id,
+            data.get("template_key"),
+            execution_status,
+            data.get("first_try_success"),
+            data.get("manual_corrections", 0),
+            data.get("validation_passed"),
             data.get("notes"),
         ))
     except sqlite3.IntegrityError:
@@ -1864,6 +1912,57 @@ async def create_prompt_run(request: Request):
             status_code=409,
             detail=f"Run ID '{data['run_id']}' already exists.",
         )
+
+    # ── Template hitrate tracking ─────────────────────────────────
+    template_key = data.get("template_key")
+    if template_key and data.get("model_used"):
+        is_success = data["success"]
+        # Update template-level counters
+        if model_type == "local":
+            cursor.execute("""
+                UPDATE prompt_templates SET
+                    total_local_runs = total_local_runs + 1,
+                    local_success_rate = CAST(
+                        (local_success_rate * total_local_runs + ?) AS REAL
+                    ) / (total_local_runs + 1),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE template_key = ?
+            """, (1.0 if is_success else 0.0, template_key))
+        elif model_type == "cloud":
+            cursor.execute("""
+                UPDATE prompt_templates SET
+                    total_cloud_runs = total_cloud_runs + 1,
+                    cloud_success_rate = CAST(
+                        (cloud_success_rate * total_cloud_runs + ?) AS REAL
+                    ) / (total_cloud_runs + 1),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE template_key = ?
+            """, (1.0 if is_success else 0.0, template_key))
+
+        # UPSERT template_model_hitrates
+        cursor.execute("""
+            INSERT INTO template_model_hitrates
+            (template_key, model_used, total_runs, successful_runs,
+             rolling_success_rate, avg_duration_seconds, last_run_timestamp)
+            VALUES (?, ?, 1, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(template_key, model_used) DO UPDATE SET
+                total_runs = total_runs + 1,
+                successful_runs = successful_runs + ?,
+                rolling_success_rate = CAST(successful_runs + ? AS REAL) / (total_runs + 1),
+                avg_duration_seconds = CAST(
+                    (avg_duration_seconds * total_runs + ?) AS REAL
+                ) / (total_runs + 1),
+                last_run_timestamp = CURRENT_TIMESTAMP,
+                last_updated = CURRENT_TIMESTAMP
+        """, (
+            template_key,
+            data["model_used"],
+            1.0 if is_success else 0.0,
+            data.get("duration_seconds") or 0,
+            is_success,
+            is_success,
+            data.get("duration_seconds") or 0,
+        ))
 
     # Update phase hitrate aggregate
     cursor.execute("""
@@ -1893,6 +1992,7 @@ async def create_prompt_run(request: Request):
         "run_id": data["run_id"],
         "phase_key": data["phase_key"],
         "pattern_id": pattern_id,
+        "template_key": template_key,
     }
 
 
@@ -2031,17 +2131,46 @@ async def get_pattern_runs(pattern_id: str, limit: int = 50):
 
 
 @app.get("/api/prompt-templates")
-async def get_prompt_templates():
-    """List all active prompt templates."""
+async def get_prompt_templates(
+    suitable_for: str | None = None,
+    complexity_tier: int | None = None,
+    capture_source: str | None = None,
+    is_active: int | None = None,
+):
+    """List prompt templates with optional filters.
+
+    Query params:
+      suitable_for    — filter by model compatibility: 'local', 'cloud', 'both'
+      complexity_tier — filter by complexity: 1 (simple), 2 (medium), 3 (complex)
+      capture_source  — filter by capture source: 'designed', 'verbatim', 'reconstructed'
+      is_active       — 1 for active only, 0 for inactive, omit for all
+    """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT * FROM prompt_templates
-        WHERE is_active = 1
-        ORDER BY template_key
-    """)
+    where: list[str] = []
+    params: list = []
+
+    if suitable_for:
+        where.append("suitable_for = ?")
+        params.append(suitable_for)
+    if complexity_tier is not None:
+        where.append("complexity_tier = ?")
+        params.append(complexity_tier)
+    if capture_source:
+        where.append("capture_source = ?")
+        params.append(capture_source)
+    if is_active is not None:
+        where.append("is_active = ?")
+        params.append(is_active)
+
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+
+    cursor.execute(
+        f"SELECT * FROM prompt_templates{clause} ORDER BY template_key",
+        params,
+    )
     rows = cursor.fetchall()
     templates = [dict(r) for r in rows]
 
@@ -2054,14 +2183,20 @@ async def create_prompt_template(request: Request):
     """Create a new prompt template.
 
     Body (JSON):
-      template_key           — unique key (required)
+      template_key           — unique key, slug format (required)
       template_name          — human-readable name (required)
       description            — optional description
       structure_json         — template structure (required, JSON string)
       constraints_json       — default constraints (optional, JSON string)
-      suitable_for           — 'local', 'cloud', or 'both' (default 'both')
+      suitable_for           — 'local', 'cloud', or 'both' (default 'local')
+      complexity_tier        — 1=simple, 2=medium, 3=complex (default 2)
+      capture_source         — 'designed', 'verbatim', 'reconstructed' (default 'designed')
       avg_token_count_input  — estimated input tokens
       avg_token_count_output — estimated output tokens
+      local_success_rate     — initial local success rate (default 0.0)
+      cloud_success_rate     — initial cloud success rate (default 0.0)
+      total_local_runs       — initial local run count (default 0)
+      total_cloud_runs       — initial cloud run count (default 0)
     """
     data = await request.json()
 
@@ -2072,6 +2207,44 @@ async def create_prompt_template(request: Request):
                 status_code=400, detail=f"Missing required field: {field}"
             )
 
+    # Validate suitable_for
+    suitable_for = data.get("suitable_for", "local")
+    if suitable_for not in ("local", "cloud", "both"):
+        raise HTTPException(
+            status_code=400,
+            detail="suitable_for must be 'local', 'cloud', or 'both'",
+        )
+
+    # Validate complexity_tier
+    complexity_tier = data.get("complexity_tier", 2)
+    if complexity_tier not in (1, 2, 3):
+        raise HTTPException(
+            status_code=400,
+            detail="complexity_tier must be 1, 2, or 3",
+        )
+
+    # Validate capture_source
+    capture_source = data.get("capture_source", "designed")
+    if capture_source not in ("designed", "verbatim", "reconstructed"):
+        raise HTTPException(
+            status_code=400,
+            detail="capture_source must be 'designed', 'verbatim', or 'reconstructed'",
+        )
+
+    # Validate structure_json is valid JSON
+    try:
+        structure = json.loads(data["structure_json"])
+        if not isinstance(structure, dict) or "sections" not in structure:
+            raise HTTPException(
+                status_code=400,
+                detail="structure_json must be a JSON object with a 'sections' array",
+            )
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="structure_json is not valid JSON",
+        )
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -2079,18 +2252,26 @@ async def create_prompt_template(request: Request):
         cursor.execute("""
             INSERT INTO prompt_templates
             (template_key, template_name, description, structure_json,
-             constraints_json, suitable_for, avg_token_count_input,
-             avg_token_count_output)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             constraints_json, suitable_for, complexity_tier, capture_source,
+             avg_token_count_input, avg_token_count_output,
+             local_success_rate, cloud_success_rate,
+             total_local_runs, total_cloud_runs)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["template_key"],
             data["template_name"],
             data.get("description"),
             data["structure_json"],
             data.get("constraints_json"),
-            data.get("suitable_for", "both"),
+            suitable_for,
+            complexity_tier,
+            capture_source,
             data.get("avg_token_count_input"),
             data.get("avg_token_count_output"),
+            data.get("local_success_rate", 0.0),
+            data.get("cloud_success_rate", 0.0),
+            data.get("total_local_runs", 0),
+            data.get("total_cloud_runs", 0),
         ))
     except sqlite3.IntegrityError:
         conn.close()
@@ -2177,7 +2358,10 @@ async def update_prompt_template(template_key: str, request: Request):
     updatable = [
         "template_name", "description", "structure_json",
         "constraints_json", "suitable_for",
-        "avg_token_count_input", "avg_token_count_output", "is_active",
+        "complexity_tier", "capture_source",
+        "avg_token_count_input", "avg_token_count_output",
+        "local_success_rate", "cloud_success_rate",
+        "total_local_runs", "total_cloud_runs", "is_active",
     ]
     sets = []
     params = []
@@ -2287,6 +2471,46 @@ async def compile_prompt(template_key: str, request: Request):
         "suitable_for": template["suitable_for"],
         "prompt": prompt_text,
         "params_used": list(data.keys()),
+    }
+
+
+# ── Phase 2H Redesign: Template Model Hitrates ───────────────────────
+
+
+@app.get("/api/prompt-templates/{template_key}/hitrate")
+async def get_template_model_hitrates(template_key: str):
+    """Return per-model hitrate statistics for a template.
+
+    Enables data-driven model selection — shows which models
+    perform best with this specific template.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Verify template exists
+    cursor.execute("""
+        SELECT template_key, template_name FROM prompt_templates
+        WHERE template_key = ? AND is_active = 1
+    """, (template_key,))
+    template = cursor.fetchone()
+    if not template:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    cursor.execute("""
+        SELECT * FROM template_model_hitrates
+        WHERE template_key = ?
+        ORDER BY rolling_success_rate ASC
+    """, (template_key,))
+    rows = cursor.fetchall()
+    model_hitrates = [dict(r) for r in rows]
+
+    conn.close()
+    return {
+        "template_key": template_key,
+        "template_name": template["template_name"],
+        "model_hitrates": model_hitrates,
     }
 
 

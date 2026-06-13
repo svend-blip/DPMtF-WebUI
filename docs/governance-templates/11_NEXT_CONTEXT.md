@@ -64,9 +64,9 @@ This governance document is the primary handoff artifact between sessions. The H
 | **2E** | **Completed — committed (bd671f5)** | **Governance-template opgradering** |
 | **2F** | **Completed — committed (b28fac5)** | **Hitrate Scoring: prompt_runs + prompt_hitrates, API, frontend** |
 | **2F-bis** | **Completed — committed (26f5c81)** | **Frontend i18n + Dark Theme: 46 labels, skeleton HTML, 0 dynamic innerHTML, dark dashboard** |
-| **2G** | **In progress (docs uncommitted)** | **Implementation Pattern Manager: implementation_patterns tabel, pattern-matching i POST /api/prompt-runs, GET /api/implementation-patterns, frontend pattern-tabel med expandable runs, model metadata (type/tokens/cost)** |
-| **2H** | **Next** | **Prompt Template Manager: Migrate static templates to database-driven** |
-| **2I** | Planned | Local Prompt Compiler |
+| **2G** | **Completed — committed** | **Implementation Pattern Manager: implementation_patterns tabel, pattern-matching i POST /api/prompt-runs, GET /api/implementation-patterns, frontend pattern-tabel med expandable runs, model metadata (type/tokens/cost)** |
+| **2H** | **Completed — redesign implemented (uncommitted)** | **Prompt Template Manager: Redesign baseret på Excel-dataanalyse. 6 templates, complexity tiers, capture sources, per-model hitrate tracking, obligatoriske outcome-felter.** |
+| **2I** | **Next** | Local Prompt Compiler |
 | **2J** | Planned | Validation Automation |
 | **2K** | Planned | Git Sync Management |
 | **2L** | Planned | Platform Adapter Framework |
@@ -76,17 +76,21 @@ This governance document is the primary handoff artifact between sessions. The H
 
 ## Completed in This Session
 
-- **Phase 2G — Implementation Pattern Manager**: Komplet pattern-infrastruktur.
-  - Database: `implementation_patterns` tabel med UNIQUE(file_signature, constraint_set). prompt_runs udvidet med 7 kolonner (model_type, idle_seconds, token_count_input/output, token_cost_eur/dkk, pattern_id).
-  - API: POST /api/prompt-runs auto-matcher runs til patterns. GET /api/implementation-patterns + GET /api/implementation-patterns/{id}/runs.
-  - Frontend: Pattern-tabel med farvekodede success rates, klikbare rækker, expandable pattern-specifikke runs. Runs-tabel udvidet med Model Type badge, Tokens, Cost kolonner.
-  - Seed: PRUN-2E-0001 backfillet, PAT-0001 oprettet.
+- **Phase 2H Redesign — Prompt Template Manager**: Fuld redesign og implementering baseret på Excel-dataanalyse.
+  - **Analyse:** 8 prompt-runs fra `claude_ollama_prompt_history.xlsx` evalueret. 6 kritiske fund: 62% rekonstruerede prompts, 100% lokal model-brug, DPMtF-WebUI SR 0.65 vs v2's 1.0, 37.5% ukendte outcomes, 4.6x længde-variation, kun 2 model-tags.
+  - **Database:** ALTER TABLE prompt_templates (+6 kolonner), ALTER TABLE prompt_runs (+5 kolonner), CREATE TABLE template_model_hitrates.
+  - **Seed:** 4 templates opdateret, 2 nye tilføjet (tpl_create_add_local, tpl_update_edit_local), PRUN-2E-0001 backfill'et, template_model_hitrates seedet.
+  - **API:** GET /api/prompt-templates (nye filtre), POST /api/prompt-templates (validering), PUT (nye felter), GET /api/prompt-templates/{key}/hitrate (nyt), POST /api/prompt-runs (obligatoriske outcome-felter + template_model_hitrates UPSERT), GET /api/prompt-runs (nye filtre).
+  - **Frontend:** Template Manager: 9 kolonner med complexity/capture/success-rate badges. Template detail: per-model hitrate tabel. Prompt Runs: 13 kolonner med Status/1st-Try/Corr badges.
+  - **CSS:** 12 nye klasser for complexity tiers, capture sources, execution statuses.
+  - **Governance:** alignmentstructure.md (2H ✅), localmodel.md (suitable_for default → local), superpowers.md (decision tree + workflow opdateret), CHANGELOG, NEXT_CONTEXT, IMPLEMENTATION_REPORT.
+  - **Registreringer:** ENDP-4000022, BDS-5000016. BDS-5000015 count: 4→6. Phase tracking: 2G→completed, 2H→completed.
 
 ## Remaining Work
 
-- Commit/push documentation for phase 2G.
-- Phase 2H (Prompt Template Manager): Migrér statiske templates til database-drevne, parametriserbare templates.
+- Commit/push alle 2H ændringer.
 - Phase 2I (Local Prompt Compiler): Byg prompt-samler fra templates + hitrate-data + governance-kontekst.
+- Phase 2J (Validation Automation): Automatiser pre-commit checks som DPMtF-WebUI feature.
 
 ## Important Notes for Next Session
 

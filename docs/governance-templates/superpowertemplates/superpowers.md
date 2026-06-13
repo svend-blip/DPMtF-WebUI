@@ -99,9 +99,13 @@ START: Bruger giver en opgave
 │   Kendetegn: 1-2 filer, veldefineret spec, ingen design-beslutninger
 │   └─ BRUG: deepseek-v4-flash:cloud (billigere tokens)
 │
-├─ Er opgaven kompleks?
-│   Kendetegn: multi-fil integration, arkitektur/design, debugging
-│   └─ BRUG: deepseek-v4-pro:cloud (nuværende standard)
+├─ Er opgaven kompleks? (complexity_tier ≥ 3)
+│   Kendetegn: multi-fil integration, arkitektur/design, debugging, schema-ændringer
+│   └─ BRUG: deepseek-v4-pro:cloud
+│
+├─ Har en prompt template historisk bedre performance med en bestemt model?
+│   └─ BRUG: modellen med højest rolling_success_rate for denne template
+│      (tjek /api/prompt-templates/{key}/hitrate)
 │
 ├─ Er miljøet offline?
 │   └─ BRUG: Lokal Ollama model → se [[localmodel]]
@@ -158,11 +162,21 @@ Disse filer ligger i samme mappe og loads efter behov:
    ├─ Er opgaven egnet til lokal model?
    └─ Brug prompt compiler flow hvis relevant
 
-5. UDFØR opgave
+5. VÆLG prompt template (hvis relevant)
+   ├─ Query /api/prompt-templates med complexity_tier og suitable_for filtre
+   ├─ Tjek per-model hitrate via /api/prompt-templates/{key}/hitrate
+   └─ Vælg template med bedst historisk performance for opgavetypen
+
+6. UDFØR opgave
    ├─ Følg aggregerede regler
    └─ Dokumenter afvigelser
 
-6. OPDATER .md filer
+7. REGISTRER prompt-run
+   ├─ POST /api/prompt-runs med obligatoriske outcome-felter
+   ├─ Angiv template_key for at opdatere hitrate-statistik
+   └─ Dette muliggør data-drevet template-forbedring over tid
+
+8. OPDATER .md filer
    ├─ superpowers.md: nye regler, model-ændringer
    ├─ alignmentstructure.md: nye features i matrix
    ├─ gates.md: nye gates hvis nødvendigt
@@ -176,3 +190,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 | Dato | Ændring |
 |---|---|
 | 2026-06-13 | Oprettet — initiale aggregerede regler, model decision tree, projekt-hierarki |
+| 2026-06-13 | Opdateret — model decision tree: tilføjet per-template hitrate opslag, complexity_tier ≥ 3 threshold for cloud. Workflow: tilføjet template-valg (trin 5) og prompt-run registrering (trin 7). Baseret på 2H redesign og Excel-dataanalyse. |
