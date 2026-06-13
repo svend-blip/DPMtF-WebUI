@@ -19,13 +19,13 @@ Tracker hvilke features der gælder for hvilke projekter.
 | i18n 4-lags arkitektur alignment | ✅ | ✅ | — | 2026-06-13 | DPMtF-WebUI API rettet til fuld 4-lags traversering (slot→label→translation). ENO: 9073de2 — allerede korrekt 4-lags flow. v3 har allerede standard. |
 | Database merge (DPMtF governance tables) | ✅ | ✅ | — | 2026-06-13 | ENO: 05f9b0d. v3 har eget schema |
 | Prompt Template Manager (2H) | ✅ | — | — | 2026-06-13 | DPMtF-WebUI only — redesigned based on Excel data analysis of 8 prompt runs. 6 templates, complexity tiers, per-model hitrate tracking, mandatory outcome fields. |
-| Local Prompt Compiler (2I) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
-| Validation Automation (2J) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
-| Git Sync Management (2K) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
-| Platform Adapter Framework (2L) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
-| Local Claude Code Session Manager (2M) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
-| Prompt→Implementer→Validator loop (2N) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
-| Parallel-kørsel test cloud vs lokal (2O) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — governance-infrastruktur |
+| Local Prompt Compiler (2I) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 5d389b8, 06d8dd5, fdea70e |
+| Validation Automation (2J) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 5b4a44b, 80a1034, 9493961, 1a9d6ba |
+| Git Sync Management (2K) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 7d78926, 342c309, 85498f1 |
+| Platform Adapter Framework (2L) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 7cbc34e, a951d20 |
+| Local Claude Code Session Manager (2M) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 9bf352f, 379b169 |
+| Prompt→Implementer→Validator loop (2N) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 700a513, cb074f5 |
+| Parallel-kørsel test cloud vs lokal (2O) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — Næste fase. Sidste i Blok 6 |
 | | | | | | |
 
 **Tegnforklaring:**
@@ -72,6 +72,18 @@ Når et nyt projekt tilføjes under DPMtF governance:
 2. Initialiser governance templates via `scripts/initialize_target_project_governance.py`
 3. Tilføj en kolonne i Alignment Matrix
 4. Evaluer eksisterende features for rollout til det nye projekt
+5. **Opdatér projektets projekt-specifikke filer** (00_PROJECT, 02_SCOPE, 10_CHANGELOG, 11_NEXT_CONTEXT, 12_IMPLEMENTATION_REPORT, README) så de afspejler det nye projekts identitet — IKKE efterlad dem som Father-kopier
+
+### Regel 5: Periodisk governance audit (OBLIGATORISK)
+
+Ved hver superpowers-session (når bruger refererer til `superpowers.md`):
+
+1. **Auditér ALLE Child projects' projekt-specifikke filer** mod audit-checklisten i superpowers.md Sektion 1.
+2. **Opdatér alignment-status tabellen** nedenfor med fund.
+3. **Ved discrepancy:** Trigger GATE-GOVERNANCE-SYNC (se [[gates]]).
+4. **Efter godkendt opdatering:** Dokumentér i Child's CHANGELOG og NEXT_CONTEXT, og opdatér denne fil's alignment-status.
+
+Denne regel sikrer at ingen Child projects kører med stale governance-filer der viser forkert projektnavn, port, fase, eller historik — som ENO gjorde før ENO-5 (00_PROJECT sagde "AI PC Resource WebUI v3", 02_SCOPE viste fase 3C-3).
 
 ---
 
@@ -91,14 +103,15 @@ Nuværende alignment mellem projekter:
 
 | Alignment-område | DPMtF-WebUI ↔ ENO | DPMtF-WebUI ↔ v3 | Note |
 |---|---|---|---|
-| Governance templates | ✅ Synkroniseret (strukturelle) | Synkroniseret 2026-06-12 | 14/19 identiske. 5 ENO-specifikke (CHANGELOG, NEXT_CONTEXT, IMPLEMENTATION_REPORT, README) — bevidst divergens |
+| Governance templates (strukturelle) | ✅ Synkroniseret (13/13) | ✅ Synkroniseret (13/13) | 01, 03-09, 13-17. Synkroniseret via initialize_target_project_governance.py. Father's master er autoritativ. |
+| Governance docs (projekt-specifikke) | ✅ ENO-5 completed 2026-06-13 | ✅ v3 aligned 2026-06-13 (Prompt #1) | 00_PROJECT, 02_SCOPE, 10_CHANGELOG, 11_NEXT_CONTEXT, 12_IMPLEMENTATION_REPORT, README. ENO: opdateret til egen identitet. v3: 02_SCOPE.md opdateret fra 3C-3 til 3C-14, 00_PROJECT.md Current Commit+Status opdateret. Prompt #1 first-try success med lokal model (qwen36-27b-q4km). |
 | Sprog/language | ✅ Synkroniseret | ✅ Synkroniseret | ENO: e867ad8 — user_language tabel + /api/user-language endpoints + dropdown |
 | i18n 4-lags arkitektur | ✅ Synkroniseret | ✅ Synkroniseret | DPMtF-WebUI API rettet 2026-06-13 til fuld 4-lags traversering (slot→label→translation). ENO havde allerede korrekt flow. Begge returnerer nu {slot_key: text}. |
 | Database struktur | ✅ Synkroniseret | — | ENO: 05f9b0d — fuld merge af DPMtF-WebUI tabeller + egne domæne-tabeller |
 | Panelgrupper | ✅ Synkroniseret | ⏳ Afventer udrulning | ENO: 4 commits (dfaa96c→320a7a6). v3 udrulles senere |
 | CSS theme | ✅ Synkroniseret | — | Begge bruger dark theme (GitHub-dark) — allerede aligned |
 | Frontend features | ✅ Afklaret | — | ENO har domæne-specifikke paneler. v3 har resource/pipeline paneler |
-| Governance-infrastruktur (2H-2O) | ⏳ Under udbygning (2H ✅) | — | DPMtF-WebUI only — 2H completed (prompt templates redesigned). 2I-2O pending: compiler, validation, git sync, platform adapter, session manager, prompt loop, parallel test |
+| Governance-infrastruktur (2H-2O) | ⏳ Under udbygning (2H-2N ✅, 2O ⏳) | — | DPMtF-WebUI only — 2H-2N completed og committed. 2O (parallel-kørsel test cloud vs lokal) er sidste manglende fase i Blok 6 |
 | | | | |
 
 ---
@@ -111,3 +124,6 @@ Nuværende alignment mellem projekter:
 | 2026-06-13 | Opdateret alignment matrix: ENO sprog/i18n/database/panelgrupper rettet fra ⏳ til ✅ (allerede committed). Tilføjet DPMtF-WebUI 2H-2O roadmap som DPMtF-WebUI-only. Alignment-status sektion opdateret med commit-referencer. GATE-FEATURE-ROLLOUT: 2H-2O er DPMtF-WebUI-only governance-infrastruktur — udrulles ikke til ENO eller v3. |
 | 2026-06-13 | 2H markeret som ✅ — Prompt Template Manager redesign implementeret. 6 templates med complexity tiers, capture sources, per-model hitrate tracking, og obligatoriske outcome-felter. Baseret på Excel-dataanalyse af 8 prompt-runs fra claude_ollama_prompt_history.xlsx. |
 | 2026-06-13 | i18n 4-lags arkitektur alignment gennemført. DPMtF-WebUI's `get_ui_labels_for_domain()` omskrevet til at traversere alle 4 lag (slot→slot_label→label→translation) og returnere `{slot_key: text}` — samme flow som ENO. 108 slots, 108 mappings, 108 labels, 216 translations. Panel-gruppe labels (pg_daily, pg_journals, pg_reports, pg_periodic, pg_setup) tilføjet. 05_CODING_STANDARD.md og superpowers.md opdateret med 4-lags arkitektur som obligatorisk standard. |
+| 2026-06-13 | Alignment matrix opdateret: 2I-2N rettet fra ⏳ til ✅ — alle var allerede committed (2I: 5d389b8→fdea70e, 2J: 5b4a44b→1a9d6ba, 2K: 7d78926→85498f1, 2L: 7cbc34e→a951d20, 2M: 9bf352f→379b169, 2N: 700a513→cb074f5). 2O forbliver ⏳ som sidste fase i Blok 6. Alignment-status sektion opdateret. |
+| 2026-06-13 | Tilføjet **Regel 5: Periodisk governance audit** — obligatorisk ved hver superpowers-session. Audit-checkliste for Child projects' projekt-specifikke filer. Alignment-status sektion opdateret: "Governance templates" splittet i "Governance templates (strukturelle)" og "Governance docs (projekt-specifikke)" med separat tracking. v3 markeret ⚠️ — skal auditeres for samme stale-docs problem som ENO havde. |
+| 2026-06-13 | **ENO-6 Prompt #1 gennemført:** v3's 02_SCOPE.md (fase 3C-3→3C-14) og 00_PROJECT.md (Current Commit+Status) opdateret af lokal Ollama model (qwen36-27b-q4km). First-try success — alle 8 review-checks passeret, 0 manuelle rettelser, kun 2 tilladte filer modificeret. Prompt clarity: Tydelig. v3's governance docs status: ⚠️→✅. |
