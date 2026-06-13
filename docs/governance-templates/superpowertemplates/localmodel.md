@@ -126,7 +126,21 @@ Analyst (lokal) → Solution Architect (lokal) → Prompt Engineer (lokal)
 
 ---
 
-## 5. Opdateringsregler
+## 5. Best practices for lokal model prompts (fra ENO-6 erfaring)
+
+Baseret på 3 prompts med first-try success (medium-lav → medium → medium-høj):
+
+1. **Brug XML-lignende sektioner** — `<role>`, `<project>`, `<governance>`, `<task>`, `<scope>`, `<validation>`, `<constraint>`. Den lokale model responderer præcist på struktureret kontekst.
+2. **Referér eksplicitte governance-filer** — angiv fulde stier og specifikke sektioner (f.eks. "superpowers.md Sektion 1"). Den lokale model læser og anvender dem korrekt.
+3. **Giv konkrete nøgleregler** — ikke generelle "følg governance". Uddrag de 2-4 mest relevante regler og list dem i `<governance>`.
+4. **Definér scope med fulde fil-stier** — både tilladte og forbudte filer. Den lokale model overholder scope præcist.
+5. **Inkludér selv-validerings-checks** — konkrete verificerings-trin i `<validation>`. Den lokale model kører dem og rapporterer resultater.
+6. **ALTID "COMMIT IKKE"** — dette er den kritiske sikkerheds-mekanisme. Giver mulighed for cloud-review før commit.
+7. **Start småt, eskaler gradvist** — etablér baseline med simple opgaver før komplekse. Dette validerer prompt-strukturen og opbygger tillid.
+
+---
+
+## 6. Opdateringsregler
 
 Denne fil opdateres når:
 
@@ -138,7 +152,7 @@ Denne fil opdateres når:
 
 ---
 
-## 6. Opdateringslog
+## 7. Opdateringslog
 
 | Dato | Ændring |
 |---|---|
@@ -147,4 +161,5 @@ Denne fil opdateres når:
 | 2026-06-13 | Dokumenteret 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API skal returnere `{slot_key: text}`. Alignment med ENO gennemført. |
 | 2026-06-13 | Tilføjet **Father-Child governance audit regel** til ROLELOCAL — lokal model-brug fritager IKKE fra governance sync ansvar. Child projects' projekt-specifikke filer skal stadig afspejle egen identitet. Følg audit-processen i superpowers.md Sektion 1. |
 | 2026-06-13 | **ENO-6 Prompt #1 baseline:** qwen36-27b-q4km klarede medium-lav opgave (2 .md filer, dokumentation-only) med first-try success. 8/8 review-checks passeret, 0 rettelser, perfekt scope-compliance. Prompt-struktur med XML-lignende sektioner og eksplicitte governance-referencer fungerede optimalt. |
-| 2026-06-13 | **ENO-6 Prompt #2:** qwen36-27b-q4km klarede medium opgave (JS ændring, 19 labelMap→lbl migrationer) med first-try success. 8/8 checks, 0 rettelser, 0 innerHTML, JS syntaks OK. lbl() helper korrekt implementeret. Kapabilitet: medium mekanisk migration → first-try. Næste: medium-høj (DB+JS+CSS+HTML) med Prompt #3. |
+| 2026-06-13 | **ENO-6 Prompt #2:** qwen36-27b-q4km klarede medium opgave (JS ændring, 19 labelMap→lbl migrationer) med first-try success. 8/8 checks, 0 rettelser, 0 innerHTML, JS syntaks OK. lbl() helper korrekt implementeret. |
+| 2026-06-13 | **ENO-6 Prompt #3:** qwen36-27b-q4km klarede medium-høj opgave (DB+API+HTML+CSS+JS, 5 filer, 6 delopgaver) med first-try success. Panel groups fuldt implementeret: migration-fil, endpoints, containers, collapse/expand, i18n labels. Forbedrede migrations-systemet (auto-discover .sql files). Kapabilitets-baseline komplet: medium-lav ✅, medium ✅, medium-høj ✅. Prompt-strukturen med XML-sektioner og eksplicitte governance-referencer er valideret som optimal til lokal model. |
