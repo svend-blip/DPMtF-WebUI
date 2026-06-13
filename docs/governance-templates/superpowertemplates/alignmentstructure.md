@@ -15,6 +15,7 @@ Tracker hvilke features der gælder for hvilke projekter.
 | Sprog-tabel + dropdown | ✅ | ✅ | ✅ | 2026-06-12 | Fælles i18n-feature |
 | "Vis fuldførte faser" filter default false | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only |
 | GitHub fase-synkronisering | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only |
+| Panelgrupper (collapse/expand) | ✅ | ✅ | ⏳ | 2026-06-13 | Udrulles senere til v3 |
 | | | | | | |
 
 **Tegnforklaring:**

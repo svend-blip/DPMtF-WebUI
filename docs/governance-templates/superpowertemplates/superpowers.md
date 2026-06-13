@@ -35,6 +35,7 @@ Komprimeret fra de 19 governance templates. Ved detaljeret opslag, se den enkelt
 - Scope-ændringer kræver: dokumenter i `09_DECISIONS.md` → Human Approval Gate → opdater `02_SCOPE.md` → log i Scope Change Log
 - v3 bygges rent fra bunden — v2 er kun reference, IKKE kilde til kode
 - Nye projekter implementerer rent — "hide-over-delete" er kun tilladt ved migration i eksisterende projekter
+- **Panelgrupper er fixed:** Daily, Journals, Reports, Periodic, Setup. Ændringer kræver ny design-specifikation og Human Approval Gate.
 
 ### Kode-standard (kritiske regler)
 
