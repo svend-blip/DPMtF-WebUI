@@ -181,6 +181,7 @@ Disse filer ligger i samme mappe og loads efter behov:
 | [[alignmentstructure]] | Feature-alignment på tværs af projekter | Feature implementeres eller udrulles |
 | [[gates]] | Gate-spørgsmål før kritiske operationer | GATE-trigger rammes |
 | [[localmodel]] | Regler for lokal Ollama model-brug | Lokal model overvejes |
+| [[bridge-protocol]] | Tmux bridge: cloud→lokal kommunikation | Cloud model skal sende instruktioner til lokal model |
 
 ---
 
