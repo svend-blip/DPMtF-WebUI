@@ -42,8 +42,8 @@ This governance document is the primary handoff artifact between sessions. The H
 | Check | Result |
 |-------|--------|
 | Branch | `master` |
-| Latest commit (HEAD) | `d6259b1` (2G: Add pattern table + extended runs) — actual HEAD as baseline |
-| Uncommitted changes | Phase 2G documentation (see Current State below) |
+| Latest commit (HEAD) | `303f7a9` (4-lags i18n arkitektur alignment — DPMtF-WebUI ↔ ENO) |
+| Uncommitted changes | Governance-dokumentation opdatering (alignmentstructure.md, NEXT_CONTEXT.md, SCOPE.md) |
 | Remote | `origin → https://github.com/svend-blip/DPMtF-WebUI.git` |
 
 **Rule:** Always verify with live git commands. Do not assume commit/push state from previous NEXT_CONTEXT text. If git state conflicts with this file, stop and ask Svend. See [[15_GIT_POLICY]] for full rules.
@@ -51,9 +51,9 @@ This governance document is the primary handoff artifact between sessions. The H
 ## Current State
 
 - **Project**: DPMtF WebUI — governance-first orchestration engine
-- **Current phase**: Phase 2G — Implementation Pattern Manager (uncommitted docs)
-- **Latest committed baseline before this phase**: 26f5c81 (2F-bis: Documentation update)
-- **Blok 1-5 (1A-2G) er completed og committed.** Blok 6 (2H-2O) er planned.
+- **Current phase**: Phase 2O — Parallel-kørsel test (cloud vs lokal) — NÆSTE FASE
+- **Latest committed baseline**: 303f7a9 (4-lags i18n arkitektur alignment)
+- **Blok 1-5 (1A-2G) er completed og committed.** Blok 6 (2H-2N) er completed og committed. **2O er sidste manglende fase.**
 
 ### Phase Progress
 
@@ -64,98 +64,147 @@ This governance document is the primary handoff artifact between sessions. The H
 | **2E** | **Completed — committed (bd671f5)** | **Governance-template opgradering** |
 | **2F** | **Completed — committed (b28fac5)** | **Hitrate Scoring: prompt_runs + prompt_hitrates, API, frontend** |
 | **2F-bis** | **Completed — committed (26f5c81)** | **Frontend i18n + Dark Theme: 46 labels, skeleton HTML, 0 dynamic innerHTML, dark dashboard** |
-| **2G** | **Completed — committed** | **Implementation Pattern Manager: implementation_patterns tabel, pattern-matching i POST /api/prompt-runs, GET /api/implementation-patterns, frontend pattern-tabel med expandable runs, model metadata (type/tokens/cost)** |
-| **2H** | **Completed — redesign implemented (uncommitted)** | **Prompt Template Manager: Redesign baseret på Excel-dataanalyse. 6 templates, complexity tiers, capture sources, per-model hitrate tracking, obligatoriske outcome-felter.** |
-| **2I** | **Next** | Local Prompt Compiler |
-| **2J** | Planned | Validation Automation |
-| **2K** | Planned | Git Sync Management |
-| **2L** | Planned | Platform Adapter Framework |
-| **2M** | Planned | Local Claude Code Session Manager |
-| **2N** | Planned | Prompt→Implementer→Validator loop |
-| **2O** | Planned | Parallel-kørsel test (cloud vs lokal) |
+| **2G** | **Completed — committed (0a173fa→ed48ad7)** | **Implementation Pattern Manager: implementation_patterns tabel, pattern-matching, frontend pattern-tabel, model metadata** |
+| **2H** | **Completed — committed (91f1147→c093cd6)** | **Prompt Template Manager: database-drevne templates, 4 baseline + 2 nye, parametriserbare** |
+| **2H Redesign** | **Completed — committed (552f432)** | **Data-drevet redesign: 6 templates, complexity tiers, capture sources, per-model hitrate, obligatoriske outcome-felter** |
+| **2H-bis** | **Completed — committed (7c8e000)** | **Fuld i18n-understøttelse af alle frontend-tekster — lbl() på alle brugervendte strenge** |
+| **2I** | **Completed — committed (5d389b8→fdea70e)** | **Local Prompt Compiler: POST /api/prompt-templates/{key}/compile, frontend compile-form** |
+| **2J** | **Completed — committed (5b4a44b→1a9d6ba)** | **Validation Automation: 7 baseline regler, POST /api/validate, frontend validation panel** |
+| **2K** | **Completed — committed (7d78926→85498f1)** | **Git Sync Management: git_sync_status + git_operations tabeller, API, frontend panel** |
+| **2L** | **Completed — committed (7cbc34e→a951d20)** | **Platform Adapter Framework: PlatformAdapter ABC, LinuxPlatformAdapter, GET /api/platform** |
+| **2M** | **Completed — committed (9bf352f→379b169)** | **Local Claude Code Session Manager: claude_sessions tabel, API, frontend session panel** |
+| **2N** | **Completed — committed (700a513→cb074f5)** | **Prompt→Implementer→Validator loop: workflow_runs tabel, POST /api/workflow/start, status flow** |
+| **2O** | **⏳ NÆSTE** | **Parallel-kørsel test (cloud vs lokal): Sammenlign prompt-eksekvering på deepseek-v4-pro:cloud vs qwen36-27b-q4km** |
 
-## Completed in This Session
+## Completed Since Last Handoff (2G → nu)
 
-- **Phase 2H Redesign — Prompt Template Manager**: Fuld redesign og implementering baseret på Excel-dataanalyse.
-  - **Analyse:** 8 prompt-runs fra `claude_ollama_prompt_history.xlsx` evalueret. 6 kritiske fund: 62% rekonstruerede prompts, 100% lokal model-brug, DPMtF-WebUI SR 0.65 vs v2's 1.0, 37.5% ukendte outcomes, 4.6x længde-variation, kun 2 model-tags.
-  - **Database:** ALTER TABLE prompt_templates (+6 kolonner), ALTER TABLE prompt_runs (+5 kolonner), CREATE TABLE template_model_hitrates.
-  - **Seed:** 4 templates opdateret, 2 nye tilføjet (tpl_create_add_local, tpl_update_edit_local), PRUN-2E-0001 backfill'et, template_model_hitrates seedet.
-  - **API:** GET /api/prompt-templates (nye filtre), POST /api/prompt-templates (validering), PUT (nye felter), GET /api/prompt-templates/{key}/hitrate (nyt), POST /api/prompt-runs (obligatoriske outcome-felter + template_model_hitrates UPSERT), GET /api/prompt-runs (nye filtre).
-  - **Frontend:** Template Manager: 9 kolonner med complexity/capture/success-rate badges. Template detail: per-model hitrate tabel. Prompt Runs: 13 kolonner med Status/1st-Try/Corr badges.
-  - **CSS:** 12 nye klasser for complexity tiers, capture sources, execution statuses.
-  - **Governance:** alignmentstructure.md (2H ✅), localmodel.md (suitable_for default → local), superpowers.md (decision tree + workflow opdateret), CHANGELOG, NEXT_CONTEXT, IMPLEMENTATION_REPORT.
-  - **Registreringer:** ENDP-4000022, BDS-5000016. BDS-5000015 count: 4→6. Phase tracking: 2G→completed, 2H→completed.
+- **Phase 2H — Prompt Template Manager**: Første version med 4 baseline templates, database-drevne, parametriserbare. Commits: 91f1147, 33db344, e221ba4, c093cd6.
+- **Phase 2H Redesign**: Data-drevet redesign baseret på Excel-analyse af 8 prompt-runs. 6 kritiske fund adresseret. 6 templates med complexity tiers, capture sources, per-model hitrate tracking, obligatoriske outcome-felter. Commit: 552f432.
+- **Phase 2H-bis — Fuld i18n**: Alle brugervendte frontend-tekster bruger nu `lbl()`. ui_labels + ui_label_translations seed-data for alle nye labels. Commit: 7c8e000.
+- **Phase 2I — Local Prompt Compiler**: POST /api/prompt-templates/{key}/compile med parameter-substitution. Frontend compile-form i template detail view. Commits: 5d389b8, 06d8dd5, fdea70e.
+- **Phase 2J — Validation Automation**: 7 baseline valideringsregler fra 06_VALIDATION.md. POST /api/validate med sikkerhedsfilter. Frontend validation panel med farvekodet verdict. Commits: 5b4a44b, 80a1034, 9493961, 1a9d6ba.
+- **Phase 2K — Git Sync Management**: git_sync_status + git_operations tabeller. GET /api/git/status med live git enrichment. Frontend git panel. Commits: 7d78926, 342c309, 85498f1.
+- **Phase 2L — Platform Adapter Framework**: PlatformAdapter ABC + LinuxPlatformAdapter (nvidia-smi, df, ss, ps, fuser). GET /api/platform. Commits: 7cbc34e, a951d20.
+- **Phase 2M — Local Claude Code Session Manager**: claude_sessions tabel. GET/POST/PUT /api/sessions. Frontend session panel med Active/No active badge. Commits: 9bf352f, 379b169.
+- **Phase 2N — Prompt→Implementer→Validator loop**: workflow_runs tabel. POST /api/workflow/start (kompilerer internt). PUT status flow (compiled→implementing→validating→done/failed). Commits: 700a513, cb074f5.
+- **Panel Groups**: user_panel_groups tabel, collapse/expand JS+CSS, panel-group containers, i18n labels. Commits: 7647d07→e8d7128.
+- **Superpowers Governance Framework**: superpowers.md, alignmentstructure.md, gates.md, localmodel.md oprettet og itereret. Commits: 10d5655, d7f320d.
+- **4-lags i18n Arkitektur Alignment**: DPMtF-WebUI's get_ui_labels_for_domain() omskrevet til fuld 4-lags traversering (slot→slot_label→label→translation), samme flow som ENO. 108 slots, 108 mappings, 108 labels, 216 translations. Commit: 303f7a9.
 
 ## Remaining Work
 
-- Commit/push alle 2H ændringer.
-- Phase 2I (Local Prompt Compiler): Byg prompt-samler fra templates + hitrate-data + governance-kontekst.
-- Phase 2J (Validation Automation): Automatiser pre-commit checks som DPMtF-WebUI feature.
+- **Phase 2O — Parallel-kørsel test (cloud vs lokal)**: Sidste fase i Blok 6.
+  - Design og implementer sammenlignings-infrastruktur til at køre samme prompt på cloud (deepseek-v4-pro:cloud) og lokal (qwen36-27b-q4km) model.
+  - Sammenlign: execution success, duration, token usage, cost, output quality.
+  - Brug eksisterende prompt_templates, prompt_runs, og workflow_runs infrastruktur.
+  - Producer baseline performance-data for model selection decision tree.
+- **Governance-vedligeholdelse**: Opdater ENO's projekt-specifikke governance-filer (00_PROJECT, 02_SCOPE, 10_CHANGELOG, 11_NEXT_CONTEXT) så de afspejler ENO's egen identitet og historik.
 
 ## Important Notes for Next Session
 
-- **Governance-templates er nu synkroniseret med v3's forbedringer.** 10 af 19 templates er opgraderet. 6 var allerede identiske (01_ROLES, 03_FILE_ACCESS_POLICY, 06_VALIDATION, 08_TESTPLAN, 09_DECISIONS, 13_VALIDATION_REPORT, 14_OFFLINE_MODE). 17_PERMISSION_MODE_POLICY var allerede til stede og identisk.
-- **10_CHANGELOG.md og README.md forbliver templatespecifikke** — master-versionen er generisk, v3-versionen er projekt-specifik. Dette er korrekt.
-- **Det nye 6-blok roadmap** (2E-2O) erstatter det gamle 2E-2K. De gamle faser (Wire endpoints, Validate replacement, Prompt Run Review) er absorberet i den nye struktur.
+- **Alle faser 2H-2N er committed.** Kun 2O mangler i Blok 6. Dette er en milepæl — governance-infrastrukturen er næsten komplet.
+- **alignmentstructure.md er nu synkroniseret** med faktisk git-status (2I-2N markeret ✅). Var tidligere stale (viste ⏳).
+- **Superpowers governance framework** (`docs/governance-templates/superpowertemplates/`) er den autoritative kilde til tværprojekt-regler, model selection, og alignment. Loades ved reference til `superpowers.md`.
+- **4-lags i18n er nu obligatorisk** på tværs af alle projekter. Både DPMtF-WebUI og ENO bruger samme flow: `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`, API returnerer `{slot_key: text}`.
+- **ENO's governance-filer er stale** — 00_PROJECT.md siger stadig "AI PC Resource WebUI v3", 02_SCOPE.md viser fase 3C-3, 10_CHANGELOG.md og 11_NEXT_CONTEXT.md er DPMtF-WebUI kopier. Dette skal adresseres via GATE-GOVERNANCE-SYNC.
 - **Projektrapporten** (`docs/project-report.md`) er den autoritative reference for den videre retning. Læs den før næste fase planlægges.
 - DPMtF-WebUI bruger `docs/governance-templates/` som sine egne governance-docs — der er ingen separat `docs/dpmtf/` mappe. Templates tjener dobbelt funktion: master-kopier til initialisering af nye projekter OG aktiv governance for DPMtF-WebUI selv.
 
 ## Open Questions
 
+- Hvordan skal 2O designes? Skal det være en interaktiv test-runner i frontend, eller en batch-sammenligning der kører på tværs af alle templates?
+- Hvilke metrics er vigtigst for model selection: success rate, duration, cost, eller output quality?
+- ENO's næste funktionelle fase — hvad er ENO's eget roadmap ud over alignment med DPMtF-WebUI?
 - Om 10_CHANGELOG.md og README.md i governance-templates skal forblive generiske (template-versioner) eller også opdateres med DPMtF-WebUI-specifikt indhold. Nuværende praksis: de forbliver generiske; projektspecifikke versioner lever i target-projektets `docs/dpmtf/`.
 
-## Files Changed (Phase 2E)
+## Files Changed (Governance Update 2026-06-13)
 
 | File | What Changed |
 |------|-------------|
-| `docs/governance-templates/00_PROJECT.md` | Opgraderet fra v3: runtime-kommando, port-tabel, related projects struktur. |
-| `docs/governance-templates/02_SCOPE.md` | Opgraderet fra v3: default constraints, scope change log. |
-| `docs/governance-templates/04_ARCHITECTURE.md` | Opgraderet fra v3: komplet i18n fire-lags arkitektur, komponent-tabel. |
-| `docs/governance-templates/05_CODING_STANDARD.md` | Opgraderet fra v3: "no fixed line numbers", innerHTML-regler uddybet. |
-| `docs/governance-templates/07_RESTART.md` | Opgraderet fra v3: /clear reconstruction rules, common failure modes. |
-| `docs/governance-templates/11_NEXT_CONTEXT.md` | Opgraderet fra v3: fase-progress-tabel, per-fase filændringstabeller, fase-start git-baseline. Indhold tilpasset DPMtF-WebUI. |
-| `docs/governance-templates/12_IMPLEMENTATION_REPORT.md` | Opgraderet fra v3: Permission Mode Compliance sektion, innerHTML check. |
-| `docs/governance-templates/15_GIT_POLICY.md` | Opgraderet fra v3: fase-start git-baseline checks (4 obligatoriske kommandoer), baseline-regler. |
-| `docs/governance-templates/16_DATABASE_RUNTIME_STATE.md` | Opgraderet fra v3: 17-tabel dokumentation, schema change policy. |
-| `docs/governance-templates/10_CHANGELOG.md` | Tilføjet 2E entry. |
-| `scripts/init_db.py` | Fase-tracking restruktureret: 2D→completed, nyt 2E-2O roadmap med 6 blokke. |
-| `docs/project-report.md` | Ny fil: tværgående analyse af DPMtF-WebUI, v2, v3 med anbefalinger. |
-
-## Files Changed (Phase 2F)
-
-| File | What Changed |
-|------|-------------|
-| `scripts/init_db.py` | Tilføjet `prompt_runs` og `prompt_hitrates` tabeller (CREATE TABLE IF NOT EXISTS). Seedet PRUN-2E-0001 som første run + hitrate-aggregat. Registreret 3 nye endpoints og 2 bootstrap datasets. |
-| `app.py` | Tilføjet 3 endpoints: `GET /api/prompt-runs` (med phase_key/target_project/success filtre + limit/offset), `POST /api/prompt-runs` (record run + atomisk hitrate-opdatering via ON CONFLICT UPDATE), `GET /api/prompt-hirates` (aggregeret statistik sorteret værst først). |
-| `templates/index.html` | Tilføjet hitrate-panel sektion med farvekodet success rate tabel og expandable "Recent Prompt Runs" detalje-visning. |
-| `static/js/dpmtf-app.js` | Tilføjet `loadHitrates()`, `loadPromptRuns()`, `td()` helper. Bruger `createElement`/`textContent`/`replaceChildren` — ingen innerHTML. Initialiseret ved page load. |
-| `static/css/dpmtf-theme.css` | Tilføjet `.hitrate-section`, `.hitrate-good` (grøn), `.hitrate-ok` (orange), `.hitrate-low` (rød) styles. |
-| `docs/governance-templates/10_CHANGELOG.md` | Tilføjet 2F entry. |
-| `docs/governance-templates/11_NEXT_CONTEXT.md` | Denne fil — opdateret for 2F handoff. |
+| `docs/governance-templates/superpowertemplates/alignmentstructure.md` | Alignment matrix: 2I-2N rettet fra ⏳ til ✅ med commit-referencer. Alignment-status opdateret. |
+| `docs/governance-templates/11_NEXT_CONTEXT.md` | Denne fil — komplet omskrivning fra 2G til nuværende status (2O next). |
+| `docs/governance-templates/02_SCOPE.md` | Fase opdateret fra 3C-3 til 2O med korrekt scope. |
 
 ---
 
-## Files Changed (Phase 2F-bis)
+## Files Changed (Phase 2H + 2H Redesign + 2H-bis)
 
 | File | What Changed |
 |------|-------------|
-| `scripts/init_db.py` | Added ui_text_slots and ui_text_slot_labels tables. 46 new ui_labels, 104 new ui_label_translations, 46 ui_text_slots, 46 ui_text_slot_labels bindings. |
-| `templates/index.html` | Reduced from 348 to 46 line skeleton. 8 data-slot attributes. All panel HTML removed — JS renders all content. |
-| `static/js/dpmtf-app.js` | Rewritten from 1813 to 840 lines. 9 sections. 54 lbl() i18n calls. 1 static innerHTML. 39 dynamic innerHTML replaced with safe DOM APIs. |
-| `static/css/dpmtf-theme.css` | Complete dark dashboard theme rewrite. #0d1117 background, #21262d cards. .dpmtf- prefix convention. |
-| `docs/governance-templates/10_CHANGELOG.md` | Added 2F-bis entry. |
-| `docs/governance-templates/11_NEXT_CONTEXT.md` | This file — updated for 2F-bis handoff. |
+| `scripts/init_db.py` | CREATE TABLE prompt_templates (4 baseline). ALTER TABLE prompt_templates (+6 kolonner: complexity_tier, capture_source, local/cloud_success_rate, total_local/cloud_runs). ALTER TABLE prompt_runs (+5 kolonner: template_key, execution_status, first_try_success, manual_corrections, validation_passed). CREATE TABLE template_model_hitrates. Seed: 4→6 templates, PRUN-2E-0001 backfill, template_model_hitrates. |
+| `app.py` | GET/POST/PUT /api/prompt-templates (nye felter + filtre). GET /api/prompt-templates/{key}/hitrate. POST /api/prompt-runs (obligatoriske outcome-felter + template_key + template_model_hitrates UPSERT). GET /api/prompt-runs (nye filtre). |
+| `templates/index.html` | Template Manager panel, compile-form, udvidede runs-tabel kolonner. |
+| `static/js/dpmtf-app.js` | Template Manager: 9 kolonner, complexity/capture/success-rate badges, per-model hitrate tabel, compile-form. Prompt Runs: 13 kolonner, Status/1st-Try/Corr badges. Hjælpere: complexityBadge(), formatRate(), rateClass(). |
+| `static/css/dpmtf-theme.css` | 12 nye klasser: complexity-tier-1/2/3, capture-verbatim/designed/reconstructed, status-completed/failed/unknown/sent, template-detail-panel. |
+| `docs/governance-templates/superpowertemplates/superpowers.md` | Model decision tree: per-template hitrate opslag, complexity_tier ≥ 3 → cloud. Workflow: template-valg + run-registrering. |
+| `docs/governance-templates/superpowertemplates/localmodel.md` | suitable_for default → local. Prompt compiler flow opdateret. |
+| `docs/governance-templates/superpowertemplates/alignmentstructure.md` | 2H ✅, 2H Redesign ✅. |
+| `docs/governance-templates/10_CHANGELOG.md` | 2H, 2H Redesign, 2H-bis entries. |
 
----
-
-## Files Changed (Phase 2G)
+## Files Changed (Phase 2I — Local Prompt Compiler)
 
 | File | What Changed |
 |------|-------------|
-| `scripts/init_db.py` | ALTER TABLE prompt_runs: 7 new columns. CREATE TABLE implementation_patterns. Backfill PRUN-2E-0001. Seed PAT-0001. Register 2 endpoints + 1 bootstrap dataset. Phase tracking: 2F/2F-bis completed, 2G next. |
-| `app.py` | Extended POST /api/prompt-runs: 7 new optional fields, model_type derivation, pattern-matching logic. Added _next_pattern_id(), _update_pattern_hitrate(). Added GET /api/implementation-patterns + GET /api/implementation-patterns/{pattern_id}/runs. |
-| `static/js/dpmtf-app.js` | Added pattern table to loadHitrates() with clickable rows. Added loadPatternRuns() for expandable detail. Extended runs table with Model Type, Tokens, Cost columns. Added truncate(), formatTokens() helpers. |
-| `docs/governance-templates/10_CHANGELOG.md` | Added 2G entry. |
-| `docs/governance-templates/11_NEXT_CONTEXT.md` | This file — updated for 2G handoff. |
+| `app.py` | POST /api/prompt-templates/{key}/compile — parameter-substitution, {placeholders} → værdier, list-generering. |
+| `static/js/dpmtf-app.js` | Compile-form i template detail view: project path, phase ID, goal, constraints, allowed files, validation commands. Kompileret prompt visning med copy-knap. |
+| `docs/governance-templates/10_CHANGELOG.md` | 2I entry. |
+
+## Files Changed (Phase 2J — Validation Automation)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | CREATE TABLE validation_rules (7 baseline regler), validation_runs, validation_results. Seed: 7 regler + registreringer. |
+| `app.py` | POST /api/validate — kører regler mod projekt, sikkerhedsfilter, struktureret rapport. GET /api/validation-runs, GET /api/validation-rules. |
+| `static/js/dpmtf-app.js` | Validation panel i System Setup: regler tabel, "Run Validation" knap, farvekodet verdict + per-regel resultater. |
+| `docs/governance-templates/10_CHANGELOG.md` | 2J entry. |
+
+## Files Changed (Phase 2K — Git Sync Management)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | CREATE TABLE git_sync_status, git_operations. Seed + registreringer. |
+| `app.py` | GET /api/git/status (live git enrichment), POST /api/git/operations (registrerer kun), GET /api/git/operations. |
+| `static/js/dpmtf-app.js` | Git panel i System Setup: branch, unpushed commits, last commit per projekt. |
+| `docs/governance-templates/10_CHANGELOG.md` | 2K entry. |
+
+## Files Changed (Phase 2L — Platform Adapter Framework)
+
+| File | What Changed |
+|------|-------------|
+| `platform_adapter.py` | NY FIL: PlatformAdapter ABC + LinuxPlatformAdapter (nvidia-smi, df, ss, ps, fuser) + WindowsPlatformAdapter stub. |
+| `app.py` | GET /api/platform — OS, Python version, GPU count/details, home disk usage. |
+| `static/js/dpmtf-app.js` | Platform info panel i System Setup drawer. |
+| `docs/governance-templates/10_CHANGELOG.md` | 2L entry. |
+
+## Files Changed (Phase 2M — Local Claude Code Session Manager)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | CREATE TABLE claude_sessions. Seed + registreringer. |
+| `app.py` | GET /api/sessions, GET /api/sessions/current, POST /api/sessions, PUT /api/sessions/{id}. |
+| `static/js/dpmtf-app.js` | Session panel i System Setup: Active/No active badge, model, project, started tid. |
+| `docs/governance-templates/10_CHANGELOG.md` | 2M entry. |
+
+## Files Changed (Phase 2N — Prompt→Implementer→Validator loop)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | CREATE TABLE workflow_runs. Seed + registreringer. |
+| `app.py` | POST /api/workflow/start (kompilerer internt via _compile_prompt_internal()), PUT /api/workflow/{id}/status, GET /api/workflow/runs. |
+| `static/js/dpmtf-app.js` | Workflow panel i System Setup: runs med status badges (grøn=done, rød=failed, orange=implementing, blå=compiled). |
+| `docs/governance-templates/10_CHANGELOG.md` | 2N entry. |
+
+## Files Changed (Panel Groups + Superpowers + 4-lags Alignment)
+
+| File | What Changed |
+|------|-------------|
+| `scripts/init_db.py` | CREATE TABLE user_panel_groups. |
+| `app.py` | GET/POST /api/user-panel-groups. get_ui_labels_for_domain() omskrevet til fuld 4-lags traversering. |
+| `templates/index.html` | Panel-group containers (daily, journals, reports, periodic, setup). |
+| `static/js/dpmtf-app.js` | Panel-group collapse/expand logic. |
+| `static/css/dpmtf-theme.css` | Panel-group collapse/expand styles. |
+| `docs/governance-templates/superpowertemplates/` | NY MAPPE: superpowers.md, alignmentstructure.md, gates.md, localmodel.md. |
+| `docs/governance-templates/05_CODING_STANDARD.md` | 4-lags i18n arkitektur dokumenteret som obligatorisk standard. |
+| `docs/governance-templates/10_CHANGELOG.md` | Panel groups, superpowers, 4-lags alignment entries. |
 
 ---
