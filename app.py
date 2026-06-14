@@ -3284,6 +3284,41 @@ async def get_workflow_runs(limit: int = 20):
     return {"runs": runs}
 
 
+@app.get("/api/comparison-runs")
+async def get_comparison_runs(
+    complexity_tier: int | None = None,
+    winner: str | None = None,
+    task_type: str | None = None,
+    limit: int = 20
+):
+    """List comparison runs with optional filters."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM comparison_runs WHERE 1=1"
+    params = []
+
+    if complexity_tier is not None:
+        query += " AND complexity_tier = ?"
+        params.append(complexity_tier)
+    if winner is not None:
+        query += " AND winner = ?"
+        params.append(winner)
+    if task_type is not None:
+        query += " AND task_type = ?"
+        params.append(task_type)
+
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    cursor.execute(query, params)
+    comparisons = [dict(r) for r in cursor.fetchall()]
+
+    conn.close()
+    return {"comparisons": comparisons}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)

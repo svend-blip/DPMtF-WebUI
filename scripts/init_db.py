@@ -510,6 +510,14 @@ ui_labels_data = [
     ("LBL-1000106", "pg_periodic", "main", "🔄 Periodic", "Periodic panel group heading"),
     ("LBL-1000107", "pg_setup", "main", "⚙️ Setup", "Setup panel group heading"),
     ("LBL-1000108", "lbl_panel_templates", "main", "Prompt Templates", "Prompt Templates panel heading"),
+    # ── 2O-b: Comparison Runs (7 labels) ──
+    ("LBL-1000109", "lbl_drawer_comparisons", "main", "Comparison Runs", "Comparison Runs drawer panel heading"),
+    ("LBL-1000110", "lbl_cmp_id", "main", "ID", "Comparison ID column header"),
+    ("LBL-1000111", "lbl_cmp_task", "main", "Task", "Comparison task type column header"),
+    ("LBL-1000112", "lbl_cmp_tier", "main", "Tier", "Comparison complexity tier column header"),
+    ("LBL-1000113", "lbl_cmp_cloud", "main", "Cloud", "Comparison cloud model column header"),
+    ("LBL-1000114", "lbl_cmp_local", "main", "Local", "Comparison local model column header"),
+    ("LBL-1000115", "lbl_cmp_winner", "main", "Winner", "Comparison winner column header"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -753,6 +761,21 @@ ui_label_translations_data = [
     ("LBL-1000107", "da-DK", "⚙️ Opsætning"),
     ("LBL-1000108", "en-US", "Prompt Templates"),
     ("LBL-1000108", "da-DK", "Prompt Skabeloner"),
+    # ── 2O-b: Comparison Runs (en-US + da-DK) ──
+    ("LBL-1000109", "en-US", "Comparison Runs"),
+    ("LBL-1000109", "da-DK", "Sammenligninger"),
+    ("LBL-1000110", "en-US", "ID"),
+    ("LBL-1000110", "da-DK", "ID"),
+    ("LBL-1000111", "en-US", "Task"),
+    ("LBL-1000111", "da-DK", "Opgave"),
+    ("LBL-1000112", "en-US", "Tier"),
+    ("LBL-1000112", "da-DK", "Niveau"),
+    ("LBL-1000113", "en-US", "Cloud"),
+    ("LBL-1000113", "da-DK", "Cloud"),
+    ("LBL-1000114", "en-US", "Local"),
+    ("LBL-1000114", "da-DK", "Lokal"),
+    ("LBL-1000115", "en-US", "Winner"),
+    ("LBL-1000115", "da-DK", "Vinder"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
@@ -2784,6 +2807,130 @@ CREATE TABLE IF NOT EXISTS user_panel_groups (
     PRIMARY KEY (user_id, group_name)
 )
 """)
+
+# ── Phase 2O-b: Comparison Runs ────────────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS comparison_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comparison_id TEXT UNIQUE NOT NULL,
+    prompt_template_key TEXT,
+    task_type TEXT NOT NULL,
+    complexity_tier INTEGER NOT NULL,
+    cloud_run_id TEXT,
+    local_run_id TEXT,
+    cloud_model TEXT NOT NULL,
+    local_model TEXT NOT NULL,
+    cloud_verdict TEXT,
+    local_verdict TEXT,
+    cloud_output_quality INTEGER,
+    local_output_quality INTEGER,
+    cloud_gov_compliance INTEGER,
+    local_gov_compliance INTEGER,
+    cloud_duration_seconds INTEGER,
+    local_duration_seconds INTEGER,
+    cloud_cost_eur REAL,
+    local_cost_eur REAL,
+    winner TEXT,
+    conclusion TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+# Seed comparison data (from 2O comparisons)
+comparison_runs_seed = [
+    (
+        "CMP-0001",
+        "governance_audit_v3",
+        "README.md v3-specifik",
+        3,
+        None, None,
+        "deepseek-v4-pro:cloud", "qwen36-27b-q4km:latest",
+        "completed", "completed",
+        5, 5,
+        100, 100,
+        45, 15,
+        0.01, 0.0,
+        "cloud",
+        "Cloud fandt 2 forbedringer den lokale model oversatte (broken link + stale DB description). Lokal korrekt no-op recognition."
+    ),
+    (
+        "CMP-0002",
+        "footer_build_info",
+        "Footer med build-info",
+        3,
+        None, None,
+        "deepseek-v4-pro:cloud", "qwen36-27b-q4km:latest",
+        "completed", "completed",
+        5, 5,
+        100, 100,
+        90, 20,
+        0.02, 0.0,
+        "tie",
+        "Cloud byggede featuren (HTML+JS+CSS+seed). Lokal fandt og fikser cloud duplikat-bug. Hybrid-resultat."
+    ),
+    (
+        "CMP-0003",
+        "changelog_update",
+        "CHANGELOG opdatering",
+        2,
+        None, None,
+        "deepseek-v4-pro:cloud", "qwen36-27b-q4km:latest",
+        "completed", "completed",
+        5, 5,
+        100, 100,
+        120, 90,
+        0.03, 0.0,
+        "cloud",
+        "Metodisk fix fra CMP-0002 virkede — fair sammenligning. Cloud byggede 8 entries. Lokal validerede no-op med thinking-overhead."
+    ),
+]
+for cmp in comparison_runs_seed:
+    cursor.execute("""
+        INSERT OR REPLACE INTO comparison_runs
+        (comparison_id, prompt_template_key, task_type, complexity_tier,
+         cloud_run_id, local_run_id,
+         cloud_model, local_model,
+         cloud_verdict, local_verdict,
+         cloud_output_quality, local_output_quality,
+         cloud_gov_compliance, local_gov_compliance,
+         cloud_duration_seconds, local_duration_seconds,
+         cloud_cost_eur, local_cost_eur,
+         winner, conclusion)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, cmp)
+
+# Register new endpoints
+endpoint_registry_2ob = [
+    ("ENDP-4000033", "comparison_runs_list", "/api/comparison-runs", "GET", "List comparison runs with optional filters", "comparisons JSON array", "comparison_panel"),
+    ("ENDP-4000034", "comparison_detail", "/api/comparison-runs/{comparison_id}", "GET", "Get single comparison run detail", "comparison run JSON", "comparison_panel"),
+    ("ENDP-4000035", "comparison_create", "/api/comparison-runs", "POST", "Create new comparison run entry", "created run JSON", "comparison_panel"),
+]
+for endpoint in endpoint_registry_2ob:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap dataset
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000023", "comparison_runs", "comparison_runs", "Comparison runs tracking cloud vs local model execution", "scripts/init_db.py", 0, 0, 1))
+
+# Update phase tracking: 2O→completed, 2O-b→next
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2O", "Cloud vs Local Comparison", "Three parallel comparisons: README audit, footer build-info, CHANGELOG update. Cloud marginally better for thoroughness; local sufficient for no-op recognition.", "completed", 38))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("2O-b", "Comparison Panel", "Comparison Runs panel in System Setup drawer with table view of cloud vs local results.", "next", 39))
 
 # Commit changes and close connection
 conn.commit()
