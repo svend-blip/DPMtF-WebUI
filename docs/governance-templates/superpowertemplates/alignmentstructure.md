@@ -25,7 +25,7 @@ Tracker hvilke features der gælder for hvilke projekter.
 | Platform Adapter Framework (2L) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 7cbc34e, a951d20 |
 | Local Claude Code Session Manager (2M) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 9bf352f, 379b169 |
 | Prompt→Implementer→Validator loop (2N) | ✅ | — | — | 2026-06-12 | DPMtF-WebUI only — governance-infrastruktur. Commits: 700a513, cb074f5 |
-| Parallel-kørsel test cloud vs lokal (2O) | ⏳ | — | — | 2026-06-13 | DPMtF-WebUI only — Næste fase. Sidste i Blok 6 |
+| Parallel-kørsel test cloud vs lokal (2O) | ✅ | — | — | 2026-06-14 | DPMtF-WebUI only — 3 parallel-kørsler gennemført, model decision tree opdateret, 9/9 first-try lokal model. Bridge valideret — symmetrisk send/complete flow. |
 | | | | | | |
 
 **Tegnforklaring:**
@@ -130,3 +130,4 @@ Nuværende alignment mellem projekter:
 | 2026-06-13 | **ENO-6 Prompt #2 gennemført:** lbl() helper tilføjet til v3, alle 19 labelMap["key"]||fallback migreret til lbl(key, fallback). First-try success, 0 rettelser, JS syntaks OK. |
 | 2026-06-13 | **ENO-6 Prompt #3 gennemført:** Panel groups udrullet til v3 — user_panel_groups migration, GET/POST endpoints, panel-group containers (daily, reports), collapse/expand CSS+JS, pg_daily/pg_reports i18n labels. First-try success, 5 filer, 6 delopgaver. Panelgrupper alignment: ⏳→✅. Kapabilitets-baseline for qwen36-27b-q4km komplet: medium-lav ✅, medium ✅, medium-høj ✅. |
 | 2026-06-13 | **ENO-6 Prompt #4 gennemført:** v3 README.md gjort v3-specifik — titel, port 9123, reference-projekt status, v3-Specific Notes sektion, Governance Sync sektion. First-try success. v3 alignment komplet: alle 6 projekt-specifikke filer afspejler nu v3's egen identitet. |
+| 2026-06-14 | 2O markeret ✅ — 3 parallel-kørsler gennemført (README reuse, footer new, CHANGELOG new). Model decision tree opdateret med empirisk data. 9/9 first-try for lokal model. Bridge tovejs-kommunikation valideret. |

@@ -42,8 +42,8 @@ This governance document is the primary handoff artifact between sessions. The H
 | Check | Result |
 |-------|--------|
 | Branch | `master` |
-| Latest commit (HEAD) | `fc98229` (2O complete — 3 parallel comparisons, model decision tree updated) |
-| Uncommitted changes | Ingen — clean working tree (kun untracked test artifacts) |
+| Latest commit (HEAD) | `c2b81dd` (Python bridge.py med symmetrisk send/complete tmux-kommunikation) |
+| Uncommitted changes | Governance audit fixes: 00_PROJECT.md, alignmentstructure.md, superpowers.md, NEXT_CONTEXT.md + ENO 02_SCOPE.md |
 | Remote | `origin → https://github.com/svend-blip/DPMtF-WebUI.git` |
 
 **Rule:** Always verify with live git commands. Do not assume commit/push state from previous NEXT_CONTEXT text. If git state conflicts with this file, stop and ask Svend. See [[15_GIT_POLICY]] for full rules.
@@ -52,8 +52,8 @@ This governance document is the primary handoff artifact between sessions. The H
 
 - **Project**: DPMtF WebUI — governance-first orchestration engine
 - **Current phase**: **Blok 6 (2H-2O) KOMPLET** — næste roadmap skal defineres
-- **Latest committed baseline**: fc98229 (2O complete)
-- **Alle faser 1A-2O er completed og committed.** DPMtF-WebUI governance-infrastruktur er fuldt bygget og empirisk valideret.
+- **Latest committed baseline**: c2b81dd (Python bridge.py)
+- **Governance audit gennemført 2026-06-14** — 4 discrepancies fundet og rettet (se nedenfor)
 
 ### Phase Progress
 
@@ -90,6 +90,17 @@ This governance document is the primary handoff artifact between sessions. The H
 - **Panel Groups**: user_panel_groups tabel, collapse/expand JS+CSS, panel-group containers, i18n labels. Commits: 7647d07→e8d7128.
 - **Superpowers Governance Framework**: superpowers.md, alignmentstructure.md, gates.md, localmodel.md oprettet og itereret. Commits: 10d5655, d7f320d.
 - **4-lags i18n Arkitektur Alignment**: DPMtF-WebUI's get_ui_labels_for_domain() omskrevet til fuld 4-lags traversering (slot→slot_label→label→translation), samme flow som ENO. 108 slots, 108 mappings, 108 labels, 216 translations. Commit: 303f7a9.
+- **Phase 2O — Parallel-kørsel test**: 3 parallel-kørsler (README reuse, footer new, CHANGELOG new). Model decision tree opdateret med empirisk data. 9/9 first-try for lokal model. Commit: fc98229.
+- **Tmux Bridge Protocol v2**: Python bridge.py med symmetrisk send/complete. Tovejs cloud↔lokal kommunikation valideret med 2 tests. Commit: c2b81dd.
+
+## Completed Since Last Handoff (2026-06-14 Governance Audit)
+
+- **Governance audit gennemført** — Father-Child audit per superpowers.md workflow step 2. 4 discrepancies fundet og rettet:
+  1. **alignmentstructure.md**: 2O markeret ⏳→✅ med bridge reference
+  2. **DPMtF-WebUI 00_PROJECT.md**: Opdateret fra v3 generisk template til DPMtF-WebUI identitet (port 9130, HEAD c2b81dd, Blok 6 komplet). Related projects opdateret.
+  3. **ENO 02_SCOPE.md**: ENO-5 markeret completed → næste fase afventer definition. Scope change log opdateret.
+  4. **superpowers.md**: Claude-bridge tilføjet i projekt-hierarki. Workflow udvidet med step 7 (bridge-infrastruktur check). Bridge-protocol.md reference opdateret.
+- **Tmux sessioner verificeret**: Alle 3 sessioner kører (claude_architect, claude_implementer, claude_review). Bridge trace.log aktiv med 20+ entries.
 
 ## Remaining Work
 
@@ -102,20 +113,20 @@ This governance document is the primary handoff artifact between sessions. The H
 
 ## Important Notes for Next Session
 
-- **Alle faser 2H-2N er committed.** Kun 2O mangler i Blok 6. Dette er en milepæl — governance-infrastrukturen er næsten komplet.
-- **alignmentstructure.md er nu synkroniseret** med faktisk git-status (2I-2N markeret ✅). Var tidligere stale (viste ⏳).
+- **Blok 6 (2H-2O) er 100% komplet** — alle faser 1A-2O er completed og committed. Dette er en milepæl. Governance-infrastrukturen er fuldt bygget og empirisk valideret.
+- **00_PROJECT.md er nu DPMtF-WebUI-specifik** — det åbne spørgsmål om generisk vs projekt-specifik er afgjort: projekt-specifikke governance-filer i DPMtF-WebUI afspejler DPMtF-WebUI's egen identitet. Child projects får kopier via `initialize_target_project_governance.py`.
+- **Bridge infrastruktur er operationel** — Python bridge.py med symmetrisk send/complete flow. 3 tmux sessioner: claude_architect (cloud, deepseek-v4-pro), claude_implementer (lokal, qwen36-27b-q4km), claude_review (cloud, deepseek-v4-flash). Se [[bridge-protocol]] for detaljer.
+- **ENO governance er sund** — ENO-5 gennemført (alle 6 projekt-specifikke filer afspejler ENO's identitet). ENO-6 Fase 1 (v3 alignment, 4/4 first-try) gennemført. ENO's 02_SCOPE.md er opdateret men næste funktionelle fase afventer definition.
 - **Superpowers governance framework** (`docs/governance-templates/superpowertemplates/`) er den autoritative kilde til tværprojekt-regler, model selection, og alignment. Loades ved reference til `superpowers.md`.
-- **4-lags i18n er nu obligatorisk** på tværs af alle projekter. Både DPMtF-WebUI og ENO bruger samme flow: `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`, API returnerer `{slot_key: text}`.
-- **ENO's governance-filer er stale** — 00_PROJECT.md siger stadig "AI PC Resource WebUI v3", 02_SCOPE.md viser fase 3C-3, 10_CHANGELOG.md og 11_NEXT_CONTEXT.md er DPMtF-WebUI kopier. Dette skal adresseres via GATE-GOVERNANCE-SYNC.
+- **4-lags i18n er obligatorisk** på tværs af alle projekter. Både DPMtF-WebUI og ENO bruger samme flow: `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`, API returnerer `{slot_key: text}`.
 - **Projektrapporten** (`docs/project-report.md`) er den autoritative reference for den videre retning. Læs den før næste fase planlægges.
 - DPMtF-WebUI bruger `docs/governance-templates/` som sine egne governance-docs — der er ingen separat `docs/dpmtf/` mappe. Templates tjener dobbelt funktion: master-kopier til initialisering af nye projekter OG aktiv governance for DPMtF-WebUI selv.
 
 ## Open Questions
 
-- Hvordan skal 2O designes? Skal det være en interaktiv test-runner i frontend, eller en batch-sammenligning der kører på tværs af alle templates?
-- Hvilke metrics er vigtigst for model selection: success rate, duration, cost, eller output quality?
 - ENO's næste funktionelle fase — hvad er ENO's eget roadmap ud over alignment med DPMtF-WebUI?
-- Om 10_CHANGELOG.md og README.md i governance-templates skal forblive generiske (template-versioner) eller også opdateres med DPMtF-WebUI-specifikt indhold. Nuværende praksis: de forbliver generiske; projektspecifikke versioner lever i target-projektets `docs/dpmtf/`.
+- Næste DPMtF-WebUI blok: 2O-b (comparison panel), automatisk model-routing, prompt-optimering til lokal model, eller noget nyt?
+- Hvordan udnyttes bridge-infrastrukturen bedst i den daglige workflow? Fast rollemønster (architect→implementer→review)?
 
 ## Files Changed (Governance Update 2026-06-13)
 
@@ -206,5 +217,15 @@ This governance document is the primary handoff artifact between sessions. The H
 | `docs/governance-templates/superpowertemplates/` | NY MAPPE: superpowers.md, alignmentstructure.md, gates.md, localmodel.md. |
 | `docs/governance-templates/05_CODING_STANDARD.md` | 4-lags i18n arkitektur dokumenteret som obligatorisk standard. |
 | `docs/governance-templates/10_CHANGELOG.md` | Panel groups, superpowers, 4-lags alignment entries. |
+
+## Files Changed (Governance Audit 2026-06-14)
+
+| File | What Changed |
+|------|-------------|
+| `docs/governance-templates/00_PROJECT.md` | Opdateret fra v3 generisk template til DPMtF-WebUI identitet: navn, port 9130, HEAD c2b81dd, Blok 6 status, relaterede projekter (ENO, v3, claude-bridge). Afgjort: projekt-specifikke templates i DPMtF-WebUI skal afspejle DPMtF-WebUI's egen identitet. |
+| `docs/governance-templates/superpowertemplates/alignmentstructure.md` | 2O rettet fra ⏳ til ✅ med commit-referencer og bridge note. Opdateringslog entry tilføjet. |
+| `docs/governance-templates/superpowertemplates/superpowers.md` | Projekt-hierarki: claude-bridge tilføjet. Workflow: nyt step 7 (bridge-infrastruktur check), step 8-10 renummeret. Opdateringslog: bridge integration entry. |
+| `docs/governance-templates/11_NEXT_CONTEXT.md` | Denne fil — governance audit sektion, opdateret git baseline, Important Notes opdateret (ENO stale note fjernet, 00_PROJECT afgjort, bridge tilføjet), Open Questions opdateret. |
+| `/home/svend/ENO/docs/dpmtf/02_SCOPE.md` | ENO-5 markeret completed → næste fase afventer definition. Scope change log opdateret med 2026-06-14 entry. |
 
 ---

@@ -14,11 +14,11 @@ This governance document defines the target project for the current role-based p
 
 ## Project Name
 
-AI PC Resource WebUI v3
+DPMtF-WebUI — Governance-first Orchestration Engine
 
 ## Purpose
 
-Database-driven web UI for local AI-powered PC resource management, service card orchestration, and Ollama model interaction — built clean from the ground up using DPMtF governance-first principles.
+**Father project** for DPMtF governance framework. Database-driven web UI that serves as the central governance engine — prompt template manager, prompt compiler, validation automation, git sync management, platform adapter framework, Claude Code session manager, and prompt→implementer→validator workflow loop. Holder ALLE governance templates som autoritativ kilde og udruller dem til Child projects via `initialize_target_project_governance.py`.
 
 ## Owner / Maintainer
 
@@ -26,32 +26,33 @@ Svend Blip
 
 ## Repository
 
-/home/svend/ai-pc-resource-webui-v3 (local git)
+/home/svend/DPMtF-WebUI (local git)
 
-Remote: https://github.com/svend-blip/ai-pc-resource-webui-v3.git
+Remote: https://github.com/svend-blip/DPMtF-WebUI.git
 
 ## Port
 
-9123
+9130
 
 ## Current Status
 
-Initial skeleton created and pushed. Governance documents initialized in phase 3C-3.
+**Blok 6 (2H-2O) komplet.** Alle faser 1A-2O er gennemført og committed. Governance-infrastruktur er fuldt bygget og empirisk valideret (2O: 3 parallel-kørsler, 9/9 first-try lokal model). Python bridge.py med symmetrisk send/complete tmux-kommunikation valideret. Næste roadmap skal defineres.
 
 ## Current Commit
 
-934a578 3C-2: Create initial v3 skeleton
+c2b81dd feat: Python bridge.py med symmetrisk send/complete tmux-kommunikation
 
 ## Runtime Command
 
 ```bash
-cd /home/svend/ai-pc-resource-webui-v3
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9123
+cd /home/svend/DPMtF-WebUI
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130
 ```
 
 ## Related Projects
 
-- **DPMtF WebUI** — Governance engine. This project is governed by DPMtF governance documents, initialized via `scripts/initialize_target_project_governance.py`.
-- **AI PC Resource WebUI v2** (/home/svend/ai-pc-resource-webui-v2) — Functional/design reference only. v3 does not copy v2 code 1:1; v2 serves as inspiration for intended end-state, not as a source to migrate from.
+- **ENO** (Evaluate Next Optimization, port 9131) — Første Child project. Database-driven evaluering og optimering af AI prompt execution.
+- **ai-pc-resource-webui-v3** (port 9123) — Reference-projekt til test af DPMtF prompt compiler.
+- **claude-bridge** (/home/svend/claude-bridge/) — Tmux bridge infrastruktur til cloud↔lokal model kommunikation via Python bridge.py.
 
 ---

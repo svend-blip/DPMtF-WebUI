@@ -13,6 +13,7 @@
 | **DPMtF-WebUI** | 9130 | **Father project** — governance engine, holder ALLE governance templates |
 | **ENO** (Evaluate Next Optimization) | 9131 | Første søn-projekt under alignment |
 | **ai-pc-resource-webui-v3** | 9123 | Reference-projekt til test af DPMtF prompt compiler |
+| **claude-bridge** | — | Tmux bridge infrastruktur: `bridge.py` med symmetrisk send/complete. 3 tmux sessioner: `claude_architect` (cloud, deepseek-v4-pro), `claude_implementer` (lokal, qwen36-27b-q4km), `claude_review` (cloud, deepseek-v4-flash). |
 
 DPMtF-WebUI's `docs/governance-templates/` er den **autoritative kilde** til alle
 governance-regler. Andre projekter får kopier via `scripts/initialize_target_project_governance.py`.
@@ -234,20 +235,29 @@ Disse filer ligger i samme mappe og loads efter behov:
    ├─ Tjek per-model hitrate via /api/prompt-templates/{key}/hitrate
    └─ Vælg template med bedst historisk performance for opgavetypen
 
-7. UDFØR opgave
+7. TJEK bridge-infrastruktur (hvis lokal model involveres)
+   ├─ Verificer at tmux sessioner kører (claude_architect, claude_implementer, claude_review)
+   ├─ Hvis lokal model skal udføre opgaven → brug [[bridge-protocol]]: bridge.py send/complete
+   ├─ cloud→lokal: skriv handoff.md → bridge.py send {ID}
+   ├─ lokal→cloud: bridge.py complete {ID} → læs resultat → review
+   └─ Alle bridge-handlinger logges i claude-bridge/trace.log (append-only)
+
+8. UDFØR opgave
    ├─ Følg aggregerede regler
+   ├─ Brug bridge-protokol hvis lokal model eksekverer
    └─ Dokumenter afvigelser
 
-8. REGISTRER prompt-run
+9. REGISTRER prompt-run
    ├─ POST /api/prompt-runs med obligatoriske outcome-felter
    ├─ Angiv template_key for at opdatere hitrate-statistik
    └─ Dette muliggør data-drevet template-forbedring over tid
 
-9. OPDATER .md filer
+10. OPDATER .md filer
    ├─ superpowers.md: nye regler, model-ændringer, governance sync protokol ændringer
    ├─ alignmentstructure.md: nye features i matrix, governance doc-status
    ├─ gates.md: nye gates hvis nødvendigt
    ├─ localmodel.md: nye model-regler
+   ├─ bridge-protocol.md: nye kommandoer, fejlscenarier, eller workflow-ændringer
    └─ Child projects' projekt-specifikke filer: hvis GATE-GOVERNANCE-SYNC godkendte opdatering
 ```
 
@@ -263,3 +273,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 | 2026-06-13 | Tilføjet 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API SKAL traversere alle 4 lag og returnere `{slot_key: text}`. Alignment med ENO gennemført (DPMtF-WebUI's API rettet til samme flow som ENO). Dokumenteret i 05_CODING_STANDARD.md. |
 | 2026-06-13 | Tilføjet **Father-Child Governance Sync protokol** (Sektion 1) — formelle regler for fil-klassifikation (strukturelle vs projekt-specifikke), audit-checkliste per Child project, opdateringsproces for projekt-specifikke filer. Workflow (Sektion 5) opdateret: nyt step 2 (Governance audit) med audit-spørgsmål og GATE-GOVERNANCE-SYNC trigger. Step 9 udvidet med Child project fil-opdatering. Baseret på ENO governance documentation update (ENO-5). |
 | 2026-06-14 | **2O baseline data integreret i Model Selection Decision Tree:** Tilføjet lokal model branch — "Er opgaven medium-høj eller lavere? → BRUG Lokal Ollama model". Evidens: 9/9 first-try success (ENO-6: 4 prompts + bridge tests: 2 + 2O: 3 valideringer). Model-tabel opdateret med 2O data. Cost-sammenligning: cloud ~0.02 EUR/run vs lokal 0 EUR. Lokal model begrænsning: ~55s thinking overhead. |
+| 2026-06-14 | **Bridge infrastruktur integreret:** claude-bridge tilføjet i projekt-hierarki. Workflow udvidet med step 7 (bridge-infrastruktur check). Søster-fil bridge-protocol.md opdateret til v2 (symmetrisk Python bridge.py). Bridge valideret med 2 tests, trace.log aktiv. |
