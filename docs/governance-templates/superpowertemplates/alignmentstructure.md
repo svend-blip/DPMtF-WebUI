@@ -111,7 +111,7 @@ Nuværende alignment mellem projekter:
 | Panelgrupper | ✅ Synkroniseret | ✅ Udrullet 2026-06-13 (Prompt #3) | ENO: 4 commits (dfaa96c→320a7a6). v3: 1ffd4a1 — panel-group containers, collapse/expand, user_panel_groups tabel, i18n labels. Udført af lokal model (qwen36-27b-q4km), first-try success. |
 | CSS theme | ✅ Synkroniseret | — | Begge bruger dark theme (GitHub-dark) — allerede aligned |
 | Frontend features | ✅ Afklaret | — | ENO har domæne-specifikke paneler. v3 har resource/pipeline paneler |
-| Governance-infrastruktur (2H-2O) | ⏳ Under udbygning (2H-2N ✅, 2O ⏳) | — | DPMtF-WebUI only — 2H-2N completed og committed. 2O (parallel-kørsel test cloud vs lokal) er sidste manglende fase i Blok 6 |
+| Governance-infrastruktur (2H-2O) | ✅ Blok 6 komplet (2H-2O) | — | DPMtF-WebUI only — Alle faser completed og committed. 2O: 3 parallel-kørsler gennemført, model decision tree opdateret med empirisk data. 9/9 first-try success for lokal model dokumenteret. |
 | | | | |
 
 ---
