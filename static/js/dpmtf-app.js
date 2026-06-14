@@ -132,9 +132,15 @@ function buildPanelStructure() {
 }
 
 function buildSubgroups(body, groupName, subgroups) {
-  // Fjern eksisterende subgroups
+  // Flyt paneler tilbage til body før subgroups fjernes (undgå at slette paneler)
   var existing = body.querySelectorAll(".panel-subgroup");
   for (var i = 0; i < existing.length; i++) {
+    var sgBody = existing[i].querySelector(".panel-subgroup-body");
+    if (sgBody) {
+      while (sgBody.firstChild) {
+        body.appendChild(sgBody.firstChild);
+      }
+    }
     existing[i].remove();
   }
 
