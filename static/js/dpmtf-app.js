@@ -1259,7 +1259,7 @@ function buildDrawerContent() {
   i18nCard.appendChild(i18nBody);
   content.appendChild(i18nCard);
 
-  fetch("/api/ui-labels/main?locale=" + locale)
+  fetch("/api/ui-labels/main?locale=" + encodeURIComponent(currentLocale))
     .then(function (res) { return res.json(); })
     .then(function (data) {
       clear(i18nBody);
@@ -1270,7 +1270,7 @@ function buildDrawerContent() {
         return;
       }
       var p = el("p", "dpmtf-small", null);
-      p.textContent = keys.length + " labels loaded for " + (data.locale || locale);
+      p.textContent = keys.length + " labels loaded for " + (data.locale || currentLocale);
       i18nBody.appendChild(p);
       // Show first 10 labels as sample
       var table = el("table", "dpmtf-table");
