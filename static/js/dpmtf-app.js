@@ -1607,6 +1607,76 @@ function buildDrawerContent() {
   };
   gitCard.appendChild(syncBtn);
 
+  // ── Comparison Runs ───────────────────────────────────
+  var cmpCard = el("div", "dpmtf-card");
+  cmpCard.appendChild(el("h4", null, lbl("lbl_drawer_comparisons", "Comparison Runs")));
+  var cmpBody = el("div", null);
+  cmpBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
+  cmpCard.appendChild(cmpBody);
+  content.appendChild(cmpCard);
+
+  fetch("/api/comparison-runs?limit=10")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(cmpBody);
+      var comparisons = data.comparisons || [];
+      if (!comparisons.length) {
+        cmpBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
+        return;
+      }
+      var table = el("table", "dpmtf-table");
+      var thead = el("thead", null);
+      var thr = el("tr", null);
+      [lbl("lbl_cmp_id", "ID"), lbl("lbl_cmp_task", "Task"), lbl("lbl_cmp_tier", "Tier"),
+       lbl("lbl_cmp_cloud", "Cloud"), lbl("lbl_cmp_local", "Local"),
+       lbl("lbl_cmp_winner", "Winner")].forEach(function (h) {
+        thr.appendChild(el("th", null, h));
+      });
+      thead.appendChild(thr);
+      table.appendChild(thead);
+      var tbody = el("tbody", null);
+      comparisons.forEach(function (c) {
+        var row = el("tr", null);
+        row.appendChild(td(c.comparison_id));
+        row.appendChild(td(c.task_type));
+        row.appendChild(td(String(c.complexity_tier)));
+
+        // Cloud celle: verdict + output_quality badge
+        var cloudCell = el("td", null);
+        var cloudBadge = el("span", "dpmtf-badge " +
+          (c.cloud_verdict === "completed" ? "dpmtf-badge-success" : "dpmtf-badge-warning"));
+        cloudBadge.textContent = (c.cloud_output_quality || "?") + "/5";
+        cloudCell.appendChild(cloudBadge);
+        row.appendChild(cloudCell);
+
+        // Local celle: verdict + output_quality badge
+        var localCell = el("td", null);
+        var localBadge = el("span", "dpmtf-badge " +
+          (c.local_verdict === "completed" ? "dpmtf-badge-success" : "dpmtf-badge-warning"));
+        localBadge.textContent = (c.local_output_quality || "?") + "/5";
+        localCell.appendChild(localBadge);
+        row.appendChild(localCell);
+
+        // Winner badge
+        var winnerCell = el("td", null);
+        var winnerBadge = el("span", "dpmtf-badge " +
+          (c.winner === "cloud" ? "dpmtf-badge-success" :
+           c.winner === "local" ? "dpmtf-badge-info" :
+           "dpmtf-badge-muted"));
+        winnerBadge.textContent = c.winner || "tie";
+        winnerCell.appendChild(winnerBadge);
+        row.appendChild(winnerCell);
+
+        tbody.appendChild(row);
+      });
+      table.appendChild(tbody);
+      cmpBody.appendChild(table);
+    })
+    .catch(function (err) {
+      clear(cmpBody);
+      cmpBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
+    });
+
   // ── Security / Permissions (placeholder) ─────────────
   var secCard = el("div", "dpmtf-card");
   secCard.appendChild(el("h4", null, lbl("lbl_drawer_security", "Security / Permissions")));
