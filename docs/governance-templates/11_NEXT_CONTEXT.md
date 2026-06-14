@@ -42,8 +42,8 @@ This governance document is the primary handoff artifact between sessions. The H
 | Check | Result |
 |-------|--------|
 | Branch | `master` |
-| Latest commit (HEAD) | `c2b81dd` (Python bridge.py med symmetrisk send/complete tmux-kommunikation) |
-| Uncommitted changes | Governance audit fixes: 00_PROJECT.md, alignmentstructure.md, superpowers.md, NEXT_CONTEXT.md + ENO 02_SCOPE.md |
+| Latest commit (HEAD) | `e21d2f3` (fix: sqlite3.Row index access) |
+| Uncommitted changes | NEXT_CONTEXT.md (denne opdatering) |
 | Remote | `origin → https://github.com/svend-blip/DPMtF-WebUI.git` |
 
 **Rule:** Always verify with live git commands. Do not assume commit/push state from previous NEXT_CONTEXT text. If git state conflicts with this file, stop and ask Svend. See [[15_GIT_POLICY]] for full rules.
@@ -52,8 +52,8 @@ This governance document is the primary handoff artifact between sessions. The H
 
 - **Project**: DPMtF WebUI — governance-first orchestration engine
 - **Current phase**: **Blok 6 (2H-2O) KOMPLET** — næste roadmap skal defineres
-- **Latest committed baseline**: c2b81dd (Python bridge.py)
-- **Governance audit gennemført 2026-06-14** — 4 discrepancies fundet og rettet (se nedenfor)
+- **Latest committed baseline**: e21d2f3 (panel subgroups — DPMtF + ENO aligned)
+- **Blok 7 (3A) aktiv** — Panel Subgroups: DPMtF implementeret, ENO aligned
 
 ### Phase Progress
 
@@ -92,6 +92,7 @@ This governance document is the primary handoff artifact between sessions. The H
 - **4-lags i18n Arkitektur Alignment**: DPMtF-WebUI's get_ui_labels_for_domain() omskrevet til fuld 4-lags traversering (slot→slot_label→label→translation), samme flow som ENO. 108 slots, 108 mappings, 108 labels, 216 translations. Commit: 303f7a9.
 - **Phase 2O — Parallel-kørsel test**: 3 parallel-kørsler (README reuse, footer new, CHANGELOG new). Model decision tree opdateret med empirisk data. 9/9 first-try for lokal model. Commit: fc98229.
 - **Tmux Bridge Protocol v2**: Python bridge.py med symmetrisk send/complete. Tovejs cloud↔lokal kommunikation valideret med 2 tests. Commit: c2b81dd.
+- **Phase 3A — Panel Subgroups**: Design subpatterns som nestede expand/collapse containere. Database-drevet via panel_subgroups + panel_subgroup_mappings tabeller. Implicit "All" subgroup. Tomme patterns/subpatterns skjules via is_visible. DPMtF: 3 Periodic subgroups (Fase, Planlægning, Eksisterende). ENO: 3 Periodic subgroups (Pipeline, Brainstorm, Nightrun). Commits: cb9845f, 3c6ef0d, ae229eb, e21d2f3 (DPMtF) + bcc0a99 (ENO).
 
 ## Completed Since Last Handoff (2026-06-14 Governance Audit)
 
