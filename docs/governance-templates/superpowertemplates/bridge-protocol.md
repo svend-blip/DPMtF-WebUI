@@ -170,3 +170,4 @@ Skriv en resultat-fil til /home/svend/claude-bridge/result.md med:
 | Dato | Ændring |
 |---|---|
 | 2026-06-13 | Oprettet — tmux bridge infrastruktur, handoff protokol, kommando-reference. Baseret på ENO-6 Fase 1 erfaring (4 manuelle prompts → automatiseret via tmux). |
+| 2026-06-14 | **Valideret med 2 tests:** Bridge test #1 (panel-group CSS, 5 farver) og #2 (komplet CSS mørk tema, 29 farver). Begge first-try success. Kendt issue: `tmux send-keys ... Enter` sender ikke altid Enter — lokal model venter nogle gange på manuelt Enter. Workaround: send eksplicit `tmux send-keys -t review_claude Enter` efter handoff. Lokal model viste initiativ: fandt selv lys farver ud over den eksplicitte mapping (#f5f5f5, #ccc, #fef2f2, #fef3c7, #888, #222, #111, #444, #e8e8e8). |
