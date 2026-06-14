@@ -3360,9 +3360,9 @@ async def get_panel_structure(locale: str = "en-US"):
     title_field = "title_da" if locale == "da-DK" else "title_en"
 
     for gn in group_names:
-        gr = group_rows.get(gn, {})
-        is_visible = gr.get("is_visible", 1) if gr else 1
-        state = gr.get("state", "expanded") if gr else "expanded"
+        gr = group_rows.get(gn)
+        is_visible = gr["is_visible"] if gr else 1
+        state = gr["state"] if gr else "expanded"
 
         group_subgroups = [sg for sg in subgroups if sg["group_name"] == gn]
 
