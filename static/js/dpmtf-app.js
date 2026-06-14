@@ -80,34 +80,43 @@ function switchLanguage(newLocale) {
     });
 }
 
-/* ── 1b. Panel group collapse/expand ────────────────── */
-var panelGroupStates = {};
+/* ── 1b. Panel structure (groups + subgroups) ────────── */
+var panelStructure = {};
 
-function loadPanelGroupStates() {
-  fetch("/api/user-panel-groups")
+function loadPanelStructure() {
+  fetch("/api/panel-structure?locale=" + encodeURIComponent(currentLocale))
     .then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
     })
     .then(function (data) {
-      panelGroupStates = data.groups || {};
-      applyPanelGroupStates();
+      panelStructure = data.groups || {};
+      buildPanelStructure();
     })
     .catch(function () {
-      applyPanelGroupStates();
+      buildPanelStructure();
     });
 }
 
-function applyPanelGroupStates() {
-  var groups = ["daily", "journals", "reports", "periodic", "setup"];
-  for (var i = 0; i < groups.length; i++) {
-    var name = groups[i];
-    var pg = document.getElementById("pg-" + name);
+function buildPanelStructure() {
+  var groupNames = ["daily", "journals", "reports", "periodic", "setup"];
+  for (var i = 0; i < groupNames.length; i++) {
+    var gn = groupNames[i];
+    var pg = document.getElementById("pg-" + gn);
     if (!pg) continue;
-    var state = panelGroupStates[name] || "expanded";
+    var info = panelStructure[gn] || { is_visible: true, state: "expanded", subgroups: [] };
+
+    // Skjul tomme grupper
+    if (!info.is_visible) {
+      pg.classList.add("dpmtf-hidden");
+      continue;
+    }
+    pg.classList.remove("dpmtf-hidden");
+
+    // Sæt group collapse state
     var toggle = pg.querySelector(".panel-group-toggle");
     var body = pg.querySelector(".panel-group-body");
-    if (state === "collapsed") {
+    if (info.state === "collapsed") {
       pg.classList.add("collapsed");
       if (body) body.style.display = "none";
       if (toggle) toggle.textContent = "▶";
@@ -116,6 +125,94 @@ function applyPanelGroupStates() {
       if (body) body.style.display = "";
       if (toggle) toggle.textContent = "▼";
     }
+
+    // Byg subgroups inde i body
+    if (body) buildSubgroups(body, gn, info.subgroups);
+  }
+}
+
+function buildSubgroups(body, groupName, subgroups) {
+  // Fjern eksisterende subgroups
+  var existing = body.querySelectorAll(".panel-subgroup");
+  for (var i = 0; i < existing.length; i++) {
+    existing[i].remove();
+  }
+
+  if (!subgroups || !subgroups.length) {
+    return;
+  }
+
+  for (var s = 0; s < subgroups.length; s++) {
+    var sg = subgroups[s];
+    if (!sg.is_visible) continue;
+
+    var sgEl = document.createElement("section");
+    sgEl.className = "panel-subgroup";
+    if (sg.key && sg.key.endsWith("_all")) {
+      sgEl.classList.add("panel-subgroup-all");
+    }
+    sgEl.setAttribute("data-subgroup", sg.key);
+
+    // Header
+    var header = document.createElement("div");
+    header.className = "panel-subgroup-header";
+    var title = document.createElement("h3");
+    title.textContent = sg.title || "";
+    header.appendChild(title);
+    var sgToggle = document.createElement("span");
+    sgToggle.className = "panel-subgroup-toggle";
+    sgToggle.textContent = sg.state === "collapsed" ? "▶" : "▼";
+    header.appendChild(sgToggle);
+    sgEl.appendChild(header);
+
+    // Body
+    var sgBody = document.createElement("div");
+    sgBody.className = "panel-subgroup-body";
+    if (sg.state === "collapsed") {
+      sgEl.classList.add("collapsed");
+      sgBody.style.display = "none";
+    }
+
+    // Flyt paneler ind i subgroup baseret på slot mapping
+    if (sg.slots && sg.slots.length) {
+      for (var k = 0; k < sg.slots.length; k++) {
+        var slotKey = sg.slots[k];
+        var panel = body.querySelector('[data-slot="' + slotKey + '"]');
+        if (panel) {
+          var section = panel.closest("section") || panel.parentElement;
+          if (section && section !== body) {
+            sgBody.appendChild(section);
+          }
+        }
+      }
+    }
+
+    sgEl.appendChild(sgBody);
+    body.appendChild(sgEl);
+
+    // Click handler for collapse
+    header.addEventListener("click", (function (subgroupKey, el, bodyEl, toggleEl) {
+      return function () {
+        var isCollapsed = el.classList.contains("collapsed");
+        var newState = isCollapsed ? "expanded" : "collapsed";
+        if (newState === "collapsed") {
+          el.classList.add("collapsed");
+          if (bodyEl) bodyEl.style.display = "none";
+          if (toggleEl) toggleEl.textContent = "▶";
+        } else {
+          el.classList.remove("collapsed");
+          if (bodyEl) bodyEl.style.display = "";
+          if (toggleEl) toggleEl.textContent = "▼";
+        }
+        fetch("/api/panel-structure/subgroup-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subgroup_key: subgroupKey, state: newState }),
+        }).catch(function (err) {
+          console.warn("Failed to save subgroup state:", err.message);
+        });
+      };
+    })(sg.key, sgEl, sgBody, sgToggle));
   }
 }
 
@@ -129,8 +226,10 @@ function initPanelGroupToggles() {
       var isCollapsed = pg.classList.contains("collapsed");
       var newState = isCollapsed ? "expanded" : "collapsed";
 
-      panelGroupStates[groupName] = newState;
-      applyPanelGroupStates();
+      if (panelStructure[groupName]) {
+        panelStructure[groupName].state = newState;
+      }
+      buildPanelStructure();
 
       fetch("/api/user-panel-groups", {
         method: "POST",
@@ -2075,7 +2174,7 @@ function onReady() {
       switchLanguage(this.value);
     });
   }
-  loadPanelGroupStates();
+  loadPanelStructure();
   initPanelGroupToggles();
   loadDbStatus();
   loadPhaseStatus();
