@@ -151,6 +151,15 @@ START: Bruger giver en opgave
 │   └─ BRUG: modellen med højest rolling_success_rate for denne template
 │      (tjek /api/prompt-templates/{key}/hitrate)
 │
+├─ Er opgaven medium-høj kompleksitet eller lavere? (complexity_tier ≤ 3)
+│   Kendetegn: ≤5 filer, veldefineret mønster, dokumentation, mekanisk migration
+│   └─ BRUG: Lokal Ollama model (qwen36-27b-q4km:latest)
+│      Evidens (2O, 2026-06-14): 9/9 first-try success på tværs af
+│      lav (1 fil), medium (1-3 filer), og medium-høj (5 filer) opgaver.
+│      Cost: 0 EUR/run vs ~0.02 EUR/run for cloud.
+│      Begrænsning: ~55s thinking overhead — langsommere end cloud
+│      til produktion, men sufficient til validering og mekaniske opgaver.
+│
 ├─ Er miljøet offline?
 │   └─ BRUG: Lokal Ollama model → se [[localmodel]]
 │
@@ -166,9 +175,9 @@ START: Bruger giver en opgave
 
 | Model | Type | Brug |
 |---|---|---|
-| **deepseek-v4-pro:cloud** | Cloud (standard) | Komplekse opgaver, arkitektur, multi-fil |
-| **deepseek-v4-flash:cloud** | Cloud (billig) | Mekaniske opgaver, 1-2 filer |
-| **qwen36-27b-q4km:latest** | Lokal (Ollama) | Offline, ROLELOCAL, prompt compiler |
+| **deepseek-v4-pro:cloud** | Cloud (standard) | Komplekse opgaver (tier ≥4), arkitektur, multi-fil integration, design-beslutninger |
+| **deepseek-v4-flash:cloud** | Cloud (billig) | Mekaniske opgaver, 1-2 filer, trivielle ændringer |
+| **qwen36-27b-q4km:latest** | Lokal (Ollama) | Offline, ROLELOCAL, prompt compiler. **2O evidens (9/9 first-try):** sufficient til opgaver ≤ medium-høj (≤5 filer). 0 EUR cost. ~55s thinking overhead. |
 
 ---
 
@@ -253,3 +262,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 | 2026-06-13 | Tilføjet obligatorisk i18n-regel — alle brugervendte frontend-tekster SKAL bruge `lbl()` med `ui_labels` + `ui_label_translations` seed-data. Validering udvidet fra 7 til 8 pre-commit checks (nyt check #8: frontend i18n). Auto-fail ændringer udvidet fra 7 til 8. |
 | 2026-06-13 | Tilføjet 4-lags i18n arkitektur som obligatorisk standard — `ui_text_slots` → `ui_text_slot_labels` → `ui_labels` → `ui_label_translations`. API SKAL traversere alle 4 lag og returnere `{slot_key: text}`. Alignment med ENO gennemført (DPMtF-WebUI's API rettet til samme flow som ENO). Dokumenteret i 05_CODING_STANDARD.md. |
 | 2026-06-13 | Tilføjet **Father-Child Governance Sync protokol** (Sektion 1) — formelle regler for fil-klassifikation (strukturelle vs projekt-specifikke), audit-checkliste per Child project, opdateringsproces for projekt-specifikke filer. Workflow (Sektion 5) opdateret: nyt step 2 (Governance audit) med audit-spørgsmål og GATE-GOVERNANCE-SYNC trigger. Step 9 udvidet med Child project fil-opdatering. Baseret på ENO governance documentation update (ENO-5). |
+| 2026-06-14 | **2O baseline data integreret i Model Selection Decision Tree:** Tilføjet lokal model branch — "Er opgaven medium-høj eller lavere? → BRUG Lokal Ollama model". Evidens: 9/9 first-try success (ENO-6: 4 prompts + bridge tests: 2 + 2O: 3 valideringer). Model-tabel opdateret med 2O data. Cost-sammenligning: cloud ~0.02 EUR/run vs lokal 0 EUR. Lokal model begrænsning: ~55s thinking overhead. |
