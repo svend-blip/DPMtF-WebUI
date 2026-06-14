@@ -78,6 +78,9 @@ Komprimeret fra de 19 governance templates. Ved detaljeret opslag, se den enkelt
 - v3 bygges rent fra bunden — v2 er kun reference, IKKE kilde til kode
 - Nye projekter implementerer rent — "hide-over-delete" er kun tilladt ved migration i eksisterende projekter
 - **Panelgrupper er fixed:** Daily, Journals, Reports, Periodic, Setup. Ændringer kræver ny design-specifikation og Human Approval Gate.
+- **Panel subgroups er valgfrie:** Hver panel-group KAN have subgroups defineret i `panel_subgroups` tabellen. Hvis en gruppe ikke har nogen subgroups, bruges en implicit "All" subgroup uden synlig header — paneler vises fladt som før.
+- **Tomme patterns/subpatterns skjules:** `is_visible = 0` i `user_panel_groups` (for patterns) eller `panel_subgroups` (for subpatterns) skjuler elementet via CSS-klassen `dpmtf-hidden`. Styres af database, ikke hardcodet.
+- **Subgroup struktur er database-drevet:** Ændringer i subgroup-definitioner kræver ikke HTML-ændringer. Nye subgroups tilføjes via seed data i `init_db.py`.
 
 ### Kode-standard (kritiske regler)
 
@@ -274,3 +277,4 @@ Disse filer ligger i samme mappe og loads efter behov:
 | 2026-06-13 | Tilføjet **Father-Child Governance Sync protokol** (Sektion 1) — formelle regler for fil-klassifikation (strukturelle vs projekt-specifikke), audit-checkliste per Child project, opdateringsproces for projekt-specifikke filer. Workflow (Sektion 5) opdateret: nyt step 2 (Governance audit) med audit-spørgsmål og GATE-GOVERNANCE-SYNC trigger. Step 9 udvidet med Child project fil-opdatering. Baseret på ENO governance documentation update (ENO-5). |
 | 2026-06-14 | **2O baseline data integreret i Model Selection Decision Tree:** Tilføjet lokal model branch — "Er opgaven medium-høj eller lavere? → BRUG Lokal Ollama model". Evidens: 9/9 first-try success (ENO-6: 4 prompts + bridge tests: 2 + 2O: 3 valideringer). Model-tabel opdateret med 2O data. Cost-sammenligning: cloud ~0.02 EUR/run vs lokal 0 EUR. Lokal model begrænsning: ~55s thinking overhead. |
 | 2026-06-14 | **Bridge infrastruktur integreret:** claude-bridge tilføjet i projekt-hierarki. Workflow udvidet med step 7 (bridge-infrastruktur check). Søster-fil bridge-protocol.md opdateret til v2 (symmetrisk Python bridge.py). Bridge valideret med 2 tests, trace.log aktiv. |
+| 2026-06-14 | Tilføjet **Panel Subgroups** scope-regler — nestede expand/collapse subgroups inden for panel-groups. Database-drevet via `panel_subgroups` + `panel_subgroup_mappings` tabeller. Implicit "All" subgroup når ingen defineret. Tomme patterns/subpatterns skjules via `is_visible`. |
