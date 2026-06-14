@@ -860,14 +860,17 @@ async def get_user_panel_groups():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT group_name, state FROM user_panel_groups WHERE user_id = ?",
+            "SELECT group_name, state, is_visible FROM user_panel_groups WHERE user_id = ?",
             (user_id,),
         )
         rows = cursor.fetchall()
         conn.close()
         groups = {}
         for row in rows:
-            groups[row["group_name"]] = row["state"]
+            groups[row["group_name"]] = {
+                "state": row["state"],
+                "is_visible": bool(row["is_visible"]),
+            }
         return {"user_id": user_id, "groups": groups}
     except Exception:
         try:
@@ -886,6 +889,7 @@ async def set_user_panel_group(request: Request):
     data = await request.json()
     group_name = data.get("group_name", "").strip()
     state = data.get("state", "").strip()
+    is_visible = data.get("is_visible", 1)
 
     if not group_name:
         raise HTTPException(status_code=400, detail="Missing required field: group_name")
@@ -911,9 +915,9 @@ async def set_user_panel_group(request: Request):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, updated_at)
-            VALUES (?, ?, ?, datetime('now'))
-        """, (user_id, group_name, state))
+            INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+        """, (user_id, group_name, state, is_visible))
         conn.commit()
         conn.close()
         return {"user_id": user_id, "group_name": group_name, "state": state, "status": "stored"}
@@ -3317,6 +3321,99 @@ async def get_comparison_runs(
 
     conn.close()
     return {"comparisons": comparisons}
+
+
+# ---- Panel Subgroup API endpoints ----
+
+@app.get("/api/panel-structure")
+async def get_panel_structure(locale: str = "en-US"):
+    """Return full panel hierarchy with subgroups, visibility, and collapse states."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT group_name, state, is_visible FROM user_panel_groups WHERE user_id = 'default'"
+    )
+    group_rows = {r["group_name"]: r for r in cursor.fetchall()}
+
+    cursor.execute(
+        "SELECT * FROM panel_subgroups WHERE is_visible = 1 ORDER BY sort_order"
+    )
+    subgroups = [dict(r) for r in cursor.fetchall()]
+
+    cursor.execute("SELECT * FROM panel_subgroup_mappings")
+    mappings = {}
+    for r in cursor.fetchall():
+        sg = r["subgroup_key"]
+        if sg not in mappings:
+            mappings[sg] = []
+        mappings[sg].append(r["slot_key"])
+
+    cursor.execute(
+        "SELECT subgroup_key, state FROM user_panel_groups WHERE user_id = 'default' AND subgroup_key IS NOT NULL"
+    )
+    subgroup_states = {r["subgroup_key"]: r["state"] for r in cursor.fetchall()}
+
+    group_names = ["daily", "journals", "reports", "periodic", "setup"]
+    result = {}
+    title_field = "title_da" if locale == "da-DK" else "title_en"
+
+    for gn in group_names:
+        gr = group_rows.get(gn, {})
+        is_visible = gr.get("is_visible", 1) if gr else 1
+        state = gr.get("state", "expanded") if gr else "expanded"
+
+        group_subgroups = [sg for sg in subgroups if sg["group_name"] == gn]
+
+        if group_subgroups:
+            subgroup_list = []
+            for sg in group_subgroups:
+                subgroup_list.append({
+                    "key": sg["subgroup_key"],
+                    "title": sg[title_field],
+                    "is_visible": bool(sg["is_visible"]),
+                    "state": subgroup_states.get(sg["subgroup_key"], "expanded"),
+                    "slots": mappings.get(sg["subgroup_key"], []),
+                })
+        else:
+            subgroup_list = [{
+                "key": f"sg_{gn}_all",
+                "title": "",
+                "is_visible": True,
+                "state": "expanded",
+                "slots": [],
+            }]
+
+        result[gn] = {
+            "is_visible": bool(is_visible),
+            "state": state,
+            "subgroups": subgroup_list,
+        }
+
+    conn.close()
+    return {"groups": result}
+
+
+@app.post("/api/panel-structure/subgroup-state")
+async def save_subgroup_state(request: Request):
+    """Save collapse state for a panel subgroup."""
+    data = await request.json()
+    subgroup_key = data.get("subgroup_key")
+    state = data.get("state", "expanded")
+
+    if not subgroup_key:
+        raise HTTPException(status_code=400, detail="subgroup_key required")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
+        VALUES ('default', ?, ?, 1, datetime('now'))
+    """, (subgroup_key, state))
+    conn.commit()
+    conn.close()
+    return {"status": "saved", "subgroup_key": subgroup_key, "state": state}
 
 
 if __name__ == "__main__":

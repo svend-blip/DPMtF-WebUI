@@ -398,3 +398,54 @@ h4 { color: #8b949e; font-size: 0.9em; margin: 12px 0 6px 0; }
 .panel-group.collapsed .panel-group-body {
     display: none;
 }
+
+/* ── Panel Subgroups (collapse/expand) ──────────────── */
+.panel-subgroup {
+    margin-bottom: 12px;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.panel-subgroup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    background: #161b22;
+}
+
+.panel-subgroup-header:hover {
+    background: #1c2129;
+}
+
+.panel-subgroup-header h3 {
+    font-size: 0.95rem;
+    margin: 0;
+    color: #c9d1d9;
+}
+
+.panel-subgroup-toggle {
+    font-size: 0.75rem;
+    color: #8b949e;
+}
+
+.panel-subgroup-body {
+    padding: 8px 12px;
+    border-top: 1px solid #21262d;
+    background: #0d1117;
+}
+
+.panel-subgroup.collapsed .panel-subgroup-body {
+    display: none;
+}
+
+.panel-subgroup-all .panel-subgroup-header {
+    display: none;
+}
+
+.panel-group.dpmtf-hidden {
+    display: none;
+}

@@ -2803,10 +2803,149 @@ CREATE TABLE IF NOT EXISTS user_panel_groups (
     user_id    TEXT NOT NULL,
     group_name TEXT NOT NULL,
     state      TEXT NOT NULL DEFAULT 'expanded',
+    is_visible INTEGER DEFAULT 1,
     updated_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, group_name)
 )
 """)
+
+# Tilføj is_visible kolonne hvis den ikke findes (for eksisterende DB'er)
+cursor.execute("PRAGMA table_info(user_panel_groups)")
+_columns = [col[1] for col in cursor.fetchall()]
+if "is_visible" not in _columns:
+    cursor.execute("ALTER TABLE user_panel_groups ADD COLUMN is_visible INTEGER DEFAULT 1")
+
+# ── Fase 3A: Panel Subgroups — Design subpatterns ──────────────────────
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS panel_subgroups (
+    subgroup_key  TEXT PRIMARY KEY NOT NULL,
+    group_name    TEXT NOT NULL,
+    title_da      TEXT NOT NULL,
+    title_en      TEXT NOT NULL,
+    sort_order    INTEGER DEFAULT 0,
+    is_visible    INTEGER DEFAULT 1,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS panel_subgroup_mappings (
+    slot_key      TEXT NOT NULL,
+    subgroup_key  TEXT NOT NULL,
+    PRIMARY KEY (slot_key, subgroup_key)
+)
+""")
+
+# Seed data — DPMtF subgroups
+panel_subgroups_seed = [
+    ("sg_periodic_phase", "periodic", "Fase", "Phase", 1, 1),
+    ("sg_periodic_planning", "periodic", "Planlægning", "Planning", 2, 1),
+    ("sg_periodic_existing", "periodic", "Eksisterende Projekter", "Existing Projects", 3, 1),
+]
+for sg in panel_subgroups_seed:
+    cursor.execute("""
+        INSERT OR REPLACE INTO panel_subgroups
+        (subgroup_key, group_name, title_da, title_en, sort_order, is_visible)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, sg)
+
+# Seed data — DPMtF mappings
+panel_subgroup_mappings_seed = [
+    ("lbl_panel_phase_status", "sg_periodic_phase"),
+    ("lbl_panel_project_planning", "sg_periodic_planning"),
+]
+for slot, sg in panel_subgroup_mappings_seed:
+    cursor.execute("""
+        INSERT OR REPLACE INTO panel_subgroup_mappings (slot_key, subgroup_key)
+        VALUES (?, ?)
+    """, (slot, sg))
+
+# Sæt Journals is_visible = 0 (skjul Journals panel-group)
+cursor.execute("""
+    INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
+    VALUES ('default', 'journals', 'expanded', 0, datetime('now'))
+""")
+
+# ── i18n labels — subgroup titles (tilføjes til de eksisterende lists) ──
+# LBL-ID'er 1000116-118 for subgroup titles
+ui_labels_subgroups = [
+    ("LBL-1000116", "sg_periodic_phase_title", "main", "Fase", "Subgroup: Phase"),
+    ("LBL-1000117", "sg_periodic_planning_title", "main", "Planlægning", "Subgroup: Planning"),
+    ("LBL-1000118", "sg_periodic_existing_title", "main", "Eksisterende Projekter", "Subgroup: Existing Projects"),
+]
+for label in ui_labels_subgroups:
+    cursor.execute("""
+        INSERT OR REPLACE INTO ui_labels
+        (label_id, label_key, label_domain, default_text, description)
+        VALUES (?, ?, ?, ?, ?)
+    """, label)
+
+# Tilføj til translations
+ui_label_translations_subgroups = [
+    ("LBL-1000116", "da-DK", "Fase"),
+    ("LBL-1000116", "en-US", "Phase"),
+    ("LBL-1000117", "da-DK", "Planlægning"),
+    ("LBL-1000117", "en-US", "Planning"),
+    ("LBL-1000118", "da-DK", "Eksisterende Projekter"),
+    ("LBL-1000118", "en-US", "Existing Projects"),
+]
+for translation in ui_label_translations_subgroups:
+    cursor.execute("""
+        INSERT OR REPLACE INTO ui_label_translations
+        (label_id, locale, translated_text)
+        VALUES (?, ?, ?)
+    """, translation)
+
+# Tilføj text slots for subgroup titles
+ui_text_slots_subgroups = [
+    ("sg_periodic_phase_title", "Subgroup: Phase title"),
+    ("sg_periodic_planning_title", "Subgroup: Planning title"),
+    ("sg_periodic_existing_title", "Subgroup: Existing Projects title"),
+]
+for slot_key, description in ui_text_slots_subgroups:
+    cursor.execute("""
+        INSERT OR IGNORE INTO ui_text_slots (slot_key, description)
+        VALUES (?, ?)
+    """, (slot_key, description))
+
+# Bind slots til labels
+ui_text_slot_labels_subgroups = [
+    ("sg_periodic_phase_title", "sg_periodic_phase_title"),
+    ("sg_periodic_planning_title", "sg_periodic_planning_title"),
+    ("sg_periodic_existing_title", "sg_periodic_existing_title"),
+]
+for slot_key, label_key in ui_text_slot_labels_subgroups:
+    cursor.execute("""
+        INSERT OR IGNORE INTO ui_text_slot_labels (slot_key, label_key)
+        VALUES (?, ?)
+    """, (slot_key, label_key))
+
+# Register new endpoints — panel structure + subgroup state
+endpoint_registry_subgroups = [
+    ("ENDP-4000036", "panel_structure", "/api/panel-structure", "GET", "Get full panel hierarchy with subgroups, visibility, and collapse states", "panel structure JSON", "panel_groups"),
+    ("ENDP-4000037", "subgroup_state", "/api/panel-structure/subgroup-state", "POST", "Save collapse state for a panel subgroup", "state JSON", "panel_groups"),
+]
+for ep in endpoint_registry_subgroups:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, ep)
+
+# Register bootstrap datasets for subgroups
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000024", "panel_subgroups", "panel_subgroups", "Panel subgroup definitions for nested expand/collapse", "scripts/init_db.py", 3, 0, 1))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000025", "panel_subgroup_mappings", "panel_subgroup_mappings", "Slot-to-subgroup mappings", "scripts/init_db.py", 2, 0, 1))
+
+# ── Phase tracking: 2O-b → completed, 3A → next (Panel Subgroups) ────────
 
 # ── Phase 2O-b: Comparison Runs ────────────────────────
 cursor.execute("""
@@ -2919,7 +3058,7 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """, ("BDS-5000023", "comparison_runs", "comparison_runs", "Comparison runs tracking cloud vs local model execution", "scripts/init_db.py", 0, 0, 1))
 
-# Update phase tracking: 2O→completed, 2O-b→next
+# Update phase tracking: 2O→completed, 2O-b→completed, 3A→next
 cursor.execute("""
     INSERT OR REPLACE INTO phase_status
     (phase_key, phase_title, phase_description, phase_state, sort_order)
@@ -2930,7 +3069,13 @@ cursor.execute("""
     INSERT OR REPLACE INTO phase_status
     (phase_key, phase_title, phase_description, phase_state, sort_order)
     VALUES (?, ?, ?, ?, ?)
-""", ("2O-b", "Comparison Panel", "Comparison Runs panel in System Setup drawer with table view of cloud vs local results.", "next", 39))
+""", ("2O-b", "Comparison Panel", "Comparison Runs panel in System Setup drawer with table view of cloud vs local results.", "completed", 39))
+
+cursor.execute("""
+    INSERT OR REPLACE INTO phase_status
+    (phase_key, phase_title, phase_description, phase_state, sort_order)
+    VALUES (?, ?, ?, ?, ?)
+""", ("3A", "Panel Subgroups", "Design subpatterns: nested expand/collapse subgroups within panel groups. Database-driven visibility and collapse states.", "next", 40))
 
 # Commit changes and close connection
 conn.commit()
