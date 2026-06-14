@@ -3351,9 +3351,9 @@ async def get_panel_structure(locale: str = "en-US"):
         mappings[sg].append(r["slot_key"])
 
     cursor.execute(
-        "SELECT subgroup_key, state FROM user_panel_groups WHERE user_id = 'default' AND subgroup_key IS NOT NULL"
+        "SELECT group_name, state FROM user_panel_groups WHERE user_id = 'default' AND group_name LIKE 'sg_%'"
     )
-    subgroup_states = {r["subgroup_key"]: r["state"] for r in cursor.fetchall()}
+    subgroup_states = {r["group_name"]: r["state"] for r in cursor.fetchall()}
 
     group_names = ["daily", "journals", "reports", "periodic", "setup"]
     result = {}
