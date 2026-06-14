@@ -15,53 +15,54 @@ This governance document defines what is included and excluded in the current ph
 
 ## Phase
 
-**3C-3 — Initialize governance docs into AI PC Resource WebUI v3**
+**2O — Parallel-kørsel test (cloud vs lokal)**
 
 ## In Scope Now
 
-- Governance initialization (copying DPMtF templates via the initializer script).
-- Customizing governance Markdown files under `docs/dpmtf/` for v3-specific content.
-- Future database-driven architecture planning (documented only, not implemented).
-- Documentation-only work. No code implementation in this phase.
+- Design og implementering af sammenlignings-infrastruktur til parallel prompt-eksekvering.
+- Kørsel af samme prompt på cloud-model (deepseek-v4-pro:cloud) og lokal model (qwen36-27b-q4km:latest).
+- Sammenligning af: execution success, duration, token usage, cost, output quality.
+- Brug af eksisterende infrastruktur: prompt_templates, prompt_runs, workflow_runs, template_model_hitrates.
+- Frontend-visning af sammenlignings-resultater (tabel, farvekoder, diff-visning).
+- Registrering af alle kørsler i prompt_runs med korrekte outcome-felter.
+- Opdatering af template_model_hitrates for begge modeller.
+- Produktion af baseline performance-data til model selection decision tree.
 
 ## Out of Scope Now
 
-- Database schema creation and seed scripts.
-- System Resources panel implementation.
-- Authentication implementation.
-- i18n implementation.
-- Endpoint registry implementation.
-- Copying v2 code into v3.
-- Service actions implementation.
-- WebUI restart or runtime testing.
-- Any modification to `app.py`, `config.py`, frontend files, or scripts/actions in v3.
+- Ændringer i ENO eller ai-pc-resource-webui-v3.
+- Nye eksterne dependencies uden Human Approval Gate.
+- Database schema-ændringer uden forudgående godkendelse.
+- Ændringer i prompt_templates struktur (den er stabil efter 2H redesign).
+- Automatisk model-routing baseret på test-resultater (det er en fremtidig fase).
+- Performance-optimering af lokal model eller Ollama konfiguration.
 
 ## Key Principle
 
-**v3 starts clean.** AI PC Resource WebUI v3 builds the intended structure from scratch. v2 is a functional/design reference only — code from v2 is not copied into v3. Reuse v2 as inspiration for the end-state architecture, not as source material to migrate.
+**Data-drevet model selection.** 2O etablerer det empiriske grundlag for model decision tree i superpowers.md. I stedet for at gætte hvilken model der er bedst til en given opgavetype, producerer vi faktiske sammenlignings-data fra parallelle kørsler. Resultaterne føder direkte ind i template_model_hitrates og fremtidig automatisk model-routing.
 
 ## Constraints
 
-- Do NOT modify `app.py` in v3.
-- Do NOT modify `config.py` in v3.
-- Do NOT modify frontend files in v3 (`templates/`, `static/`).
-- Do NOT modify scripts/actions in v3.
-- Do NOT create database schema or modify database files.
-- Do NOT modify DPMtF source files.
-- Do NOT modify v2.
-- Do NOT restart any WebUI or run uvicorn.
+- Do NOT modify ENO or ai-pc-resource-webui-v3.
+- Do NOT modify prompt_templates struktur (tilføjelse af nye templates er OK).
+- Do NOT introduce new dependencies without Human Approval Gate.
+- Do NOT modify database schema without prior approval (nye tabeller via CREATE TABLE IF NOT EXISTS er OK).
+- Do NOT restart Ollama service without human approval.
 - Do NOT commit until explicitly instructed.
-- Only Markdown files under `docs/dpmtf/` may be created or modified.
+- All frontend text MUST use `lbl(key, fallback)` — no hardcoded English strings.
+- No `innerHTML` for dynamic content — use `createElement()`/`textContent`/`appendChild()`.
+- Python: `py_compile` before commit, PEP 8, parameterized SQL queries.
+- Shell: `bash -n` before commit, `set -euo pipefail`.
 
 ## Success Criteria
 
-- All 18 DPMtF governance templates copied to `docs/dpmtf/`.
-- v3-specific customization applied to the required documents (00_PROJECT, 02_SCOPE, 04_ARCHITECTURE, 07_RESTART, 11_NEXT_CONTEXT, 15_GIT_POLICY, 16_DATABASE_RUNTIME_STATE, README).
-- No files outside `docs/dpmtf/` are modified in v3.
-- No DPMtF source files are modified.
-- No v2 files are modified.
-- Markdown fence check passes on all edited files.
-- No commit is made during this phase.
+- Mindst 3 parallel-kørsler gennemført (samme prompt, forskellige modeller).
+- Alle kørsler registreret i prompt_runs med execution_status, first_try_success, validation_passed, template_key.
+- template_model_hitrates opdateret for begge modeller (deepseek-v4-pro:cloud og qwen36-27b-q4km:latest).
+- Frontend-visning der sammenligner: success, duration, tokens, cost, output quality per kørsel.
+- Baseline-data der kan bruges til at informere model selection decision tree.
+- Alle 8 pre-commit validation checks passerer.
+- Governance-dokumentation opdateret (CHANGELOG, NEXT_CONTEXT, IMPLEMENTATION_REPORT).
 
 ## Scope Change Process
 
@@ -77,5 +78,6 @@ If scope must change during a session:
 | Date | Change | Reason | Decision Reference |
 |------|--------|--------|-------------------|
 | 2026-06-11 | Initial scope for phase 3C-3 | Governance initialization phase | — |
+| 2026-06-13 | Scope updated to phase 2O | 3C-3 was stale (v3 governance init). Actual project state: Blok 6 faser 2H-2N completed, 2O is next. | Governance update 2026-06-13 |
 
 ---
