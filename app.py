@@ -2726,9 +2726,31 @@ async def compile_prompt(template_key: str, request: Request):
     father_project = data.get("father_project", "DPMtF-WebUI")
     is_migration = (data.get("is_migration", False)
                    in (True, "true", "on", 1, "1"))
-    target_role = data.get("target_role", "Implementor")
+    target_session = data.get("target_session", "claude_implementer")
     screenshot_required = (data.get("screenshot_required", False)
                           in (True, "true", "on", 1, "1"))
+
+    # Derive role from session name
+    if "implementer" in target_session.lower():
+        governance_role_file = "03_IMPLEMENTOR.md"
+        role_name = "Implementor"
+        task_tag = "task"
+        signal = f"python3 /home/svend/claude-bridge/bridge.py complete {handoff_id}"
+    elif "architect" in target_session.lower():
+        governance_role_file = "02_ARCHITECT.md"
+        role_name = "Architect"
+        task_tag = "question"
+        signal = None
+    elif "review" in target_session.lower():
+        governance_role_file = "04_REVIEW.md"
+        role_name = "Review"
+        task_tag = "validation_target"
+        signal = None
+    else:
+        governance_role_file = "03_IMPLEMENTOR.md"
+        role_name = "Implementor"
+        task_tag = "task"
+        signal = f"python3 /home/svend/claude-bridge/bridge.py complete {handoff_id}"
 
     # Gate answers for context
     gates_answered = []
@@ -2774,19 +2796,11 @@ async def compile_prompt(template_key: str, request: Request):
              if c.strip()]
         )
 
-    # ── Generate XML output (handoff 015 — role-specific) ────
-    if target_role == "Implementor":
-        governance_role_file = "03_IMPLEMENTOR.md"
-    elif target_role == "Architect":
-        governance_role_file = "02_ARCHITECT.md"
-    elif target_role == "Review":
-        governance_role_file = "04_REVIEW.md"
-    else:
-        governance_role_file = "03_IMPLEMENTOR.md"
+    # ── Generate XML output (handoff 021 — session-derived role) ────
 
     lines = []
     lines.append(
-        f"<role>You are {target_role} in the DPMtF governance loop. "
+        f"<role>You are {role_name} in the DPMtF governance loop. "
         "Your role is defined"
     )
     lines.append(
@@ -2865,7 +2879,7 @@ async def compile_prompt(template_key: str, request: Request):
     lines.append("")
 
     # ── Role-specific task/question/validation_target ──
-    if target_role == "Implementor":
+    if task_tag == "task":
         lines.append("<task>")
         lines.append(f"{goal}")
         lines.append("")
@@ -2903,7 +2917,7 @@ async def compile_prompt(template_key: str, request: Request):
         )
         lines.append("</task>")
 
-    elif target_role == "Architect":
+    elif task_tag == "question":
         lines.append("<question>")
         lines.append(f"{goal}")
         lines.append("")
@@ -2929,7 +2943,7 @@ async def compile_prompt(template_key: str, request: Request):
         )
         lines.append("</question>")
 
-    elif target_role == "Review":
+    elif task_tag == "validation_target":
         lines.append("<validation_target>")
         lines.append(f"{goal}")
         lines.append("")
@@ -3015,20 +3029,20 @@ async def compile_prompt(template_key: str, request: Request):
     lines.append("")
     lines.append("<constraint>")
     lines.append("DO NOT COMMIT. Leave all changes unstaged.")
-    if target_role == "Implementor":
+    if task_tag == "task":
         lines.append(
             "Execute ALL steps in <task> — especially step 3 "
             "(bridge.py complete)."
         )
-    elif target_role == "Architect":
+    elif task_tag == "question":
         lines.append(
             "Write complete analysis before signaling completion."
         )
-    elif target_role == "Review":
+    elif task_tag == "validation_target":
         lines.append(
             "Run all validation checks and write verdict."
         )
-    lines.append(f"Target role: {target_role}.")
+    lines.append(f"Target session: {target_session} (role: {role_name}).")
     if screenshot_required:
         lines.append(
             "CAPTURE SCREENSHOT before signaling completion — save as "
@@ -3051,7 +3065,8 @@ async def compile_prompt(template_key: str, request: Request):
         "prompt": prompt_text,
         "params_used": list(data.keys()),
         "format": "governance-v2-xml",
-        "target_role": target_role,
+        "target_session": target_session,
+        "target_role": role_name,  # derived from session, for display
         "gates_answered": gates_answered,
     }
 
@@ -3116,8 +3131,10 @@ async def assign_handoff_id(request: Request):
             status_code=500, detail=f"Failed to write handoff file: {e}"
         )
 
+    target_session: str = data.get("target_session", "claude_implementer")
     dispatch_command: str = (
         f"python3 /home/svend/claude-bridge/bridge.py send {handoff_id}"
+        f" --session {target_session}"
     )
 
     return {
@@ -3125,6 +3142,7 @@ async def assign_handoff_id(request: Request):
         "handoff_path": handoff_path,
         "prompt": finalized_prompt,
         "dispatch_command": dispatch_command,
+        "target_session": target_session,
         "status": "ready_for_dispatch",
     }
 
@@ -3755,23 +3773,26 @@ def _compile_prompt_internal(
     handoff_id = params.get("handoff_id", "???")
     father_project = params.get("father_project", "DPMtF-WebUI")
     is_migration = params.get("is_migration", False)
-    target_role = params.get("target_role", "Implementor")
-    screenshot_required = params.get("screenshot_required", False)
+    target_session = params.get("target_session", "claude_implementer")
 
-    # ── Role-specific governance file (handoff 015) ──
-    if target_role == "Implementor":
+    # Derive role from session name
+    if "implementer" in target_session.lower():
         governance_role_file = "03_IMPLEMENTOR.md"
-    elif target_role == "Architect":
+        role_name = "Implementor"
+    elif "architect" in target_session.lower():
         governance_role_file = "02_ARCHITECT.md"
-    elif target_role == "Review":
+        role_name = "Architect"
+    elif "review" in target_session.lower():
         governance_role_file = "04_REVIEW.md"
+        role_name = "Review"
     else:
         governance_role_file = "03_IMPLEMENTOR.md"
+        role_name = "Implementor"
 
     # ── Generate XML output (same structure as compile_prompt) ──
     lines = []
     lines.append(
-        f"<role>You are {target_role} in the DPMtF governance loop. "
+        f"<role>You are {role_name} in the DPMtF governance loop. "
         "Your role is defined"
     )
     lines.append(
@@ -3857,7 +3878,7 @@ def _compile_prompt_internal(
     lines.append("")
     lines.append("<constraint>")
     lines.append("DO NOT COMMIT. Leave all changes unstaged.")
-    lines.append(f"Target role: {target_role}.")
+    lines.append(f"Target session: {target_session} (role: {role_name}).")
     if screenshot_required:
         lines.append(
             "CAPTURE SCREENSHOT before signaling completion."
