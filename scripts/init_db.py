@@ -3618,6 +3618,15 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?)
 """, ("3A", "Panel Subgroups", "Design subpatterns: nested expand/collapse subgroups within panel groups. Database-driven visibility and collapse states.", "next", 40))
 
+# ── Register GET /api/available-languages endpoint (handoff 019, Phase 3B) ──
+cursor.execute("""
+    INSERT OR REPLACE INTO endpoint_registry
+    (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+""", ("ENDP-4000043", "available_languages", "/api/available-languages", "GET",
+    "List distinct locales with display names from ui_label_translations for dynamic language dropdown",
+    "languages JSON array with locale and display_name", "language_selector"))
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

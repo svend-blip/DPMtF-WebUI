@@ -11,8 +11,10 @@ function loadLabels() {
     })
     .then(function (data) {
       currentLocale = data.locale || "en-US";
-      var dropdown = document.getElementById("lang-dropdown");
-      if (dropdown) dropdown.value = currentLocale;
+
+      // Initialize language dropdown from database
+      initLanguageDropdown(currentLocale);
+
       return fetch("/api/ui-labels/main?locale=" + encodeURIComponent(currentLocale));
     })
     .then(function (res) {
@@ -77,6 +79,37 @@ function switchLanguage(newLocale) {
     })
     .catch(function (err) {
       console.warn("Failed to switch language:", err.message);
+    });
+}
+
+function initLanguageDropdown(userLocale) {
+  var dropdown = document.getElementById("lang-dropdown");
+  if (!dropdown) return;
+
+  // Set meta locale dynamically
+  var metaLocale = document.querySelector('meta[name="locale"]');
+  if (metaLocale) metaLocale.content = userLocale;
+
+  fetch("/api/available-languages")
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      clear(dropdown);
+      (data.languages || []).forEach(function (lang) {
+        var option = el("option", null);
+        option.value = lang.locale;
+        option.textContent = lang.display_name;
+        if (lang.locale === userLocale) option.selected = true;
+        dropdown.appendChild(option);
+      });
+      // Set onchange handler
+      dropdown.onchange = function () { switchLanguage(this.value); };
+    })
+    .catch(function (err) {
+      console.warn("Failed to load language list:", err.message);
+      // Dropdown keeps existing options as fallback
     });
 }
 

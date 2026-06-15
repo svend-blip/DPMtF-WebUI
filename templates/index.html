@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="locale" content="da-DK" />
+    <meta name="locale" content="" />
     <title data-slot="lbl_page_title">Loading...</title>
     <link rel="stylesheet" href="/static/css/dpmtf-theme.css" />
 </head>
@@ -14,10 +14,7 @@
             <div class="lang-selector">
                 <label for="lang-dropdown" class="lang-label">Language</label>
                 <select id="lang-dropdown">
-                    <option value="da-DK">Dansk</option>
-                    <option value="en-US">English</option>
-                    <option value="de-DE">Deutsch</option>
-                    <option value="sv-SE">Svenska</option>
+                    <!-- Populated dynamically from /api/available-languages -->
                 </select>
             </div>
         </div>

@@ -840,6 +840,53 @@ async def set_user_language(request: Request):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to store preference: {exc}")
 
+
+@app.get("/api/available-languages")
+async def get_available_languages():
+    """Return distinct locales with display names from ui_label_translations.
+
+    The frontend uses this to populate the language dropdown dynamically.
+    Adding a new locale to ui_label_translations automatically makes it
+    available in the dropdown — no HTML changes needed.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT locale
+        FROM ui_label_translations
+        WHERE is_active = 1
+        ORDER BY locale
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Locale display names (en-US)
+    locale_names = {
+        "da-DK": "Dansk",
+        "en-US": "English",
+        "de-DE": "Deutsch",
+        "sv-SE": "Svenska",
+    }
+
+    languages = []
+    for row in rows:
+        loc = row["locale"]
+        languages.append({
+            "locale": loc,
+            "display_name": locale_names.get(loc, loc)
+        })
+
+    # Fallback if table is empty (should not happen, but safe)
+    if not languages:
+        languages = [
+            {"locale": "en-US", "display_name": "English"},
+            {"locale": "da-DK", "display_name": "Dansk"},
+        ]
+
+    return {"languages": languages}
+
+
 VALID_PANEL_GROUPS = {"daily", "journals", "reports", "periodic", "setup"}
 VALID_PANEL_STATES = {"expanded", "collapsed"}
 
