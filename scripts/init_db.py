@@ -527,6 +527,11 @@ ui_labels_data = [
     ("LBL-1000113", "lbl_cmp_cloud", "main", "Cloud", "Comparison cloud model column header"),
     ("LBL-1000114", "lbl_cmp_local", "main", "Local", "Comparison local model column header"),
     ("LBL-1000115", "lbl_cmp_winner", "main", "Winner", "Comparison winner column header"),
+    # ── 2P: Prompt Compiler v2 — target_role labels (handoff 015) ──
+    ("LBL-1000208", "lbl_target_role", "template_manager", "Target Role", "Prompt compiler target role field label"),
+    ("LBL-1000209", "lbl_target_role_implementor", "template_manager", "Implementor — code execution", "target_role option: Implementor"),
+    ("LBL-1000210", "lbl_target_role_architect", "template_manager", "Architect — design & analysis", "target_role option: Architect"),
+    ("LBL-1000211", "lbl_target_role_review", "template_manager", "Review — validation & coordination", "target_role option: Review"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -1056,6 +1061,23 @@ ui_label_translations_data = [
     ("LBL-1000207", "da-DK", "Kompileret Prompt"),
     ("LBL-1000207", "de-DE", "Kompilierte Eingabeaufforderung"),
     ("LBL-1000207", "sv-SE", "Compilerad prompt"),
+    # ── 2P: target_role labels (handoff 015) ──
+    ("LBL-1000208", "en-US", "Target Role"),
+    ("LBL-1000208", "da-DK", "Målrolle"),
+    ("LBL-1000208", "de-DE", "Zielrolle"),
+    ("LBL-1000208", "sv-SE", "Målroll"),
+    ("LBL-1000209", "en-US", "Implementor — code execution"),
+    ("LBL-1000209", "da-DK", "Implementor — kodeudførelse"),
+    ("LBL-1000209", "de-DE", "Implementierer — Code-Ausführung"),
+    ("LBL-1000209", "sv-SE", "Implementör — kodexekvering"),
+    ("LBL-1000210", "en-US", "Architect — design & analysis"),
+    ("LBL-1000210", "da-DK", "Arkitekt — design & analyse"),
+    ("LBL-1000210", "de-DE", "Architekt — Design & Analyse"),
+    ("LBL-1000210", "sv-SE", "Arkitekt — design & analys"),
+    ("LBL-1000211", "en-US", "Review — validation & coordination"),
+    ("LBL-1000211", "da-DK", "Review — validering & koordinering"),
+    ("LBL-1000211", "de-DE", "Prüfung — Validierung & Koordination"),
+    ("LBL-1000211", "sv-SE", "Granskning — validering & koordinering"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
@@ -2810,16 +2832,19 @@ compiler_fields_seed = [
      '{"trigger":"is_migration_true","description":"is_migration checkbox is checked"}',
      "migration", 17, "Describe what is being migrated from",
      "Brief description of the source project and what to migrate", None),
-    # ── Section: validation (sort_order 18-20) ────────────────────
+    # ── Section: validation (sort_order 18-21) ────────────────────
     ("validation_commands", "Validation commands (one per line)", "textarea", 1, None,
      "validation", 18, "python3 -m py_compile app.py\nnode --check static/js/dpmtf-app.js\ngrep -RIn innerHTML static templates",
      "Shell commands the Implementor must run before signaling completion", None),
-    ("model_selection", "Model for execution", "select", 1, None,
+    ("model_selection", "Model for execution", "select", 0, None,
      "validation", 19, None,
      "Which model should execute this task per 22_MODEL_SELECTION.md", "qwen36-27b-q4km"),
+    ("target_role", "Target Role", "select", 1, None,
+     "validation", 20, None,
+     "Which role receives this prompt — determines prompt format", "Implementor"),
     ("screenshot_required", "Screenshot required (Visual Approval)", "checkbox", 1,
      '{"trigger":"has_visual_changes","description":"Task involves frontend visual changes"}',
-     "validation", 20, None,
+     "validation", 21, None,
      "Human must review screenshot before commit per 01_HUMAN.md", None),
 ]
 for field in compiler_fields_seed:
@@ -2830,12 +2855,64 @@ for field in compiler_fields_seed:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, field)
 
+# Deactivate model_selection — replaced by target_role (handoff 015)
+cursor.execute("""
+    UPDATE prompt_compiler_fields
+    SET is_active = 0
+    WHERE field_key = 'model_selection'
+""")
+
+# ── Handoff 015: Database-driven field options ──────────────────────
+
+# Create table for select-field options (database-driven dropdowns)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS prompt_compiler_field_options (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    field_key TEXT NOT NULL,
+    option_value TEXT NOT NULL,
+    option_label TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    is_default INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    UNIQUE(field_key, option_value)
+)
+""")
+
+# Clean up old duplicate data (handoff 015 reviewer fix — table originally
+# lacked UNIQUE(field_key, option_value) constraint causing duplicates on re-run)
+cursor.execute("DELETE FROM prompt_compiler_field_options")
+
+# Seed field options for select fields
+compiler_field_options_seed = [
+    # ── target_role options ──
+    ("target_role", "Implementor", "Implementor — code execution", 1, 1),
+    ("target_role", "Architect", "Architect — design & analysis", 2, 0),
+    ("target_role", "Review", "Review — validation & coordination", 3, 0),
+    # ── target_project options ──
+    ("target_project", "/home/svend/DPMtF-WebUI", "DPMtF-WebUI (Father, port 9130)", 1, 1),
+    ("target_project", "/home/svend/ENO", "ENO (Child, port 9131)", 2, 0),
+    ("target_project", "/home/svend/ai-pc-resource-webui-v3", "ai-pc-resource-webui-v3 (Reference, port 9123)", 3, 0),
+    # ── father_project options ──
+    ("father_project", "DPMtF-WebUI", "DPMtF-WebUI", 1, 1),
+]
+for opt in compiler_field_options_seed:
+    cursor.execute("""
+        INSERT OR IGNORE INTO prompt_compiler_field_options
+        (field_key, option_value, option_label, sort_order, is_default)
+        VALUES (?, ?, ?, ?, ?)
+    """, opt)
+
 # Register compiler fields endpoints
 endpoint_registry_2i_v2 = [
     ("ENDP-4000038", "prompt_compiler_fields_list", "/api/prompt-compiler-fields", "GET",
      "List all active prompt compiler fields grouped by section", "fields JSON with sections", "template_manager"),
     ("ENDP-4000039", "prompt_compiler_fields_create", "/api/prompt-compiler-fields", "POST",
      "Create a new prompt compiler field", "created field JSON", "template_manager"),
+    ("ENDP-4000040", "prompt_compiler_field_options_list", "/api/prompt-compiler-fields", "GET",
+     "List all active field options for select fields (attached to fields response)",
+     "options JSON array per field", "template_manager"),
+    ("ENDP-4000041", "prompt_compiler_field_options_create", "/api/prompt-compiler-field-options", "POST",
+     "Create a new option for a compiler select field", "created option JSON", "template_manager"),
 ]
 for endpoint in endpoint_registry_2i_v2:
     cursor.execute("""
@@ -2852,6 +2929,15 @@ cursor.execute("""
 """, ("BDS-5000023", "prompt_compiler_fields", "prompt_compiler_fields",
     "Dynamic form fields for Prompt Compiler with conditional gating — governance-v2 compliant",
     "scripts/init_db.py", 20, 1, 1))
+
+# Register bootstrap dataset for prompt_compiler_field_options (handoff 015)
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000040", "prompt_compiler_field_options", "prompt_compiler_field_options",
+    "Database-driven dropdown options for select fields in Prompt Compiler",
+    "scripts/init_db.py", 7, 1, 1))
 
 # ── Register new endpoints
 endpoint_registry_2h = [
