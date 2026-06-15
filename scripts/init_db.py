@@ -527,11 +527,11 @@ ui_labels_data = [
     ("LBL-1000113", "lbl_cmp_cloud", "main", "Cloud", "Comparison cloud model column header"),
     ("LBL-1000114", "lbl_cmp_local", "main", "Local", "Comparison local model column header"),
     ("LBL-1000115", "lbl_cmp_winner", "main", "Winner", "Comparison winner column header"),
-    # ── 2P: Prompt Compiler v2 — target_role labels (handoff 015) ──
-    ("LBL-1000208", "lbl_target_role", "template_manager", "Target Role", "Prompt compiler target role field label"),
-    ("LBL-1000209", "lbl_target_role_implementor", "template_manager", "Implementor — code execution", "target_role option: Implementor"),
-    ("LBL-1000210", "lbl_target_role_architect", "template_manager", "Architect — design & analysis", "target_role option: Architect"),
-    ("LBL-1000211", "lbl_target_role_review", "template_manager", "Review — validation & coordination", "target_role option: Review"),
+    # ── 2P: Prompt Compiler v2 — target_session labels (handoff 021) ──
+    ("LBL-1000208", "lbl_target_session", "template_manager", "Target tmux Session", "Prompt compiler target session field label"),
+    ("LBL-1000209", "lbl_target_session_implementor", "template_manager", "Implementor — code execution (claude_implementer)", "target_session option: claude_implementer"),
+    ("LBL-1000210", "lbl_target_session_architect", "template_manager", "Architect — design & analysis (claude_architect)", "target_session option: claude_architect"),
+    ("LBL-1000211", "lbl_target_session_review", "template_manager", "Review — validation & coordination (claude_review)", "target_session option: claude_review"),
     # ── Prompt Compiler Hardening: handoff ID assignment (handoff 017) ──
     ("LBL-1000212", "lbl_btn_assign_handoff_id", "template_manager", "Assign Handoff ID", "Button to assign a real handoff ID to a compiled prompt"),
     ("LBL-1000213", "lbl_status_assigning_id", "template_manager", "Assigning handoff ID...", "Loading state for handoff ID assignment"),
@@ -1069,22 +1069,22 @@ ui_label_translations_data = [
     ("LBL-1000207", "de-DE", "Kompilierte Eingabeaufforderung"),
     ("LBL-1000207", "sv-SE", "Compilerad prompt"),
     # ── 2P: target_role labels (handoff 015) ──
-    ("LBL-1000208", "en-US", "Target Role"),
-    ("LBL-1000208", "da-DK", "Målrolle"),
-    ("LBL-1000208", "de-DE", "Zielrolle"),
-    ("LBL-1000208", "sv-SE", "Målroll"),
-    ("LBL-1000209", "en-US", "Implementor — code execution"),
-    ("LBL-1000209", "da-DK", "Implementor — kodeudførelse"),
-    ("LBL-1000209", "de-DE", "Implementierer — Code-Ausführung"),
-    ("LBL-1000209", "sv-SE", "Implementör — kodexekvering"),
-    ("LBL-1000210", "en-US", "Architect — design & analysis"),
-    ("LBL-1000210", "da-DK", "Arkitekt — design & analyse"),
-    ("LBL-1000210", "de-DE", "Architekt — Design & Analyse"),
-    ("LBL-1000210", "sv-SE", "Arkitekt — design & analys"),
-    ("LBL-1000211", "en-US", "Review — validation & coordination"),
-    ("LBL-1000211", "da-DK", "Review — validering & koordinering"),
-    ("LBL-1000211", "de-DE", "Prüfung — Validierung & Koordination"),
-    ("LBL-1000211", "sv-SE", "Granskning — validering & koordinering"),
+    ("LBL-1000208", "en-US", "Target tmux Session"),
+    ("LBL-1000208", "da-DK", "tmux-session"),
+    ("LBL-1000208", "de-DE", "Ziel-tmux-Session"),
+    ("LBL-1000208", "sv-SE", "tmux-session"),
+    ("LBL-1000209", "en-US", "Implementor — code execution (claude_implementer)"),
+    ("LBL-1000209", "da-DK", "Implementor — kodeudførelse (claude_implementer)"),
+    ("LBL-1000209", "de-DE", "Implementierer — Code-Ausführung (claude_implementer)"),
+    ("LBL-1000209", "sv-SE", "Implementör — kodexekvering (claude_implementer)"),
+    ("LBL-1000210", "en-US", "Architect — design & analysis (claude_architect)"),
+    ("LBL-1000210", "da-DK", "Arkitekt — design & analyse (claude_architect)"),
+    ("LBL-1000210", "de-DE", "Architekt — Design & Analyse (claude_architect)"),
+    ("LBL-1000210", "sv-SE", "Arkitekt — design & analys (claude_architect)"),
+    ("LBL-1000211", "en-US", "Review — validation & coordination (claude_review)"),
+    ("LBL-1000211", "da-DK", "Review — validering & koordinering (claude_review)"),
+    ("LBL-1000211", "de-DE", "Prüfung — Validierung & Koordination (claude_review)"),
+    ("LBL-1000211", "sv-SE", "Granskning — validering & koordinering (claude_review)"),
     # ── handoff 017: Assign Handoff ID labels ──
     ("LBL-1000212", "en-US", "Assign Handoff ID"),
     ("LBL-1000212", "da-DK", "Tildel Handoff ID"),
@@ -2885,9 +2885,9 @@ compiler_fields_seed = [
     ("model_selection", "Model for execution", "select", 0, None,
      "validation", 19, None,
      "Which model should execute this task per 22_MODEL_SELECTION.md", "qwen36-27b-q4km"),
-    ("target_role", "Target Role", "select", 1, None,
+    ("target_session", "Target tmux Session", "select", 1, None,
      "validation", 20, None,
-     "Which role receives this prompt — determines prompt format", "Implementor"),
+     "Which tmux session receives the dispatch — determines prompt format and bridge target", "claude_implementer"),
     ("screenshot_required", "Screenshot required (Visual Approval)", "checkbox", 1,
      '{"trigger":"has_visual_changes","description":"Task involves frontend visual changes"}',
      "validation", 21, None,
@@ -2901,11 +2901,50 @@ for field in compiler_fields_seed:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, field)
 
-# Deactivate model_selection — replaced by target_role (handoff 015)
+# Deactivate model_selection — replaced by target_session (handoff 021)
 cursor.execute("""
     UPDATE prompt_compiler_fields
     SET is_active = 0
     WHERE field_key = 'model_selection'
+""")
+
+# ── Handoff 021: Migrate target_role → target_session ──
+# Idempotent UPDATE for existing databases that have the old target_role data
+cursor.execute("""
+    UPDATE prompt_compiler_fields
+    SET field_key = 'target_session',
+        field_label = 'Target tmux Session',
+        help_text = 'Which tmux session receives the dispatch — determines prompt format and bridge target',
+        default_value = 'claude_implementer'
+    WHERE field_key = 'target_role'
+""")
+
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET field_key = 'target_session'
+    WHERE field_key = 'target_role'
+""")
+
+# Update option values and labels for the migrated rows
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET option_value = 'claude_implementer',
+        option_label = 'Implementor — code execution (claude_implementer)'
+    WHERE field_key = 'target_session' AND option_value = 'Implementor'
+""")
+
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET option_value = 'claude_architect',
+        option_label = 'Architect — design & analysis (claude_architect)'
+    WHERE field_key = 'target_session' AND option_value = 'Architect'
+""")
+
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET option_value = 'claude_review',
+        option_label = 'Review — validation & coordination (claude_review)'
+    WHERE field_key = 'target_session' AND option_value = 'Review'
 """)
 
 # ── Handoff 015: Database-driven field options ──────────────────────
@@ -2930,10 +2969,10 @@ cursor.execute("DELETE FROM prompt_compiler_field_options")
 
 # Seed field options for select fields
 compiler_field_options_seed = [
-    # ── target_role options ──
-    ("target_role", "Implementor", "Implementor — code execution", 1, 1),
-    ("target_role", "Architect", "Architect — design & analysis", 2, 0),
-    ("target_role", "Review", "Review — validation & coordination", 3, 0),
+    # ── target_session options ──
+    ("target_session", "claude_implementer", "Implementor — code execution (claude_implementer)", 1, 1),
+    ("target_session", "claude_architect", "Architect — design & analysis (claude_architect)", 2, 0),
+    ("target_session", "claude_review", "Review — validation & coordination (claude_review)", 3, 0),
     # ── target_project options ──
     ("target_project", "/home/svend/DPMtF-WebUI", "DPMtF-WebUI (Father, port 9130)", 1, 1),
     ("target_project", "/home/svend/ENO", "ENO (Child, port 9131)", 2, 0),
