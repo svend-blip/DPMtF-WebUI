@@ -115,6 +115,38 @@ When generating an implementation prompt for the Implementor:
 - Architecture decisions that change scope require Human approval via
   GATE-SCOPE (see [[20_GATES]]).
 
+## Post-Handoff Stop Rule
+
+**CRITICAL: After dispatching a handoff through the bridge, the Architect
+MUST stop all activity immediately.**
+
+This means:
+
+- **Stop thinking.** Do not reason about the handoff outcome, do not plan
+  next steps, do not analyze what the Implementor or Review might do.
+- **No Monitor events.** Do not start `Monitor` to watch for result files.
+- **No Bash commands.** Do not run `ls`, `cat`, `grep`, `tmux capture-pane`,
+  or any other shell command to check on progress.
+- **No background tasks.** Do not run `run_in_background` or `TaskOutput`
+  to wait for completion.
+- **No token usage of any kind.** The session is idle until the next prompt
+  arrives.
+
+**Why:** The governance loop ([[99_ROLEINTERACTION]]) guarantees sequential
+execution — only ONE role is active at a time. When the Architect dispatches
+a handoff, the Architect's active phase ENDS. Review or Implementor is now
+active. Any activity by the Architect after handoff violates the sequential
+execution guarantee and wastes tokens.
+
+**What to do instead:** Wait. The next prompt will arrive via one of:
+- Human direct communication (for scope, gates, or strategic decisions).
+- Bridge callback from Review (`bridge.py answer-review {ID}` — escalation
+  response needed).
+- Session restart after `/clear` (reconstruct from [[27_NEXT_CONTEXT]]).
+
+**Consequence of violation:** The Human ([[01_HUMAN]]) may deselect the
+model running the Architect role via human logic if this rule is not followed.
+
 ## Escalation Rules
 
 **When to escalate to Human:**
