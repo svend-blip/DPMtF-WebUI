@@ -2375,6 +2375,22 @@ function compilePromptV2(templateKey) {
         }
       };
       outputDiv.appendChild(copyBtn);
+
+      // ── Assign Handoff ID button (handoff 017) ─────────────────
+      var assignBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      assignBtn.textContent = lbl("lbl_btn_assign_handoff_id", "Assign Handoff ID");
+      assignBtn.style.marginLeft = "8px";
+      assignBtn.onclick = function () {
+        assignHandoffId(data.prompt, data);
+      };
+      outputDiv.appendChild(assignBtn);
+
+      // Dispatch info area (hidden until ID assigned)
+      var dispatchDiv = el("div", null);
+      dispatchDiv.id = "dispatch-info";
+      dispatchDiv.style.display = "none";
+      dispatchDiv.style.marginTop = "12px";
+      outputDiv.appendChild(dispatchDiv);
     })
     .catch(function (err) {
       clear(outputDiv);
@@ -2414,6 +2430,93 @@ function compilePromptV2(templateKey) {
              escapeHtml(err.message || "Compilation failed"))
         );
       }
+    });
+}
+
+/* ── Prompt Compiler: Assign Handoff ID (handoff 017) ── */
+function assignHandoffId(promptText, compileData) {
+  var dispatchDiv = document.getElementById("dispatch-info");
+  if (!dispatchDiv) return;
+  dispatchDiv.style.display = "block";
+  clear(dispatchDiv);
+  dispatchDiv.appendChild(
+    el("p", "dpmtf-muted", lbl("lbl_status_assigning_id", "Assigning handoff ID..."))
+  );
+
+  var body = {
+    prompt_text: promptText,
+    target_project: compileData.params_used ? compileData.target_project : null
+  };
+  // Also pass target_project from the form if available
+  var targetInput = document.getElementById("compile-target_project");
+  if (targetInput) {
+    body.target_project = targetInput.value;
+  }
+
+  fetch("/api/prompt-compiler/assign-handoff-id", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  })
+    .then(function (res) {
+      if (!res.ok) return res.json().then(function (e) { throw e; });
+      return res.json();
+    })
+    .then(function (result) {
+      clear(dispatchDiv);
+
+      // Success badge
+      var successP = el("p", null);
+      var successBadge = el("span", "dpmtf-badge dpmtf-badge-success");
+      successBadge.textContent = "✅ " + lbl("lbl_handoff_ready", "Handoff {ID} ready").replace("{ID}", result.handoff_id);
+      successP.appendChild(successBadge);
+      dispatchDiv.appendChild(successP);
+
+      // File path info
+      dispatchDiv.appendChild(el("p", "dpmtf-small",
+        lbl("lbl_handoff_file_written", "File written:") + " " + result.handoff_path));
+
+      // Dispatch command with copy button
+      var cmdRow = el("div", null);
+      cmdRow.style.marginTop = "8px";
+      var cmdLabel = el("span", "dpmtf-label", lbl("lbl_dispatch_command", "Dispatch command:"));
+      cmdRow.appendChild(cmdLabel);
+
+      var cmdPre = el("pre", null);
+      cmdPre.style.whiteSpace = "pre-wrap";
+      cmdPre.style.fontSize = "0.85em";
+      cmdPre.style.background = "#0d1117";
+      cmdPre.style.padding = "8px";
+      cmdPre.style.borderRadius = "4px";
+      cmdPre.style.marginTop = "4px";
+      cmdPre.textContent = result.dispatch_command;
+      cmdRow.appendChild(cmdPre);
+      dispatchDiv.appendChild(cmdRow);
+
+      // Copy dispatch command button
+      var copyCmdBtn = el("button", "dpmtf-btn dpmtf-small");
+      copyCmdBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
+      copyCmdBtn.onclick = function () {
+        navigator.clipboard.writeText(result.dispatch_command).then(function () {
+          copyCmdBtn.textContent = lbl("lbl_btn_copied", "Copied!");
+          setTimeout(function () {
+            copyCmdBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
+          }, 2000);
+        });
+      };
+      dispatchDiv.appendChild(copyCmdBtn);
+
+      // Update the displayed prompt with the real ID
+      var outputDiv = document.getElementById("compile-output");
+      var preElement = outputDiv ? outputDiv.querySelector("pre") : null;
+      if (preElement && result.prompt) {
+        preElement.textContent = result.prompt;
+      }
+    })
+    .catch(function (err) {
+      clear(dispatchDiv);
+      dispatchDiv.appendChild(el("p", "dpmtf-error",
+        lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.detail || err.message || "Failed to assign handoff ID")));
     });
 }
 
