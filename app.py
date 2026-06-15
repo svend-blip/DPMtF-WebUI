@@ -2440,16 +2440,18 @@ async def get_prompt_compiler_fields():
     rows = cursor.fetchall()
 
     # Attach options for select fields (handoff 015 — database-driven dropdowns)
-    for row in rows:
-        if dict(row)["field_type"] == "select":
+    # Convert rows to dicts first — sqlite3.Row does not support item assignment
+    fields_temp = [dict(r) for r in rows]
+    for f in fields_temp:
+        if f["field_type"] == "select":
             cursor.execute("""
                 SELECT option_value, option_label, is_default
                 FROM prompt_compiler_field_options
                 WHERE field_key = ? AND is_active = 1
                 ORDER BY sort_order
-            """, (dict(row)["field_key"],))
+            """, (f["field_key"],))
             option_rows = cursor.fetchall()
-            row["_options"] = [
+            f["_options"] = [
                 {
                     "value": dict(or_)["option_value"],
                     "label": dict(or_)["option_label"],
@@ -2460,14 +2462,14 @@ async def get_prompt_compiler_fields():
 
     conn.close()
 
-    fields = [dict(r) for r in rows]
-
     # Add options array to select fields, remove internal _options key
-    for f in fields:
+    for f in fields_temp:
         if f.get("_options") is not None:
             f["options"] = f.pop("_options")
         elif f["field_type"] == "select":
             f["options"] = []
+
+    fields = fields_temp
 
     # Group by section
     sections = {}
