@@ -2438,9 +2438,36 @@ async def get_prompt_compiler_fields():
         ORDER BY section, sort_order
     """)
     rows = cursor.fetchall()
+
+    # Attach options for select fields (handoff 015 — database-driven dropdowns)
+    for row in rows:
+        if dict(row)["field_type"] == "select":
+            cursor.execute("""
+                SELECT option_value, option_label, is_default
+                FROM prompt_compiler_field_options
+                WHERE field_key = ? AND is_active = 1
+                ORDER BY sort_order
+            """, (dict(row)["field_key"],))
+            option_rows = cursor.fetchall()
+            row["_options"] = [
+                {
+                    "value": dict(or_)["option_value"],
+                    "label": dict(or_)["option_label"],
+                    "default": bool(dict(or_)["is_default"]),
+                }
+                for or_ in option_rows
+            ]
+
     conn.close()
 
     fields = [dict(r) for r in rows]
+
+    # Add options array to select fields, remove internal _options key
+    for f in fields:
+        if f.get("_options") is not None:
+            f["options"] = f.pop("_options")
+        elif f["field_type"] == "select":
+            f["options"] = []
 
     # Group by section
     sections = {}
@@ -2488,6 +2515,43 @@ async def create_prompt_compiler_field(request: Request):
     conn.commit()
     conn.close()
     return {"status": "created", "field_key": data["field_key"]}
+
+
+@app.post("/api/prompt-compiler-field-options")
+async def create_prompt_compiler_field_option(request: Request):
+    """Create a new option for a compiler select field.
+
+    Required JSON fields: field_key, option_value, option_label.
+    Optional: sort_order (default 0), is_default (default 0).
+    """
+    data = await request.json()
+    required_fields = ["field_key", "option_value", "option_label"]
+    for f in required_fields:
+        if f not in data:
+            raise HTTPException(
+                status_code=400, detail=f"Missing required field: {f}"
+            )
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO prompt_compiler_field_options
+        (field_key, option_value, option_label, sort_order, is_default)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        data["field_key"],
+        data["option_value"],
+        data["option_label"],
+        data.get("sort_order", 0),
+        data.get("is_default", 0),
+    ))
+    conn.commit()
+    conn.close()
+    return {
+        "status": "created",
+        "field_key": data["field_key"],
+        "option_value": data["option_value"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2612,7 +2676,7 @@ async def compile_prompt(template_key: str, request: Request):
     father_project = data.get("father_project", "DPMtF-WebUI")
     is_migration = (data.get("is_migration", False)
                    in (True, "true", "on", 1, "1"))
-    model_selection = data.get("model_selection", "qwen36-27b-q4km")
+    target_role = data.get("target_role", "Implementor")
     screenshot_required = (data.get("screenshot_required", False)
                           in (True, "true", "on", 1, "1"))
 
@@ -2660,15 +2724,24 @@ async def compile_prompt(template_key: str, request: Request):
              if c.strip()]
         )
 
-    # ── Generate XML output ──────────────────────────
+    # ── Generate XML output (handoff 015 — role-specific) ────
+    if target_role == "Implementor":
+        governance_role_file = "03_IMPLEMENTOR.md"
+    elif target_role == "Architect":
+        governance_role_file = "02_ARCHITECT.md"
+    elif target_role == "Review":
+        governance_role_file = "04_REVIEW.md"
+    else:
+        governance_role_file = "03_IMPLEMENTOR.md"
+
     lines = []
     lines.append(
-        "<role>You are Implementor in the DPMtF governance loop. "
+        f"<role>You are {target_role} in the DPMtF governance loop. "
         "Your role is defined"
     )
     lines.append(
         f"in /home/svend/{father_project}"
-        "/docs/governance-templates-v2/03_IMPLEMENTOR.md."
+        f"/docs/governance-templates-v2/{governance_role_file}."
     )
     lines.append("Read it now before proceeding.</role>")
     lines.append("")
@@ -2740,42 +2813,105 @@ async def compile_prompt(template_key: str, request: Request):
         lines.append("- DO NOT COMMIT.")
     lines.append("</governance>")
     lines.append("")
-    lines.append("<task>")
-    lines.append(f"{goal}")
-    lines.append("")
-    lines.append("Execute the implementation as described above.")
-    lines.append("")
-    lines.append("When ALL steps are complete, "
-                 "execute the bridge signal:")
-    lines.append("")
-    lines.append(
-        f"1. Write result file to "
-        f"/home/svend/claude-bridge/implementertoreview/"
-        f"{handoff_id}-result.md"
-    )
-    lines.append(
-        "   Format per 03_IMPLEMENTOR.md — include Summary, "
-        "Files Changed,"
-    )
-    lines.append("   Validation Results table.")
-    lines.append("")
-    lines.append(
-        f"2. Write notification file to "
-        f"/home/svend/claude-bridge/implementertoreview/"
-        f"{handoff_id}-notification.md"
-    )
-    lines.append(
-        "   Format per 03_IMPLEMENTOR.md — Status, Task Summary, "
-        "Files Changed,"
-    )
-    lines.append("   Next Action.")
-    lines.append("")
-    lines.append(f"3. SIGNAL completion (NO /clear before this):")
-    lines.append(
-        f"   python3 /home/svend/claude-bridge/bridge.py "
-        f"complete {handoff_id}"
-    )
-    lines.append("</task>")
+
+    # ── Role-specific task/question/validation_target ──
+    if target_role == "Implementor":
+        lines.append("<task>")
+        lines.append(f"{goal}")
+        lines.append("")
+        lines.append("Execute the implementation as described above.")
+        lines.append("")
+        lines.append("When ALL steps are complete, "
+                     "execute the bridge signal:")
+        lines.append("")
+        lines.append(
+            f"1. Write result file to "
+            f"/home/svend/claude-bridge/implementertoreview/"
+            f"{handoff_id}-result.md"
+        )
+        lines.append(
+            "   Format per 03_IMPLEMENTOR.md — include Summary, "
+            "Files Changed,"
+        )
+        lines.append("   Validation Results table.")
+        lines.append("")
+        lines.append(
+            f"2. Write notification file to "
+            f"/home/svend/claude-bridge/implementertoreview/"
+            f"{handoff_id}-notification.md"
+        )
+        lines.append(
+            "   Format per 03_IMPLEMENTOR.md — Status, Task Summary, "
+            "Files Changed,"
+        )
+        lines.append("   Next Action.")
+        lines.append("")
+        lines.append(f"3. SIGNAL completion (NO /clear before this):")
+        lines.append(
+            f"   python3 /home/svend/claude-bridge/bridge.py "
+            f"complete {handoff_id}"
+        )
+        lines.append("</task>")
+
+    elif target_role == "Architect":
+        lines.append("<question>")
+        lines.append(f"{goal}")
+        lines.append("")
+        lines.append("Analyze the above and provide:")
+        lines.append("1. Scope analysis — boundaries, risks, dependencies")
+        lines.append(
+            "2. Technical design — architecture changes, "
+            "data flow impact, component design"
+        )
+        lines.append(
+            "3. Implementation plan — file-level changes, "
+            "order of execution"
+        )
+        lines.append(
+            "4. Prompt draft — if implementation is needed, "
+            "draft the handoff prompt"
+        )
+        lines.append("")
+        lines.append("Write your analysis to:")
+        lines.append(
+            f"/home/svend/claude-bridge/architecttoreview/"
+            f"{handoff_id}-response.md"
+        )
+        lines.append("</question>")
+
+    elif target_role == "Review":
+        lines.append("<validation_target>")
+        lines.append(f"{goal}")
+        lines.append("")
+        lines.append("Validate the following against governance rules:")
+        lines.append(f"- Project: {target_project}")
+        lines.append(f"- Phase: {phase_key}")
+        lines.append(
+            f"- Scope: per {target_project}"
+            f"/docs/dpmtf/11_SCOPE.md"
+        )
+        lines.append("")
+        lines.append(
+            "Run all pre-commit checks from 13_VALIDATION.md."
+        )
+        lines.append(
+            "Review git diff for scope, coding standards, "
+            "and file access compliance."
+        )
+        lines.append("Write validation verdict to:")
+        lines.append(
+            f"/home/svend/claude-bridge/implementertoreview/"
+            f"{handoff_id}-review-verdict.md"
+        )
+        lines.append("</validation_target>")
+
+    else:
+        # Fallback to Implementor
+        lines.append("<task>")
+        lines.append(f"{goal}")
+        lines.append("")
+        lines.append("Execute the implementation as described above.")
+        lines.append("</task>")
     lines.append("")
     lines.append("<scope>")
     lines.append("Files you MAY modify:")
@@ -2829,11 +2965,20 @@ async def compile_prompt(template_key: str, request: Request):
     lines.append("")
     lines.append("<constraint>")
     lines.append("DO NOT COMMIT. Leave all changes unstaged.")
-    lines.append(
-        "Execute ALL steps in <task> — especially step 3 "
-        "(bridge.py complete)."
-    )
-    lines.append(f"Model: {model_selection}.")
+    if target_role == "Implementor":
+        lines.append(
+            "Execute ALL steps in <task> — especially step 3 "
+            "(bridge.py complete)."
+        )
+    elif target_role == "Architect":
+        lines.append(
+            "Write complete analysis before signaling completion."
+        )
+    elif target_role == "Review":
+        lines.append(
+            "Run all validation checks and write verdict."
+        )
+    lines.append(f"Target role: {target_role}.")
     if screenshot_required:
         lines.append(
             "CAPTURE SCREENSHOT before signaling completion — save as "
@@ -2856,6 +3001,7 @@ async def compile_prompt(template_key: str, request: Request):
         "prompt": prompt_text,
         "params_used": list(data.keys()),
         "format": "governance-v2-xml",
+        "target_role": target_role,
         "gates_answered": gates_answered,
     }
 
@@ -3494,18 +3640,28 @@ def _compile_prompt_internal(
     handoff_id = params.get("handoff_id", "???")
     father_project = params.get("father_project", "DPMtF-WebUI")
     is_migration = params.get("is_migration", False)
-    model_selection = params.get("model_selection", "qwen36-27b-q4km")
+    target_role = params.get("target_role", "Implementor")
     screenshot_required = params.get("screenshot_required", False)
+
+    # ── Role-specific governance file (handoff 015) ──
+    if target_role == "Implementor":
+        governance_role_file = "03_IMPLEMENTOR.md"
+    elif target_role == "Architect":
+        governance_role_file = "02_ARCHITECT.md"
+    elif target_role == "Review":
+        governance_role_file = "04_REVIEW.md"
+    else:
+        governance_role_file = "03_IMPLEMENTOR.md"
 
     # ── Generate XML output (same structure as compile_prompt) ──
     lines = []
     lines.append(
-        "<role>You are Implementor in the DPMtF governance loop. "
+        f"<role>You are {target_role} in the DPMtF governance loop. "
         "Your role is defined"
     )
     lines.append(
         f"in /home/svend/{father_project}"
-        "/docs/governance-templates-v2/03_IMPLEMENTOR.md."
+        f"/docs/governance-templates-v2/{governance_role_file}."
     )
     lines.append("Read it now before proceeding.</role>")
     lines.append("")
@@ -3586,7 +3742,7 @@ def _compile_prompt_internal(
     lines.append("")
     lines.append("<constraint>")
     lines.append("DO NOT COMMIT. Leave all changes unstaged.")
-    lines.append(f"Model: {model_selection}.")
+    lines.append(f"Target role: {target_role}.")
     if screenshot_required:
         lines.append(
             "CAPTURE SCREENSHOT before signaling completion."

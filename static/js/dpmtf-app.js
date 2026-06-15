@@ -2207,32 +2207,13 @@ function loadCompileForm(templateKey) {
           } else if (f.field_type === "select") {
             input = el("select", "dpmtf-select");
             input.id = "compile-" + f.field_key;
-            var optionsForField = {
-              "target_project": [
-                "/home/svend/DPMtF-WebUI",
-                "/home/svend/ENO",
-                "/home/svend/ai-pc-resource-webui-v3"
-              ],
-              "father_project": ["DPMtF-WebUI"],
-              "model_selection": [
-                {label: "qwen36-27b-q4km (local, 0 EUR)", value: "qwen36-27b-q4km"},
-                {label: "deepseek-v4-pro:cloud", value: "deepseek-v4-pro:cloud"},
-                {label: "deepseek-v4-flash:cloud", value: "deepseek-v4-flash:cloud"}
-              ]
-            };
-            var opts = optionsForField[f.field_key];
-            if (opts) {
-              opts.forEach(function (opt) {
+            // Database-driven options from API (handoff 015)
+            if (f.options && f.options.length) {
+              f.options.forEach(function (opt) {
                 var option = el("option", null);
-                if (typeof opt === "object") {
-                  option.textContent = opt.label;
-                  option.value = opt.value;
-                  if (f.default_value === opt.value) option.selected = true;
-                } else {
-                  option.textContent = opt;
-                  option.value = opt;
-                  if (f.default_value === opt) option.selected = true;
-                }
+                option.textContent = opt.label;
+                option.value = opt.value;
+                if (opt.default) option.selected = true;
                 input.appendChild(option);
               });
             }
