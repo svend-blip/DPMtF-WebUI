@@ -532,6 +532,13 @@ ui_labels_data = [
     ("LBL-1000209", "lbl_target_role_implementor", "template_manager", "Implementor — code execution", "target_role option: Implementor"),
     ("LBL-1000210", "lbl_target_role_architect", "template_manager", "Architect — design & analysis", "target_role option: Architect"),
     ("LBL-1000211", "lbl_target_role_review", "template_manager", "Review — validation & coordination", "target_role option: Review"),
+    # ── Prompt Compiler Hardening: handoff ID assignment (handoff 017) ──
+    ("LBL-1000212", "lbl_btn_assign_handoff_id", "template_manager", "Assign Handoff ID", "Button to assign a real handoff ID to a compiled prompt"),
+    ("LBL-1000213", "lbl_status_assigning_id", "template_manager", "Assigning handoff ID...", "Loading state for handoff ID assignment"),
+    ("LBL-1000214", "lbl_handoff_ready", "template_manager", "Handoff {ID} ready", "Success message when handoff file is written"),
+    ("LBL-1000215", "lbl_handoff_file_written", "template_manager", "File written:", "Label preceding the handoff file path"),
+    ("LBL-1000216", "lbl_dispatch_command", "template_manager", "Dispatch command:", "Label preceding the dispatch shell command"),
+    ("LBL-1000217", "lbl_btn_copy_command", "template_manager", "Copy Command", "Button to copy dispatch command to clipboard"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -1078,6 +1085,31 @@ ui_label_translations_data = [
     ("LBL-1000211", "da-DK", "Review — validering & koordinering"),
     ("LBL-1000211", "de-DE", "Prüfung — Validierung & Koordination"),
     ("LBL-1000211", "sv-SE", "Granskning — validering & koordinering"),
+    # ── handoff 017: Assign Handoff ID labels ──
+    ("LBL-1000212", "en-US", "Assign Handoff ID"),
+    ("LBL-1000212", "da-DK", "Tildel Handoff ID"),
+    ("LBL-1000212", "de-DE", "Handoff-ID zuweisen"),
+    ("LBL-1000212", "sv-SE", "Tilldela Handoff-ID"),
+    ("LBL-1000213", "en-US", "Assigning handoff ID..."),
+    ("LBL-1000213", "da-DK", "Tildeler handoff ID..."),
+    ("LBL-1000213", "de-DE", "Weise Handoff-ID zu..."),
+    ("LBL-1000213", "sv-SE", "Tilldelar handoff-ID..."),
+    ("LBL-1000214", "en-US", "Handoff {ID} ready"),
+    ("LBL-1000214", "da-DK", "Handoff {ID} klar"),
+    ("LBL-1000214", "de-DE", "Handoff {ID} bereit"),
+    ("LBL-1000214", "sv-SE", "Handoff {ID} redo"),
+    ("LBL-1000215", "en-US", "File written:"),
+    ("LBL-1000215", "da-DK", "Fil skrevet:"),
+    ("LBL-1000215", "de-DE", "Datei geschrieben:"),
+    ("LBL-1000215", "sv-SE", "Fil skriven:"),
+    ("LBL-1000216", "en-US", "Dispatch command:"),
+    ("LBL-1000216", "da-DK", "Dispatcherkommando:"),
+    ("LBL-1000216", "de-DE", "Sendebefehl:"),
+    ("LBL-1000216", "sv-SE", "Skicka-kommando:"),
+    ("LBL-1000217", "en-US", "Copy Command"),
+    ("LBL-1000217", "da-DK", "Kopier Kommando"),
+    ("LBL-1000217", "de-DE", "Befehl kopieren"),
+    ("LBL-1000217", "sv-SE", "Kopiera kommando"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
@@ -1207,6 +1239,13 @@ ui_text_slots_data = [
     ("system_setup.database_layout_preview.refresh", "Database Layout Preview refresh button"),
     ("phase_status.show_completed", "Show completed phases toggle"),
     ("lbl_panel_templates", "Prompt Templates panel heading"),
+    # ── 2I (handoff 017): Assign Handoff ID slots ──
+    ("lbl_btn_assign_handoff_id", "Assign Handoff ID button"),
+    ("lbl_status_assigning_id", "Assigning handoff ID loading state"),
+    ("lbl_handoff_ready", "Handoff ready success message"),
+    ("lbl_handoff_file_written", "File written info label"),
+    ("lbl_dispatch_command", "Dispatch command label"),
+    ("lbl_btn_copy_command", "Copy dispatch command button"),
 ]
 for slot_key, description in ui_text_slots_data:
     cursor.execute("""
@@ -1333,6 +1372,13 @@ ui_text_slot_labels_data = [
     ("system_setup.database_layout_preview.refresh", "system_setup.database_layout_preview.refresh"),
     ("phase_status.show_completed", "phase_status.show_completed"),
     ("lbl_panel_templates", "lbl_panel_templates"),
+    # ── 2I (handoff 017): Assign Handoff ID slot-label bindings ──
+    ("lbl_btn_assign_handoff_id", "lbl_btn_assign_handoff_id"),
+    ("lbl_status_assigning_id", "lbl_status_assigning_id"),
+    ("lbl_handoff_ready", "lbl_handoff_ready"),
+    ("lbl_handoff_file_written", "lbl_handoff_file_written"),
+    ("lbl_dispatch_command", "lbl_dispatch_command"),
+    ("lbl_btn_copy_command", "lbl_btn_copy_command"),
 ]
 for slot_key, label_key in ui_text_slot_labels_data:
     cursor.execute("""
@@ -2913,6 +2959,9 @@ endpoint_registry_2i_v2 = [
      "options JSON array per field", "template_manager"),
     ("ENDP-4000041", "prompt_compiler_field_options_create", "/api/prompt-compiler-field-options", "POST",
      "Create a new option for a compiler select field", "created option JSON", "template_manager"),
+    ("ENDP-4000042", "prompt_compiler_assign_handoff_id", "/api/prompt-compiler/assign-handoff-id", "POST",
+     "Assign a real handoff ID to a compiled prompt via bridge.py next-id, replace ??? placeholders, and write the handoff file to reviewtoimplementor/",
+     "handoff assignment JSON with dispatch command", "template_manager"),
 ]
 for endpoint in endpoint_registry_2i_v2:
     cursor.execute("""

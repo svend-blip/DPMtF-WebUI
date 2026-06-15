@@ -5,6 +5,7 @@ import os
 import json
 import sys
 import platform
+import subprocess
 import sqlite3
 from fastapi import HTTPException
 
@@ -3014,6 +3015,71 @@ async def compile_prompt(template_key: str, request: Request):
         )
 
     return response_data
+
+
+# ── Prompt Compiler Hardening: Assign Handoff ID (handoff 017) ────────
+
+
+@app.post("/api/prompt-compiler/assign-handoff-id")
+async def assign_handoff_id(request: Request):
+    """Assign a real handoff ID to a compiled prompt and write the handoff file.
+
+    Replaces ??? placeholders with the next available bridge handoff ID,
+    writes the finalized prompt to reviewtoimplementor/{ID}-handoff.md,
+    and returns the dispatch command.
+
+    Body (JSON):
+      prompt_text    — the compiled prompt text (may contain ??? placeholders)
+      target_project — target project path (for logging context)
+    """
+    data = await request.json()
+    prompt_text: str = data.get("prompt_text", "")
+
+    if not prompt_text:
+        raise HTTPException(status_code=400, detail="Missing prompt_text")
+
+    # Get next handoff ID from bridge
+    result = subprocess.run(
+        ["python3", "/home/svend/claude-bridge/bridge.py", "next-id"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if result.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail="bridge.py next-id failed: " + result.stderr,
+        )
+
+    handoff_id: str = result.stdout.strip()
+    if not handoff_id:
+        raise HTTPException(
+            status_code=500, detail="bridge.py next-id returned empty ID"
+        )
+
+    # Replace ??? placeholders with real ID
+    finalized_prompt: str = prompt_text.replace("???", handoff_id)
+
+    # Write handoff file
+    handoff_dir: str = "/home/svend/claude-bridge/reviewtoimplementor"
+    handoff_path: str = f"{handoff_dir}/{handoff_id}-handoff.md"
+    try:
+        with open(handoff_path, "w") as f:
+            f.write(finalized_prompt)
+    except IOError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write handoff file: {e}"
+        )
+
+    dispatch_command: str = (
+        f"python3 /home/svend/claude-bridge/bridge.py send {handoff_id}"
+    )
+
+    return {
+        "handoff_id": handoff_id,
+        "handoff_path": handoff_path,
+        "prompt": finalized_prompt,
+        "dispatch_command": dispatch_command,
+        "status": "ready_for_dispatch",
+    }
 
 
 # ── Phase 2H Redesign: Template Model Hitrates ───────────────────────
