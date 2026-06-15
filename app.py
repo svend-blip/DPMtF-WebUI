@@ -2419,25 +2419,88 @@ async def update_prompt_template(template_key: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Phase 2I — Local Prompt Compiler
+# Phase 2I-v2 — Prompt Compiler Fields (database-driven)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/prompt-compiler-fields")
+async def get_prompt_compiler_fields():
+    """Return all active compiler fields grouped by section.
+
+    Frontend uses this to dynamically generate the compile form.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM prompt_compiler_fields
+        WHERE is_active = 1
+        ORDER BY section, sort_order
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+
+    fields = [dict(r) for r in rows]
+
+    # Group by section
+    sections = {}
+    for f in fields:
+        section = f["section"]
+        if section not in sections:
+            sections[section] = []
+        sections[section].append(f)
+
+    return {
+        "fields": fields,
+        "sections": sections,
+        "total": len(fields),
+    }
+
+
+@app.post("/api/prompt-compiler-fields")
+async def create_prompt_compiler_field(request: Request):
+    """Create a new compiler field."""
+    data = await request.json()
+    required = ["field_key", "field_label", "field_type", "section"]
+    for f in required:
+        if f not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {f}")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO prompt_compiler_fields
+        (field_key, field_label, field_type, is_required, required_condition,
+         section, sort_order, placeholder, help_text, default_value)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["field_key"],
+        data["field_label"],
+        data["field_type"],
+        data.get("is_required", 1),
+        data.get("required_condition"),
+        data["section"],
+        data.get("sort_order", 0),
+        data.get("placeholder"),
+        data.get("help_text"),
+        data.get("default_value"),
+    ))
+    conn.commit()
+    conn.close()
+    return {"status": "created", "field_key": data["field_key"]}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2I — Local Prompt Compiler (governance-v2)
 # ---------------------------------------------------------------------------
 
 
 @app.post("/api/prompt-templates/{template_key}/compile")
 async def compile_prompt(template_key: str, request: Request):
-    """Compile a prompt from a template with provided parameters.
+    """Compile a prompt with governance-v2 field validation.
 
-    Body (JSON):
-      project_path   — target project path (replaces {project_path})
-      phase_id       — phase key (replaces {phase_id})
-      goal           — what this prompt should achieve
-      constraints    — list of constraint strings
-      implementation — implementation target description
-      allowed_files  — list of allowed file paths
-      validation_commands — list of validation shell commands
-      scope          — scope description (for brainstorm)
-      deliverable    — deliverable description (for brainstorm)
-      <any other key> — replaces {key} in template sections
+    Validates that Human responsibility fields are filled before
+    generating the prompt. Returns governance-v2 XML handoff format.
     """
     data = await request.json()
 
@@ -2445,6 +2508,7 @@ async def compile_prompt(template_key: str, request: Request):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
+    # ── Load template ────────────────────────────────
     cursor.execute("""
         SELECT * FROM prompt_templates
         WHERE template_key = ? AND is_active = 1
@@ -2453,56 +2517,355 @@ async def compile_prompt(template_key: str, request: Request):
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Template not found")
-
     template = dict(row)
+
+    # ── Load compiler fields ─────────────────────────
+    cursor.execute("""
+        SELECT * FROM prompt_compiler_fields
+        WHERE is_active = 1
+        ORDER BY section, sort_order
+    """)
+    field_rows = cursor.fetchall()
     conn.close()
 
-    try:
-        structure = json.loads(template["structure_json"])
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Template structure is invalid JSON")
+    # ── Validate required fields ─────────────────────
+    errors = []
+    unanswered_conditional = 0
 
-    # Build the prompt by processing each section
+    for fr in field_rows:
+        f = dict(fr)
+        if not f["is_required"]:
+            continue
+
+        field_key = f["field_key"]
+        value = data.get(field_key, "")
+
+        # Check if value is empty (None, empty string, empty list)
+        is_empty = value is None or value == "" or value == [] or value is False
+
+        if f["required_condition"] is None:
+            # Always required
+            if is_empty:
+                errors.append({
+                    "error": f"Field '{f['field_label']}' must be filled in",
+                    "field_key": field_key,
+                })
+        else:
+            # Conditional — evaluate trigger
+            try:
+                condition = json.loads(f["required_condition"])
+            except json.JSONDecodeError:
+                condition = {}
+            trigger = condition.get("trigger", "")
+
+            triggered = False
+            if trigger == "scope_changed":
+                # Conservative: always triggered for new compilations
+                triggered = True
+            elif trigger == "target_is_v3":
+                target = data.get("target_project", "")
+                triggered = "v3" in target.lower() or "9123" in target
+            elif trigger == "model_differs_from_default":
+                selected = data.get("model_selection", "")
+                default_for_tier = "qwen36-27b-q4km"
+                triggered = selected and selected != default_for_tier
+            elif trigger == "multi_project_impact":
+                allowed = data.get("allowed_files", "")
+                if isinstance(allowed, list):
+                    allowed = "\n".join(allowed)
+                triggered = ("ENO" in allowed or "v3" in allowed
+                            or "ai-pc-resource" in allowed)
+            elif trigger == "phase_mode_commit_release":
+                phase = data.get("phase_key", "")
+                triggered = ("release" in phase.lower()
+                            or "commit" in phase.lower())
+            elif trigger == "is_migration_true":
+                triggered = (data.get("is_migration", False)
+                            in (True, "true", "on", 1, "1"))
+            elif trigger == "has_visual_changes":
+                triggered = (data.get("screenshot_required", False)
+                            in (True, "true", "on", 1, "1"))
+
+            if triggered and is_empty:
+                errors.append({
+                    "error": f"Field '{f['field_label']}' must be filled in",
+                    "field_key": field_key,
+                })
+                unanswered_conditional += 1
+
+    if errors:
+        response = {"errors": errors, "status": "incomplete"}
+        if unanswered_conditional > 2:
+            response["warning"] = (
+                "Multiple governance gates unanswered. "
+                "Human review recommended before proceeding."
+            )
+        raise HTTPException(
+            status_code=400, detail=json.dumps(response)
+        )
+
+    # ── Build governance-v2 XML handoff ──────────────
+    handoff_id = data.get("handoff_id", "???")
+    target_project = data.get("target_project", "")
+    phase_key = data.get("phase_key", "")
+    goal = data.get("goal", "")
+    father_project = data.get("father_project", "DPMtF-WebUI")
+    is_migration = (data.get("is_migration", False)
+                   in (True, "true", "on", 1, "1"))
+    model_selection = data.get("model_selection", "qwen36-27b-q4km")
+    screenshot_required = (data.get("screenshot_required", False)
+                          in (True, "true", "on", 1, "1"))
+
+    # Gate answers for context
+    gates_answered = []
+    for gate_field in [
+        "gate_scope_answered", "gate_v3_answered",
+        "gate_model_answered", "gate_feature_rollout_answered",
+    ]:
+        if data.get(gate_field, False) in (True, "true", "on", 1, "1"):
+            gates_answered.append(
+                gate_field.replace("gate_", "GATE-")
+                         .replace("_answered", "").upper()
+            )
+
+    # Build constraints list
+    constraints = data.get("constraints", [])
+    if isinstance(constraints, str):
+        constraints = [c.strip() for c in constraints.split("\n") if c.strip()]
+
+    # Build allowed/forbidden files
+    allowed_files = data.get("allowed_files", [])
+    if isinstance(allowed_files, str):
+        allowed_files = [f.strip() for f in allowed_files.split("\n")
+                        if f.strip()]
+
+    forbidden_files = data.get("forbidden_files", [])
+    if isinstance(forbidden_files, str):
+        forbidden_files = [f.strip() for f in forbidden_files.split("\n")
+                          if f.strip()]
+
+    # Migration folders (read-only)
+    migration_folders = []
+    if is_migration:
+        mf = data.get("migration_folders", [])
+        if isinstance(mf, str):
+            mf = [f.strip() for f in mf.split("\n") if f.strip()]
+        migration_folders = mf
+
+    # Validation commands
+    validation_commands = data.get("validation_commands", [])
+    if isinstance(validation_commands, str):
+        validation_commands = (
+            [c.strip() for c in validation_commands.split("\n")
+             if c.strip()]
+        )
+
+    # ── Generate XML output ──────────────────────────
     lines = []
-    for section in structure.get("sections", []):
-        label = section.get("label", "")
-        sec_type = section.get("type", "fixed")
-
-        if sec_type == "fixed":
-            value = section.get("value", "")
-            # Replace {placeholders} in value
-            for key, val in data.items():
-                value = value.replace("{" + key + "}", str(val))
-            if label and value:
-                lines.append(f"{label} {value}".strip())
-            elif label:
-                lines.append(label)
-            elif value:
-                lines.append(value)
-
-        elif sec_type == "param":
-            param_key = section.get("param_key", "")
-            value = data.get(param_key, f"<{param_key}>")
-            lines.append(f"{label} {value}")
-
-        elif sec_type == "list":
-            param_key = section.get("param_key", "")
-            items = data.get(param_key, [])
-            if not isinstance(items, list):
-                items = [str(items)]
-            lines.append(label)
-            for item in items:
-                lines.append(f"  - {item}")
+    lines.append(
+        "<role>You are Implementor in the DPMtF governance loop. "
+        "Your role is defined"
+    )
+    lines.append(
+        f"in /home/svend/{father_project}"
+        "/docs/governance-templates-v2/03_IMPLEMENTOR.md."
+    )
+    lines.append("Read it now before proceeding.</role>")
+    lines.append("")
+    lines.append(f"<handoff_id>{handoff_id}</handoff_id>")
+    lines.append("")
+    lines.append(f"<project>{target_project}</project>")
+    lines.append("")
+    lines.append("<context>")
+    lines.append(f"Human has approved scope for phase {phase_key}.")
+    lines.append(
+        f"Scope is defined in "
+        f"{target_project}/docs/dpmtf/11_SCOPE.md."
+    )
+    if gates_answered:
+        lines.append(f"Gates answered: {', '.join(gates_answered)}.")
+    else:
+        lines.append(
+            "No gate answers recorded — Review should verify "
+            "gate compliance."
+        )
+    lines.append(f"Father project: {father_project}.")
+    if is_migration:
+        lines.append(
+            f"This is a MIGRATION task. Source: "
+            f"{data.get('migration_source_description', 'not specified')}."
+        )
+        lines.append(
+            "Migration folders are READ-ONLY for reference inspection."
+        )
+    if (data.get("is_new_child_project", False)
+            in (True, "true", "on", 1, "1")):
+        lines.append(
+            "This task initializes a NEW Child project "
+            "under DPMtF governance."
+        )
+    lines.append("</context>")
+    lines.append("")
+    lines.append("<governance>")
+    lines.append("Read and apply these governance files BEFORE starting:")
+    lines.append(
+        f"- /home/svend/{father_project}"
+        "/docs/governance-templates-v2/12_CODING_STANDARD.md"
+    )
+    lines.append(
+        f"- /home/svend/{father_project}"
+        "/docs/governance-templates-v2/16_FILE_ACCESS.md"
+    )
+    if is_migration:
+        lines.append(
+            f"- /home/svend/{father_project}"
+            "/docs/governance-templates-v2/21_ALIGNMENT.md"
+        )
+    lines.append("")
+    lines.append("Key rules extracted:")
+    for c in constraints[:4]:
+        lines.append(f"- {c}")
+    if not constraints:
+        lines.append(
+            "- NO innerHTML for dynamic content "
+            "— use createElement()/textContent."
+        )
+        lines.append(
+            "- ALL user-facing text MUST use lbl(key, fallback)."
+        )
+        lines.append(
+            "- Python: py_compile before signaling completion, "
+            "parameterized SQL."
+        )
+        lines.append("- DO NOT COMMIT.")
+    lines.append("</governance>")
+    lines.append("")
+    lines.append("<task>")
+    lines.append(f"{goal}")
+    lines.append("")
+    lines.append("Execute the implementation as described above.")
+    lines.append("")
+    lines.append("When ALL steps are complete, "
+                 "execute the bridge signal:")
+    lines.append("")
+    lines.append(
+        f"1. Write result file to "
+        f"/home/svend/claude-bridge/implementertoreview/"
+        f"{handoff_id}-result.md"
+    )
+    lines.append(
+        "   Format per 03_IMPLEMENTOR.md — include Summary, "
+        "Files Changed,"
+    )
+    lines.append("   Validation Results table.")
+    lines.append("")
+    lines.append(
+        f"2. Write notification file to "
+        f"/home/svend/claude-bridge/implementertoreview/"
+        f"{handoff_id}-notification.md"
+    )
+    lines.append(
+        "   Format per 03_IMPLEMENTOR.md — Status, Task Summary, "
+        "Files Changed,"
+    )
+    lines.append("   Next Action.")
+    lines.append("")
+    lines.append(f"3. SIGNAL completion (NO /clear before this):")
+    lines.append(
+        f"   python3 /home/svend/claude-bridge/bridge.py "
+        f"complete {handoff_id}"
+    )
+    lines.append("</task>")
+    lines.append("")
+    lines.append("<scope>")
+    lines.append("Files you MAY modify:")
+    for fa in allowed_files:
+        lines.append(f"- {fa}")
+    if not allowed_files:
+        lines.append("- (none specified — Review should verify)")
+    lines.append("")
+    lines.append("Files you MUST NOT touch:")
+    for fb in forbidden_files:
+        lines.append(f"- {fb}")
+    lines.append(
+        f"- /home/svend/{father_project}/"
+        " (Father project — unless explicitly allowed above)"
+    )
+    lines.append("- /home/svend/ENO/ (other Child project)")
+    lines.append(
+        "- /home/svend/ai-pc-resource-webui-v3/"
+        " (reference project)"
+    )
+    if is_migration and migration_folders:
+        lines.append("")
+        lines.append(
+            "Migration folders — READ-ONLY "
+            "(inspect only, DO NOT MODIFY):"
+        )
+        for mf in migration_folders:
+            lines.append(f"- {mf} (READ-ONLY)")
+    lines.append("</scope>")
+    lines.append("")
+    lines.append("<validation>")
+    lines.append(
+        "Before signaling completion, run these checks yourself:"
+    )
+    for i, cmd in enumerate(validation_commands, 1):
+        lines.append(f"{i}. {cmd}")
+    if not validation_commands:
+        lines.append("1. python3 -m py_compile app.py — must pass")
+        lines.append(
+            "2. node --check static/js/*.js — must pass for each"
+            " modified file"
+        )
+        lines.append(
+            "3. git diff --stat — verify only allowed files changed"
+        )
+        lines.append(
+            "4. grep -RIn \"innerHTML\" static templates "
+            "— must be empty"
+        )
+    lines.append("</validation>")
+    lines.append("")
+    lines.append("<constraint>")
+    lines.append("DO NOT COMMIT. Leave all changes unstaged.")
+    lines.append(
+        "Execute ALL steps in <task> — especially step 3 "
+        "(bridge.py complete)."
+    )
+    lines.append(f"Model: {model_selection}.")
+    if screenshot_required:
+        lines.append(
+            "CAPTURE SCREENSHOT before signaling completion — save as "
+            "screenshot-v<N>.png in project root."
+        )
+    lines.append(
+        "If you encounter an ambiguity, document it in the result "
+        "file — do NOT guess."
+    )
+    lines.append("Stop after 2 failed patching attempts.")
+    lines.append("</constraint>")
 
     prompt_text = "\n".join(lines)
 
-    return {
+    # ── Build response ───────────────────────────────
+    response_data = {
         "template_key": template_key,
         "template_name": template["template_name"],
         "suitable_for": template["suitable_for"],
         "prompt": prompt_text,
         "params_used": list(data.keys()),
+        "format": "governance-v2-xml",
+        "gates_answered": gates_answered,
     }
+
+    if unanswered_conditional > 2:
+        response_data["warning"] = (
+            "Multiple governance gates unanswered. "
+            "Human review recommended before proceeding."
+        )
+
+    return response_data
 
 
 # ── Phase 2H Redesign: Template Model Hitrates ───────────────────────
@@ -3084,8 +3447,8 @@ def _compile_prompt_internal(
 ) -> str:
     """Compile a prompt from a template without making HTTP calls.
 
-    Uses the same logic as POST /api/prompt-templates/{key}/compile
-    but operates directly on the database.
+    Uses governance-v2 XML format, same as compile_prompt() above.
+    Maps legacy parameters to new field names.
     """
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -3099,63 +3462,136 @@ def _compile_prompt_internal(
     if not row:
         conn.close()
         return f"Error: Template '{template_key}' not found"
-
     template = dict(row)
+
+    # Load compiler fields for reference
+    cursor.execute("""
+        SELECT * FROM prompt_compiler_fields
+        WHERE is_active = 1
+        ORDER BY section, sort_order
+    """)
+    cursor.fetchall()
     conn.close()
 
-    try:
-        structure = json.loads(template["structure_json"])
-    except json.JSONDecodeError:
-        return "Error: Template structure is invalid JSON"
+    # Map legacy params to governance-v2 field names
+    goal = params.get("goal", phase_id)
+    constraints = params.get("constraints", [])
+    if isinstance(constraints, str):
+        constraints = [c.strip() for c in constraints.split("\n") if c.strip()]
 
-    # Merge params with defaults
-    data = {
-        "project_path": project_path,
-        "phase_id": phase_id,
-        "goal": params.get("goal", phase_id),
-        "constraints": params.get("constraints", []),
-        "implementation": params.get("implementation", ""),
-        "allowed_files": params.get("allowed_files", []),
-        "validation_commands": params.get("validation_commands", []),
-    }
-    # Add any extra params
-    for k, v in params.items():
-        if k not in data:
-            data[k] = v
+    allowed_files = params.get("allowed_files", [])
+    if isinstance(allowed_files, str):
+        allowed_files = [f.strip() for f in allowed_files.split("\n")
+                        if f.strip()]
 
+    validation_commands = params.get("validation_commands", [])
+    if isinstance(validation_commands, str):
+        validation_commands = (
+            [c.strip() for c in validation_commands.split("\n")
+             if c.strip()]
+        )
+
+    handoff_id = params.get("handoff_id", "???")
+    father_project = params.get("father_project", "DPMtF-WebUI")
+    is_migration = params.get("is_migration", False)
+    model_selection = params.get("model_selection", "qwen36-27b-q4km")
+    screenshot_required = params.get("screenshot_required", False)
+
+    # ── Generate XML output (same structure as compile_prompt) ──
     lines = []
-    for section in structure.get("sections", []):
-        label = section.get("label", "")
-        sec_type = section.get("type", "fixed")
-
-        if sec_type == "fixed":
-            value = section.get("value", "")
-            for key, val in data.items():
-                if isinstance(val, list):
-                    val = ", ".join(str(v) for v in val)
-                value = value.replace("{" + key + "}", str(val))
-            if label and value:
-                lines.append(f"{label} {value}".strip())
-            elif label:
-                lines.append(label)
-            elif value:
-                lines.append(value)
-
-        elif sec_type == "param":
-            param_key = section.get("param_key", "")
-            value = data.get(param_key, f"<{param_key}>")
-            if isinstance(value, list):
-                value = ", ".join(str(v) for v in value)
-            lines.append(f"{label} {value}")
-
-        elif sec_type == "list":
-            param_key = section.get("param_key", "")
-            items = data.get(param_key, [])
-            if not isinstance(items, list):
-                items = [str(items)]
-            lines.append(label)
-            for item in items:
-                lines.append(f"  - {item}")
+    lines.append(
+        "<role>You are Implementor in the DPMtF governance loop. "
+        "Your role is defined"
+    )
+    lines.append(
+        f"in /home/svend/{father_project}"
+        "/docs/governance-templates-v2/03_IMPLEMENTOR.md."
+    )
+    lines.append("Read it now before proceeding.</role>")
+    lines.append("")
+    lines.append(f"<handoff_id>{handoff_id}</handoff_id>")
+    lines.append("")
+    lines.append(f"<project>{project_path}</project>")
+    lines.append("")
+    lines.append("<context>")
+    lines.append(f"Human has approved scope for phase {phase_id}.")
+    lines.append(
+        f"Scope is defined in "
+        f"{project_path}/docs/dpmtf/11_SCOPE.md."
+    )
+    lines.append("Father project: " + father_project + ".")
+    lines.append("</context>")
+    lines.append("")
+    lines.append("<governance>")
+    lines.append("Read and apply these governance files BEFORE starting:")
+    lines.append(
+        f"- /home/svend/{father_project}"
+        "/docs/governance-templates-v2/12_CODING_STANDARD.md"
+    )
+    lines.append(
+        f"- /home/svend/{father_project}"
+        "/docs/governance-templates-v2/16_FILE_ACCESS.md"
+    )
+    lines.append("")
+    lines.append("Key rules extracted:")
+    for c in constraints[:4]:
+        lines.append(f"- {c}")
+    if not constraints:
+        lines.append(
+            "- NO innerHTML for dynamic content "
+            "— use createElement()/textContent."
+        )
+        lines.append(
+            "- ALL user-facing text MUST use lbl(key, fallback)."
+        )
+        lines.append(
+            "- Python: py_compile before signaling completion, "
+            "parameterized SQL."
+        )
+        lines.append("- DO NOT COMMIT.")
+    lines.append("</governance>")
+    lines.append("")
+    lines.append("<task>")
+    lines.append(goal)
+    lines.append("")
+    lines.append("Execute the implementation as described above.")
+    lines.append("")
+    lines.append(
+        "When ALL steps are complete, execute the bridge signal:"
+    )
+    lines.append("")
+    lines.append(f"1. Write result file to "
+                 f"/home/svend/claude-bridge/implementertoreview/"
+                 f"{handoff_id}-result.md")
+    lines.append("</task>")
+    lines.append("")
+    lines.append("<scope>")
+    lines.append("Files you MAY modify:")
+    for fa in allowed_files:
+        lines.append(f"- {fa}")
+    if not allowed_files:
+        lines.append("- (none specified — Review should verify)")
+    lines.append("</scope>")
+    lines.append("")
+    lines.append("<validation>")
+    for i, cmd in enumerate(validation_commands, 1):
+        lines.append(f"{i}. {cmd}")
+    if not validation_commands:
+        lines.append("1. python3 -m py_compile app.py — must pass")
+        lines.append(
+            "2. node --check static/js/*.js — must pass for each"
+            " modified file"
+        )
+    lines.append("</validation>")
+    lines.append("")
+    lines.append("<constraint>")
+    lines.append("DO NOT COMMIT. Leave all changes unstaged.")
+    lines.append(f"Model: {model_selection}.")
+    if screenshot_required:
+        lines.append(
+            "CAPTURE SCREENSHOT before signaling completion."
+        )
+    lines.append("</constraint>")
 
     return "\n".join(lines)
 

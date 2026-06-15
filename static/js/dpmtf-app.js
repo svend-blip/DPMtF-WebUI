@@ -2044,61 +2044,11 @@ function showTemplateDetail(templateKey) {
         card.appendChild(pre);
       }
 
-      // ── Compile form (2I) ─────────────────────────────
+      // ── Compile form (2I-v2: database-driven) ──────────────
       card.appendChild(el("h4", null, lbl("lbl_tpl_compile_prompt", "Compile Prompt")));
-      var compileForm = el("div", null);
-
-      // Project path
-      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_project_path", "Project Path:")));
-      var pathInput = el("input", "dpmtf-input");
-      pathInput.id = "compile-project-path";
-      pathInput.placeholder = "/home/svend/ai-pc-resource-webui-v3";
-      compileForm.appendChild(pathInput);
-
-      // Phase ID
-      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_phase_id", "Phase ID:")));
-      var phaseInput = el("input", "dpmtf-input");
-      phaseInput.id = "compile-phase-id";
-      phaseInput.placeholder = "3C-15";
-      compileForm.appendChild(phaseInput);
-
-      // Goal
-      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_goal", "Goal:")));
-      var goalInput = el("input", "dpmtf-input");
-      goalInput.id = "compile-goal";
-      goalInput.placeholder = "Add feature X to panel Y";
-      compileForm.appendChild(goalInput);
-
-      // Constraints
-      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_constraints", "Constraints (one per line):")));
-      var constraintsInput = el("textarea", "dpmtf-textarea");
-      constraintsInput.id = "compile-constraints";
-      constraintsInput.placeholder = "read-only\nno-innerHTML\nno-schema-migration";
-      constraintsInput.style.minHeight = "60px";
-      compileForm.appendChild(constraintsInput);
-
-      // Allowed files
-      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_allowed_files", "Allowed files (one per line):")));
-      var filesInput = el("textarea", "dpmtf-textarea");
-      filesInput.id = "compile-files";
-      filesInput.placeholder = "static/js/app.js\nscripts/seed_database.py";
-      filesInput.style.minHeight = "60px";
-      compileForm.appendChild(filesInput);
-
-      // Validation commands
-      compileForm.appendChild(el("label", "dpmtf-label", lbl("lbl_tpl_validation_cmds", "Validation commands (one per line):")));
-      var validationInput = el("textarea", "dpmtf-textarea");
-      validationInput.id = "compile-validation";
-      validationInput.placeholder = "node --check static/js/app.js\ngrep -RIn innerHTML static";
-      validationInput.style.minHeight = "60px";
-      compileForm.appendChild(validationInput);
-
-      var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-      compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
-      compileBtn.onclick = function () { compilePrompt(templateKey); };
-      compileForm.appendChild(compileBtn);
-
-      card.appendChild(compileForm);
+      var compileContainer = el("div", null);
+      compileContainer.id = "compile-form-container";
+      card.appendChild(compileContainer);
 
       // Compiled output
       var outputDiv = el("div", null);
@@ -2106,6 +2056,9 @@ function showTemplateDetail(templateKey) {
       outputDiv.style.display = "none";
       outputDiv.style.marginTop = "12px";
       card.appendChild(outputDiv);
+
+      // Load dynamic form from database
+      loadCompileForm(templateKey);
     })
     .catch(function (err) {
       clear(card);
@@ -2167,6 +2120,319 @@ function compilePrompt(templateKey) {
     .catch(function (err) {
       clear(outputDiv);
       outputDiv.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
+    });
+}
+
+/* ── 2I-v2: Dynamic Compile Form ─────────────────── */
+function loadCompileForm(templateKey) {
+  var container = document.getElementById("compile-form-container");
+  if (!container) return;
+  clear(container);
+  container.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading form...")));
+
+  fetch("/api/prompt-compiler-fields")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      clear(container);
+      var sections = data.sections || {};
+      var sectionOrder = [
+        "human_responsibility", "project", "scope",
+        "migration", "validation"
+      ];
+      var sectionLabels = {
+        "human_responsibility": lbl("lbl_section_human_resp", "Human Responsibility"),
+        "project": lbl("lbl_section_project", "Project"),
+        "scope": lbl("lbl_section_scope", "Scope"),
+        "migration": lbl("lbl_section_migration", "Migration"),
+        "validation": lbl("lbl_section_validation", "Validation")
+      };
+
+      sectionOrder.forEach(function (sectionKey) {
+        var fields = sections[sectionKey];
+        if (!fields || !fields.length) return;
+
+        // Migration section — only visible when is_migration is checked
+        var sectionDiv = el("div", "dpmtf-compile-section");
+        sectionDiv.id = "compile-section-" + sectionKey;
+        if (sectionKey === "migration") {
+          sectionDiv.style.display = "none";
+        }
+
+        var sectionHeader = el("h5", null, sectionLabels[sectionKey] || sectionKey);
+        sectionDiv.appendChild(sectionHeader);
+
+        fields.forEach(function (f) {
+          var fieldRow = el("div", "dpmtf-field-row");
+          fieldRow.id = "field-row-" + f.field_key;
+
+          var label = el("label", "dpmtf-label", f.field_label);
+          if (f.is_required) {
+            var reqMark = el("span", null, " *");
+            reqMark.style.color = "#f85149";
+            label.appendChild(reqMark);
+          }
+          fieldRow.appendChild(label);
+
+          if (f.help_text) {
+            var help = el("span", "dpmtf-help-text", f.help_text);
+            help.style.fontSize = "0.8em";
+            help.style.color = "#8b949e";
+            help.style.marginLeft = "8px";
+            fieldRow.appendChild(help);
+          }
+
+          var input;
+          if (f.field_type === "checkbox") {
+            input = el("input", null);
+            input.type = "checkbox";
+            input.id = "compile-" + f.field_key;
+            if (f.default_value === "1" || f.default_value === "true") {
+              input.checked = true;
+            }
+            // Special: is_migration toggles migration section visibility
+            if (f.field_key === "is_migration") {
+              input.onchange = function () {
+                var migSec = document.getElementById("compile-section-migration");
+                if (migSec) {
+                  migSec.style.display = this.checked ? "block" : "none";
+                }
+              };
+            }
+          } else if (f.field_type === "textarea") {
+            input = el("textarea", "dpmtf-textarea");
+            input.id = "compile-" + f.field_key;
+            input.placeholder = f.placeholder || "";
+            input.style.minHeight = "60px";
+            if (f.default_value) input.value = f.default_value;
+          } else if (f.field_type === "select") {
+            input = el("select", "dpmtf-select");
+            input.id = "compile-" + f.field_key;
+            var optionsForField = {
+              "target_project": [
+                "/home/svend/DPMtF-WebUI",
+                "/home/svend/ENO",
+                "/home/svend/ai-pc-resource-webui-v3"
+              ],
+              "father_project": ["DPMtF-WebUI"],
+              "model_selection": [
+                {label: "qwen36-27b-q4km (local, 0 EUR)", value: "qwen36-27b-q4km"},
+                {label: "deepseek-v4-pro:cloud", value: "deepseek-v4-pro:cloud"},
+                {label: "deepseek-v4-flash:cloud", value: "deepseek-v4-flash:cloud"}
+              ]
+            };
+            var opts = optionsForField[f.field_key];
+            if (opts) {
+              opts.forEach(function (opt) {
+                var option = el("option", null);
+                if (typeof opt === "object") {
+                  option.textContent = opt.label;
+                  option.value = opt.value;
+                  if (f.default_value === opt.value) option.selected = true;
+                } else {
+                  option.textContent = opt;
+                  option.value = opt;
+                  if (f.default_value === opt) option.selected = true;
+                }
+                input.appendChild(option);
+              });
+            }
+          } else {
+            // text, path — default to text input
+            input = el("input", "dpmtf-input");
+            input.type = "text";
+            input.id = "compile-" + f.field_key;
+            input.placeholder = f.placeholder || "";
+            if (f.default_value) input.value = f.default_value;
+          }
+
+          fieldRow.appendChild(input);
+          sectionDiv.appendChild(fieldRow);
+        });
+
+        container.appendChild(sectionDiv);
+      });
+
+      // Compile button
+      var btnRow = el("div", "dpmtf-field-row");
+      var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
+      compileBtn.onclick = function () { compilePromptV2(templateKey); };
+      btnRow.appendChild(compileBtn);
+      container.appendChild(btnRow);
+
+      // Warning banner area
+      var warningDiv = el("div", null);
+      warningDiv.id = "compile-warning";
+      warningDiv.style.display = "none";
+      container.appendChild(warningDiv);
+    })
+    .catch(function (err) {
+      clear(container);
+      container.appendChild(
+        el("p", "dpmtf-error",
+           lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message))
+      );
+    });
+}
+
+function compilePromptV2(templateKey) {
+  var outputDiv = document.getElementById("compile-output");
+  if (!outputDiv) return;
+  outputDiv.style.display = "block";
+  clear(outputDiv);
+  outputDiv.appendChild(
+    el("p", "dpmtf-muted", lbl("lbl_status_compiling", "Compiling..."))
+  );
+
+  var warningDiv = document.getElementById("compile-warning");
+  if (warningDiv) { warningDiv.style.display = "none"; clear(warningDiv); }
+
+  // Clear previous error highlights
+  document.querySelectorAll(".dpmtf-field-error").forEach(function (errEl) {
+    errEl.style.borderColor = "";
+    errEl.classList.remove("dpmtf-field-error");
+  });
+  document.querySelectorAll(".dpmtf-error-text").forEach(function (msgEl) {
+    msgEl.remove();
+  });
+
+  // Collect all field values from the dynamic form
+  var body = { handoff_id: "???" };
+
+  document.querySelectorAll("[id^='compile-']").forEach(function (input) {
+    var fieldKey = input.id.replace("compile-", "");
+    if (input.type === "checkbox") {
+      body[fieldKey] = input.checked;
+    } else if (input.tagName === "TEXTAREA" || input.tagName === "SELECT") {
+      body[fieldKey] = input.value;
+    } else {
+      body[fieldKey] = input.value;
+    }
+  });
+
+  fetch("/api/prompt-templates/" + encodeURIComponent(templateKey) + "/compile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  })
+    .then(function (res) {
+      if (!res.ok) {
+        return res.json().then(function (errData) {
+          var detail = errData.detail;
+          if (typeof detail === "string") {
+            try { detail = JSON.parse(detail); } catch (e) {}
+          }
+          throw { status: res.status, errors: detail.errors || [], warning: detail.warning || null };
+        });
+      }
+      return res.json();
+    })
+    .then(function (data) {
+      clear(outputDiv);
+
+      // Show warning if present
+      if (data.warning && warningDiv) {
+        warningDiv.style.display = "block";
+        var warnP = el("p", "dpmtf-warning");
+        warnP.textContent = "⚠ " + data.warning;
+        warningDiv.appendChild(warnP);
+      }
+
+      outputDiv.appendChild(
+        el("h4", null, lbl("lbl_tpl_compiled_prompt", "Compiled Prompt"))
+      );
+
+      // Format badge
+      var badgeRow = el("p", null);
+      var formatBadge = el("span", "dpmtf-badge dpmtf-badge-info");
+      formatBadge.textContent = "governance-v2 XML";
+      badgeRow.appendChild(formatBadge);
+      if (data.gates_answered && data.gates_answered.length) {
+        badgeRow.appendChild(el("span", null, " "));
+        var gateBadge = el("span", "dpmtf-badge dpmtf-badge-success");
+        gateBadge.textContent = "Gates: " + data.gates_answered.join(", ");
+        badgeRow.appendChild(gateBadge);
+      }
+      outputDiv.appendChild(badgeRow);
+
+      var pre = el("pre", null);
+      pre.style.whiteSpace = "pre-wrap";
+      pre.style.fontSize = "0.85em";
+      pre.style.background = "#0d1117";
+      pre.style.padding = "12px";
+      pre.style.borderRadius = "4px";
+      pre.style.maxHeight = "500px";
+      pre.style.overflowY = "auto";
+      pre.textContent = data.prompt;
+      outputDiv.appendChild(pre);
+
+      // Copy button using clipboard API with fallback
+      var copyBtn = el("button", "dpmtf-btn dpmtf-small");
+      copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
+      copyBtn.onclick = function () {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(data.prompt).then(function () {
+            copyBtn.textContent = lbl("lbl_btn_copied", "Copied!");
+            setTimeout(function () {
+              copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
+            }, 2000);
+          });
+        } else {
+          // Fallback for older browsers
+          var ta = el("textarea", null);
+          ta.value = data.prompt;
+          ta.style.position = "fixed";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          copyBtn.textContent = lbl("lbl_btn_copied", "Copied!");
+          setTimeout(function () {
+            copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
+          }, 2000);
+        }
+      };
+      outputDiv.appendChild(copyBtn);
+    })
+    .catch(function (err) {
+      clear(outputDiv);
+
+      if (err.errors && err.errors.length) {
+        // Field-specific validation errors
+        outputDiv.appendChild(
+          el("h4", "dpmtf-error",
+             lbl("lbl_compile_validation_errors", "Validation Errors"))
+        );
+
+        err.errors.forEach(function (fieldErr) {
+          var errMsg = el("p", "dpmtf-error-text");
+          errMsg.textContent = "❌ " + fieldErr.error;
+          errMsg.style.color = "#f85149";
+          errMsg.style.margin = "4px 0";
+          outputDiv.appendChild(errMsg);
+
+          // Highlight the field in red
+          var inputEl = document.getElementById("compile-" + fieldErr.field_key);
+          if (inputEl) {
+            inputEl.style.borderColor = "#f85149";
+            inputEl.classList.add("dpmtf-field-error");
+          }
+        });
+
+        if (err.warning) {
+          var warnMsg = el("p", "dpmtf-warning");
+          warnMsg.textContent = "⚠ " + err.warning;
+          warnMsg.style.color = "#d29922";
+          outputDiv.appendChild(warnMsg);
+        }
+      } else {
+        outputDiv.appendChild(
+          el("p", "dpmtf-error",
+             lbl("lbl_status_error_prefix", "Error: ") +
+             escapeHtml(err.message || "Compilation failed"))
+        );
+      }
     });
 }
 

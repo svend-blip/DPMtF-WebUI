@@ -470,6 +470,15 @@ ui_labels_data = [
     ("LBL-1000073", "lbl_tpl_local_sr_label", "main", "Local SR:", "Local success rate label"),
     ("LBL-1000074", "lbl_tpl_cloud_sr_label", "main", "Cloud SR:", "Cloud success rate label"),
     ("LBL-1000075", "lbl_tpl_runs_count", "main", "runs", "Runs count suffix"),
+    # ── 2I-v2: Compiler Fields — section labels ────────────────────
+    ("LBL-1000200", "lbl_section_human_resp", "main", "Human Responsibility", "Compiler form section header"),
+    ("LBL-1000201", "lbl_section_project", "main", "Project", "Compiler form project section header"),
+    ("LBL-1000202", "lbl_section_scope", "main", "Scope", "Compiler form scope section header"),
+    ("LBL-1000203", "lbl_section_migration", "main", "Migration", "Compiler form migration section header"),
+    ("LBL-1000204", "lbl_section_validation", "main", "Validation", "Compiler form validation section header"),
+    ("LBL-1000205", "lbl_compile_validation_errors", "main", "Validation Errors", "Compiler validation errors heading"),
+    ("LBL-1000206", "lbl_status_compiling", "main", "Compiling...", "Compile button loading state"),
+    ("LBL-1000207", "lbl_tpl_compiled_prompt", "main", "Compiled Prompt", "Compiler output heading"),
     # ── 2H: Model Hitrates table ──
     ("LBL-1000076", "lbl_col_model", "main", "Model", "Model column header"),
     ("LBL-1000077", "lbl_col_runs", "main", "Runs", "Runs column header"),
@@ -1014,6 +1023,39 @@ ui_label_translations_data = [
     ("LBL-1000116", "sv-SE", "Fas"),
     ("LBL-1000117", "sv-SE", "Planering"),
     ("LBL-1000118", "sv-SE", "Befintliga projekt"),
+    # ── 2I-v2: Compiler Fields — section labels ────────────────────
+    ("LBL-1000200", "en-US", "Human Responsibility"),
+    ("LBL-1000200", "da-DK", "Human Ansvar"),
+    ("LBL-1000200", "de-DE", "Human-Verantwortung"),
+    ("LBL-1000200", "sv-SE", "Human Ansvar"),
+    ("LBL-1000201", "en-US", "Project"),
+    ("LBL-1000201", "da-DK", "Projekt"),
+    ("LBL-1000201", "de-DE", "Projekt"),
+    ("LBL-1000201", "sv-SE", "Projekt"),
+    ("LBL-1000202", "en-US", "Scope"),
+    ("LBL-1000202", "da-DK", "Scope"),
+    ("LBL-1000202", "de-DE", "Umfang"),
+    ("LBL-1000202", "sv-SE", "Omfattning"),
+    ("LBL-1000203", "en-US", "Migration"),
+    ("LBL-1000203", "da-DK", "Migration"),
+    ("LBL-1000203", "de-DE", "Migration"),
+    ("LBL-1000203", "sv-SE", "Migration"),
+    ("LBL-1000204", "en-US", "Validation"),
+    ("LBL-1000204", "da-DK", "Validering"),
+    ("LBL-1000204", "de-DE", "Validierung"),
+    ("LBL-1000204", "sv-SE", "Validering"),
+    ("LBL-1000205", "en-US", "Validation Errors"),
+    ("LBL-1000205", "da-DK", "Valideringsfejl"),
+    ("LBL-1000205", "de-DE", "Validierungsfehler"),
+    ("LBL-1000205", "sv-SE", "Valideringsfel"),
+    ("LBL-1000206", "en-US", "Compiling..."),
+    ("LBL-1000206", "da-DK", "Compiler..."),
+    ("LBL-1000206", "de-DE", "Kompilierung..."),
+    ("LBL-1000206", "sv-SE", "Compilerar..."),
+    ("LBL-1000207", "en-US", "Compiled Prompt"),
+    ("LBL-1000207", "da-DK", "Kompileret Prompt"),
+    ("LBL-1000207", "de-DE", "Kompilierte Eingabeaufforderung"),
+    ("LBL-1000207", "sv-SE", "Compilerad prompt"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
@@ -2685,7 +2727,133 @@ cursor.execute("""
     VALUES (?, ?, ?, ?, ?, ?)
 """, ("tpl_implementation_medium", "claude-fable-5", 1, 1, 1.0, 240))
 
-# Register new endpoints
+# ── Phase 2I-v2: Prompt Compiler Fields (database-driven) ────────────
+# Dynamic form fields for the Prompt Compiler — governance-v2 compliant.
+# Enables conditional gating based on trigger conditions.
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS prompt_compiler_fields (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    field_key TEXT UNIQUE NOT NULL,
+    field_label TEXT NOT NULL,
+    field_type TEXT NOT NULL,
+    is_required INTEGER DEFAULT 1,
+    required_condition TEXT,
+    section TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    placeholder TEXT,
+    help_text TEXT,
+    default_value TEXT,
+    is_active INTEGER DEFAULT 1
+)
+""")
+
+# Seed prompt_compiler_fields — 20 fields across 5 sections
+compiler_fields_seed = [
+    # ── Section: human_responsibility (sort_order 1-9) ──────────────
+    ("scope_approved", "Scope approved per 11_SCOPE", "checkbox", 1, None,
+     "human_responsibility", 1, None,
+     "Human has approved the phase scope definition", None),
+    ("phase_key", "Phase Key", "text", 1, None,
+     "human_responsibility", 2, "e.g. 3B",
+     "Which phase does this task belong to", None),
+    ("target_project", "Target Project", "select", 1, None,
+     "human_responsibility", 3, None,
+     "Which project will be modified", "/home/svend/DPMtF-WebUI"),
+    ("goal", "Goal", "textarea", 1, None,
+     "human_responsibility", 4, "Describe what this task should achieve",
+     "Clear, specific description of the desired outcome", None),
+    ("gate_scope_answered", "GATE-SCOPE answered", "checkbox", 1,
+     '{"trigger":"scope_changed","description":"Scope differs from existing 11_SCOPE"}',
+     "human_responsibility", 5, None,
+     "Has GATE-SCOPE been asked and answered per 20_GATES.md", None),
+    ("gate_v3_answered", "GATE-V3 answered", "checkbox", 1,
+     '{"trigger":"target_is_v3","description":"Target project is ai-pc-resource-webui-v3"}',
+     "human_responsibility", 6, None,
+     "Has GATE-V3 been asked and answered per 20_GATES.md", None),
+    ("gate_model_answered", "GATE-MODEL answered", "checkbox", 1,
+     '{"trigger":"model_differs_from_default","description":"Selected model differs from tier default"}',
+     "human_responsibility", 7, None,
+     "Has GATE-MODEL been asked and answered per 20_GATES.md", None),
+    ("gate_feature_rollout_answered", "GATE-FEATURE-ROLLOUT answered", "checkbox", 1,
+     '{"trigger":"multi_project_impact","description":"Feature may affect ENO or v3"}',
+     "human_responsibility", 8, None,
+     "Has GATE-FEATURE-ROLLOUT been asked and answered per 20_GATES.md", None),
+    ("commit_authorized", "Commit authorized by Human", "checkbox", 1,
+     '{"trigger":"phase_mode_commit_release","description":"Phase is in commit_release mode"}',
+     "human_responsibility", 9, None,
+     "Human has explicitly authorized commit for this task", None),
+    # ── Section: project (sort_order 10-11) ────────────────────────
+    ("father_project", "Father Project", "select", 0, None,
+     "project", 10, None, "The Father project governing this task", "DPMtF-WebUI"),
+    ("is_new_child_project", "This is a new Child project", "checkbox", 0, None,
+     "project", 11, None,
+     "Check if this task initializes a new project under DPMtF governance", None),
+    # ── Section: scope (sort_order 12-14) ──────────────────────────
+    ("allowed_files", "Allowed files (one per line)", "textarea", 1, None,
+     "scope", 12, "/home/svend/DPMtF-WebUI/scripts/init_db.py",
+     "Full paths to files the Implementor MAY modify", None),
+    ("forbidden_files", "Forbidden files (one per line)", "textarea", 1, None,
+     "scope", 13, "/home/svend/ENO/\n/home/svend/ai-pc-resource-webui-v3/",
+     "Full paths to files the Implementor MUST NOT touch", None),
+    ("constraints", "Constraints (one per line)", "textarea", 1, None,
+     "scope", 14, "no-innerHTML\nno-schema-migration\nno-new-dependencies",
+     "Specific constraints extracted from governance", None),
+    # ── Section: migration (sort_order 15-17) ──────────────────────
+    ("is_migration", "This is a migration task", "checkbox", 0, None,
+     "migration", 15, None,
+     "Check if this task involves migrating from existing WebUI projects", None),
+    ("migration_folders", "Migration folders — READ-ONLY (one per line)", "textarea", 1,
+     '{"trigger":"is_migration_true","description":"is_migration checkbox is checked"}',
+     "migration", 16, "/home/svend/old-webui-v2/",
+     "Full paths to existing WebUI folders for reference inspection only", None),
+    ("migration_source_description", "Migration source description", "text", 1,
+     '{"trigger":"is_migration_true","description":"is_migration checkbox is checked"}',
+     "migration", 17, "Describe what is being migrated from",
+     "Brief description of the source project and what to migrate", None),
+    # ── Section: validation (sort_order 18-20) ────────────────────
+    ("validation_commands", "Validation commands (one per line)", "textarea", 1, None,
+     "validation", 18, "python3 -m py_compile app.py\nnode --check static/js/dpmtf-app.js\ngrep -RIn innerHTML static templates",
+     "Shell commands the Implementor must run before signaling completion", None),
+    ("model_selection", "Model for execution", "select", 1, None,
+     "validation", 19, None,
+     "Which model should execute this task per 22_MODEL_SELECTION.md", "qwen36-27b-q4km"),
+    ("screenshot_required", "Screenshot required (Visual Approval)", "checkbox", 1,
+     '{"trigger":"has_visual_changes","description":"Task involves frontend visual changes"}',
+     "validation", 20, None,
+     "Human must review screenshot before commit per 01_HUMAN.md", None),
+]
+for field in compiler_fields_seed:
+    cursor.execute("""
+        INSERT OR IGNORE INTO prompt_compiler_fields
+        (field_key, field_label, field_type, is_required, required_condition,
+         section, sort_order, placeholder, help_text, default_value)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, field)
+
+# Register compiler fields endpoints
+endpoint_registry_2i_v2 = [
+    ("ENDP-4000038", "prompt_compiler_fields_list", "/api/prompt-compiler-fields", "GET",
+     "List all active prompt compiler fields grouped by section", "fields JSON with sections", "template_manager"),
+    ("ENDP-4000039", "prompt_compiler_fields_create", "/api/prompt-compiler-fields", "POST",
+     "Create a new prompt compiler field", "created field JSON", "template_manager"),
+]
+for endpoint in endpoint_registry_2i_v2:
+    cursor.execute("""
+        INSERT OR REPLACE INTO endpoint_registry
+        (endpoint_id, endpoint_key, route_path, http_method, endpoint_purpose, response_shape, frontend_consumer)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, endpoint)
+
+# Register bootstrap dataset for prompt_compiler_fields
+cursor.execute("""
+    INSERT OR REPLACE INTO bootstrap_dataset_registry
+    (dataset_id, dataset_key, table_name, dataset_purpose, source_script, min_expected_count, is_required, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+""", ("BDS-5000023", "prompt_compiler_fields", "prompt_compiler_fields",
+    "Dynamic form fields for Prompt Compiler with conditional gating — governance-v2 compliant",
+    "scripts/init_db.py", 20, 1, 1))
+
+# ── Register new endpoints
 endpoint_registry_2h = [
     ("ENDP-4000018", "prompt_templates_list", "/api/prompt-templates", "GET", "List all prompt templates", "templates JSON array", "template_manager"),
     ("ENDP-4000019", "prompt_templates_create", "/api/prompt-templates", "POST", "Create a new prompt template", "created template JSON", "template_manager"),
