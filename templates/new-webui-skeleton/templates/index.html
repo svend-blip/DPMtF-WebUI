@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="locale" content="" />
+    <title data-slot="lbl_page_title">{PROJECT_TITLE}</title>
+    <link rel="stylesheet" href="/static/css/{CSS_FILE}" />
+</head>
+<body>
+    <main class="container">
+        <div class="header-row">
+            <h1 data-slot="lbl_heading_main">{PROJECT_TITLE}</h1>
+            <div class="lang-selector">
+                <label for="lang-dropdown" class="lang-label">Language</label>
+                <select id="lang-dropdown">
+                    <!-- Populated dynamically from /api/available-languages -->
+                </select>
+            </div>
+        </div>
+
+        <!-- Daily -->
+        <section class="panel-group" id="pg-daily">
+            <div class="panel-group-header" data-group="daily">
+                <h2 data-slot="pg_daily">&#128203; Daily</h2>
+                <span class="panel-group-toggle">&#9660;</span>
+            </div>
+            <div class="panel-group-body">
+                <!-- Panels added here by implementer -->
+            </div>
+        </section>
+
+        <!-- Journals -->
+        <section class="panel-group" id="pg-journals">
+            <div class="panel-group-header" data-group="journals">
+                <h2 data-slot="pg_journals">&#128211; Journals</h2>
+                <span class="panel-group-toggle">&#9660;</span>
+            </div>
+            <div class="panel-group-body">
+                <!-- Panels added here by implementer -->
+            </div>
+        </section>
+
+        <!-- Reports -->
+        <section class="panel-group" id="pg-reports">
+            <div class="panel-group-header" data-group="reports">
+                <h2 data-slot="pg_reports">&#128202; Reports</h2>
+                <span class="panel-group-toggle">&#9660;</span>
+            </div>
+            <div class="panel-group-body">
+                <!-- Panels added here by implementer -->
+            </div>
+        </section>
+
+        <!-- Periodic -->
+        <section class="panel-group" id="pg-periodic">
+            <div class="panel-group-header" data-group="periodic">
+                <h2 data-slot="pg_periodic">&#128214; Periodic</h2>
+                <span class="panel-group-toggle">&#9660;</span>
+            </div>
+            <div class="panel-group-body">
+                <!-- Panels added here by implementer -->
+            </div>
+        </section>
+
+        <!-- Setup -->
+        <section class="panel-group" id="pg-setup">
+            <div class="panel-group-header" data-group="setup">
+                <h2 data-slot="pg_setup">&#9881;&#65039; Setup</h2>
+                <span class="panel-group-toggle">&#9660;</span>
+            </div>
+            <div class="panel-group-body">
+                <!-- Panels added here by implementer -->
+            </div>
+        </section>
+    </main>
+    <script src="/static/js/{JS_FILE}"></script>
+</body>
+</html>
