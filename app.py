@@ -2610,6 +2610,23 @@ async def create_prompt_compiler_field_option(request: Request):
 # ---------------------------------------------------------------------------
 
 
+def _load_knowledge_fragment(filename):
+    """Load a knowledge fragment file and return its content as a string.
+
+    Returns None if the file does not exist (fragment not yet created).
+    """
+    frag_dir = os.path.join(
+        config.get_project_root(),
+        config.get_governance_dir(),
+        "knowledge-fragments"
+    )
+    filepath = os.path.join(frag_dir, filename)
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return f.read()
+    return None
+
+
 @app.post("/api/prompt-templates/{template_key}/compile")
 async def compile_prompt(template_key: str, request: Request):
     """Compile a prompt with governance-v2 field validation.
@@ -2797,6 +2814,28 @@ async def compile_prompt(template_key: str, request: Request):
              if c.strip()]
         )
 
+    # ── Load knowledge fragments (Spor B PoC) ─────────────────────
+    is_new_child = (data.get("is_new_child_project", False)
+                    in (True, "true", "on", 1, "1"))
+
+    # Project fragment: which project structure to describe
+    if "DPMtF-WebUI" in target_project:
+        project_fragment = _load_knowledge_fragment("projects/dpmtf-webui.md")
+    else:
+        project_fragment = _load_knowledge_fragment("projects/new-webui.md")
+
+    # Pattern + scope fragments: depend on whether this is a new project
+    if is_new_child:
+        pattern_fragment = _load_knowledge_fragment("patterns/create-new-webui.md")
+        scope_fragment = _load_knowledge_fragment("scope/new-project-all.md")
+    else:
+        pattern_fragment = _load_knowledge_fragment("patterns/modify-backend.md")
+        scope_fragment = _load_knowledge_fragment("scope/app.py-only.md")
+
+    # Governance + validation fragments: always loaded (Python tasks)
+    governance_fragment = _load_knowledge_fragment("governance/python-task.md")
+    validation_fragment = _load_knowledge_fragment("validation/python.md")
+
     # ── Generate XML output (handoff 021 — session-derived role) ────
 
     lines = []
@@ -2843,6 +2882,12 @@ async def compile_prompt(template_key: str, request: Request):
             "under DPMtF governance."
         )
     lines.append("</context>")
+
+    # ── Knowledge fragment: project structure ──
+    if project_fragment:
+        lines.append("")
+        lines.extend(project_fragment.split("\n"))
+
     lines.append("")
     lines.append("<governance>")
     lines.append("Read and apply these governance files BEFORE starting:")
@@ -2876,6 +2921,12 @@ async def compile_prompt(template_key: str, request: Request):
             "parameterized SQL."
         )
         lines.append("- DO NOT COMMIT.")
+
+    # ── Knowledge fragment: governance rules ──
+    if governance_fragment:
+        lines.append("")
+        lines.extend(governance_fragment.split("\n"))
+
     lines.append("</governance>")
     lines.append("")
 
@@ -2916,6 +2967,12 @@ async def compile_prompt(template_key: str, request: Request):
             f"   python3 {config.get_bridge_dir()}/bridge.py "
             f"complete {handoff_id}"
         )
+
+        # ── Knowledge fragment: task pattern ──
+        if pattern_fragment:
+            lines.append("")
+            lines.extend(pattern_fragment.split("\n"))
+
         lines.append("</task>")
 
     elif task_tag == "question":
@@ -3005,6 +3062,12 @@ async def compile_prompt(template_key: str, request: Request):
         )
         for mf in migration_folders:
             lines.append(f"- {mf} (READ-ONLY)")
+
+    # ── Knowledge fragment: scope profile ──
+    if scope_fragment:
+        lines.append("")
+        lines.extend(scope_fragment.split("\n"))
+
     lines.append("</scope>")
     lines.append("")
     lines.append("<validation>")
@@ -3026,6 +3089,11 @@ async def compile_prompt(template_key: str, request: Request):
             "4. grep -RIn \"innerHTML\" static templates "
             "— must be empty"
         )
+    # ── Knowledge fragment: validation commands ──
+    if validation_fragment:
+        lines.append("")
+        lines.extend(validation_fragment.split("\n"))
+
     lines.append("</validation>")
     lines.append("")
     lines.append("<constraint>")
