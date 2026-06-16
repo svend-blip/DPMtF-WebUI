@@ -2736,7 +2736,7 @@ async def compile_prompt(template_key: str, request: Request):
         governance_role_file = "03_IMPLEMENTOR.md"
         role_name = "Implementor"
         task_tag = "task"
-        signal = f"python3 /home/svend/claude-bridge/bridge.py complete {handoff_id}"
+        signal = f"python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}"
     elif "architect" in target_session.lower():
         governance_role_file = "02_ARCHITECT.md"
         role_name = "Architect"
@@ -2751,7 +2751,7 @@ async def compile_prompt(template_key: str, request: Request):
         governance_role_file = "03_IMPLEMENTOR.md"
         role_name = "Implementor"
         task_tag = "task"
-        signal = f"python3 /home/svend/claude-bridge/bridge.py complete {handoff_id}"
+        signal = f"python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}"
 
     # Gate answers for context
     gates_answered = []
@@ -2805,8 +2805,8 @@ async def compile_prompt(template_key: str, request: Request):
         "Your role is defined"
     )
     lines.append(
-        f"in /home/svend/{father_project}"
-        f"/docs/governance-templates-v2/{governance_role_file}."
+        f"in {config.get_project_root()}"
+        f"/{config.get_governance_dir()}/{governance_role_file}."
     )
     lines.append("Read it now before proceeding.</role>")
     lines.append("")
@@ -2847,17 +2847,17 @@ async def compile_prompt(template_key: str, request: Request):
     lines.append("<governance>")
     lines.append("Read and apply these governance files BEFORE starting:")
     lines.append(
-        f"- /home/svend/{father_project}"
-        "/docs/governance-templates-v2/12_CODING_STANDARD.md"
+        f"- {config.get_project_root()}"
+        f"/{config.get_governance_dir()}/12_CODING_STANDARD.md"
     )
     lines.append(
-        f"- /home/svend/{father_project}"
-        "/docs/governance-templates-v2/16_FILE_ACCESS.md"
+        f"- {config.get_project_root()}"
+        f"/{config.get_governance_dir()}/16_FILE_ACCESS.md"
     )
     if is_migration:
         lines.append(
-            f"- /home/svend/{father_project}"
-            "/docs/governance-templates-v2/21_ALIGNMENT.md"
+            f"- {config.get_project_root()}"
+            f"/{config.get_governance_dir()}/21_ALIGNMENT.md"
         )
     lines.append("")
     lines.append("Key rules extracted:")
@@ -2891,7 +2891,7 @@ async def compile_prompt(template_key: str, request: Request):
         lines.append("")
         lines.append(
             f"1. Write result file to "
-            f"/home/svend/claude-bridge/implementertoreview/"
+            f"{config.get_bridge_dir()}/implementertoreview/"
             f"{handoff_id}-result.md"
         )
         lines.append(
@@ -2902,7 +2902,7 @@ async def compile_prompt(template_key: str, request: Request):
         lines.append("")
         lines.append(
             f"2. Write notification file to "
-            f"/home/svend/claude-bridge/implementertoreview/"
+            f"{config.get_bridge_dir()}/implementertoreview/"
             f"{handoff_id}-notification.md"
         )
         lines.append(
@@ -2913,7 +2913,7 @@ async def compile_prompt(template_key: str, request: Request):
         lines.append("")
         lines.append(f"3. SIGNAL completion (NO /clear before this):")
         lines.append(
-            f"   python3 /home/svend/claude-bridge/bridge.py "
+            f"   python3 {config.get_bridge_dir()}/bridge.py "
             f"complete {handoff_id}"
         )
         lines.append("</task>")
@@ -2939,7 +2939,7 @@ async def compile_prompt(template_key: str, request: Request):
         lines.append("")
         lines.append("Write your analysis to:")
         lines.append(
-            f"/home/svend/claude-bridge/architecttoreview/"
+            f"{config.get_bridge_dir()}/architecttoreview/"
             f"{handoff_id}-response.md"
         )
         lines.append("</question>")
@@ -2965,7 +2965,7 @@ async def compile_prompt(template_key: str, request: Request):
         )
         lines.append("Write validation verdict to:")
         lines.append(
-            f"/home/svend/claude-bridge/implementertoreview/"
+            f"{config.get_bridge_dir()}/implementertoreview/"
             f"{handoff_id}-review-verdict.md"
         )
         lines.append("</validation_target>")
@@ -2989,14 +2989,14 @@ async def compile_prompt(template_key: str, request: Request):
     for fb in forbidden_files:
         lines.append(f"- {fb}")
     lines.append(
-        f"- /home/svend/{father_project}/"
+        f"- {config.get_project_root()}/"
         " (Father project — unless explicitly allowed above)"
     )
-    lines.append("- /home/svend/ENO/ (other Child project)")
-    lines.append(
-        "- /home/svend/ai-pc-resource-webui-v3/"
-        " (reference project)"
-    )
+    # Add standard forbidden projects from config
+    for child in config.get_child_projects():
+        lines.append(f"- /home/svend/{child}/ (other Child project)")
+    for ref in config.get_reference_projects():
+        lines.append(f"- /home/svend/{ref}/ (reference project)")
     if is_migration and migration_folders:
         lines.append("")
         lines.append(
@@ -3103,7 +3103,7 @@ async def assign_handoff_id(request: Request):
 
     # Get next handoff ID from bridge
     result = subprocess.run(
-        ["python3", "/home/svend/claude-bridge/bridge.py", "next-id"],
+        ["python3", f"{config.get_bridge_dir()}/bridge.py", "next-id"],
         capture_output=True, text=True, timeout=10,
     )
     if result.returncode != 0:
@@ -3122,7 +3122,7 @@ async def assign_handoff_id(request: Request):
     finalized_prompt: str = prompt_text.replace("???", handoff_id)
 
     # Write handoff file
-    handoff_dir: str = "/home/svend/claude-bridge/reviewtoimplementor"
+    handoff_dir: str = f"{config.get_bridge_dir()}/reviewtoimplementor"
     handoff_path: str = f"{handoff_dir}/{handoff_id}-handoff.md"
     try:
         with open(handoff_path, "w") as f:
@@ -3134,7 +3134,7 @@ async def assign_handoff_id(request: Request):
 
     target_session: str = data.get("target_session", "claude_implementer")
     dispatch_command: str = (
-        f"python3 /home/svend/claude-bridge/bridge.py send {handoff_id}"
+        f"python3 {config.get_bridge_dir()}/bridge.py send {handoff_id}"
         f" --session {target_session}"
     )
 
@@ -3797,8 +3797,8 @@ def _compile_prompt_internal(
         "Your role is defined"
     )
     lines.append(
-        f"in /home/svend/{father_project}"
-        f"/docs/governance-templates-v2/{governance_role_file}."
+        f"in {config.get_project_root()}"
+        f"/{config.get_governance_dir()}/{governance_role_file}."
     )
     lines.append("Read it now before proceeding.</role>")
     lines.append("")
@@ -3818,12 +3818,12 @@ def _compile_prompt_internal(
     lines.append("<governance>")
     lines.append("Read and apply these governance files BEFORE starting:")
     lines.append(
-        f"- /home/svend/{father_project}"
-        "/docs/governance-templates-v2/12_CODING_STANDARD.md"
+        f"- {config.get_project_root()}"
+        f"/{config.get_governance_dir()}/12_CODING_STANDARD.md"
     )
     lines.append(
-        f"- /home/svend/{father_project}"
-        "/docs/governance-templates-v2/16_FILE_ACCESS.md"
+        f"- {config.get_project_root()}"
+        f"/{config.get_governance_dir()}/16_FILE_ACCESS.md"
     )
     lines.append("")
     lines.append("Key rules extracted:")
@@ -3854,7 +3854,7 @@ def _compile_prompt_internal(
     )
     lines.append("")
     lines.append(f"1. Write result file to "
-                 f"/home/svend/claude-bridge/implementertoreview/"
+                 f"{config.get_bridge_dir()}/implementertoreview/"
                  f"{handoff_id}-result.md")
     lines.append("</task>")
     lines.append("")
