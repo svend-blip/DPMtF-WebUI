@@ -71,4 +71,33 @@ Files safe to modify within the current scope:
 - If offline, commit locally and mark push as pending per [[19_OFFLINE_MODE]].
 - Do not amend or rebase commits without Human approval per [[15_GIT_POLICY]].
 
+## Project Root Resolution
+
+All project paths are resolved via `config.py`:
+
+| Path | Getter | Example Value |
+|------|--------|---------------|
+| Project root | `config.get_project_root()` | `/home/svend/DPMtF-WebUI` |
+| Bridge directory | `config.get_bridge_dir()` | `/home/svend/claude-bridge` |
+| Governance docs | `config.get_governance_dir_abs()` | `/home/svend/DPMtF-WebUI/docs/governance-templates-v2` |
+
+When writing handoff prompts, validation scripts, or scope definitions,
+use config getters instead of hardcoding `/home/svend/...`.
+
+**Example (correct — in a handoff prompt):**
+```
+<project>{config.get_project_root()}</project>
+<governance>
+- {config.get_project_root()}/{config.get_governance_dir()}/12_CODING_STANDARD.md
+</governance>
+```
+
+**Example (WRONG — auto-fail in review):**
+```
+<project>/home/svend/DPMtF-WebUI</project>
+<governance>
+- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/12_CODING_STANDARD.md
+</governance>
+```
+
 ---

@@ -103,6 +103,11 @@ When generating an implementation prompt for the Implementor:
 7. **Always end with "DO NOT COMMIT"** — this is the critical safety mechanism.
 
 8. **All prompt text MUST be in English (en-US).**
+9. **Use config getters in generated prompts** — paths in `<role>`, `<governance>`,
+   `<task>`, and `<scope>` sections MUST use `config.get_project_root()`,
+   `config.get_bridge_dir()`, and `config.get_governance_dir()` instead of
+   hardcoded `/home/svend/...` strings. This ensures prompts work when the
+   project is moved to another PC.
 
 ## Boundaries
 
