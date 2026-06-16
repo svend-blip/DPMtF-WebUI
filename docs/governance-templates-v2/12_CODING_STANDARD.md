@@ -25,9 +25,40 @@ the Review role during validation.
 | **Syntax check** | `python3 -m py_compile <file>` MUST pass before signaling completion. |
 | **PEP 8** | Follow PEP 8 style guide. |
 | **Parameterized SQL** | All SQL queries MUST use parameterized statements — never string concatenation. |
-| **No hardcoded paths** | Ports, paths, model names MUST come from explicit arguments or configuration. |
+| **No hardcoded paths** | Paths, ports, model names, project references, and bridge directories MUST come from `config.py` getter-functions or environment variables. Hardcoded `/home/svend/...` strings anywhere in Python, JavaScript, shell scripts, or seed data are an auto-fail in validation. The single source of truth for all configurable values is `config.py`. |
 | **f-strings** | Prefer f-strings over `.format()` or `%` formatting. |
 | **Type hints** | Use type hints for function signatures where practical. |
+
+### Config Lookup Pattern (Mandatory)
+
+All configurable values MUST be accessed through `config.py` getter-functions:
+
+| Value | Getter | Source |
+|-------|--------|--------|
+| Database path | `config.get_db_path()` | dpmtf.ini [database] |
+| Bridge directory | `config.get_bridge_dir()` | .env DPMTF_BRIDGE_DIR |
+| Project root | `config.get_project_root()` | dpmtf.ini [paths] |
+| Governance directory | `config.get_governance_dir()` | dpmtf.ini [paths] |
+| Governance directory (absolute) | `config.get_governance_dir_abs()` | Derived from project_root |
+| Tmux session names | `config.get_review_session()` etc. | .env |
+| Port, host, locale | `config.get_port()` etc. | dpmtf.ini [app] |
+| Father/child/reference projects | `config.get_father_project()` etc. | dpmtf.ini [projects] |
+| Log directory | `config.get_log_dir()` | dpmtf.ini [paths] |
+| Exports directory | `config.get_exports_dir()` | dpmtf.ini [paths] |
+
+**Rule:** If a value could differ between two PCs, it goes through config.py.
+Hardcoded strings like `/home/svend/...` are prohibited — use config getters.
+
+**Example (correct):**
+```python
+import config
+handoff_path = f"{config.get_bridge_dir()}/reviewtoimplementor/{hid}-handoff.md"
+```
+
+**Example (WRONG — auto-fail):**
+```python
+handoff_path = f"/home/svend/claude-bridge/reviewtoimplementor/{hid}-handoff.md"
+```
 
 ## JavaScript
 
@@ -90,6 +121,7 @@ These patterns are prohibited based on project history:
 
 1. **innerHTML for dynamic content** — auto-fail in validation.
 2. **Hardcoded English strings in frontend** — auto-fail. Use `lbl()`.
+2.5. **Hardcoded /home/svend or user-specific paths** — auto-fail. Use `config.py` getters. The only allowed hardcoded path is `sys.path.insert(0, ...)` for bootstrap in scripts that need to import config before it's on PYTHONPATH.
 3. **Guesswork on operational targets** — ports, paths, model names MUST be explicit.
 4. **Silent failures** — catch blocks MUST log or report errors.
 5. **New dependencies without Human approval** — auto-fail.
