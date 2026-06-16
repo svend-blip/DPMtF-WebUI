@@ -89,8 +89,8 @@ Verify with `tmux ls` that all three now exist.
 | Session | Role | Model | Purpose |
 |---------|------|-------|---------|
 | `claude_implementer` | Implementor (03) | Local Ollama | Code execution — receives handoffs, writes code |
-| `claude_review` | Review (04) | Cloud (cheap) | Validation & dispatch — reviews diffs, commits |
-| `claude_architect` | Architect (02) | Cloud (capable) | Design & escalation — designs handoffs |
+| `claude_review` | Review (04) | Local Ollama | Validation & dispatch — reviews diffs, commits |
+| `claude_architect` | Architect (02) | Local Ollama | Design & escalation — designs handoffs |
 
 ---
 
@@ -117,7 +117,7 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --m
 **Model note:** `qwen36-27b-q4km` is the local Ollama model running on this PC.
 If Ollama is not running, start it first: `ollama serve` (in a separate terminal).
 
-### 3.3 claude_review (Cloud model — cheap)
+### 3.3 claude_review (Local Ollama model)
 
 ```bash
 # Attach to the session
@@ -125,13 +125,14 @@ tmux attach -t claude_review
 
 # Inside the session, start Claude Code:
 cd /home/svend/DPMtF-WebUI
-claude --model deepseek-v4-pro:cloud --permission-mode auto
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model qwen36-27b-q4km --permission-mode auto
 ```
 
-**Model note:** `deepseek-v4-pro:cloud` is used for review because it is
-cheaper than Opus but capable enough for diff review and validation.
+**Model note:** `qwen36-27b-q4km` is the local Ollama model running on this PC.
+Same model as claude_implementer — review is independent because it runs in a
+separate session with fresh context.
 
-### 3.4 claude_architect (Cloud model — capable)
+### 3.4 claude_architect (Local Ollama model)
 
 ```bash
 # Attach to the session
@@ -139,7 +140,7 @@ tmux attach -t claude_architect
 
 # Inside the session, start Claude Code:
 cd /home/svend/DPMtF-WebUI
-claude --model deepseek-v4-pro:cloud --permission-mode auto
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model qwen36-27b-q4km --permission-mode auto
 ```
 
 **First prompt:** Paste the content from `NextStartPrompt.md` into this session
@@ -312,10 +313,8 @@ node --check static/js/dpmtf-app.js && echo "✅ dpmtf-app.js OK"
 | Home directory | /home/svend | System |
 | Project root | /home/svend/DPMtF-WebUI | dpmtf.ini |
 | Bridge directory | /home/svend/claude-bridge | .env + ~/.bashrc |
+| Local model (all 3 roles) | qwen36-27b-q4km | CLI flag |
 | Ollama endpoint | http://127.0.0.1:11434 | CLI flag |
-| Local model | qwen36-27b-q4km | CLI flag |
-| Cloud model (review) | deepseek-v4-pro:cloud | CLI flag |
-| Cloud model (architect) | deepseek-v4-pro:cloud | CLI flag |
 
 ---
 
