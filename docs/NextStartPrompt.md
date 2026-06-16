@@ -23,6 +23,7 @@ Read these files in order to reconstruct the full project state:
 3. /home/svend/DPMtF-WebUI/docs/governance-templates-v2/99_ROLEINTERACTION.md — role loop
 4. /home/svend/DPMtF-WebUI/docs/StartUpNextSession.md — session startup guide (tmux, bridge, config)
 5. /home/svend/DPMtF-WebUI/docs/superpowers/specs/2026-06-16-hardcoding-cleanup-design.md — Spor A+B design
+6. /home/svend/DPMtF-WebUI/docs/superpowers/specs/2026-06-16-accelerated-webui-factory-design.md — Spor C design
 
 ## Current State Summary (as of 2026-06-16 end-of-session)
 
@@ -37,7 +38,7 @@ Read these files in order to reconstruct the full project state:
 - 028: governance docs — 12_CODING_STANDARD, 16_FILE_ACCESS, 02_ARCHITECT updated
 - 029: bridge.py — /clear consistency fix (all 4 tmux functions)
 
-**Spor B — Prompt Compiler Corrections (7 handoffs):**
+**Spor B — Prompt Compiler Corrections (8 handoffs):**
 - 030: knowledge-fragments/ directory + 5 core fragments
 - 031: remaining 5 fragments (10 total across projects/, patterns/, validation/, governance/, scope/)
 - 032: fragment auto-selection wired into compile_prompt()
@@ -45,9 +46,17 @@ Read these files in order to reconstruct the full project state:
 - 034: metadata-stripping fix (position-independent filter)
 - 035: deployment_strategy field (standard/accelerated) + backend integration
 - 036: deployment_strategy dropdown in Prompt Compiler UI
+- 037: target_role deactivated — role derived from target_session (bcebc8a)
+
+**Spor C — Accelerated WebUI Factory (4 handoffs):**
+- 038: Skeleton structure — .env, requirements.txt, dpmtf.ini, config.py, theme.css (70cc459)
+- 039: Core skeleton files — index.html, app.js, app.py, init_db.py (c55283a)
+- 040: Init script — initialize_new_webui.py (0e1b1c9)
+- 041: Knowledge fragment Accelerated Path + uvicorn --reload docs (1d5e1c6)
 
 **Documentation:**
 - 300_SETUPINSTRUCTION.md — PC migration guide (Linux/macOS/Windows+WSL2)
+- 23_RESTART.md, 10_PROJECT.md — uvicorn --reload flag added
 
 ### Current Project State
 
@@ -55,21 +64,24 @@ Read these files in order to reconstruct the full project state:
 - **dpmtf.ini**: App-config defaults (committed)
 - **.env**: Secrets + DPMTF_BRIDGE_DIR=/home/svend/claude-bridge (NOT committed)
 - **bridge.py**: Env vars for BRIDGE_DIR + sessions, /clear before all injections
-- **app.py**: Zero hardcoded /home/svend paths, knowledge fragments wired in
+- **app.py**: Zero hardcoded /home/svend paths, knowledge fragments wired in, target_session→role derivation
 - **init_db.py**: 7 project paths → config getters, deployment_strategy field seeded
-- **dpmtf-app.js**: Deployment section visible in Prompt Compiler UI
-- **knowledge-fragments/**: 10 curated .md fragments for prompt quality
+- **dpmtf-app.js**: Deployment section visible in Prompt Compiler UI, target_role removed from form
+- **knowledge-fragments/**: 10 curated .md fragments + Accelerated Path in create-new-webui.md
+- **templates/new-webui-skeleton/**: 8 skeleton files for accelerated child project creation
+- **scripts/initialize_new_webui.py**: One-command WebUI factory (validate → copy → replace → venv → db → verify)
+- **Server**: Runs with --reload flag (auto-picks code changes)
 
 ### Next Planned Work
-
-**Spor C — Accelerated WebUI Factory:**
-- Skeleton files (cleaned index.html, CSS, JS, database)
-- Project initialization scripts
-- Integration with deployment_strategy = "accelerated"
 
 **Spor D — Governance Centralization (deferred):**
 - Single governance source in DPMtF
 - Remove governance copying to child projects
+
+**Spor E — Prompt Compiler Hardening (candidate):**
+- __pycache__ exclusion from skeleton copy
+- Socket resource leak fix in validate_port()
+- Lazy import cleanup in init script
 
 ### Bridge Communication
 
@@ -91,9 +103,9 @@ Read these files in order to reconstruct the full project state:
 ## Your Task
 
 After reading the context files above, confirm your understanding:
-1. What was completed in Spor A and Spor B
+1. What was completed in Spor A, Spor B, and Spor C
 2. What the knowledge fragment system does
-3. What Spor C should achieve
+3. How the Accelerated WebUI Factory works (initialize_new_webui.py + skeleton files)
 4. What the current bridge setup looks like
 
 Then ask: "What should we work on next?"
