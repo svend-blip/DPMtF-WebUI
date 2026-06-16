@@ -264,7 +264,7 @@ tmux new-session -d -s claude_review
 tmux new-session -d -s claude_architect
 
 # 10. Start the app
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 ```
 
 ### macOS Install
@@ -315,7 +315,7 @@ tmux list-sessions
 # Must show claude_implementer, claude_review, claude_architect
 
 # 5. App starts
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 &
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload &
 sleep 2
 curl -s http://localhost:9130/api/health || echo "Health check failed"
 ```

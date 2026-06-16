@@ -50,7 +50,7 @@ Remote: {REMOTE_URL}
 
 ```bash
 cd {PROJECT_PATH}
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port {PORT}
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port {PORT} --reload
 ```
 
 ## Related Projects
