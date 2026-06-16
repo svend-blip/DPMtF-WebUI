@@ -2611,9 +2611,13 @@ async def create_prompt_compiler_field_option(request: Request):
 
 
 def _load_knowledge_fragment(filename):
-    """Load a knowledge fragment file and return its content as a string.
+    """Load a knowledge fragment file and return cleaned content.
 
-    Returns None if the file does not exist (fragment not yet created).
+    Strips internal metadata (Fragment ID, Target section, Trigger),
+    substitutes {project_root} placeholder, and removes the top-level
+    # Title heading to avoid disrupting the prompt's XML structure.
+
+    Returns None if the file does not exist.
     """
     frag_dir = os.path.join(
         config.get_project_root(),
@@ -2621,10 +2625,40 @@ def _load_knowledge_fragment(filename):
         "knowledge-fragments"
     )
     filepath = os.path.join(frag_dir, filename)
-    if os.path.exists(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
-            return f.read()
-    return None
+    if not os.path.exists(filepath):
+        return None
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    # Remove metadata lines (lines starting with "> **") wherever they appear.
+    # Fragment files have: # Title → blank → > **Fragment ID:** → > **Target section:** → > **Trigger:** → blank → content.
+    # The old state-machine approach failed because the title line (not starting with >)
+    # appeared before the metadata block, causing the flag to deactivate too early.
+    lines = raw.split("\n")
+    cleaned = [line for line in lines if not line.startswith("> **")]
+    result = "\n".join(cleaned)
+
+    # Strip leading blank lines left by metadata removal
+    result = result.lstrip("\n")
+
+    # Remove the first # Title heading (fragment title, not useful in prompt)
+    # Find the first line starting with "# " and remove it
+    lines = result.split("\n")
+    for i, line in enumerate(lines):
+        if line.startswith("# ") and not line.startswith("## "):
+            # Remove this line and any blank line immediately after it
+            lines.pop(i)
+            if i < len(lines) and lines[i].strip() == "":
+                lines.pop(i)
+            break
+
+    result = "\n".join(lines)
+
+    # Substitute {project_root} placeholder with actual value
+    result = result.replace("{project_root}", config.get_project_root())
+
+    return result
 
 
 @app.post("/api/prompt-templates/{template_key}/compile")
@@ -2744,22 +2778,24 @@ async def compile_prompt(template_key: str, request: Request):
     father_project = data.get("father_project", "DPMtF-WebUI")
     is_migration = (data.get("is_migration", False)
                    in (True, "true", "on", 1, "1"))
-    target_session = data.get("target_session", "claude_implementer")
+    # Use target_role as the primary field — session follows role
+    target_role = data.get("target_role", "claude_implementer")
+    target_session = target_role  # Session name matches role
     screenshot_required = (data.get("screenshot_required", False)
                           in (True, "true", "on", 1, "1"))
 
-    # Derive role from session name
-    if "implementer" in target_session.lower():
+    # Derive role from target_role
+    if "implementer" in target_role.lower():
         governance_role_file = "03_IMPLEMENTOR.md"
         role_name = "Implementor"
         task_tag = "task"
         signal = f"python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}"
-    elif "architect" in target_session.lower():
+    elif "architect" in target_role.lower():
         governance_role_file = "02_ARCHITECT.md"
         role_name = "Architect"
         task_tag = "question"
         signal = None
-    elif "review" in target_session.lower():
+    elif "review" in target_role.lower():
         governance_role_file = "04_REVIEW.md"
         role_name = "Review"
         task_tag = "validation_target"
@@ -2881,12 +2917,12 @@ async def compile_prompt(template_key: str, request: Request):
             "This task initializes a NEW Child project "
             "under DPMtF governance."
         )
-    lines.append("</context>")
-
     # ── Knowledge fragment: project structure ──
     if project_fragment:
         lines.append("")
         lines.extend(project_fragment.split("\n"))
+
+    lines.append("</context>")
 
     lines.append("")
     lines.append("<governance>")
