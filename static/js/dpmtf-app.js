@@ -2170,14 +2170,15 @@ function loadCompileForm(templateKey) {
       var sections = data.sections || {};
       var sectionOrder = [
         "human_responsibility", "project", "scope",
-        "migration", "validation"
+        "migration", "validation", "deployment"
       ];
       var sectionLabels = {
         "human_responsibility": lbl("lbl_section_human_resp", "Human Responsibility"),
         "project": lbl("lbl_section_project", "Project"),
         "scope": lbl("lbl_section_scope", "Scope"),
         "migration": lbl("lbl_section_migration", "Migration"),
-        "validation": lbl("lbl_section_validation", "Validation")
+        "validation": lbl("lbl_section_validation", "Validation"),
+        "deployment": lbl("lbl_section_deployment", "Deployment")
       };
 
       sectionOrder.forEach(function (sectionKey) {
