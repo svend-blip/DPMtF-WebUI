@@ -8,6 +8,7 @@ import platform
 import subprocess
 import sqlite3
 from fastapi import HTTPException
+import config  # DPMtF-WebUI central config (Spor A — hardcoding cleanup)
 
 app = FastAPI(title="DPMtF WebUI")
 
@@ -15,10 +16,10 @@ app = FastAPI(title="DPMtF WebUI")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Database path
-DB_PATH = "databases/dpmtf.db"
+DB_PATH = config.get_db_path()
 
 # Fallback locale for i18n
-FALLBACK_LOCALE = "en-US"
+FALLBACK_LOCALE = config.get_default_locale()
 
 
 def _resolve_ui_label_text(label_row, locale):
@@ -611,7 +612,7 @@ async def get_next_prompt_preview(sequence_id: int):
     step_id, step_number, step_title, target_layer, prompt_text = step
 
     # Generate the prompt preview
-    generated_prompt = f"""Project path: /home/svend/DPMtF-WebUI
+    generated_prompt = f"""Project path: {config.get_project_root()}
 
 Sequence: {sequence_name}
 Step #{step_number}: {step_title}
@@ -1719,9 +1720,9 @@ async def create_project_plan(project_data: dict):
         conn.close()
         raise HTTPException(status_code=400, detail="Target folder cannot be root directory")
 
-    if target_folder == "/home/svend":
+    if target_folder == os.path.expanduser("~"):
         conn.close()
-        raise HTTPException(status_code=400, detail="Target folder cannot be /home/svend")
+        raise HTTPException(status_code=400, detail="Target folder cannot be home directory")
 
     if ".." in target_folder:
         conn.close()
