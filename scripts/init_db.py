@@ -1,6 +1,9 @@
 import sqlite3
 import os
 import json
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config
 
 # Database path
 DB_PATH = "databases/dpmtf.db"
@@ -2826,7 +2829,7 @@ compiler_fields_seed = [
      "Which phase does this task belong to", None),
     ("target_project", "Target Project", "select", 1, None,
      "human_responsibility", 3, None,
-     "Which project will be modified", "/home/svend/DPMtF-WebUI"),
+     "Which project will be modified", config.get_project_root()),
     ("goal", "Goal", "textarea", 1, None,
      "human_responsibility", 4, "Describe what this task should achieve",
      "Clear, specific description of the desired outcome", None),
@@ -2858,10 +2861,10 @@ compiler_fields_seed = [
      "Check if this task initializes a new project under DPMtF governance", None),
     # ── Section: scope (sort_order 12-14) ──────────────────────────
     ("allowed_files", "Allowed files (one per line)", "textarea", 1, None,
-     "scope", 12, "/home/svend/DPMtF-WebUI/scripts/init_db.py",
+     "scope", 12, f"{config.get_project_root()}/scripts/init_db.py",
      "Full paths to files the Implementor MAY modify", None),
     ("forbidden_files", "Forbidden files (one per line)", "textarea", 1, None,
-     "scope", 13, "/home/svend/ENO/\n/home/svend/ai-pc-resource-webui-v3/",
+     "scope", 13, f"/home/svend/{config.get_child_projects()[0]}/\n/home/svend/{config.get_reference_projects()[0]}/",
      "Full paths to files the Implementor MUST NOT touch", None),
     ("constraints", "Constraints (one per line)", "textarea", 1, None,
      "scope", 14, "no-innerHTML\nno-schema-migration\nno-new-dependencies",
@@ -2974,9 +2977,9 @@ compiler_field_options_seed = [
     ("target_session", "claude_architect", "Architect — design & analysis (claude_architect)", 2, 0),
     ("target_session", "claude_review", "Review — validation & coordination (claude_review)", 3, 0),
     # ── target_project options ──
-    ("target_project", "/home/svend/DPMtF-WebUI", "DPMtF-WebUI (Father, port 9130)", 1, 1),
-    ("target_project", "/home/svend/ENO", "ENO (Child, port 9131)", 2, 0),
-    ("target_project", "/home/svend/ai-pc-resource-webui-v3", "ai-pc-resource-webui-v3 (Reference, port 9123)", 3, 0),
+    ("target_project", config.get_project_root(), "DPMtF-WebUI (Father, port 9130)", 1, 1),
+    ("target_project", f"/home/svend/{config.get_child_projects()[0]}", "ENO (Child, port 9131)", 2, 0),
+    ("target_project", f"/home/svend/{config.get_reference_projects()[0]}", "ai-pc-resource-webui-v3 (Reference, port 9123)", 3, 0),
     # ── father_project options ──
     ("father_project", "DPMtF-WebUI", "DPMtF-WebUI", 1, 1),
 ]
@@ -3207,7 +3210,7 @@ cursor.execute("""
     INSERT OR IGNORE INTO git_sync_status
     (project_key, project_path, branch, unpushed_commits)
     VALUES (?, ?, ?, ?)
-""", ("DPMtF-WebUI", "/home/svend/DPMtF-WebUI", "master", 0))
+""", ("DPMtF-WebUI", config.get_project_root(), "master", 0))
 
 # Register new endpoints
 endpoint_registry_2k = [
