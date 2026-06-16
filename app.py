@@ -2778,9 +2778,9 @@ async def compile_prompt(template_key: str, request: Request):
     father_project = data.get("father_project", "DPMtF-WebUI")
     is_migration = (data.get("is_migration", False)
                    in (True, "true", "on", 1, "1"))
-    # Use target_role as the primary field — session follows role
-    target_role = data.get("target_role", "claude_implementer")
-    target_session = target_role  # Session name matches role
+    # Use target_session as the primary field — role is derived from session name below
+    target_session = data.get("target_session", "claude_implementer")
+    target_role = target_session  # Role derived from session name below
     screenshot_required = (data.get("screenshot_required", False)
                           in (True, "true", "on", 1, "1"))
     deployment_strategy = data.get("deployment_strategy", "standard")
