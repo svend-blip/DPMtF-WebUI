@@ -2895,6 +2895,10 @@ compiler_fields_seed = [
      '{"trigger":"has_visual_changes","description":"Task involves frontend visual changes"}',
      "validation", 21, None,
      "Human must review screenshot before commit per 01_HUMAN.md", None),
+    # ── Section: deployment (sort_order 22) ──────────────────────────
+    ("deployment_strategy", "Deployment Strategy", "select", 0, None,
+     "deployment", 22, None,
+     "How the task should be deployed — standard step-by-step or accelerated skeleton-based", "standard"),
 ]
 for field in compiler_fields_seed:
     cursor.execute("""
@@ -2912,21 +2916,26 @@ cursor.execute("""
 """)
 
 # ── Handoff 021: Migrate target_role → target_session ──
-# Idempotent UPDATE for existing databases that have the old target_role data
-cursor.execute("""
-    UPDATE prompt_compiler_fields
-    SET field_key = 'target_session',
-        field_label = 'Target tmux Session',
-        help_text = 'Which tmux session receives the dispatch — determines prompt format and bridge target',
-        default_value = 'claude_implementer'
-    WHERE field_key = 'target_role'
-""")
+# Idempotent UPDATE for existing databases that have the old target_role data.
+# Only run if seed-data INSERT didn't already create target_session.
+_target_session_exists = cursor.execute(
+    "SELECT COUNT(*) FROM prompt_compiler_fields WHERE field_key = 'target_session'"
+).fetchone()[0]
+if not _target_session_exists:
+    cursor.execute("""
+        UPDATE prompt_compiler_fields
+        SET field_key = 'target_session',
+            field_label = 'Target tmux Session',
+            help_text = 'Which tmux session receives the dispatch — determines prompt format and bridge target',
+            default_value = 'claude_implementer'
+        WHERE field_key = 'target_role'
+    """)
 
-cursor.execute("""
-    UPDATE prompt_compiler_field_options
-    SET field_key = 'target_session'
-    WHERE field_key = 'target_role'
-""")
+    cursor.execute("""
+        UPDATE prompt_compiler_field_options
+        SET field_key = 'target_session'
+        WHERE field_key = 'target_role'
+    """)
 
 # Update option values and labels for the migrated rows
 cursor.execute("""
@@ -2982,6 +2991,9 @@ compiler_field_options_seed = [
     ("target_project", f"/home/svend/{config.get_reference_projects()[0]}", "ai-pc-resource-webui-v3 (Reference, port 9123)", 3, 0),
     # ── father_project options ──
     ("father_project", "DPMtF-WebUI", "DPMtF-WebUI", 1, 1),
+    # ── deployment_strategy options ──
+    ("deployment_strategy", "standard", "Standard — step-by-step implementation via prompts", 1, 1),
+    ("deployment_strategy", "accelerated", "Accelerated — skeleton-based fast deployment, then prompts for content", 2, 0),
 ]
 for opt in compiler_field_options_seed:
     cursor.execute("""

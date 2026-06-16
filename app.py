@@ -2783,6 +2783,7 @@ async def compile_prompt(template_key: str, request: Request):
     target_session = target_role  # Session name matches role
     screenshot_required = (data.get("screenshot_required", False)
                           in (True, "true", "on", 1, "1"))
+    deployment_strategy = data.get("deployment_strategy", "standard")
 
     # Derive role from target_role
     if "implementer" in target_role.lower():
@@ -2860,8 +2861,8 @@ async def compile_prompt(template_key: str, request: Request):
     else:
         project_fragment = _load_knowledge_fragment("projects/new-webui.md")
 
-    # Pattern + scope fragments: depend on whether this is a new project
-    if is_new_child:
+    # Pattern + scope fragments: depend on project type and deployment strategy
+    if is_new_child or deployment_strategy == "accelerated":
         pattern_fragment = _load_knowledge_fragment("patterns/create-new-webui.md")
         scope_fragment = _load_knowledge_fragment("scope/new-project-all.md")
     else:
@@ -2903,6 +2904,13 @@ async def compile_prompt(template_key: str, request: Request):
             "gate compliance."
         )
     lines.append(f"Father project: {father_project}.")
+    lines.append(f"Deployment strategy: {deployment_strategy}.")
+    if deployment_strategy == "accelerated":
+        lines.append(
+            "ACCELERATED STRATEGY: Use skeleton scripts for fast project "
+            "setup, then populate content via prompts. Skeleton files are "
+            "in DPMtF-WebUI/templates/new-webui-skeleton/ (Spor C)."
+        )
     if is_migration:
         lines.append(
             f"This is a MIGRATION task. Source: "
