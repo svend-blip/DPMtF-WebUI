@@ -90,7 +90,7 @@ Verify with `tmux ls` that all three now exist.
 |---------|------|-------|---------|
 | `claude_implementer` | Implementor (03) | Local Ollama | Code execution — receives handoffs, writes code |
 | `claude_review` | Review (04) | Local Ollama | Validation & dispatch — reviews diffs, commits |
-| `claude_architect` | Architect (02) | Local Ollama | Design & escalation — designs handoffs |
+| `claude_architect` | Architect (02) | Cloud | Design & escalation — designs handoffs |
 
 ---
 
@@ -132,7 +132,7 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --m
 Same model as claude_implementer — review is independent because it runs in a
 separate session with fresh context.
 
-### 3.4 claude_architect (Local Ollama model)
+### 3.4 claude_architect (Cloud model)
 
 ```bash
 # Attach to the session
@@ -140,8 +140,12 @@ tmux attach -t claude_architect
 
 # Inside the session, start Claude Code:
 cd /home/svend/DPMtF-WebUI
-ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model qwen36-27b-q4km --permission-mode auto
+ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model deepseek-v4-pro:cloud --permission-mode auto
 ```
+
+**Model note:** `deepseek-v4-pro:cloud` is used for the Architect role because
+it needs stronger reasoning capability for architectural design and prompt
+generation. This is the only role using a cloud model.
 
 **First prompt:** Paste the content from `NextStartPrompt.md` into this session
 to reconstruct full project context.
@@ -313,7 +317,8 @@ node --check static/js/dpmtf-app.js && echo "✅ dpmtf-app.js OK"
 | Home directory | /home/svend | System |
 | Project root | /home/svend/DPMtF-WebUI | dpmtf.ini |
 | Bridge directory | /home/svend/claude-bridge | .env + ~/.bashrc |
-| Local model (all 3 roles) | qwen36-27b-q4km | CLI flag |
+| Local model (implementer + review) | qwen36-27b-q4km | CLI flag |
+| Cloud model (architect) | deepseek-v4-pro:cloud | CLI flag |
 | Ollama endpoint | http://127.0.0.1:11434 | CLI flag |
 
 ---
