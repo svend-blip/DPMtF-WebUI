@@ -21,7 +21,7 @@ session state after `/clear`. This is the operational runbook for all roles.
 
 ```bash
 cd /home/svend/DPMtF-WebUI
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130
+.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 ```
 
 ### ENO (Port 9131)

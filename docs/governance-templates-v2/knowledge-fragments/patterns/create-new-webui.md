@@ -13,13 +13,65 @@ that follows the same architecture as DPMtF-WebUI (the Father project). The
 new project will be database-driven, use the 4-layer i18n architecture, and
 reference DPMtF's authoritative governance templates.
 
-### Prerequisites
+### Accelerated Path (deployment_strategy = "accelerated")
+
+When the Prompt Compiler generates a handoff with `deployment_strategy = "accelerated"`
+and `is_new_child_project = true`, the implementer uses the init script instead of
+following the manual 11-step pattern below.
+
+1. **Run the init script:**
+   ```bash
+   python3 /home/svend/DPMtF-WebUI/scripts/initialize_new_webui.py \
+     --name {project_name} \
+     --port {port} \
+     --title "{project_title}"
+   ```
+   This creates the complete project skeleton in ~2 minutes:
+   - Directory structure with all subdirectories
+   - Minimal app.py with health, i18n, panel-structure endpoints
+   - config.py with all standard getter functions
+   - dpmtf.ini with project-specific paths and port
+   - .env with DPMTF_BRIDGE_DIR and session names
+   - requirements.txt with fastapi, uvicorn, python-dotenv
+   - scripts/init_db.py with 6 essential tables + seed labels
+   - templates/index.html with 5 empty panel groups
+   - static/js/app.js with lbl(), panel structure, expand/collapse
+   - static/css/theme.css with GitHub-dark palette
+   - .venv with installed dependencies
+   - Initialized database with seed labels in da-DK, en-US, de-DE, sv-SE
+
+2. **Verify:**
+   ```bash
+   curl http://localhost:{port}/api/health  # Must return {"status":"healthy"}
+   curl http://localhost:{port}/  # Must return HTML with 5 panel groups
+   ```
+
+3. **Start the app persistently:**
+   ```bash
+   cd /home/svend/{project_name}
+   .venv/bin/uvicorn app:app --host 0.0.0.0 --port {port} --reload &
+   ```
+
+4. **Create governance files:**
+   - `docs/dpmtf/10_PROJECT.md` — project identity, port, repository
+   - `docs/dpmtf/11_SCOPE.md` — current phase scope
+
+The project is now ready for domain-specific panels and endpoints
+via follow-up prompts targeting specific panel groups.
+
+---
+
+### Standard Path (deployment_strategy = "standard")
+
+The manual 11-step pattern below is used when `deployment_strategy = "standard"`.
+
+#### Prerequisites
 
 - **Project name:** Short, lowercase, hyphenated (e.g., `my-project`).
 - **Port:** Next available port. DPMtF=9130, ENO=9131. Check for conflicts.
 - **Database name:** Usually `{project_key}.db` (e.g., `my-project.db`).
 
-### Step Pattern
+#### Step Pattern
 
 1. **Create project directory structure.**
    ```bash
@@ -77,7 +129,7 @@ reference DPMtF's authoritative governance templates.
     .venv/bin/uvicorn app:app --host 0.0.0.0 --port {port} &
     ```
 
-### Governance Files for the New Project
+#### Governance Files for the New Project
 
 Create these project-specific files in `docs/dpmtf/`:
 - `10_PROJECT.md` — project identity, port, repository
@@ -88,7 +140,7 @@ The new project references DPMtF-WebUI for all other governance:
 - `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/14_ARCHITECTURE.md`
 - `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/16_FILE_ACCESS.md`
 
-### Verification Commands
+#### Verification Commands
 
 ```bash
 python3 -m py_compile app.py
