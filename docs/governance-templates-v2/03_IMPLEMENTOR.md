@@ -67,8 +67,10 @@ Before acting, the Implementor MUST read the files specified in the
 2. **Read ALL governance files** referenced in the `<governance>` section.
 3. **Stay within `<scope>`** — never modify files outside the allowed list.
 4. **Follow `<validation>` checks** — run every check and document results.
-5. **DO NOT COMMIT** — this is the critical safety mechanism. All changes
-   remain unstaged.
+5. **CRITICAL: DO NOT COMMIT. DO NOT PUSH.** This is the most important
+   safety mechanism in DPMtF governance. All changes MUST remain unstaged
+   and uncommitted. Only the Human (01_HUMAN) may commit or push per
+   15_GIT_POLICY.md. Violation of this rule will be reported to Human.
 6. **Execute ALL steps in `<task>`** in order — especially the final
    `bridge.py complete` signal.
 7. **Never call `/clear` before bridge.py complete** — the signal prompt
@@ -129,12 +131,14 @@ The notification file at `implementertoreview/{ID}-notification.md`:
 `implementertoreview/{ID}-result.md`
 
 ## Next Action for Review (claude_review)
-{Review diff | Commit | Rerun with fix | Acknowledge}
+{Review diff | Prepare commit for Human | Rerun with fix | Acknowledge}
 ```
 
 ## Boundaries
 
-- The Implementor does NOT commit or push.
+- **CRITICAL: The Implementor does NOT commit or push.** This is an
+  absolute prohibition. Implementor leaves all changes unstaged.
+  Only the Human may commit per 15_GIT_POLICY.md.
 - The Implementor does NOT modify files outside the defined `<scope>`.
 - The Implementor does NOT initiate communication with Review or Architect —
   only responds via bridge signals.

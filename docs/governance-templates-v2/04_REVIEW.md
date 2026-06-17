@@ -77,6 +77,20 @@ Additionally, the Review reads as needed:
 
 When the Implementor signals completion:
 
+**CRITICAL — HUMAN COMMIT GATE:**
+
+Review validates and PREPARES commits. Review MUST NOT execute `git commit`
+or `git push`. Only the Human (01_HUMAN) may commit or push per 15_GIT_POLICY.md.
+
+After APPROVED verdict:
+1. Stage changes: `git add <specific files>` (never `git add -A`)
+2. Write commit message to file (not to git)
+3. Escalate to Human with verdict, diff summary, and commit message
+4. WAIT for Human authorization before any commit/push
+
+Violation of this rule will be reported to Human and may result in
+model deselection per 02_ARCHITECT.md Post-Handoff Stop Rule.
+
 ```
 1. RECEIVE bridge signal:
    "Read and execute ... implementertoreview/{ID}-callback.md"
@@ -101,9 +115,11 @@ When the Implementor signals completion:
    - File access policy respected per [[16_FILE_ACCESS]]?
 
 5. DECIDE verdict:
-   ├─ PASS → prepare commit for Human approval
-   ├─ PASS with notes → prepare commit, document notes
-   └─ FAIL → return to Implementor with specific fix instructions
+   ├─ APPROVED → prepare commit for Human approval (stage files, write
+   │             commit message to implementertoreview/{ID}-commit-message.md,
+   │             escalate to Human — DO NOT commit/push)
+   ├─ APPROVED with notes → prepare commit, document notes, escalate to Human
+   └─ REJECTED → return to Implementor with specific fix instructions
 ```
 
 ## Escalation Rules
@@ -180,7 +196,10 @@ Execute ALL steps in <task> — especially step 5.
 
 - Review does NOT write code or modify project files (except governance
   documents and bridge handoff files).
-- Review does NOT commit or push — only prepares for Human approval.
+- **CRITICAL: Review does NOT commit or push.** Review only prepares
+  staged changes and commit messages for Human approval. Executing
+  `git commit` or `git push` is a governance violation. The Human
+  (01_HUMAN) is the ONLY role authorized to commit per 15_GIT_POLICY.md.
 - Review does NOT make architectural decisions — escalate to Architect.
 - Review does NOT override Human decisions on scope or commits.
 - Review coordinates the bridge workflow — no other role dispatches work.
