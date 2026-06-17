@@ -23,8 +23,8 @@ and `superpowertemplates/superpowers.md` Section 1.
 | Project | Port | Path | Governance | Role |
 |---------|------|------|------------|------|
 | **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Master in `docs/governance-templates-v2/` | Father project — governance engine |
-| **ENO** | 9131 | `/home/svend/ENO` | Copy in `docs/dpmtf/` | First Child project |
-| **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Copy in `docs/dpmtf/` | Reference project |
+| **ENO** | 9131 | `/home/svend/ENO` | Project-specific only in `docs/dpmtf/`; structural ref from Father | First Child project |
+| **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Project-specific only in `docs/dpmtf/`; structural ref from Father | Reference project |
 | **claude-bridge** | — | `/home/svend/claude-bridge/` | Independent | Bridge infrastructure |
 
 ---
@@ -34,7 +34,7 @@ and `superpowertemplates/superpowers.md` Section 1.
 | Classification | Files | Sync Rule | Description |
 |---------------|-------|-----------|-------------|
 | **Role definitions** | 01-04 | **Father only** — Child projects do not receive role files (they are governed by Father's roles) | Role definitions are Father's operational concern. |
-| **Structural reference** | 12-24 | **Synchronized with Father** — updated via `initialize_target_project_governance.py` | Rules that apply equally to all projects. Father's version is master. |
+| **Structural reference** | 12-24 | **Father only** — Child projects reference Father's copies at /home/svend/DPMtF-WebUI/docs/governance-templates-v2/. No local copies. | Rules that apply equally to all projects. Father's version is the single authoritative source. |
 | **Project-specific** | 10, 11, 25, 26, 27, 28, 29 | **Independent** — each Child maintains its own version | Project name, port, repository, phase, history, status. MUST reflect project's own identity. |
 | **Interaction & Bridge** | 99, 100 | **Father only** — operational protocols | Role interaction and bridge protocol are Father's operational concern. |
 
@@ -54,7 +54,10 @@ At every session start (when governance files are loaded), run this audit:
    - [[28_IMPLEMENTATION_REPORT]]: Reflects project's latest implementation?
    - [[29_VALIDATION_REPORT]]: Reflects project's latest validation?
 3. **If discrepancy:** Trigger GATE-GOVERNANCE-SYNC (see [[20_GATES]]).
-4. **Document findings** in the Alignment Status section below.
+4. **Verify Child references Father's paths** correctly.
+5. **Document findings** in the Alignment Status section below.
+
+> **After Spor D (Governance Centralization):** Structural governance files are NOT copied to child projects. Child projects reference Father's `docs/governance-templates-v2/` directly. Only project-specific files (10_PROJECT.md, 11_SCOPE.md) live in the child's `docs/dpmtf/`.
 
 ### Update Process for Project-Specific Files
 
@@ -62,7 +65,7 @@ When GATE-GOVERNANCE-SYNC confirms update:
 
 1. Read Child project's git history (`git log --oneline --all`).
 2. Update project-specific files (10, 11, 25, 26, 27, 28, 29) to reflect the project's own identity.
-3. Preserve structural reference files (12-24) — they remain synced with Father.
+3. Structural reference files (12-24) are Father-only — no local copies in Child projects.
 4. Document in Child's [[26_CHANGELOG]] and [[27_NEXT_CONTEXT]].
 5. Update the Alignment Status section below.
 
@@ -96,7 +99,7 @@ validation automation):
 When a new project is added:
 
 1. Add to Project Registry above.
-2. Initialize structural reference files via `scripts/initialize_target_project_governance.py`.
+2. Verify Child references Father's governance paths at `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/`.
 3. Evaluate existing features for rollout.
 4. Update project-specific files to reflect the new project's identity.
 
@@ -112,7 +115,7 @@ When a new project is added:
 
 | Area | DPMtF-WebUI ↔ ENO | DPMtF-WebUI ↔ v3 | Note |
 |------|-------------------|-------------------|------|
-| Structural reference files (12-24) | {status} | {status} | Sync via initializer script. |
+| Structural reference files (12-24) | {status} | {status} | Father only — Child projects reference Father's copies. |
 | Project-specific files (10, 11, 25-29) | {status} | {status} | Independent per project. |
 | i18n 4-layer architecture | {status} | {status} | All projects use same architecture. |
 | Panel groups | {status} | {status} | Panel groups synced. |

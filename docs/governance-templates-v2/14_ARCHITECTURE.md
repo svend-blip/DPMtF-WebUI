@@ -39,7 +39,12 @@ directory structure, key modules. Adapt per project.}
 │       └── theme.css       # CSS theme
 ├── docs/
 │   ├── governance-templates-v2/  # Active governance (Father project)
-│   └── dpmtf/                   # Governance copy (Child projects)
+│   └── dpmtf/                   # Project-specific files only (10_PROJECT.md, 11_SCOPE.md)
+
+After Spor D (Governance Centralization): Child projects' docs/dpmtf/ contains
+ONLY project-specific files (10_PROJECT.md, 11_SCOPE.md). All structural
+governance files (12-24, 99, 100) are referenced from the Father project at
+/home/svend/DPMtF-WebUI/docs/governance-templates-v2/.
 └── databases/
     └── {project}.db         # SQLite database
 ```
