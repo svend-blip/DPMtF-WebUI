@@ -24,6 +24,11 @@ import sys
 import time
 from pathlib import Path
 
+import json
+import socket
+import urllib.error
+import urllib.request
+
 
 # ── Constants ─────────────────────────────────────────
 
@@ -72,15 +77,12 @@ def validate_port(port):
     """Port must be in valid range and not in use."""
     if port not in VALID_PORT_RANGE:
         return f"Port must be in range {VALID_PORT_RANGE.start}-{VALID_PORT_RANGE.stop - 1}"
-    import socket
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        s.bind(("0.0.0.0", port))
-        s.close()
-        return None
-    except OSError:
-        s.close()
-        return f"Port {port} is already in use"
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+            return None
+        except OSError:
+            return f"Port {port} is already in use"
 
 
 def validate_title(title):
@@ -199,7 +201,7 @@ def main():
     print("\n📋 Copying skeleton files...")
     copied = []
     for item in SKELETON_DIR.rglob("*"):
-        if item.is_file():
+        if item.is_file() and "__pycache__" not in item.parts:
             rel = item.relative_to(SKELETON_DIR)
             dest = project_dir / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -268,12 +270,9 @@ def main():
     # Wait for server to start
     time.sleep(2)
 
-    import urllib.request
-    import urllib.error
     try:
         req = urllib.request.Request(f"http://localhost:{args.port}/api/health")
         resp = urllib.request.urlopen(req, timeout=5)
-        import json
         data = json.loads(resp.read())
         print(f"  ✅ Health check: {data}")
     except Exception as e:
