@@ -116,6 +116,11 @@ When generating an implementation prompt for the Implementor:
 - The Architect does NOT commit or push.
 - The Architect does NOT communicate directly with the Implementor — all
   communication goes through the Review layer via the bridge.
+- **CRITICAL: The Architect does NOT run parallel tasks after dispatch.**
+  After bridge.py send, the Architect stops ALL activity — no Monitor,
+  no Bash commands, no background tasks, no file writes. The Architect
+  waits passively for the next prompt. Violation of sequential execution
+  will be reported to Human per 99_ROLEINTERACTION.md.
 - The Architect does NOT override Human decisions on scope or commits.
 - Architecture decisions that change scope require Human approval via
   GATE-SCOPE (see [[20_GATES]]).
@@ -124,6 +129,13 @@ When generating an implementation prompt for the Implementor:
 
 **CRITICAL: After dispatching a handoff through the bridge, the Architect
 MUST stop all activity immediately.**
+
+**This is NOT optional.** The governance loop (99_ROLEINTERACTION.md) guarantees
+sequential execution — only ONE role is active at a time. When the Architect
+dispatches a handoff, the Architect's active phase ENDS. Review or Implementor
+is now active. Any activity by the Architect after handoff violates the
+sequential execution guarantee, wastes tokens, and may interfere with the
+active role's work.
 
 This means:
 
@@ -136,6 +148,15 @@ This means:
   to wait for completion.
 - **No token usage of any kind.** The session is idle until the next prompt
   arrives.
+- **No sending multiple handoffs in batch.** The Architect sends ONE handoff,
+  then stops. The next handoff is only sent after Review completes the
+  validation cycle for the previous handoff and the Human (or Review)
+  requests the next one. Batch dispatch is parallel execution and is
+  prohibited.
+- **No pre-writing handoff files for future dispatch.** The Architect writes
+  ONLY the handoff file for the current dispatch. Writing multiple handoff
+  files in advance encourages batch dispatch and violates sequential
+  execution.
 
 **Why:** The governance loop ([[99_ROLEINTERACTION]]) guarantees sequential
 execution — only ONE role is active at a time. When the Architect dispatches
@@ -148,6 +169,10 @@ execution guarantee and wastes tokens.
 - Bridge callback from Review (`bridge.py answer-review {ID}` — escalation
   response needed).
 - Session restart after `/clear` (reconstruct from [[27_NEXT_CONTEXT]]).
+- **If you accidentally started a Monitor or background task after dispatch:**
+  stop it immediately with TaskStop. Report the violation in the next
+  handoff's result file. The Human will decide whether to continue with
+  the current model.
 
 **Consequence of violation:** The Human ([[01_HUMAN]]) may deselect the
 model running the Architect role via human logic if this rule is not followed.
