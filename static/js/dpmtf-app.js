@@ -938,6 +938,18 @@ function buildCompilerForm() {
   forbiddenDiv.appendChild(forbiddenTextarea);
   container.appendChild(forbiddenDiv);
 
+  // Output area (hidden until compile)
+  var outputDiv = el("div", null);
+  outputDiv.id = "compile-output";
+  outputDiv.style.display = "none";
+  container.appendChild(outputDiv);
+
+  // Warning area (hidden until warning)
+  var warningDiv = el("div", null);
+  warningDiv.id = "compile-warning";
+  warningDiv.style.display = "none";
+  container.appendChild(warningDiv);
+
   // Compile button
   var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
   compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
