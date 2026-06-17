@@ -3712,6 +3712,20 @@ cursor.execute("""
     WHERE template_key != 'tpl_implementation_small'
 """)
 
+# Spor G: Deactivate Periodic panel subgroups (Phase, Planning, Existing Projects)
+cursor.execute("""
+    UPDATE panel_subgroups
+    SET is_visible = 0
+    WHERE group_name = 'periodic'
+""")
+
+# Spor G: Hide empty panel groups (only Daily and Setup remain visible)
+cursor.execute("""
+    UPDATE user_panel_groups
+    SET is_visible = 0
+    WHERE group_name IN ('journals', 'reports', 'periodic')
+""")
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
