@@ -34,4 +34,6 @@ All files within the new project directory:
 
 This profile is for creating a NEW project from scratch. All files within the
 new project root are allowed. Existing projects (Father, other Children,
-bridge infrastructure) are strictly read-only.
+bridge infrastructure) are strictly read-only. Structural governance files
+(12-24, 99, 100) are referenced from Father's docs/governance-templates-v2/,
+not duplicated in child projects.

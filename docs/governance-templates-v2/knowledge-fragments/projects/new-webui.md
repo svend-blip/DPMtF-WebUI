@@ -65,7 +65,8 @@ All projects reference DPMtF-WebUI's authoritative governance:
 - `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/14_ARCHITECTURE.md`
 
 Project-specific files (10_PROJECT, 11_SCOPE) live in the project's own
-`docs/dpmtf/` directory.
+`docs/dpmtf/` directory. After Spor D centralization, this directory contains
+ONLY these project-specific files. All structural governance comes from Father.
 
 ## Port Assignment
 

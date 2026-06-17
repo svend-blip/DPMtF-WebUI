@@ -135,6 +135,10 @@ Create these project-specific files in `docs/dpmtf/`:
 - `10_PROJECT.md` — project identity, port, repository
 - `11_SCOPE.md` — current phase scope
 
+This directory contains ONLY project-specific files (10_PROJECT.md, 11_SCOPE.md).
+All structural governance rules (coding standards, validation, architecture,
+file access) are defined in the Father project at docs/governance-templates-v2/.
+
 The new project references DPMtF-WebUI for all other governance:
 - `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/12_CODING_STANDARD.md`
 - `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/14_ARCHITECTURE.md`
