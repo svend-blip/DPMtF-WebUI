@@ -68,16 +68,17 @@ cd {PROJECT_PATH}
 ### Father Project (DPMtF-WebUI)
 
 DPMtF-WebUI's `docs/governance-templates-v2/` is the **authoritative source**
-for all governance rules. Other projects receive copies via the governance
-initializer script. DPMtF-WebUI's own governance files reflect DPMtF-WebUI's
-identity — not a generic template.
+for all governance rules. Child projects reference these files directly — no local
+copies of structural governance files. DPMtF-WebUI's own governance files reflect
+DPMtF-WebUI's identity — not a generic template.
 
 ### Child Projects (ENO, v3, future)
 
-Child projects receive **structural reference files** (12-24) synchronized with
-Father via `scripts/initialize_target_project_governance.py`. **Project-specific
-files** (10, 11, 25, 26, 27, 28, 29) are maintained independently by each Child
-project to reflect its own identity, phase, and history.
+After Spor D (Governance Centralization): Child projects **do not receive copies**
+of structural reference files (12-24). Instead, they reference Father's files at
+`/home/svend/DPMtF-WebUI/docs/governance-templates-v2/`. **Project-specific files**
+(10, 11, 25, 26, 27, 28, 29) are maintained independently in each Child's
+`docs/dpmtf/` directory to reflect its own identity, phase, and history.
 
 ### Governance Sync Protocol
 
