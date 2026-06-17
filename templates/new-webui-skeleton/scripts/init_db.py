@@ -9,10 +9,11 @@ Idempotent — safe to re-run (INSERT OR IGNORE/REPLACE).
 """
 
 import sqlite3
-import os
+from pathlib import Path
+from config import get_db_path
 
-DB_PATH = "databases/{DATABASE}"
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+DB_PATH = get_db_path()
+Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()

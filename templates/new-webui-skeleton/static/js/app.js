@@ -21,9 +21,12 @@ function el(tag, className, text) {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 /* ── 2. i18n ────────────────────────────────────────── */
@@ -71,7 +74,7 @@ function loadLanguageDropdown() {
     .then(function (data) {
       const select = document.getElementById("lang-dropdown");
       if (!select) return;
-      select.innerHTML = "";
+      select.replaceChildren();
       (data.languages || []).forEach(function (lang) {
         const opt = document.createElement("option");
         opt.value = lang.locale;

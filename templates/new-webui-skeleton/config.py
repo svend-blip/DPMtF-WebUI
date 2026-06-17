@@ -73,6 +73,16 @@ def get_father_project() -> str:
     """Father project name."""
     return _config.get("projects", "father_project", fallback="DPMtF-WebUI")
 
+def get_father_governance_dir() -> str:
+    """Father project's governance directory (absolute path).
+
+    Returns path to DPMtF-WebUI/docs/governance-templates-v2/
+    where all structural governance files live.
+    Child projects reference these, not maintain copies.
+    """
+    father_root = "{FATHER_PROJECT_ROOT}"
+    return str(Path(father_root) / "docs" / "governance-templates-v2")
+
 def get_child_projects() -> list:
     """Child project names (comma-separated in .ini)."""
     raw = _config.get("projects", "child_projects", fallback="")
