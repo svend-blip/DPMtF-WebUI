@@ -16,6 +16,7 @@ After running:
 """
 
 import argparse
+import config
 import os
 import shutil
 import subprocess
@@ -302,6 +303,11 @@ def main():
     print("Governance files to create in docs/dpmtf/:")
     print("  - 10_PROJECT.md (project identity)")
     print("  - 11_SCOPE.md (current phase scope)")
+    print()
+    print("All other governance files (coding standards, validation, architecture,")
+    print("file access, git policy, etc.) are referenced from the Father project:")
+    print(f"  {config.get_project_root()}/docs/governance-templates-v2/")
+    print("Child projects do NOT maintain copies of structural governance files.")
 
 
 if __name__ == "__main__":
