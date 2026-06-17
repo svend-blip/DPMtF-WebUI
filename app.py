@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import json
@@ -2709,8 +2709,8 @@ async def compile_prompt(request: Request):
         })
 
     if errors:
-        raise HTTPException(
-            status_code=400, detail=json.dumps({"errors": errors, "status": "incomplete"})
+        return JSONResponse(
+            status_code=400, content={"errors": errors, "status": "incomplete"}
         )
 
     # ── Generate simplified prompt (Spor G) ─────

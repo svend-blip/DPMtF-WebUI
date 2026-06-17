@@ -71,7 +71,6 @@ function switchLanguage(newLocale) {
       });
       // Genindlæs alle panels med nye labels
       if (typeof loadDbStatus === "function") loadDbStatus();
-      if (typeof loadTemplates === "function") loadTemplates();
       if (typeof loadProjectPlans === "function") loadProjectPlans();
     })
     .catch(function (err) {
@@ -331,27 +330,6 @@ function loadDbStatus() {
       container.appendChild(card);
     });
  }
-
-/* ── 2H Redesign helpers ────────────────────────────── */
-function formatRate(rate) {
-  if (rate == null || rate === 0) return "-";
-  return (rate * 100).toFixed(0) + "%";
-}
-
-function rateClass(rate) {
-  if (rate == null) return "";
-  var pct = rate * 100;
-  if (pct >= 80) return "hitrate-good";
-  if (pct >= 50) return "hitrate-ok";
-  return "hitrate-low";
-}
-
-function complexityBadge(tier) {
-  var badge = el("span", "complexity-tier-" + (tier || 2));
-  var labels = {1: "🟢 T1", 2: "🟡 T2", 3: "🔴 T3"};
-  badge.textContent = labels[tier] || "T" + tier;
-  return badge;
-}
 
 /* ── 8. System Setup Drawer ────────────────────────── */
 function initDrawer() {
@@ -724,78 +702,7 @@ function buildDrawerContent() {
       wfBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
     });
 
-  // ── Git Sync ─────────────────────────────────────────
-  var gitCard = el("div", "dpmtf-card");
-  gitCard.appendChild(el("h4", null, "Git Sync Status"));
-  var gitBody = el("div", null);
-  gitBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
-  gitCard.appendChild(gitBody);
-  content.appendChild(gitCard);
 
-  fetch("/api/git/status")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      clear(gitBody);
-      var projects = data.projects || [];
-      if (!projects.length) {
-        gitBody.appendChild(el("p", "dpmtf-muted", "No projects tracked."));
-        return;
-      }
-      projects.forEach(function (p) {
-        var projDiv = el("div", null);
-        projDiv.style.marginBottom = "8px";
-        projDiv.appendChild(el("div", null, escapeHtml(p.project_key)));
-
-        var info = [];
-        info.push("Branch: " + (p.branch || "?"));
-        info.push("Unpushed: " + (p.unpushed_commits || 0));
-        if (p.last_commit) info.push("Last: " + p.last_commit);
-        projDiv.appendChild(el("div", "dpmtf-small dpmtf-muted", info.join(" | ")));
-
-        if (p.unpushed_list && p.unpushed_list.length) {
-          var listDiv = el("div", "dpmtf-small");
-          listDiv.style.marginTop = "4px";
-          p.unpushed_list.forEach(function (c) {
-            listDiv.appendChild(el("div", null, c));
-          });
-          projDiv.appendChild(listDiv);
-        }
-        gitBody.appendChild(projDiv);
-      });
-    })
-    .catch(function (err) {
-      clear(gitBody);
-      gitBody.appendChild(el("p", "dpmtf-error", escapeHtml(err.message)));
-    });
-
-  // ── Sync Phases button ─────────────────────────────────
-  var syncBtn = el("button", "dpmtf-btn");
-  syncBtn.textContent = "Sync Phases from Git";
-  syncBtn.style.marginTop = "8px";
-  syncBtn.onclick = function () {
-    syncBtn.disabled = true;
-    syncBtn.textContent = "Syncing...";
-    fetch("/api/phases/sync-from-git", { method: "POST" })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        syncBtn.disabled = false;
-        syncBtn.textContent = "Sync Phases from Git";
-        if (data.advanced && data.advanced.length) {
-          alert("Phases advanced: " + data.advanced.join(", ") +
-            "\nNew next: " + (data.new_next || []).join(", "));
-        } else if (data.reason) {
-          alert("No phases advanced.\n" + data.reason);
-        } else {
-          alert("No changes. All phases up to date.");
-        }
-      })
-      .catch(function (err) {
-        syncBtn.disabled = false;
-        syncBtn.textContent = "Sync Phases from Git";
-        alert("Sync failed: " + err.message);
-      });
-  };
-  gitCard.appendChild(syncBtn);
 
   // ── Comparison Runs ───────────────────────────────────
   var cmpCard = el("div", "dpmtf-card");
@@ -926,237 +833,11 @@ function runValidationDrawer() {
     });
 }
 
-/* ── 9. Prompt Template Manager ────────────────────── */
-function loadTemplateManager() {
-  var container = document.getElementById("template-manager-content");
-  if (!container) return;
-  clear(container);
 
-  // Template list
-  var listCard = el("div", "dpmtf-card");
-  listCard.appendChild(el("h4", null, lbl("lbl_tpl_templates", "Templates")));
-  var table = el("table", "dpmtf-table");
-  var thead = el("thead", null);
-  var thr = el("tr", null);
-  [
-    lbl("lbl_tpl_key", "Key"),
-    lbl("lbl_tpl_name", "Name"),
-    lbl("lbl_tpl_tier", "Tier"),
-    lbl("lbl_tpl_suitable_for", "Suitable For"),
-    lbl("lbl_tpl_capture", "Capture"),
-    lbl("lbl_tpl_local_sr", "Local SR"),
-    lbl("lbl_tpl_cloud_sr", "Cloud SR"),
-    lbl("lbl_tpl_tokens", "Tokens (in/out)"),
-    lbl("lbl_tpl_preview", "Preview")
-  ].forEach(function (h) {
-    thr.appendChild(el("th", null, h));
-  });
-  thead.appendChild(thr);
-  table.appendChild(thead);
-  var tbody = el("tbody", null);
-  table.appendChild(tbody);
-  listCard.appendChild(table);
-  container.appendChild(listCard);
-
-  // Detail card (hidden until click)
-  var detailCard = el("div", "dpmtf-card");
-  detailCard.id = "template-detail";
-  detailCard.style.display = "none";
-  container.appendChild(detailCard);
-
-  fetch("/api/prompt-templates")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      clear(tbody);
-      var templates = data.templates || [];
-      if (!templates.length) {
-        var row = el("tr", null);
-        var cell = el("td", null, lbl("lbl_status_no_data", "No templates."));
-        cell.colSpan = 9;
-        row.appendChild(cell);
-        tbody.appendChild(row);
-        return;
-      }
-      templates.forEach(function (t) {
-        var row = el("tr", null);
-        row.style.cursor = "pointer";
-        row.onclick = function () { showTemplateDetail(t.template_key); };
-        row.appendChild(td(t.template_key));
-        row.appendChild(td(t.template_name));
-
-        // Complexity tier badge
-        var tierCell = el("td", null);
-        var tierBadge = complexityBadge(t.complexity_tier);
-        tierCell.appendChild(tierBadge);
-        row.appendChild(tierCell);
-
-        // Suitable for badge
-        var suitableCell = el("td", null);
-        var badge = el("span", t.suitable_for === "local" ? "model-badge-local" :
-                              t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
-        badge.textContent = t.suitable_for;
-        suitableCell.appendChild(badge);
-        row.appendChild(suitableCell);
-
-        // Capture source badge
-        var captureCell = el("td", null);
-        var captureBadge = el("span", "capture-" + (t.capture_source || "designed"));
-        captureBadge.textContent = t.capture_source || "designed";
-        captureCell.appendChild(captureBadge);
-        row.appendChild(captureCell);
-
-        // Local success rate
-        row.appendChild(td(formatRate(t.local_success_rate)));
-
-        // Cloud success rate
-        row.appendChild(td(formatRate(t.cloud_success_rate)));
-
-        row.appendChild(td((t.avg_token_count_input || "-") + " / " + (t.avg_token_count_output || "-")));
-        row.appendChild(td(lbl("lbl_tpl_click_to_view", "Click to view")));
-        tbody.appendChild(row);
-      });
-    })
-    .catch(function (err) {
-      clear(tbody);
-      var row = el("tr", null);
-      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 9;
-      row.appendChild(cell);
-      tbody.appendChild(row);
-    });
-}
-
-function showTemplateDetail(templateKey) {
-  var card = document.getElementById("template-detail");
-  if (!card) return;
-  card.style.display = "block";
-  clear(card);
-
-  var closeBtn = el("button", "dpmtf-btn dpmtf-small");
-  closeBtn.textContent = lbl("lbl_btn_close_drawer", "Close");
-  closeBtn.onclick = function () { card.style.display = "none"; };
-  card.appendChild(closeBtn);
-
-  var loadingEl = el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading..."));
-  card.appendChild(loadingEl);
-
-  fetch("/api/prompt-templates/" + encodeURIComponent(templateKey))
-    .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    })
-    .then(function (t) {
-      clear(card);
-      card.appendChild(closeBtn);
-
-      card.appendChild(el("h4", null, t.template_name + " (" + t.template_key + ")"));
-      if (t.description) card.appendChild(el("p", "dpmtf-muted", t.description));
-
-      // Badge row: complexity + suitable_for + capture_source
-      var badgeRow = el("p", null);
-      badgeRow.appendChild(complexityBadge(t.complexity_tier));
-      badgeRow.appendChild(el("span", null, " "));
-      var suitableBadge = el("span", t.suitable_for === "local" ? "model-badge-local" :
-                                t.suitable_for === "cloud" ? "model-badge-cloud" : "dpmtf-badge dpmtf-badge-info");
-      suitableBadge.textContent = t.suitable_for;
-      badgeRow.appendChild(suitableBadge);
-      badgeRow.appendChild(el("span", null, " "));
-      var captureBadge = el("span", "capture-" + (t.capture_source || "designed"));
-      captureBadge.textContent = t.capture_source || "designed";
-      badgeRow.appendChild(captureBadge);
-      card.appendChild(badgeRow);
-
-      // Success rates
-      var rateRow = el("p", "dpmtf-small");
-      rateRow.textContent = lbl("lbl_tpl_local_sr_label", "Local SR:") + " " + formatRate(t.local_success_rate) +
-        " (" + (t.total_local_runs || 0) + " " + lbl("lbl_tpl_runs_count", "runs") + ") | " +
-        lbl("lbl_tpl_cloud_sr_label", "Cloud SR:") + " " +
-        formatRate(t.cloud_success_rate) + " (" + (t.total_cloud_runs || 0) + " " + lbl("lbl_tpl_runs_count", "runs") + ")";
-      card.appendChild(rateRow);
-
-      // Token estimates
-      card.appendChild(el("p", "dpmtf-small", lbl("lbl_tpl_estimated_tokens", "Estimated tokens:") + " " +
-        (t.avg_token_count_input || "?") + " in / " +
-        (t.avg_token_count_output || "?") + " out"));
-
-      // ── Per-model hitrate (2H redesign) ─────────────────
-      fetch("/api/prompt-templates/" + encodeURIComponent(templateKey) + "/hitrate")
-        .then(function (res) { return res.json(); })
-        .then(function (hitData) {
-          if (hitData.model_hitrates && hitData.model_hitrates.length) {
-            card.appendChild(el("h4", null, lbl("lbl_tpl_model_hitrates", "Model Hitrates")));
-            var hitTable = el("table", "dpmtf-table dpmtf-compact");
-            var hitThead = el("thead", null);
-            var hitThr = el("tr", null);
-            [
-              lbl("lbl_col_model", "Model"),
-              lbl("lbl_col_runs", "Runs"),
-              lbl("lbl_col_success_rate", "Success Rate"),
-              lbl("lbl_col_avg_duration", "Avg Duration")
-            ].forEach(function (h) {
-              hitThr.appendChild(el("th", null, h));
-            });
-            hitThead.appendChild(hitThr);
-            hitTable.appendChild(hitThead);
-            var hitTbody = el("tbody", null);
-            hitData.model_hitrates.forEach(function (mh) {
-              var hitRow = el("tr", null);
-              hitRow.appendChild(td(mh.model_used));
-              hitRow.appendChild(td(mh.successful_runs + " / " + mh.total_runs));
-              var srCell = el("td", null);
-              srCell.textContent = formatRate(mh.rolling_success_rate);
-              srCell.className = rateClass(mh.rolling_success_rate);
-              hitRow.appendChild(srCell);
-              hitRow.appendChild(td(mh.avg_duration_seconds ? mh.avg_duration_seconds + "s" : "-"));
-              hitTbody.appendChild(hitRow);
-            });
-            hitTable.appendChild(hitTbody);
-            card.appendChild(hitTable);
-          }
-        })
-        .catch(function () { /* hitrate fetch optional — don't block detail view */ });
-
-      // Preview
-      if (t.preview) {
-        card.appendChild(el("h4", null, lbl("lbl_tpl_preview", "Preview")));
-        var pre = el("pre", null);
-        pre.style.whiteSpace = "pre-wrap";
-        pre.style.fontSize = "0.85em";
-        pre.style.background = "#0d1117";
-        pre.style.padding = "12px";
-        pre.style.borderRadius = "4px";
-        pre.textContent = t.preview;
-        card.appendChild(pre);
-      }
-
-      // ── Compile form (static 8 fields) ──────────────
-      card.appendChild(el("h4", null, lbl("lbl_tpl_compile_prompt", "Compile Prompt")));
-      var formContainer = el("div", null);
-      formContainer.id = "compiler-form";
-      card.appendChild(formContainer);
-
-      var outputDiv = el("div", null);
-      outputDiv.id = "compile-output";
-      outputDiv.style.display = "none";
-      card.appendChild(outputDiv);
-
-      var warningDiv = el("div", null);
-      warningDiv.id = "compile-warning";
-      warningDiv.style.display = "none";
-      card.appendChild(warningDiv);
-
-      buildCompilerForm();
-    })
-    .catch(function (err) {
-      clear(card);
-      card.appendChild(closeBtn);
-      card.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
-    });
-}
 
 /* ── Static Compile Form (8 fields) ─────────── */
 function buildCompilerForm() {
-  var container = document.getElementById("compiler-form");
+  var container = document.getElementById("template-manager-content");
   if (!container) return;
   clear(container);
 
@@ -1490,7 +1171,7 @@ function onReady() {
   loadPanelStructure();
   initPanelGroupToggles();
   loadDbStatus();
-  loadTemplateManager();
+  buildCompilerForm();
   initDrawer();
 }
 
