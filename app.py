@@ -2661,29 +2661,18 @@ def _load_knowledge_fragment(filename):
     return result
 
 
-@app.post("/api/prompt-templates/{template_key}/compile")
-async def compile_prompt(template_key: str, request: Request):
-    """Compile a prompt with governance-v2 field validation.
+@app.post("/api/prompt-compiler/compile")
+async def compile_prompt(request: Request):
+    """Compile a simplified prompt (Spor G).
 
-    Validates that Human responsibility fields are filled before
-    generating the prompt. Returns governance-v2 XML handoff format.
+    Accepts 8 fields. Auto-generates governance, constraint, validation
+    from target_session role mapping. Returns governance-v2 XML handoff format.
     """
     data = await request.json()
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-
-    # ── Load template ────────────────────────────────
-    cursor.execute("""
-        SELECT * FROM prompt_templates
-        WHERE template_key = ? AND is_active = 1
-    """, (template_key,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Template not found")
-    template = dict(row)
 
     # ── Load compiler fields ─────────────────────────
     cursor.execute("""
@@ -2694,196 +2683,64 @@ async def compile_prompt(template_key: str, request: Request):
     field_rows = cursor.fetchall()
     conn.close()
 
-    # ── Validate required fields ─────────────────────
+    # ── Validate required fields (simplified — Spor G) ─────
     errors = []
-    unanswered_conditional = 0
 
-    for fr in field_rows:
-        f = dict(fr)
-        if not f["is_required"]:
-            continue
-
-        field_key = f["field_key"]
+    # Only 3 fields are strictly required
+    required_fields = ["target_project", "phase_key", "goal"]
+    for field_key in required_fields:
         value = data.get(field_key, "")
+        if not value or value == "":
+            label = field_key
+            for fr in field_rows:
+                if dict(fr)["field_key"] == field_key:
+                    label = dict(fr)["field_label"]
+                    break
+            errors.append({
+                "error": f"Field '{label}' must be filled in",
+                "field_key": field_key,
+            })
 
-        # Check if value is empty (None, empty string, empty list)
-        is_empty = value is None or value == "" or value == [] or value is False
-
-        if f["required_condition"] is None:
-            # Always required
-            if is_empty:
-                errors.append({
-                    "error": f"Field '{f['field_label']}' must be filled in",
-                    "field_key": field_key,
-                })
-        else:
-            # Conditional — evaluate trigger
-            try:
-                condition = json.loads(f["required_condition"])
-            except json.JSONDecodeError:
-                condition = {}
-            trigger = condition.get("trigger", "")
-
-            triggered = False
-            if trigger == "scope_changed":
-                # Conservative: always triggered for new compilations
-                triggered = True
-            elif trigger == "target_is_v3":
-                target = data.get("target_project", "")
-                triggered = "v3" in target.lower() or "9123" in target
-            elif trigger == "model_differs_from_default":
-                selected = data.get("model_selection", "")
-                default_for_tier = "qwen36-27b-q4km"
-                triggered = selected and selected != default_for_tier
-            elif trigger == "multi_project_impact":
-                allowed = data.get("allowed_files", "")
-                if isinstance(allowed, list):
-                    allowed = "\n".join(allowed)
-                triggered = ("ENO" in allowed or "v3" in allowed
-                            or "ai-pc-resource" in allowed)
-            elif trigger == "phase_mode_commit_release":
-                phase = data.get("phase_key", "")
-                triggered = ("release" in phase.lower()
-                            or "commit" in phase.lower())
-            elif trigger == "is_migration_true":
-                triggered = (data.get("is_migration", False)
-                            in (True, "true", "on", 1, "1"))
-            elif trigger == "has_visual_changes":
-                triggered = (data.get("screenshot_required", False)
-                            in (True, "true", "on", 1, "1"))
-
-            if triggered and is_empty:
-                errors.append({
-                    "error": f"Field '{f['field_label']}' must be filled in",
-                    "field_key": field_key,
-                })
-                unanswered_conditional += 1
+    # scope_gate_confirmed must be checked
+    if not data.get("scope_gate_confirmed", False):
+        errors.append({
+            "error": "Du skal bekræfte at du har taget stilling til scope og gate scope",
+            "field_key": "scope_gate_confirmed",
+        })
 
     if errors:
-        response = {"errors": errors, "status": "incomplete"}
-        if unanswered_conditional > 2:
-            response["warning"] = (
-                "Multiple governance gates unanswered. "
-                "Human review recommended before proceeding."
-            )
         raise HTTPException(
-            status_code=400, detail=json.dumps(response)
+            status_code=400, detail=json.dumps({"errors": errors, "status": "incomplete"})
         )
 
-    # ── Build governance-v2 XML handoff ──────────────
+    # ── Generate simplified prompt (Spor G) ─────
+    target_session = data.get("target_session", "claude_implementer")
+
+    # Map session to governance role
+    if "implementer" in target_session.lower():
+        governance_role_file = "03_IMPLEMENTOR.md"
+        role_name = "Implementor"
+    elif "architect" in target_session.lower():
+        governance_role_file = "02_ARCHITECT.md"
+        role_name = "Architect"
+    elif "review" in target_session.lower():
+        governance_role_file = "04_REVIEW.md"
+        role_name = "Review"
+    else:
+        governance_role_file = "03_IMPLEMENTOR.md"
+        role_name = "Implementor"
+
     handoff_id = data.get("handoff_id", "???")
     target_project = data.get("target_project", "")
     phase_key = data.get("phase_key", "")
     goal = data.get("goal", "")
-    father_project = data.get("father_project", "DPMtF-WebUI")
-    is_migration = (data.get("is_migration", False)
-                   in (True, "true", "on", 1, "1"))
-    # Use target_session as the primary field — role is derived from session name below
-    target_session = data.get("target_session", "claude_implementer")
-    target_role = target_session  # Role derived from session name below
-    screenshot_required = (data.get("screenshot_required", False)
-                          in (True, "true", "on", 1, "1"))
     deployment_strategy = data.get("deployment_strategy", "standard")
-
-    # Derive role from target_role
-    if "implementer" in target_role.lower():
-        governance_role_file = "03_IMPLEMENTOR.md"
-        role_name = "Implementor"
-        task_tag = "task"
-        signal = f"python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}"
-    elif "architect" in target_role.lower():
-        governance_role_file = "02_ARCHITECT.md"
-        role_name = "Architect"
-        task_tag = "question"
-        signal = None
-    elif "review" in target_role.lower():
-        governance_role_file = "04_REVIEW.md"
-        role_name = "Review"
-        task_tag = "validation_target"
-        signal = None
-    else:
-        governance_role_file = "03_IMPLEMENTOR.md"
-        role_name = "Implementor"
-        task_tag = "task"
-        signal = f"python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}"
-
-    # Gate answers for context
-    gates_answered = []
-    for gate_field in [
-        "gate_scope_answered", "gate_v3_answered",
-        "gate_model_answered", "gate_feature_rollout_answered",
-    ]:
-        if data.get(gate_field, False) in (True, "true", "on", 1, "1"):
-            gates_answered.append(
-                gate_field.replace("gate_", "GATE-")
-                         .replace("_answered", "").upper()
-            )
-
-    # Build constraints list
-    constraints = data.get("constraints", [])
-    if isinstance(constraints, str):
-        constraints = [c.strip() for c in constraints.split("\n") if c.strip()]
-
-    # Build allowed/forbidden files
-    allowed_files = data.get("allowed_files", [])
-    if isinstance(allowed_files, str):
-        allowed_files = [f.strip() for f in allowed_files.split("\n")
-                        if f.strip()]
-
-    forbidden_files = data.get("forbidden_files", [])
-    if isinstance(forbidden_files, str):
-        forbidden_files = [f.strip() for f in forbidden_files.split("\n")
-                          if f.strip()]
-
-    # Migration folders (read-only)
-    migration_folders = []
-    if is_migration:
-        mf = data.get("migration_folders", [])
-        if isinstance(mf, str):
-            mf = [f.strip() for f in mf.split("\n") if f.strip()]
-        migration_folders = mf
-
-    # Validation commands
-    validation_commands = data.get("validation_commands", [])
-    if isinstance(validation_commands, str):
-        validation_commands = (
-            [c.strip() for c in validation_commands.split("\n")
-             if c.strip()]
-        )
-
-    # ── Load knowledge fragments (Spor B PoC) ─────────────────────
-    is_new_child = (data.get("is_new_child_project", False)
-                    in (True, "true", "on", 1, "1"))
-
-    # Project fragment: which project structure to describe
-    if "DPMtF-WebUI" in target_project:
-        project_fragment = _load_knowledge_fragment("projects/dpmtf-webui.md")
-    else:
-        project_fragment = _load_knowledge_fragment("projects/new-webui.md")
-
-    # Pattern + scope fragments: depend on project type and deployment strategy
-    if is_new_child or deployment_strategy == "accelerated":
-        pattern_fragment = _load_knowledge_fragment("patterns/create-new-webui.md")
-        scope_fragment = _load_knowledge_fragment("scope/new-project-all.md")
-    else:
-        pattern_fragment = _load_knowledge_fragment("patterns/modify-backend.md")
-        scope_fragment = _load_knowledge_fragment("scope/app.py-only.md")
-
-    # Governance + validation fragments: always loaded (Python tasks)
-    governance_fragment = _load_knowledge_fragment("governance/python-task.md")
-    validation_fragment = _load_knowledge_fragment("validation/python.md")
-
-    # ── Generate XML output (handoff 021 — session-derived role) ────
+    allowed_files = data.get("allowed_files", "")
+    forbidden_files = data.get("forbidden_files", "")
 
     lines = []
-    lines.append(
-        f"<role>You are {role_name} in the DPMtF governance loop. "
-        "Your role is defined"
-    )
-    lines.append(
-        f"in {config.get_project_root()}"
-        f"/{config.get_governance_dir()}/{governance_role_file}."
-    )
+    lines.append(f"<role>You are {role_name} in the DPMtF governance loop. Your role is defined")
+    lines.append(f"in {config.get_project_root()}/{config.get_governance_dir()}/{governance_role_file}.")
     lines.append("Read it now before proceeding.</role>")
     lines.append("")
     lines.append(f"<handoff_id>{handoff_id}</handoff_id>")
@@ -2892,309 +2749,76 @@ async def compile_prompt(template_key: str, request: Request):
     lines.append("")
     lines.append("<context>")
     lines.append(f"Human has approved scope for phase {phase_key}.")
-    lines.append(
-        f"Scope is defined in "
-        f"{target_project}/docs/dpmtf/11_SCOPE.md."
-    )
-    lines.append(
-        "All structural governance rules (coding standards, validation, "
-        "architecture, file access) are defined in the Father project at "
-        f"{config.get_governance_dir_abs()}."
-    )
-    if gates_answered:
-        lines.append(f"Gates answered: {', '.join(gates_answered)}.")
-    else:
-        lines.append(
-            "No gate answers recorded — Review should verify "
-            "gate compliance."
-        )
-    lines.append(f"Father project: {father_project}.")
-    lines.append(f"Deployment strategy: {deployment_strategy}.")
-    if deployment_strategy == "accelerated":
-        lines.append(
-            "ACCELERATED STRATEGY: Use skeleton scripts for fast project "
-            "setup, then populate content via prompts. Skeleton files are "
-            "in DPMtF-WebUI/templates/new-webui-skeleton/ (Spor C)."
-        )
-    if is_migration:
-        lines.append(
-            f"This is a MIGRATION task. Source: "
-            f"{data.get('migration_source_description', 'not specified')}."
-        )
-        lines.append(
-            "Migration folders are READ-ONLY for reference inspection."
-        )
-    if (data.get("is_new_child_project", False)
-            in (True, "true", "on", 1, "1")):
-        lines.append(
-            "This task initializes a NEW Child project "
-            "under DPMtF governance."
-        )
-    # ── Knowledge fragment: project structure ──
-    if project_fragment:
-        lines.append("")
-        lines.extend(project_fragment.split("\n"))
-
+    lines.append(f"Scope is defined in {target_project}/docs/dpmtf/11_SCOPE.md.")
+    lines.append(f"Father project: {config.get_father_project()}.")
+    if deployment_strategy:
+        lines.append(f"Deployment strategy: {deployment_strategy}.")
     lines.append("</context>")
-
     lines.append("")
     lines.append("<governance>")
     lines.append("Read and apply these governance files BEFORE starting:")
-    lines.append(
-        f"- {config.get_project_root()}"
-        f"/{config.get_governance_dir()}/12_CODING_STANDARD.md"
-    )
-    lines.append(
-        f"- {config.get_project_root()}"
-        f"/{config.get_governance_dir()}/16_FILE_ACCESS.md"
-    )
-    if is_migration:
-        lines.append(
-            f"- {config.get_project_root()}"
-            f"/{config.get_governance_dir()}/21_ALIGNMENT.md"
-        )
+    lines.append(f"- {config.get_project_root()}/{config.get_governance_dir()}/12_CODING_STANDARD.md")
+    lines.append(f"- {config.get_project_root()}/{config.get_governance_dir()}/16_FILE_ACCESS.md")
+    lines.append(f"- {config.get_project_root()}/{config.get_governance_dir()}/{governance_role_file}")
     lines.append("")
     lines.append("Key rules extracted:")
-    for c in constraints[:4]:
-        lines.append(f"- {c}")
-    if not constraints:
-        lines.append(
-            "- NO innerHTML for dynamic content "
-            "— use createElement()/textContent."
-        )
-        lines.append(
-            "- ALL user-facing text MUST use lbl(key, fallback)."
-        )
-        lines.append(
-            "- Python: py_compile before signaling completion, "
-            "parameterized SQL."
-        )
-        lines.append("- DO NOT COMMIT.")
-
-    # ── Knowledge fragment: governance rules ──
-    if governance_fragment:
-        lines.append("")
-        lines.extend(governance_fragment.split("\n"))
-
+    lines.append("- NO innerHTML for dynamic content — use createElement()/textContent.")
+    lines.append("- ALL user-facing text MUST use lbl(key, fallback).")
+    lines.append("- Python: py_compile before signaling completion, parameterized SQL.")
+    lines.append("- DO NOT COMMIT.")
     lines.append("</governance>")
     lines.append("")
-
-    # ── Role-specific task/question/validation_target ──
-    if task_tag == "task":
-        lines.append("<task>")
-        lines.append(f"{goal}")
-        lines.append("")
-        lines.append("Execute the implementation as described above.")
-        lines.append("")
-        lines.append("When ALL steps are complete, "
-                     "execute the bridge signal:")
-        lines.append("")
-        lines.append(
-            f"1. Write result file to "
-            f"{config.get_bridge_dir()}/implementertoreview/"
-            f"{handoff_id}-result.md"
-        )
-        lines.append(
-            "   Format per 03_IMPLEMENTOR.md — include Summary, "
-            "Files Changed,"
-        )
-        lines.append("   Validation Results table.")
-        lines.append("")
-        lines.append(
-            f"2. Write notification file to "
-            f"{config.get_bridge_dir()}/implementertoreview/"
-            f"{handoff_id}-notification.md"
-        )
-        lines.append(
-            "   Format per 03_IMPLEMENTOR.md — Status, Task Summary, "
-            "Files Changed,"
-        )
-        lines.append("   Next Action.")
-        lines.append("")
-        lines.append(f"3. SIGNAL completion (NO /clear before this):")
-        lines.append(
-            f"   python3 {config.get_bridge_dir()}/bridge.py "
-            f"complete {handoff_id}"
-        )
-
-        # ── Knowledge fragment: task pattern ──
-        if pattern_fragment:
-            lines.append("")
-            lines.extend(pattern_fragment.split("\n"))
-
-        lines.append("</task>")
-
-    elif task_tag == "question":
-        lines.append("<question>")
-        lines.append(f"{goal}")
-        lines.append("")
-        lines.append("Analyze the above and provide:")
-        lines.append("1. Scope analysis — boundaries, risks, dependencies")
-        lines.append(
-            "2. Technical design — architecture changes, "
-            "data flow impact, component design"
-        )
-        lines.append(
-            "3. Implementation plan — file-level changes, "
-            "order of execution"
-        )
-        lines.append(
-            "4. Prompt draft — if implementation is needed, "
-            "draft the handoff prompt"
-        )
-        lines.append("")
-        lines.append("Write your analysis to:")
-        lines.append(
-            f"{config.get_bridge_dir()}/architecttoreview/"
-            f"{handoff_id}-response.md"
-        )
-        lines.append("</question>")
-
-    elif task_tag == "validation_target":
-        lines.append("<validation_target>")
-        lines.append(f"{goal}")
-        lines.append("")
-        lines.append("Validate the following against governance rules:")
-        lines.append(f"- Project: {target_project}")
-        lines.append(f"- Phase: {phase_key}")
-        lines.append(
-            f"- Scope: per {target_project}"
-            f"/docs/dpmtf/11_SCOPE.md"
-        )
-        lines.append("")
-        lines.append(
-            "Run all pre-commit checks from 13_VALIDATION.md."
-        )
-        lines.append(
-            "Review git diff for scope, coding standards, "
-            "and file access compliance."
-        )
-        lines.append("Write validation verdict to:")
-        lines.append(
-            f"{config.get_bridge_dir()}/implementertoreview/"
-            f"{handoff_id}-review-verdict.md"
-        )
-        lines.append("</validation_target>")
-
-    else:
-        # Fallback to Implementor
-        lines.append("<task>")
-        lines.append(f"{goal}")
-        lines.append("")
-        lines.append("Execute the implementation as described above.")
-        lines.append("</task>")
+    lines.append("<task>")
+    lines.append(goal)
+    lines.append("")
+    lines.append("When ALL steps are complete, execute the bridge signal:")
+    lines.append("")
+    lines.append(f"1. Write result file to {config.get_bridge_dir()}/implementertoreview/{handoff_id}-result.md")
+    lines.append(f"2. Write notification file to {config.get_bridge_dir()}/implementertoreview/{handoff_id}-notification.md")
+    lines.append(f"3. SIGNAL completion: python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}")
+    lines.append("</task>")
     lines.append("")
     lines.append("<scope>")
     lines.append("Files you MAY modify:")
-    for fa in allowed_files:
-        lines.append(f"- {fa}")
-    if not allowed_files:
+    if allowed_files:
+        for f in allowed_files.strip().split("\n"):
+            f = f.strip()
+            if f:
+                lines.append(f"- {f}")
+    else:
         lines.append("- (none specified — Review should verify)")
     lines.append("")
     lines.append("Files you MUST NOT touch:")
-    for fb in forbidden_files:
-        lines.append(f"- {fb}")
-    lines.append(
-        f"- {config.get_project_root()}/"
-        " (Father project — unless explicitly allowed above)"
-    )
-    # Add standard forbidden projects from config
-    for child in config.get_child_projects():
-        lines.append(f"- /home/svend/{child}/ (other Child project)")
-    for ref in config.get_reference_projects():
-        lines.append(f"- /home/svend/{ref}/ (reference project)")
-    if is_migration and migration_folders:
-        lines.append("")
-        lines.append(
-            "Migration folders — READ-ONLY "
-            "(inspect only, DO NOT MODIFY):"
-        )
-        for mf in migration_folders:
-            lines.append(f"- {mf} (READ-ONLY)")
-
-    # ── Knowledge fragment: scope profile ──
-    if scope_fragment:
-        lines.append("")
-        lines.extend(scope_fragment.split("\n"))
-
+    if forbidden_files:
+        for f in forbidden_files.strip().split("\n"):
+            f = f.strip()
+            if f:
+                lines.append(f"- {f}")
+    lines.append(f"- {config.get_project_root()}/ (Father project)")
     lines.append("</scope>")
     lines.append("")
     lines.append("<validation>")
-    lines.append(
-        "Before signaling completion, run these checks yourself:"
-    )
-    for i, cmd in enumerate(validation_commands, 1):
-        lines.append(f"{i}. {cmd}")
-    if not validation_commands:
-        lines.append("1. python3 -m py_compile app.py — must pass")
-        lines.append(
-            "2. node --check static/js/*.js — must pass for each"
-            " modified file"
-        )
-        lines.append(
-            "3. git diff --stat — verify only allowed files changed"
-        )
-        lines.append(
-            "4. grep -RIn \"innerHTML\" static templates "
-            "— must be empty"
-        )
-    # ── Knowledge fragment: validation commands ──
-    if validation_fragment:
-        lines.append("")
-        lines.extend(validation_fragment.split("\n"))
-
+    lines.append("1. python3 -m py_compile <modified files> — must pass")
+    lines.append("2. node --check static/js/*.js — must pass for each modified file")
+    lines.append("3. grep -RIn 'innerHTML' static/ templates/ — must be empty")
+    lines.append("4. git diff --stat — verify only allowed files changed")
     lines.append("</validation>")
     lines.append("")
     lines.append("<constraint>")
     lines.append("DO NOT COMMIT. Leave all changes unstaged.")
-    if task_tag == "task":
-        lines.append(
-            "Execute ALL steps in <task> — especially step 3 "
-            "(bridge.py complete)."
-        )
-    elif task_tag == "question":
-        lines.append(
-            "Write complete analysis before signaling completion."
-        )
-    elif task_tag == "validation_target":
-        lines.append(
-            "Run all validation checks and write verdict."
-        )
     lines.append(f"Target session: {target_session} (role: {role_name}).")
-    if screenshot_required:
-        lines.append(
-            "CAPTURE SCREENSHOT before signaling completion — save as "
-            "screenshot-v<N>.png in project root."
-        )
-    lines.append(
-        "If you encounter an ambiguity, document it in the result "
-        "file — do NOT guess."
-    )
-    lines.append("Stop after 2 failed patching attempts.")
+    lines.append("Execute ALL steps in <task> — especially the bridge.py complete signal.")
     lines.append("</constraint>")
 
-    prompt_text = "\n".join(lines)
+    prompt = "\n".join(lines)
 
-    # ── Build response ───────────────────────────────
-    response_data = {
-        "template_key": template_key,
-        "template_name": template["template_name"],
-        "suitable_for": template["suitable_for"],
-        "prompt": prompt_text,
+    return {
+        "prompt": prompt,
         "params_used": list(data.keys()),
         "format": "governance-v2-xml",
         "target_session": target_session,
-        "target_role": role_name,  # derived from session, for display
-        "gates_answered": gates_answered,
+        "target_role": role_name,
     }
-
-    if unanswered_conditional > 2:
-        response_data["warning"] = (
-            "Multiple governance gates unanswered. "
-            "Human review recommended before proceeding."
-        )
-
-    return response_data
 
 
 # ── Prompt Compiler Hardening: Assign Handoff ID (handoff 017) ────────

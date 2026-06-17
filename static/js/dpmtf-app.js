@@ -71,9 +71,6 @@ function switchLanguage(newLocale) {
       });
       // Genindlæs alle panels med nye labels
       if (typeof loadDbStatus === "function") loadDbStatus();
-      if (typeof loadPhaseStatus === "function") loadPhaseStatus();
-      if (typeof loadHitrates === "function") loadHitrates();
-      if (typeof loadPromptSequences === "function") loadPromptSequences();
       if (typeof loadTemplates === "function") loadTemplates();
       if (typeof loadProjectPlans === "function") loadProjectPlans();
     })
@@ -333,442 +330,9 @@ function loadDbStatus() {
         lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
       container.appendChild(card);
     });
-}
-
-/* ── 4. Phase Status ───────────────────────────────── */
-var showCompleted = false;
-
-function loadPhaseStatus() {
-  var container = document.getElementById("phase-status-content");
-  if (!container) return;
-  clear(container);
-
-  fetch("/api/phase-status")
-    .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    })
-    .then(function (data) {
-      var completed = data.completed || [];
-      var next = data.next || [];
-      var planned = data.planned || [];
-
-      // Toggle bar (built after labels are loaded)
-      var toggleBar = el("div", null);
-      toggleBar.style.marginBottom = "10px";
-      var toggleLabel = el("label", null);
-      toggleLabel.style.cursor = "pointer";
-      toggleLabel.style.color = "#8b949e";
-      toggleLabel.style.fontSize = "0.85em";
-      var toggleCheck = el("input", null);
-      toggleCheck.type = "checkbox";
-      toggleCheck.checked = showCompleted;
-      toggleCheck.style.marginRight = "6px";
-      toggleCheck.onchange = function () {
-        showCompleted = this.checked;
-        var card = document.getElementById("phase-completed-card");
-        if (card) card.style.display = showCompleted ? "block" : "none";
-      };
-      toggleLabel.appendChild(toggleCheck);
-      toggleLabel.appendChild(document.createTextNode(
-        lbl("phase_status.show_completed", "Show completed phases")));
-      toggleBar.appendChild(toggleLabel);
-      container.appendChild(toggleBar);
-
-      // Completed
-      var compCard = el("div", "dpmtf-card");
-      compCard.id = "phase-completed-card";
-      if (!showCompleted) compCard.style.display = "none";
-      compCard.appendChild(el("h3", null, lbl("lbl_status_completed", "Completed") + " (" + completed.length + ")"));
-      if (completed.length) {
-        var compList = el("ul", null);
-        completed.forEach(function (p) {
-          var li = el("li", null);
-          li.textContent = p.phase_key + ": " + escapeHtml(p.phase_title);
-          compList.appendChild(li);
-        });
-        compCard.appendChild(compList);
-      } else {
-        compCard.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
-      }
-      container.appendChild(compCard);
-
-      // Next
-      var nextCard = el("div", "dpmtf-card");
-      nextCard.appendChild(el("h3", null, lbl("lbl_status_next", "Next")));
-      if (next.length) {
-        var nextList = el("ul", null);
-        next.forEach(function (p) {
-          var li = el("li", null);
-          li.textContent = p.phase_key + ": " + escapeHtml(p.phase_title);
-          nextList.appendChild(li);
-        });
-        nextCard.appendChild(nextList);
-      } else {
-        nextCard.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
-      }
-      container.appendChild(nextCard);
-
-      // Planned
-      var planCard = el("div", "dpmtf-card");
-      planCard.appendChild(el("h3", null, lbl("lbl_status_planned", "Planned") + " (" + planned.length + ")"));
-      if (planned.length) {
-        var planList = el("ul", null);
-        planned.forEach(function (p) {
-          var li = el("li", null);
-          li.textContent = p.phase_key + ": " + escapeHtml(p.phase_title);
-          planList.appendChild(li);
-        });
-        planCard.appendChild(planList);
-      } else {
-        planCard.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No data")));
-      }
-      container.appendChild(planCard);
-    })
-    .catch(function (err) {
-      var card = el("div", "dpmtf-card");
-      card.appendChild(el("p", "dpmtf-error",
-        lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
-      container.appendChild(card);
-    });
-}
-
-/* ── 5. Hitrate Panel ──────────────────────────────── */
-function loadHitrates() {
-  var container = document.getElementById("hitrate-content");
-  if (!container) return;
-  clear(container);
-
-  var statusEl = el("span", "dpmtf-status");
-  var refreshBtn = el("button", "dpmtf-btn");
-  refreshBtn.textContent = lbl("lbl_btn_refresh", "Refresh");
-  refreshBtn.onclick = loadHitrates;
-
-  var headerRow = el("div", null);
-  headerRow.appendChild(refreshBtn);
-  headerRow.appendChild(statusEl);
-  container.appendChild(headerRow);
-
-  // ── Phase Hitrate table ────────────────────────────
-  var table = el("table", "dpmtf-table");
-  var thead = el("thead", null);
-  var thr = el("tr", null);
-  thr.appendChild(el("th", null, lbl("lbl_col_phase", "Phase")));
-  thr.appendChild(el("th", null, lbl("lbl_col_success_rate", "Success Rate")));
-  thr.appendChild(el("th", null, lbl("lbl_col_successful_total", "Successful / Total")));
-  thr.appendChild(el("th", null, lbl("lbl_col_last_run", "Last Run")));
-  thead.appendChild(thr);
-  table.appendChild(thead);
-  var tbody = el("tbody", null);
-  table.appendChild(tbody);
-  container.appendChild(table);
-
-  fetch("/api/prompt-hirates")
-    .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    })
-    .then(function (data) {
-      clear(tbody);
-      var hitrates = data.hitrates || [];
-      if (!hitrates.length) {
-        var row = el("tr", null);
-        var cell = el("td", null, lbl("lbl_status_no_data", "No hitrate data yet."));
-        cell.colSpan = 4;
-        row.appendChild(cell);
-        tbody.appendChild(row);
-        statusEl.textContent = "0 " + (lbl("lbl_sequences", "phases") || "phases");
-        return;
-      }
-      hitrates.forEach(function (h) {
-        var row = el("tr", null);
-        var pct = (h.rolling_success_rate * 100).toFixed(0);
-        var rateClass = pct >= 80 ? "hitrate-good" : (pct >= 50 ? "hitrate-ok" : "hitrate-low");
-        row.appendChild(td(h.phase_key));
-        row.appendChild(td(pct + "%", rateClass));
-        row.appendChild(td(h.successful_runs + " / " + h.total_runs));
-        row.appendChild(td(h.last_run_timestamp ? new Date(h.last_run_timestamp).toLocaleString() : "-"));
-        tbody.appendChild(row);
-      });
-      statusEl.textContent = hitrates.length + " " + (lbl("lbl_sequences", "phases") || "phases");
-    })
-    .catch(function (err) {
-      clear(tbody);
-      var row = el("tr", null);
-      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 4;
-      row.appendChild(cell);
-      tbody.appendChild(row);
-    });
-
-  // ── Implementation Patterns table ───────────────────
-  var patHeading = el("h4", null, lbl("lbl_pat_heading", "Implementation Patterns"));
-  patHeading.style.marginTop = "20px";
-  container.appendChild(patHeading);
-  var patTable = el("table", "dpmtf-table");
-  var patThead = el("thead", null);
-  var patThr = el("tr", null);
-  [
-    lbl("lbl_col_pattern_id", "Pattern ID"),
-    lbl("lbl_col_files", "Files"),
-    lbl("lbl_col_constraints", "Constraints"),
-    lbl("lbl_col_success_rate", "Success Rate"),
-    lbl("lbl_col_best_model", "Best Model"),
-    lbl("lbl_col_avg_dur", "Avg Dur"),
-    lbl("lbl_col_runs", "Runs")
-  ].forEach(function (h) {
-    patThr.appendChild(el("th", null, h));
-  });
-  patThead.appendChild(patThr);
-  patTable.appendChild(patThead);
-  var patTbody = el("tbody", null);
-  patTable.appendChild(patTbody);
-  container.appendChild(patTable);
-
-  // Detail container for expanded pattern runs
-  var detailDiv = el("div", null);
-  detailDiv.id = "pattern-detail";
-  detailDiv.style.display = "none";
-  container.appendChild(detailDiv);
-
-  fetch("/api/implementation-patterns")
-    .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    })
-    .then(function (data) {
-      clear(patTbody);
-      var patterns = data.patterns || [];
-      if (!patterns.length) {
-        var row = el("tr", null);
-        var cell = el("td", null, lbl("lbl_status_no_data", "No patterns yet. Record runs with file_signature + constraint_set to create patterns."));
-        cell.colSpan = 7;
-        row.appendChild(cell);
-        patTbody.appendChild(row);
-        return;
-      }
-      patterns.forEach(function (p) {
-        var row = el("tr", null);
-        row.style.cursor = "pointer";
-        row.onclick = function () { loadPatternRuns(p.pattern_id); };
-        var pct = (p.rolling_success_rate * 100).toFixed(0);
-        var rateClass = pct >= 80 ? "hitrate-good" : (pct >= 50 ? "hitrate-ok" : "hitrate-low");
-        row.appendChild(td(p.pattern_id));
-        row.appendChild(td(truncate(p.file_signature, 50)));
-        row.appendChild(td(truncate(p.constraint_set, 40)));
-        row.appendChild(td(pct + "%", rateClass));
-        row.appendChild(td(p.best_model || "-"));
-        row.appendChild(td(p.avg_duration_seconds ? p.avg_duration_seconds + "s" : "-"));
-        row.appendChild(td(p.successful_runs + " / " + p.total_runs));
-        patTbody.appendChild(row);
-      });
-    })
-    .catch(function (err) {
-      clear(patTbody);
-      var row = el("tr", null);
-      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 7;
-      row.appendChild(cell);
-      patTbody.appendChild(row);
-    });
-
-  // ── Recent runs (expandable) ────────────────────────
-  var details = el("details", "dpmtf-details");
-  var summary = el("summary", null, lbl("lbl_runs_heading", "Recent Prompt Runs"));
-  details.appendChild(summary);
-  var runsTable = el("table", "dpmtf-table");
-  var runsThead = el("thead", null);
-  var runsThr = el("tr", null);
-  [
-    lbl("lbl_col_run_id", "Run ID"),
-    lbl("lbl_col_phase", "Phase"),
-    lbl("lbl_col_project", "Project"),
-    lbl("lbl_col_status", "Status"),
-    lbl("lbl_status_success", "Success"),
-    lbl("lbl_col_first_try", "1st-Try"),
-    lbl("lbl_col_corrections", "Corr"),
-    lbl("lbl_col_duration", "Duration"),
-    lbl("lbl_col_model", "Model"),
-    lbl("lbl_tpl_suitable_for", "Type"),
-    lbl("lbl_tpl_tokens", "Tokens"),
-    lbl("lbl_col_cost", "Cost"),
-    lbl("lbl_col_timestamp", "Timestamp")
-  ].forEach(function (h) {
-    runsThr.appendChild(el("th", null, h));
-  });
-  runsThead.appendChild(runsThr);
-  runsTable.appendChild(runsThead);
-  var runsTbody = el("tbody", null);
-  runsTable.appendChild(runsTbody);
-  details.appendChild(runsTable);
-  container.appendChild(details);
-
-  fetch("/api/prompt-runs?limit=20")
-    .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    })
-    .then(function (data) {
-      clear(runsTbody);
-      var runs = data.runs || [];
-      if (!runs.length) {
-        var row = el("tr", null);
-        var cell = el("td", null, lbl("lbl_status_no_data", "No prompt runs recorded yet."));
-        cell.colSpan = 13;
-        row.appendChild(cell);
-        runsTbody.appendChild(row);
-        return;
-      }
-      runs.forEach(function (r) {
-        var row = el("tr", null);
-        row.appendChild(td(r.run_id));
-        row.appendChild(td(r.phase_key));
-        row.appendChild(td(r.target_project));
-
-        // Execution status badge
-        var statusCell = el("td", null);
-        var statusBadge = el("span", "status-" + (r.execution_status || "unknown"));
-        statusBadge.textContent = r.execution_status || "unknown";
-        statusCell.appendChild(statusBadge);
-        row.appendChild(statusCell);
-
-        row.appendChild(td(r.success ? "✓" : "✗", r.success ? "hitrate-good" : "hitrate-low"));
-
-        // First-try success
-        var ftCell = el("td", null);
-        if (r.first_try_success === 1) ftCell.textContent = "✅";
-        else if (r.first_try_success === 0) ftCell.textContent = "❌";
-        else ftCell.textContent = "◻";
-        row.appendChild(ftCell);
-
-        // Manual corrections
-        var corrCell = el("td", null);
-        if (r.manual_corrections > 0) {
-          var corrBadge = el("span", "dpmtf-badge dpmtf-badge-warning");
-          corrBadge.textContent = r.manual_corrections;
-          corrCell.appendChild(corrBadge);
-        } else {
-          corrCell.textContent = "0";
-        }
-        row.appendChild(corrCell);
-
-        row.appendChild(td(r.duration_seconds != null ? r.duration_seconds + "s" : "-"));
-        row.appendChild(td(r.model_used || "-"));
-        // Model type badge
-        var typeCell = el("td", null);
-        if (r.model_type) {
-          var badge = el("span", r.model_type === "cloud" ? "model-badge-cloud" : "model-badge-local");
-          badge.textContent = r.model_type;
-          typeCell.appendChild(badge);
-        } else {
-          typeCell.textContent = "-";
-        }
-        row.appendChild(typeCell);
-        // Tokens (cloud only)
-        if (r.token_count_input || r.token_count_output) {
-          row.appendChild(td(formatTokens(r.token_count_input) + " in / " + formatTokens(r.token_count_output) + " out"));
-        } else {
-          row.appendChild(td("-"));
-        }
-        // Cost (cloud only)
-        if (r.token_cost_eur != null || r.token_cost_dkk != null) {
-          var costStr = "";
-          if (r.token_cost_eur != null) costStr += "€" + r.token_cost_eur.toFixed(2);
-          if (r.token_cost_dkk != null) costStr += (costStr ? " / " : "") + r.token_cost_dkk.toFixed(2) + " DKK";
-          row.appendChild(td(costStr || "-"));
-        } else {
-          row.appendChild(td("-"));
-        }
-        row.appendChild(td(r.run_timestamp ? new Date(r.run_timestamp).toLocaleString() : "-"));
-        runsTbody.appendChild(row);
-      });
-    })
-    .catch(function (err) {
-      clear(runsTbody);
-      var row = el("tr", null);
-      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 13;
-      row.appendChild(cell);
-      runsTbody.appendChild(row);
-    });
-}
-
-function loadPatternRuns(patternId) {
-  var detailDiv = document.getElementById("pattern-detail");
-  if (!detailDiv) return;
-  detailDiv.style.display = "block";
-  clear(detailDiv);
-
-  var heading = el("h4", null, "Runs for " + patternId);
-  detailDiv.appendChild(heading);
-  var closeBtn = el("button", "dpmtf-btn dpmtf-small");
-  closeBtn.textContent = lbl("lbl_btn_close_drawer", "Close");
-  closeBtn.onclick = function () { detailDiv.style.display = "none"; };
-  detailDiv.appendChild(closeBtn);
-
-  var table = el("table", "dpmtf-table");
-  var thead = el("thead", null);
-  var thr = el("tr", null);
-  ["Run ID", "Phase", "Success", "Duration", "Model", "Timestamp"].forEach(function (h) {
-    thr.appendChild(el("th", null, h));
-  });
-  thead.appendChild(thr);
-  table.appendChild(thead);
-  var tbody = el("tbody", null);
-  table.appendChild(tbody);
-  detailDiv.appendChild(table);
-
-  fetch("/api/implementation-patterns/" + encodeURIComponent(patternId) + "/runs?limit=50")
-    .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
-    })
-    .then(function (data) {
-      clear(tbody);
-      var runs = data.runs || [];
-      if (!runs.length) {
-        var row = el("tr", null);
-        var cell = el("td", null, "No runs for this pattern.");
-        cell.colSpan = 6;
-        row.appendChild(cell);
-        tbody.appendChild(row);
-        return;
-      }
-      runs.forEach(function (r) {
-        var row = el("tr", null);
-        row.appendChild(td(r.run_id));
-        row.appendChild(td(r.phase_key));
-        row.appendChild(td(r.success ? "✓" : "✗", r.success ? "hitrate-good" : "hitrate-low"));
-        row.appendChild(td(r.duration_seconds != null ? r.duration_seconds + "s" : "-"));
-        row.appendChild(td(r.model_used || "-"));
-        row.appendChild(td(r.run_timestamp ? new Date(r.run_timestamp).toLocaleString() : "-"));
-        tbody.appendChild(row);
-      });
-    })
-    .catch(function (err) {
-      clear(tbody);
-      var row = el("tr", null);
-      var cell = el("td", null, lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-      cell.colSpan = 6;
-      row.appendChild(cell);
-      tbody.appendChild(row);
-    });
-}
-
-function truncate(str, maxLen) {
-  if (!str) return "";
-  if (str.length <= maxLen) return str;
-  return str.substring(0, maxLen) + "...";
-}
-
-function formatTokens(n) {
-  if (n == null) return "-";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
-  return String(n);
-}
+ }
 
 /* ── 2H Redesign helpers ────────────────────────────── */
-
 function formatRate(rate) {
   if (rate == null || rate === 0) return "-";
   return (rate * 100).toFixed(0) + "%";
@@ -787,517 +351,6 @@ function complexityBadge(tier) {
   var labels = {1: "🟢 T1", 2: "🟡 T2", 3: "🔴 T3"};
   badge.textContent = labels[tier] || "T" + tier;
   return badge;
-}
-
-/* ── 6. Prompt Sequence Planner ────────────────────── */
-var currentSequenceId = null;
-
-function loadPromptSequences() {
-  var container = document.getElementById("prompt-sequence-content");
-  if (!container) return;
-  clear(container);
-
-  // Status bar
-  var statusBar = el("div", null);
-  statusBar.style.marginBottom = "12px";
-  var seqCount = el("span", "dpmtf-badge dpmtf-badge-info");
-  seqCount.id = "sequence-count-display";
-  seqCount.textContent = lbl("lbl_sequences", "Sequences") + ": 0";
-  statusBar.appendChild(seqCount);
-  var stepCount = el("span", "dpmtf-badge dpmtf-badge-info");
-  stepCount.id = "step-count-display";
-  stepCount.style.marginLeft = "8px";
-  stepCount.textContent = lbl("lbl_steps", "Steps") + ": 0";
-  statusBar.appendChild(stepCount);
-  container.appendChild(statusBar);
-
-  // Create form
-  var createCard = el("div", "dpmtf-card");
-  createCard.appendChild(el("h4", null, lbl("lbl_btn_create", "Create") + " " + (lbl("lbl_sequences", "Sequence") || "Sequence")));
-  var nameLabel = el("label", "dpmtf-label", lbl("lbl_project_name", "Name") + ":");
-  createCard.appendChild(nameLabel);
-  var nameInput = el("input", "dpmtf-input");
-  nameInput.id = "sequence-name";
-  nameInput.placeholder = "Enter sequence name";
-  createCard.appendChild(nameInput);
-  var goalLabel = el("label", "dpmtf-label", "Goal:");
-  createCard.appendChild(goalLabel);
-  var goalInput = el("textarea", "dpmtf-textarea");
-  goalInput.id = "sequence-goal";
-  goalInput.placeholder = "Enter sequence goal";
-  createCard.appendChild(goalInput);
-  var createBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  createBtn.textContent = lbl("lbl_btn_create", "Create") + " " + (lbl("lbl_sequences", "Sequence") || "Sequence");
-  createBtn.onclick = createPromptSequence;
-  createCard.appendChild(createBtn);
-  container.appendChild(createCard);
-
-  // Select sequence
-  var selectCard = el("div", "dpmtf-card");
-  selectCard.appendChild(el("h4", null, lbl("lbl_select_sequence", "Select a sequence...")));
-  var selector = el("select", "dpmtf-select");
-  selector.id = "sequence-selector";
-  selector.onchange = function () { loadSequenceSteps(selector.value); };
-  var opt = el("option", null, lbl("lbl_select_sequence", "Select a sequence..."));
-  opt.value = "";
-  selector.appendChild(opt);
-  selectCard.appendChild(selector);
-  var seqStatus = el("div", "dpmtf-status");
-  seqStatus.id = "sequence-status";
-  selectCard.appendChild(seqStatus);
-  container.appendChild(selectCard);
-
-  // Steps container
-  var stepsCard = el("div", "dpmtf-card");
-  stepsCard.id = "sequence-steps-card";
-  stepsCard.appendChild(el("h4", null, lbl("lbl_steps", "Steps")));
-  var stepsDiv = el("div", null);
-  stepsDiv.id = "sequence-steps-container";
-  stepsDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_empty_steps", "No steps yet.")));
-  stepsCard.appendChild(stepsDiv);
-  container.appendChild(stepsCard);
-
-  // Add step form
-  var addCard = el("div", "dpmtf-card");
-  addCard.id = "add-step-card";
-  addCard.style.display = "none";
-  addCard.appendChild(el("h4", null, lbl("lbl_btn_add_step", "Add Step")));
-  var titleLabel = el("label", "dpmtf-label", "Step Title:");
-  addCard.appendChild(titleLabel);
-  var titleInput = el("input", "dpmtf-input");
-  titleInput.id = "step-title";
-  addCard.appendChild(titleInput);
-  var layerLabel = el("label", "dpmtf-label", "Target Layer:");
-  addCard.appendChild(layerLabel);
-  var layerSelect = el("select", "dpmtf-select");
-  layerSelect.id = "target-layer";
-  ["skeleton","database","frontend","css","backend","config","tests","docs","verification","other"].forEach(function (l) {
-    var o = el("option", null, l);
-    o.value = l;
-    layerSelect.appendChild(o);
-  });
-  addCard.appendChild(layerSelect);
-  var promptLabel = el("label", "dpmtf-label", "Prompt Text:");
-  addCard.appendChild(promptLabel);
-  var promptInput = el("textarea", "dpmtf-textarea");
-  promptInput.id = "prompt-text";
-  addCard.appendChild(promptInput);
-  var addBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  addBtn.textContent = lbl("lbl_btn_add_step", "Add Step");
-  addBtn.onclick = addPromptSequenceStep;
-  addCard.appendChild(addBtn);
-  container.appendChild(addCard);
-
-  // Prompt preview
-  var previewCard = el("div", "dpmtf-card");
-  previewCard.appendChild(el("h4", null, lbl("lbl_prompt_preview", "Generate Next Prompt Preview")));
-  var genBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  genBtn.textContent = lbl("lbl_btn_generate_prompt", "Generate Next Prompt Preview");
-  genBtn.onclick = generateNextPrompt;
-  previewCard.appendChild(genBtn);
-  var previewMsg = el("p", "dpmtf-muted");
-  previewMsg.id = "prompt-preview-message";
-  previewMsg.textContent = lbl("lbl_no_prompts_yet", "No prompt generated yet.");
-  previewCard.appendChild(previewMsg);
-  var previewTextarea = el("textarea", "dpmtf-textarea");
-  previewTextarea.id = "prompt-preview";
-  previewTextarea.style.display = "none";
-  previewTextarea.readOnly = true;
-  previewCard.appendChild(previewTextarea);
-  var copyBtn = el("button", "dpmtf-btn");
-  copyBtn.id = "copy-prompt-btn";
-  copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
-  copyBtn.style.display = "none";
-  copyBtn.onclick = copyPrompt;
-  previewCard.appendChild(copyBtn);
-  var saveSection = el("div", null);
-  saveSection.id = "save-prompt-section";
-  saveSection.style.display = "none";
-  var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  saveBtn.textContent = lbl("lbl_btn_save_prompt", "Save Generated Prompt");
-  saveBtn.onclick = saveGeneratedPrompt;
-  saveSection.appendChild(saveBtn);
-  var saveStatus = el("span", "dpmtf-status");
-  saveStatus.id = "save-prompt-status";
-  saveSection.appendChild(saveStatus);
-  previewCard.appendChild(saveSection);
-  container.appendChild(previewCard);
-
-  // Prompt history
-  var historyCard = el("div", "dpmtf-card");
-  historyCard.appendChild(el("h4", null, lbl("lbl_prompt_history", "Prompt History")));
-  var historyMsg = el("p", "dpmtf-muted");
-  historyMsg.id = "prompt-history-message";
-  historyMsg.textContent = lbl("lbl_no_prompts_yet", "No generated prompts yet.");
-  historyCard.appendChild(historyMsg);
-  var historyList = el("div", null);
-  historyList.id = "prompt-history-list";
-  historyList.style.display = "none";
-  historyCard.appendChild(historyList);
-  container.appendChild(historyCard);
-
-  // Load data
-  refreshSequenceList();
-  updateCounts();
-}
-
-function refreshSequenceList() {
-  fetch("/api/prompt-sequences")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var selector = document.getElementById("sequence-selector");
-      if (!selector) return;
-      while (selector.options.length > 1) selector.remove(1);
-      (data.sequences || []).forEach(function (s) {
-        var opt = el("option", null, s.name);
-        opt.value = s.id;
-        selector.appendChild(opt);
-      });
-    });
-}
-
-function createPromptSequence() {
-  var name = document.getElementById("sequence-name").value.trim();
-  var goal = document.getElementById("sequence-goal").value.trim();
-  if (!name) return;
-  fetch("/api/prompt-sequences", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: name, goal: goal })
-  })
-    .then(function (res) { return res.json(); })
-    .then(function () {
-      document.getElementById("sequence-name").value = "";
-      document.getElementById("sequence-goal").value = "";
-      refreshSequenceList();
-      updateCounts();
-    });
-}
-
-function loadSequenceSteps(seqId) {
-  if (!seqId) return;
-  currentSequenceId = parseInt(seqId);
-  var container = document.getElementById("sequence-steps-container");
-  var addCard = document.getElementById("add-step-card");
-  var statusEl = document.getElementById("sequence-status");
-  if (!container) return;
-
-  fetch("/api/prompt-sequences/" + seqId + "/steps")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      clear(container);
-      var steps = data.steps || [];
-      if (!steps.length) {
-        container.appendChild(el("p", "dpmtf-muted", lbl("lbl_empty_steps", "No steps yet.")));
-      } else {
-        var table = el("table", "dpmtf-table");
-        var thead = el("thead", null);
-        var thr = el("tr", null);
-        thr.appendChild(el("th", null, "#"));
-        thr.appendChild(el("th", null, "Title"));
-        thr.appendChild(el("th", null, "Layer"));
-        thr.appendChild(el("th", null, "Status"));
-        thead.appendChild(thr);
-        table.appendChild(thead);
-        var tbody = el("tbody", null);
-        steps.forEach(function (s) {
-          var row = el("tr", null);
-          row.appendChild(td(String(s.step_number)));
-          row.appendChild(td(escapeHtml(s.step_title || "-")));
-          row.appendChild(td(s.target_layer || "-"));
-          row.appendChild(td(s.status || "planned"));
-          tbody.appendChild(row);
-        });
-        table.appendChild(tbody);
-        container.appendChild(table);
-      }
-      if (addCard) addCard.style.display = "block";
-      if (statusEl) statusEl.textContent = steps.length + " " + (lbl("lbl_steps", "steps") || "steps");
-    })
-    .catch(function (err) {
-      if (statusEl) statusEl.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
-    });
-}
-
-function addPromptSequenceStep() {
-  if (!currentSequenceId) return;
-  var title = document.getElementById("step-title").value.trim();
-  var layer = document.getElementById("target-layer").value;
-  var prompt = document.getElementById("prompt-text").value.trim();
-  if (!title) return;
-  fetch("/api/prompt-sequences/" + currentSequenceId + "/steps", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ step_title: title, target_layer: layer, prompt_text: prompt })
-  })
-    .then(function (res) { return res.json(); })
-    .then(function () {
-      document.getElementById("step-title").value = "";
-      document.getElementById("prompt-text").value = "";
-      loadSequenceSteps(currentSequenceId);
-      updateCounts();
-    });
-}
-
-function generateNextPrompt() {
-  if (!currentSequenceId) return;
-  fetch("/api/prompt-sequences/" + currentSequenceId + "/next-prompt")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var msg = document.getElementById("prompt-preview-message");
-      var textarea = document.getElementById("prompt-preview");
-      var copyBtn = document.getElementById("copy-prompt-btn");
-      var saveSection = document.getElementById("save-prompt-section");
-      if (msg) msg.style.display = "none";
-      if (textarea) { textarea.value = data.prompt || ""; textarea.style.display = "block"; }
-      if (copyBtn) copyBtn.style.display = "block";
-      if (saveSection) saveSection.style.display = "block";
-    });
-}
-
-function copyPrompt() {
-  var textarea = document.getElementById("prompt-preview");
-  if (!textarea) return;
-  textarea.select();
-  document.execCommand("copy");
-}
-
-function saveGeneratedPrompt() {
-  if (!currentSequenceId) return;
-  var textarea = document.getElementById("prompt-preview");
-  if (!textarea || !textarea.value) return;
-  fetch("/api/prompt-sequences/" + currentSequenceId + "/steps")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var steps = data.steps || [];
-      var planned = steps.filter(function (s) { return s.status === "planned"; });
-      if (!planned.length) return;
-      fetch("/api/prompt-sequences/" + currentSequenceId + "/steps/" + planned[0].id + "/generated-prompts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt_text: textarea.value })
-      })
-        .then(function () {
-          var saveStatus = document.getElementById("save-prompt-status");
-          if (saveStatus) saveStatus.textContent = lbl("lbl_status_success", "Saved!") || "Saved!";
-          loadPromptHistory(currentSequenceId);
-        });
-    });
-}
-
-function loadPromptHistory(seqId) {
-  if (!seqId) return;
-  var list = document.getElementById("prompt-history-list");
-  var msg = document.getElementById("prompt-history-message");
-  if (!list) return;
-  fetch("/api/prompt-sequences/" + seqId + "/generated-prompts")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var prompts = data.prompts || [];
-      if (!prompts.length) {
-        if (msg) msg.style.display = "block";
-        list.style.display = "none";
-        return;
-      }
-      if (msg) msg.style.display = "none";
-      list.style.display = "block";
-      clear(list);
-      prompts.forEach(function (p) {
-        var card = el("div", "dpmtf-card");
-        card.appendChild(el("p", "dpmtf-muted dpmtf-small", "Step " + p.step_number + " — " + (p.generated_at || "")));
-        var pre = el("pre", null);
-        pre.style.whiteSpace = "pre-wrap";
-        pre.style.fontSize = "0.85em";
-        pre.textContent = p.prompt_text || "";
-        card.appendChild(pre);
-        list.appendChild(card);
-      });
-    });
-}
-
-function updateCounts() {
-  fetch("/api/prompt-sequences")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var seqs = data.sequences || [];
-      var seqDisplay = document.getElementById("sequence-count-display");
-      if (seqDisplay) seqDisplay.textContent = (lbl("lbl_sequences", "Sequences") || "Sequences") + ": " + seqs.length;
-      var totalSteps = 0;
-      Promise.all(seqs.map(function (s) {
-        return fetch("/api/prompt-sequences/" + s.id + "/steps")
-          .then(function (r) { return r.json(); })
-          .then(function (d) { totalSteps += (d.steps || []).length; });
-      })).then(function () {
-        var stepDisplay = document.getElementById("step-count-display");
-        if (stepDisplay) stepDisplay.textContent = (lbl("lbl_steps", "Steps") || "Steps") + ": " + totalSteps;
-      });
-    });
-}
-
-/* ── 7. Project Planning ───────────────────────────── */
-function loadProjectPlanning() {
-  var container = document.getElementById("project-planning-content");
-  if (!container) return;
-  clear(container);
-
-  // Create form
-  var formCard = el("div", "dpmtf-card");
-  formCard.appendChild(el("h4", null, lbl("lbl_btn_create_project_plan", "Create Project Plan")));
-
-  var fields = [
-    ["lbl_project_name", "project-name", "text", "Enter project name", "Project Name"],
-    ["lbl_target_folder", "target-folder", "text", "Enter absolute target folder path", "Target Folder"],
-    ["lbl_app_port", "app-port", "number", "Enter app port (optional)", "App Port"],
-  ];
-  fields.forEach(function (f) {
-    var label = el("label", "dpmtf-label", lbl(f[0], f[4]) + ":");
-    formCard.appendChild(label);
-    var input = el("input", "dpmtf-input");
-    input.id = f[1];
-    input.type = f[2];
-    input.placeholder = f[3];
-    formCard.appendChild(input);
-  });
-
-  // App profile dropdown
-  var profileLabel = el("label", "dpmtf-label", lbl("lbl_app_profile", "App Profile") + ":");
-  formCard.appendChild(profileLabel);
-  var profileSelect = el("select", "dpmtf-select");
-  profileSelect.id = "app-profile";
-  profileSelect.appendChild(el("option", null, lbl("lbl_select_sequence", "Select...") || "Select..."));
-  formCard.appendChild(profileSelect);
-
-  // Prompt sequence dropdown
-  var seqLabel = el("label", "dpmtf-label", lbl("lbl_prompt_sequence_select", "Prompt Sequence") + ":");
-  formCard.appendChild(seqLabel);
-  var seqSelect = el("select", "dpmtf-select");
-  seqSelect.id = "prompt-sequence";
-  seqSelect.appendChild(el("option", null, lbl("lbl_select_sequence", "Select...") || "Select..."));
-  formCard.appendChild(seqSelect);
-
-  // Notes
-  var notesLabel = el("label", "dpmtf-label", lbl("lbl_notes", "Notes") + ":");
-  formCard.appendChild(notesLabel);
-  var notesInput = el("textarea", "dpmtf-textarea");
-  notesInput.id = "notes";
-  notesInput.placeholder = "Enter project notes (optional)";
-  formCard.appendChild(notesInput);
-
-  var createBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  createBtn.textContent = lbl("lbl_btn_create_project_plan", "Create Project Plan");
-  createBtn.onclick = createProjectPlan;
-  formCard.appendChild(createBtn);
-  var planStatus = el("span", "dpmtf-status");
-  planStatus.id = "project-plan-status";
-  formCard.appendChild(planStatus);
-  container.appendChild(formCard);
-
-  // Existing plans
-  var plansCard = el("div", "dpmtf-card");
-  plansCard.appendChild(el("h4", null, "Existing Project Plans"));
-  var plansDiv = el("div", null);
-  plansDiv.id = "project-plans-container";
-  plansDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
-  plansCard.appendChild(plansDiv);
-  container.appendChild(plansCard);
-
-  loadProjectPlans();
-  loadProjectPlanningDropdowns();
-}
-
-function loadProjectPlans() {
-  var container = document.getElementById("project-plans-container");
-  if (!container) return;
-  fetch("/api/project-plans")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      clear(container);
-      var plans = data.plans || [];
-      if (!plans.length) {
-        container.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_no_data", "No project plans yet.")));
-        return;
-      }
-      var table = el("table", "dpmtf-table");
-      var thead = el("thead", null);
-      var thr = el("tr", null);
-      ["Name", "Folder", "Port", "Status"].forEach(function (h) {
-        thr.appendChild(el("th", null, h));
-      });
-      thead.appendChild(thr);
-      table.appendChild(thead);
-      var tbody = el("tbody", null);
-      plans.forEach(function (p) {
-        var row = el("tr", null);
-        row.appendChild(td(escapeHtml(p.project_name)));
-        row.appendChild(td(escapeHtml(p.target_folder)));
-        row.appendChild(td(p.app_port || "-"));
-        row.appendChild(td(p.status || "planned"));
-        tbody.appendChild(row);
-      });
-      table.appendChild(tbody);
-      container.appendChild(table);
-    })
-    .catch(function (err) {
-      clear(container);
-      container.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
-    });
-}
-
-function createProjectPlan() {
-  var name = document.getElementById("project-name").value.trim();
-  var folder = document.getElementById("target-folder").value.trim();
-  if (!name || !folder) return;
-  var portVal = document.getElementById("app-port").value.trim();
-  var profileId = document.getElementById("app-profile").value;
-  var seqId = document.getElementById("prompt-sequence").value;
-  var notes = document.getElementById("notes").value.trim();
-
-  var body = { project_name: name, target_folder: folder };
-  if (portVal) body.app_port = parseInt(portVal);
-  if (profileId) body.app_profile_id = parseInt(profileId);
-  if (seqId) body.prompt_sequence_id = parseInt(seqId);
-  if (notes) body.notes = notes;
-
-  fetch("/api/project-plans", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  })
-    .then(function (res) { return res.json(); })
-    .then(function () {
-      document.getElementById("project-name").value = "";
-      document.getElementById("target-folder").value = "";
-      document.getElementById("app-port").value = "";
-      document.getElementById("notes").value = "";
-      var statusEl = document.getElementById("project-plan-status");
-      if (statusEl) statusEl.textContent = lbl("lbl_status_success", "Created!") || "Created!";
-      loadProjectPlans();
-    });
-}
-
-function loadProjectPlanningDropdowns() {
-  fetch("/api/app-profiles")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var sel = document.getElementById("app-profile");
-      if (!sel) return;
-      (data.profiles || []).forEach(function (p) {
-        var opt = el("option", null, p.name);
-        opt.value = p.id;
-        sel.appendChild(opt);
-      });
-    });
-  fetch("/api/prompt-sequences")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      var sel = document.getElementById("prompt-sequence");
-      if (!sel) return;
-      (data.sequences || []).forEach(function (s) {
-        var opt = el("option", null, s.name);
-        opt.value = s.id;
-        sel.appendChild(opt);
-      });
-    });
 }
 
 /* ── 8. System Setup Drawer ────────────────────────── */
@@ -1730,7 +783,6 @@ function buildDrawerContent() {
         if (data.advanced && data.advanced.length) {
           alert("Phases advanced: " + data.advanced.join(", ") +
             "\nNew next: " + (data.new_next || []).join(", "));
-          if (typeof loadPhaseStatus === "function") loadPhaseStatus();
         } else if (data.reason) {
           alert("No phases advanced.\n" + data.reason);
         } else {
@@ -2077,21 +1129,23 @@ function showTemplateDetail(templateKey) {
         card.appendChild(pre);
       }
 
-      // ── Compile form (2I-v2: database-driven) ──────────────
+      // ── Compile form (static 8 fields) ──────────────
       card.appendChild(el("h4", null, lbl("lbl_tpl_compile_prompt", "Compile Prompt")));
-      var compileContainer = el("div", null);
-      compileContainer.id = "compile-form-container";
-      card.appendChild(compileContainer);
+      var formContainer = el("div", null);
+      formContainer.id = "compiler-form";
+      card.appendChild(formContainer);
 
-      // Compiled output
       var outputDiv = el("div", null);
       outputDiv.id = "compile-output";
       outputDiv.style.display = "none";
-      outputDiv.style.marginTop = "12px";
       card.appendChild(outputDiv);
 
-      // Load dynamic form from database
-      loadCompileForm(templateKey);
+      var warningDiv = el("div", null);
+      warningDiv.id = "compile-warning";
+      warningDiv.style.display = "none";
+      card.appendChild(warningDiv);
+
+      buildCompilerForm();
     })
     .catch(function (err) {
       clear(card);
@@ -2100,197 +1154,117 @@ function showTemplateDetail(templateKey) {
     });
 }
 
-function compilePrompt(templateKey) {
-  var outputDiv = document.getElementById("compile-output");
-  if (!outputDiv) return;
-  outputDiv.style.display = "block";
-  clear(outputDiv);
-  outputDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Compiling...")));
-
-  var body = {
-    project_path: document.getElementById("compile-project-path").value.trim(),
-    phase_id: document.getElementById("compile-phase-id").value.trim(),
-    goal: document.getElementById("compile-goal").value.trim(),
-    constraints: document.getElementById("compile-constraints").value.trim().split("\n").filter(Boolean),
-    allowed_files: document.getElementById("compile-files").value.trim().split("\n").filter(Boolean),
-    validation_commands: document.getElementById("compile-validation").value.trim().split("\n").filter(Boolean),
-  };
-
-  fetch("/api/prompt-templates/" + encodeURIComponent(templateKey) + "/compile", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  })
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      clear(outputDiv);
-      outputDiv.appendChild(el("h4", null, "Compiled Prompt"));
-      var pre = el("pre", null);
-      pre.style.whiteSpace = "pre-wrap";
-      pre.style.fontSize = "0.85em";
-      pre.style.background = "#0d1117";
-      pre.style.padding = "12px";
-      pre.style.borderRadius = "4px";
-      pre.textContent = data.prompt;
-      outputDiv.appendChild(pre);
-
-      var copyBtn = el("button", "dpmtf-btn");
-      copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
-      copyBtn.onclick = function () {
-        var ta = el("textarea", null);
-        ta.value = data.prompt;
-        ta.style.position = "fixed";
-        ta.style.left = "-9999px";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        copyBtn.textContent = "Copied!";
-        setTimeout(function () { copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt"); }, 2000);
-      };
-      outputDiv.appendChild(copyBtn);
-    })
-    .catch(function (err) {
-      clear(outputDiv);
-      outputDiv.appendChild(el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message)));
-    });
-}
-
-/* ── 2I-v2: Dynamic Compile Form ─────────────────── */
-function loadCompileForm(templateKey) {
-  var container = document.getElementById("compile-form-container");
+/* ── Static Compile Form (8 fields) ─────────── */
+function buildCompilerForm() {
+  var container = document.getElementById("compiler-form");
   if (!container) return;
   clear(container);
-  container.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading form...")));
 
-  fetch("/api/prompt-compiler-fields")
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      clear(container);
-      var sections = data.sections || {};
-      var sectionOrder = [
-        "human_responsibility", "project", "scope",
-        "migration", "validation", "deployment"
-      ];
-      var sectionLabels = {
-        "human_responsibility": lbl("lbl_section_human_resp", "Human Responsibility"),
-        "project": lbl("lbl_section_project", "Project"),
-        "scope": lbl("lbl_section_scope", "Scope"),
-        "migration": lbl("lbl_section_migration", "Migration"),
-        "validation": lbl("lbl_section_validation", "Validation"),
-        "deployment": lbl("lbl_section_deployment", "Deployment")
-      };
+  // Target Session (role-based, tool-independent)
+  var sessionDiv = el("div", "dpmtf-form-group");
+  sessionDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_session", "Target Session")));
+  var sessionSelect = el("select", null);
+  sessionSelect.id = "compile-target_session";
+  [
+    ["claude_implementer", lbl("lbl_session_implementer", "Implementer")],
+    ["claude_review", lbl("lbl_session_review", "Review")],
+    ["claude_architect", lbl("lbl_session_architect", "Architect")]
+  ].forEach(function (pair) {
+    var opt = document.createElement("option");
+    opt.value = pair[0];
+    opt.textContent = pair[1];
+    sessionSelect.appendChild(opt);
+  });
+  sessionDiv.appendChild(sessionSelect);
+  container.appendChild(sessionDiv);
 
-      sectionOrder.forEach(function (sectionKey) {
-        var fields = sections[sectionKey];
-        if (!fields || !fields.length) return;
+  // Target Project
+  var projDiv = el("div", "dpmtf-form-group");
+  projDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_project", "Target Project")));
+  var projInput = el("input", null);
+  projInput.type = "text";
+  projInput.id = "compile-target_project";
+  projInput.placeholder = lbl("lbl_compiler_project_placeholder", "/home/svend/DPMtF-WebUI");
+  projDiv.appendChild(projInput);
+  container.appendChild(projDiv);
 
-        // Migration section — only visible when is_migration is checked
-        var sectionDiv = el("div", "dpmtf-compile-section");
-        sectionDiv.id = "compile-section-" + sectionKey;
-        if (sectionKey === "migration") {
-          sectionDiv.style.display = "none";
-        }
+  // Phase Key
+  var phaseDiv = el("div", "dpmtf-form-group");
+  phaseDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_phase_key", "Phase Key")));
+  var phaseInput = el("input", null);
+  phaseInput.type = "text";
+  phaseInput.id = "compile-phase_key";
+  phaseInput.placeholder = lbl("lbl_compiler_phase_placeholder", "spor-g-test");
+  phaseDiv.appendChild(phaseInput);
+  container.appendChild(phaseDiv);
 
-        var sectionHeader = el("h5", null, sectionLabels[sectionKey] || sectionKey);
-        sectionDiv.appendChild(sectionHeader);
+  // Goal
+  var goalDiv = el("div", "dpmtf-form-group");
+  goalDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_goal", "Goal")));
+  var goalTextarea = el("textarea", null);
+  goalTextarea.id = "compile-goal";
+  goalTextarea.rows = 4;
+  goalTextarea.placeholder = lbl("lbl_compiler_goal_placeholder", "Describe the implementation task...");
+  goalDiv.appendChild(goalTextarea);
+  container.appendChild(goalDiv);
 
-        fields.forEach(function (f) {
-          var fieldRow = el("div", "dpmtf-field-row");
-          fieldRow.id = "field-row-" + f.field_key;
+  // Deployment Strategy (optional)
+  var depDiv = el("div", "dpmtf-form-group");
+  depDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_deployment_strategy", "Deployment Strategy (optional)")));
+  var depSelect = el("select", null);
+  depSelect.id = "compile-deployment_strategy";
+  var emptyOpt = document.createElement("option");
+  emptyOpt.value = "";
+  emptyOpt.textContent = lbl("lbl_compiler_no_deployment", "(none)");
+  depSelect.appendChild(emptyOpt);
+  ["standard", "accelerated"].forEach(function (val) {
+    var opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = val;
+    depSelect.appendChild(opt);
+  });
+  depDiv.appendChild(depSelect);
+  container.appendChild(depDiv);
 
-          var label = el("label", "dpmtf-label", f.field_label);
-          if (f.is_required) {
-            var reqMark = el("span", null, " *");
-            reqMark.style.color = "#f85149";
-            label.appendChild(reqMark);
-          }
-          fieldRow.appendChild(label);
+  // Scope & Gate confirmation
+  var scopeDiv = el("div", "dpmtf-form-group");
+  var scopeLabel = el("label", "dpmtf-label", null);
+  var scopeCheckbox = el("input", null);
+  scopeCheckbox.type = "checkbox";
+  scopeCheckbox.id = "compile-scope_gate_confirmed";
+  scopeLabel.appendChild(scopeCheckbox);
+  scopeLabel.appendChild(document.createTextNode(lbl("lbl_compiler_scope_gate", " Have you considered scope and gate scope?")));
+  scopeDiv.appendChild(scopeLabel);
+  container.appendChild(scopeDiv);
 
-          if (f.help_text) {
-            var help = el("span", "dpmtf-help-text", f.help_text);
-            help.style.fontSize = "0.8em";
-            help.style.color = "#8b949e";
-            help.style.marginLeft = "8px";
-            fieldRow.appendChild(help);
-          }
+  // Allowed files (optional)
+  var allowedDiv = el("div", "dpmtf-form-group");
+  allowedDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_allowed_files", "Allowed files (optional, one per line)")));
+  var allowedTextarea = el("textarea", null);
+  allowedTextarea.id = "compile-allowed_files";
+  allowedTextarea.rows = 3;
+  allowedTextarea.placeholder = lbl("lbl_compiler_allowed_placeholder", "(blank = Review verifies)");
+  allowedDiv.appendChild(allowedTextarea);
+  container.appendChild(allowedDiv);
 
-          var input;
-          if (f.field_type === "checkbox") {
-            input = el("input", null);
-            input.type = "checkbox";
-            input.id = "compile-" + f.field_key;
-            if (f.default_value === "1" || f.default_value === "true") {
-              input.checked = true;
-            }
-            // Special: is_migration toggles migration section visibility
-            if (f.field_key === "is_migration") {
-              input.onchange = function () {
-                var migSec = document.getElementById("compile-section-migration");
-                if (migSec) {
-                  migSec.style.display = this.checked ? "block" : "none";
-                }
-              };
-            }
-          } else if (f.field_type === "textarea") {
-            input = el("textarea", "dpmtf-textarea");
-            input.id = "compile-" + f.field_key;
-            input.placeholder = f.placeholder || "";
-            input.style.minHeight = "60px";
-            if (f.default_value) input.value = f.default_value;
-          } else if (f.field_type === "select") {
-            input = el("select", "dpmtf-select");
-            input.id = "compile-" + f.field_key;
-            // Database-driven options from API (handoff 015)
-            if (f.options && f.options.length) {
-              f.options.forEach(function (opt) {
-                var option = el("option", null);
-                option.textContent = opt.label;
-                option.value = opt.value;
-                if (opt.default) option.selected = true;
-                input.appendChild(option);
-              });
-            }
-          } else {
-            // text, path — default to text input
-            input = el("input", "dpmtf-input");
-            input.type = "text";
-            input.id = "compile-" + f.field_key;
-            input.placeholder = f.placeholder || "";
-            if (f.default_value) input.value = f.default_value;
-          }
+  // Forbidden files (optional)
+  var forbiddenDiv = el("div", "dpmtf-form-group");
+  forbiddenDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_forbidden_files", "Forbidden files (optional, one per line)")));
+  var forbiddenTextarea = el("textarea", null);
+  forbiddenTextarea.id = "compile-forbidden_files";
+  forbiddenTextarea.rows = 3;
+  forbiddenTextarea.placeholder = lbl("lbl_compiler_forbidden_placeholder", "(blank = none specified)");
+  forbiddenDiv.appendChild(forbiddenTextarea);
+  container.appendChild(forbiddenDiv);
 
-          fieldRow.appendChild(input);
-          sectionDiv.appendChild(fieldRow);
-        });
-
-        container.appendChild(sectionDiv);
-      });
-
-      // Compile button
-      var btnRow = el("div", "dpmtf-field-row");
-      var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-      compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
-      compileBtn.onclick = function () { compilePromptV2(templateKey); };
-      btnRow.appendChild(compileBtn);
-      container.appendChild(btnRow);
-
-      // Warning banner area
-      var warningDiv = el("div", null);
-      warningDiv.id = "compile-warning";
-      warningDiv.style.display = "none";
-      container.appendChild(warningDiv);
-    })
-    .catch(function (err) {
-      clear(container);
-      container.appendChild(
-        el("p", "dpmtf-error",
-           lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message))
-      );
-    });
+  // Compile button
+  var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
+  compileBtn.onclick = compilePromptV2;
+  container.appendChild(compileBtn);
 }
 
-function compilePromptV2(templateKey) {
+function compilePromptV2() {
   var outputDiv = document.getElementById("compile-output");
   if (!outputDiv) return;
   outputDiv.style.display = "block";
@@ -2311,21 +1285,33 @@ function compilePromptV2(templateKey) {
     msgEl.remove();
   });
 
-  // Collect all field values from the dynamic form
-  var body = { handoff_id: "???" };
+  // Collect only the 8 simplified fields
+  var body = {};
+  var el_target_session = document.getElementById("compile-target_session");
+  if (el_target_session) body.target_session = el_target_session.value;
 
-  document.querySelectorAll("[id^='compile-']").forEach(function (input) {
-    var fieldKey = input.id.replace("compile-", "");
-    if (input.type === "checkbox") {
-      body[fieldKey] = input.checked;
-    } else if (input.tagName === "TEXTAREA" || input.tagName === "SELECT") {
-      body[fieldKey] = input.value;
-    } else {
-      body[fieldKey] = input.value;
-    }
-  });
+  var el_target_project = document.getElementById("compile-target_project");
+  if (el_target_project) body.target_project = el_target_project.value;
 
-  fetch("/api/prompt-templates/" + encodeURIComponent(templateKey) + "/compile", {
+  var el_phase_key = document.getElementById("compile-phase_key");
+  if (el_phase_key) body.phase_key = el_phase_key.value;
+
+  var el_goal = document.getElementById("compile-goal");
+  if (el_goal) body.goal = el_goal.value;
+
+  var el_deployment = document.getElementById("compile-deployment_strategy");
+  if (el_deployment) body.deployment_strategy = el_deployment.value;
+
+  var el_scope_gate = document.getElementById("compile-scope_gate_confirmed");
+  if (el_scope_gate) body.scope_gate_confirmed = el_scope_gate.checked;
+
+  var el_allowed = document.getElementById("compile-allowed_files");
+  if (el_allowed) body.allowed_files = el_allowed.value;
+
+  var el_forbidden = document.getElementById("compile-forbidden_files");
+  if (el_forbidden) body.forbidden_files = el_forbidden.value;
+
+  fetch("/api/prompt-compiler/compile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -2333,43 +1319,16 @@ function compilePromptV2(templateKey) {
     .then(function (res) {
       if (!res.ok) {
         return res.json().then(function (errData) {
-          var detail = errData.detail;
-          if (typeof detail === "string") {
-            try { detail = JSON.parse(detail); } catch (e) {}
-          }
-          throw { status: res.status, errors: detail.errors || [], warning: detail.warning || null };
+          throw { status: res.status, errors: errData.errors || [] };
         });
       }
       return res.json();
     })
     .then(function (data) {
       clear(outputDiv);
-
-      // Show warning if present
-      if (data.warning && warningDiv) {
-        warningDiv.style.display = "block";
-        var warnP = el("p", "dpmtf-warning");
-        warnP.textContent = "⚠ " + data.warning;
-        warningDiv.appendChild(warnP);
-      }
-
       outputDiv.appendChild(
         el("h4", null, lbl("lbl_tpl_compiled_prompt", "Compiled Prompt"))
       );
-
-      // Format badge
-      var badgeRow = el("p", null);
-      var formatBadge = el("span", "dpmtf-badge dpmtf-badge-info");
-      formatBadge.textContent = "governance-v2 XML";
-      badgeRow.appendChild(formatBadge);
-      if (data.gates_answered && data.gates_answered.length) {
-        badgeRow.appendChild(el("span", null, " "));
-        var gateBadge = el("span", "dpmtf-badge dpmtf-badge-success");
-        gateBadge.textContent = "Gates: " + data.gates_answered.join(", ");
-        badgeRow.appendChild(gateBadge);
-      }
-      outputDiv.appendChild(badgeRow);
-
       var pre = el("pre", null);
       pre.style.whiteSpace = "pre-wrap";
       pre.style.fontSize = "0.85em";
@@ -2381,45 +1340,24 @@ function compilePromptV2(templateKey) {
       pre.textContent = data.prompt;
       outputDiv.appendChild(pre);
 
-      // Copy button using clipboard API with fallback
+      // Copy button
       var copyBtn = el("button", "dpmtf-btn dpmtf-small");
       copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
       copyBtn.onclick = function () {
-        if (navigator.clipboard) {
-          navigator.clipboard.writeText(data.prompt).then(function () {
-            copyBtn.textContent = lbl("lbl_btn_copied", "Copied!");
-            setTimeout(function () {
-              copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
-            }, 2000);
-          });
-        } else {
-          // Fallback for older browsers
-          var ta = el("textarea", null);
-          ta.value = data.prompt;
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
+        navigator.clipboard.writeText(data.prompt).then(function () {
           copyBtn.textContent = lbl("lbl_btn_copied", "Copied!");
-          setTimeout(function () {
-            copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
-          }, 2000);
-        }
+          setTimeout(function () { copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt"); }, 2000);
+        });
       };
       outputDiv.appendChild(copyBtn);
 
-      // ── Assign Handoff ID button (handoff 017) ─────────────────
+      // Assign Handoff ID button
       var assignBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
       assignBtn.textContent = lbl("lbl_btn_assign_handoff_id", "Assign Handoff ID");
       assignBtn.style.marginLeft = "8px";
-      assignBtn.onclick = function () {
-        assignHandoffId(data.prompt, data);
-      };
+      assignBtn.onclick = function () { assignHandoffId(data.prompt, data); };
       outputDiv.appendChild(assignBtn);
 
-      // Dispatch info area (hidden until ID assigned)
       var dispatchDiv = el("div", null);
       dispatchDiv.id = "dispatch-info";
       dispatchDiv.style.display = "none";
@@ -2428,40 +1366,25 @@ function compilePromptV2(templateKey) {
     })
     .catch(function (err) {
       clear(outputDiv);
-
       if (err.errors && err.errors.length) {
-        // Field-specific validation errors
         outputDiv.appendChild(
-          el("h4", "dpmtf-error",
-             lbl("lbl_compile_validation_errors", "Validation Errors"))
+          el("h4", "dpmtf-error", lbl("lbl_compile_validation_errors", "Validation Errors"))
         );
-
         err.errors.forEach(function (fieldErr) {
           var errMsg = el("p", "dpmtf-error-text");
-          errMsg.textContent = "❌ " + fieldErr.error;
+          errMsg.textContent = "\u274C " + fieldErr.error;
           errMsg.style.color = "#f85149";
           errMsg.style.margin = "4px 0";
           outputDiv.appendChild(errMsg);
-
-          // Highlight the field in red
           var inputEl = document.getElementById("compile-" + fieldErr.field_key);
           if (inputEl) {
             inputEl.style.borderColor = "#f85149";
             inputEl.classList.add("dpmtf-field-error");
           }
         });
-
-        if (err.warning) {
-          var warnMsg = el("p", "dpmtf-warning");
-          warnMsg.textContent = "⚠ " + err.warning;
-          warnMsg.style.color = "#d29922";
-          outputDiv.appendChild(warnMsg);
-        }
       } else {
         outputDiv.appendChild(
-          el("p", "dpmtf-error",
-             lbl("lbl_status_error_prefix", "Error: ") +
-             escapeHtml(err.message || "Compilation failed"))
+          el("p", "dpmtf-error", lbl("lbl_status_error_prefix", "Error: ") + (err.message || "Compilation failed"))
         );
       }
     });
@@ -2567,11 +1490,7 @@ function onReady() {
   loadPanelStructure();
   initPanelGroupToggles();
   loadDbStatus();
-  loadPhaseStatus();
-  loadHitrates();
   loadTemplateManager();
-  loadPromptSequences();
-  loadProjectPlanning();
   initDrawer();
 }
 

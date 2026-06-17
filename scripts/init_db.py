@@ -3681,6 +3681,37 @@ cursor.execute("""
     "List distinct locales with display names from ui_label_translations for dynamic language dropdown",
     "languages JSON array with locale and display_name", "language_selector"))
 
+# ── Spor G: Deactivate obsolete Prompt Compiler fields ──
+# Only 8 simplified fields remain active.
+cursor.execute("""
+    UPDATE prompt_compiler_fields
+    SET is_active = 0
+    WHERE field_key NOT IN (
+        'target_session',
+        'target_project',
+        'phase_key',
+        'goal',
+        'deployment_strategy',
+        'allowed_files',
+        'forbidden_files'
+    )
+""")
+
+# ── Spor G: Ensure the simplified fields exist ──
+cursor.execute("""
+    INSERT OR IGNORE INTO prompt_compiler_fields
+    (field_key, field_label, field_type, section, is_required, sort_order, is_active)
+    VALUES
+    ('scope_gate_confirmed', 'Scope and Gate confirmed', 'checkbox', 'human_responsibility', 1, 5, 1)
+""")
+
+# ── Spor G: Keep only one active template ──
+cursor.execute("""
+    UPDATE prompt_templates
+    SET is_active = 0
+    WHERE template_key != 'tpl_implementation_small'
+""")
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
