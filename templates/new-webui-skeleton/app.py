@@ -10,7 +10,7 @@ Provides the core endpoints every DPMtF-governed WebUI needs:
 Domain-specific endpoints are added by the implementer.
 """
 
-import os
+from pathlib import Path
 import sqlite3
 import config
 from fastapi import FastAPI, HTTPException, Request
@@ -35,7 +35,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/api/health")
 async def health_check():
-    database_exists = os.path.exists(DB_PATH)
+    database_exists = Path(DB_PATH).exists()
     return {
         "status": "healthy" if database_exists else "unhealthy",
         "app": "{PROJECT_TITLE}",
