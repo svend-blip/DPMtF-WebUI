@@ -44,7 +44,6 @@ Read these files in order to reconstruct full project state:
 
 ### Current Roadmap/Status
 - `docs/StartUpNextSession.md` — this file (session startup + current state)
-- `docs/NextStartPrompt.md` — Architect context recovery prompt
 
 ---
 
@@ -52,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 050 |
+| **Last handoff ID** | 061 |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **Claude Code** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -67,9 +66,11 @@ Read these files in order to reconstruct full project state:
 | **Spor C** | 038-041 | Accelerated WebUI Factory — skeleton files, init script |
 | **Spor D** | 043-046 | Governance Centralization — single source, legacy v1 removed |
 | **Spor D-Hardening** | 047-049 | Human commit gate enforced, sequential execution hardened |
+| **Spor E** | 051 | Prompt Compiler Hardening — __pycache__ exclusion, socket fix, lazy imports |
+| **Spor F** | 052-061 | Prompt Compiler Integration Testing + Bridge Hardening — tool-independent bridge, auto-restart |
 
 ### Human Final Verdict
-Spor D + Spor D-Hardening approved. Awaiting next Spor definition.
+Spor D, D-Hardening, E, and F approved. Bridge is now tool-independent (OpenCode + Claude Code). Awaiting next Spor definition.
 
 ---
 
@@ -88,6 +89,8 @@ and bridge mechanics:
 | 6 | **All inter-role communication in English (en-US)** — handoffs, bridge messages, code comments. Human may use Danish but forwarded prompts must be translated. | CLAUDE.md §2, 100_BRIDGE.md |
 | 7 | **Implementer NEVER commits** — changes remain unstaged. | 03_IMPLEMENTOR.md (H2) |
 | 8 | **Stop after 2 failed patching attempts** — document, escalate, do not guess. | 12_CODING_STANDARD.md |
+| 9 | **Tool-independent bridge** — bridge.py auto-detects OpenCode vs Claude Code and uses correct injection method (paste-buffer for OpenCode, send-keys for Claude Code). No tool-specific code paths in governance. | bridge.py (F5a) |
+| 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. | bridge.py (F5b) |
 
 ---
 
@@ -95,10 +98,10 @@ and bridge mechanics:
 
 **Awaiting Human direction for next Spor.**
 
-Candidates:
-- **Spor E** — Prompt Compiler Hardening (__pycache__ exclusion, socket leak fix,
-  lazy import cleanup)
-- **New Spor** — to be defined by Human
+All planned Spors (A-F) complete. Candidates for next phase:
+- Governance validation — verify all governance templates are valid for bridge flow
+- ENO governance cleanup — remove legacy docs/dpmtf/ structural copies
+- New feature Spor — to be defined by Human
 
 Do NOT start new work without explicit Human instruction.
 
@@ -239,6 +242,25 @@ python3 /home/svend/claude-bridge/bridge.py next-id
 3. **DPMTF_BRIDGE_DIR must be set** — otherwise bridge falls back to `~/.dpmtf/bridge/`.
 4. **Bridge is a git repo** — `git log` shows change history. Remote: `github.com:svend-blip/claude-bridge`.
 
+### 8.5 Tool-Independent Bridge (Spor F5)
+
+Bridge.py is now tool-agnostic. It detects the running tool and adapts:
+
+| Tool | Detection | Injection Method | /clear |
+|------|-----------|-----------------|--------|
+| **OpenCode** | `pane_current_command` contains "opencode" | `tmux load-buffer` + `paste-buffer` with soft-clear preamble | Not sent separately |
+| **Claude Code** | `pane_current_command` contains "node" or "claude" | `tmux send-keys` + `Enter` | `/clear` sent first |
+
+**Auto-restart:** After `bridge.py complete`, the implementer session is
+automatically killed and restarted with fresh context. Configure via:
+```bash
+export DPMTF_IMPLEMENTER_START_CMD="<start command>"
+```
+Current value in `.env`:
+```
+DPMTF_IMPLEMENTER_START_CMD=OPENCODE_CONFIG_DIR=/home/svend/.config/opencode-roles/implementer OPENCODE_CONFIG=/home/svend/.config/opencode-roles/implementer/opencode.json /home/svend/.opencode/bin/opencode
+```
+
 ---
 
 ## 9. Quick Verification After Startup
@@ -291,7 +313,6 @@ node --check static/js/dpmtf-app.js && echo "✅ dpmtf-app.js OK"
 
 ## 11. Related Files
 
-- [[NextStartPrompt.md]] — Architect context recovery prompt
 - `docs/governance-templates-v2/03_IMPLEMENTOR.md` — Implementor role definition (OpenCode)
 - `docs/governance-templates-v2/04_REVIEW.md` — Review role definition
 - [[02_ARCHITECT]] — Architect role definition
