@@ -2896,6 +2896,11 @@ async def compile_prompt(template_key: str, request: Request):
         f"Scope is defined in "
         f"{target_project}/docs/dpmtf/11_SCOPE.md."
     )
+    lines.append(
+        "All structural governance rules (coding standards, validation, "
+        "architecture, file access) are defined in the Father project at "
+        f"{config.get_governance_dir_abs()}."
+    )
     if gates_answered:
         lines.append(f"Gates answered: {', '.join(gates_answered)}.")
     else:
