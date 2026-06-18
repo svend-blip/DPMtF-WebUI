@@ -115,8 +115,6 @@ def build_placeholders(args, project_dir):
         "{FATHER_PROJECT}": "DPMtF-WebUI",
         "{FATHER_PROJECT_ROOT}": str(Path(HOME) / "DPMtF-WebUI"),
         "{DATABASE}": f"{args.name}.db",
-        "{CSS_FILE}": f"{args.name}-theme.css",
-        "{JS_FILE}": f"{args.name}-app.js",
     }
 
 
