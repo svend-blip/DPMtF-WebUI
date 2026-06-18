@@ -3,10 +3,17 @@
 BridgeV002 core library — reads config from INI files, provides lookup functions.
 No hardcoded role names or paths. All driven by configuration files.
 """
+from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 import configparser
 import os
 import re
-from pathlib import Path
+import sqlite3
+
+import config
 
 
 def resolve_placeholders(text, bridge_dir=None, project_root=None):
@@ -217,6 +224,184 @@ def ensure_subdir(bridge_dir, subdir):
     return path
 
 
+def _bridgev002_tables_exist(db_path=None):
+    """Check if bridge_roles, bridge_flows, bridge_flow_steps tables exist.
+
+    Returns True only if all three tables are present in the database.
+    Used to determine whether DB-backed functions are available.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        for table in ["bridge_roles", "bridge_flows", "bridge_flow_steps"]:
+            result = cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table,)
+            ).fetchone()
+            if not result:
+                conn.close()
+                return False
+        conn.close()
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def load_role_from_db(role_name, db_path=None):
+    """Load a single role's configuration from bridge_roles table.
+
+    Args:
+        role_name: The role_key to look up (e.g. 'architect', 'implementer')
+        db_path: Optional path to SQLite database. Uses config.get_db_path() if not given.
+
+    Returns:
+        dict with keys matching bridge_roles columns, plus resolved start_cmd.
+        Keys: role_key, tmux_session, start_cmd, model_type, cloud_model,
+              ollama_model, setup_script, teardown_script, deliver_error_msg,
+              is_active, created_at, updated_at
+
+    Raises:
+        ValueError: If table doesn't exist or role not found.
+    """
+    if not _bridgev002_tables_exist(db_path):
+        raise ValueError(
+            f"BridgeV002 database tables not found at '{db_path}' "
+            f"(or not yet created by init_db.py)"
+        )
+
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    project_root = _find_project_root()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row  # Enable dict-like access
+    cursor = conn.cursor()
+
+    row = cursor.execute(
+        "SELECT * FROM bridge_roles WHERE role_key = ? AND is_active = 1",
+        (role_name,)
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        raise ValueError(f"Active role '{role_name}' not found in bridge_roles")
+
+    role = dict(row)
+
+    # Resolve placeholders in start_cmd, setup_script, teardown_script
+    for field in ["start_cmd", "setup_script", "teardown_script"]:
+        if role[field] is not None:
+            role[field] = resolve_placeholders(
+                role[field], project_root=project_root
+            )
+
+    conn.close()
+    return role
+
+
+def load_flow_from_db(flow_name, db_path=None):
+    """Load a flow definition and its steps from database tables.
+
+    Args:
+        flow_name: The flow_key to look up (e.g. 'heavy', 'simplified')
+        db_path: Optional path to SQLite database. Uses config.get_db_path() if not given.
+
+    Returns:
+        dict with two keys:
+            'flow': dict from bridge_flows row (flow_key, name, description,
+                     step_order, is_default, is_active, created_at, updated_at)
+            'steps': list of dicts from bridge_flow_steps rows, sorted by sort_order.
+                     Each step dict has: id, flow_key, step_key, from_role, to_role,
+                     deliverable_dir, deliverable_pattern, pre_dispatch_script,
+                     post_dispatch_script, error_msg, sort_order, is_active
+
+    Raises:
+        ValueError: If table doesn't exist or flow not found.
+    """
+    if not _bridgev002_tables_exist(db_path):
+        raise ValueError(
+            f"BridgeV002 database tables not found at '{db_path}' "
+            f"(or not yet created by init_db.py)"
+        )
+
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Load flow definition
+    row = cursor.execute(
+        "SELECT * FROM bridge_flows WHERE flow_key = ? AND is_active = 1",
+        (flow_name,)
+    ).fetchone()
+
+    if not row:
+        conn.close()
+        raise ValueError(f"Active flow '{flow_name}' not found in bridge_flows")
+
+    flow = dict(row)
+
+    # Load active steps for this flow, ordered by sort_order
+    steps = []
+    for step_row in cursor.execute(
+        "SELECT * FROM bridge_flow_steps "
+        "WHERE flow_key = ? AND is_active = 1 "
+        "ORDER BY sort_order ASC",
+        (flow_name,)
+    ):
+        steps.append(dict(step_row))
+
+    conn.close()
+    return {"flow": flow, "steps": steps}
+
+
+def list_roles_from_db(db_path=None):
+    """List all active roles from bridge_roles table.
+
+    Returns:
+        list of dicts, one per active role, ordered by role_key.
+    """
+    if not _bridgev002_tables_exist(db_path):
+        return []
+
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM bridge_roles WHERE is_active = 1 ORDER BY role_key"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def list_flows_from_db(db_path=None):
+    """List all active flows from bridge_flows table.
+
+    Returns:
+        list of dicts, one per active flow, with is_default flag, ordered by flow_key.
+    """
+    if not _bridgev002_tables_exist(db_path):
+        return []
+
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM bridge_flows WHERE is_active = 1 ORDER BY flow_key"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 if __name__ == "__main__":
     print("BridgeV002 core library")
     bridge_config = load_bridge_config()
@@ -226,3 +411,28 @@ if __name__ == "__main__":
         print(f"Role '{role}': session={rc.get('tmux_session')}")
     nid = get_next_id()
     print(f"Next handoff ID: {nid}")
+
+    # Database-backed functions (Spor I)
+    if _bridgev002_tables_exist():
+        print("\nDatabase-backed lookup:")
+        for role in ["architect", "implementer"]:
+            try:
+                rc = load_role_from_db(role)
+                print(f"  DB role '{role}': session={rc.get('tmux_session')}, model_type={rc.get('model_type')}")
+            except ValueError as e:
+                print(f"  DB role '{role}': NOT FOUND ({e})")
+
+        try:
+            fl = load_flow_from_db("heavy")
+            print(f"  DB flow 'heavy': {len(fl['steps'])} steps")
+            for s in fl["steps"]:
+                print(f"    {s['step_key']}: {s['from_role']} -> {s['to_role']}")
+        except ValueError as e:
+            print(f"  DB flow 'heavy': NOT FOUND ({e})")
+
+        roles = list_roles_from_db()
+        flows = list_flows_from_db()
+        print(f"\n  Total active roles: {len(roles)}")
+        print(f"  Total active flows: {len(flows)}")
+    else:
+        print("\nDatabase tables not found — run init_db.py first")
