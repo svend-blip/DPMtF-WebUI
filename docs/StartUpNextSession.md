@@ -51,9 +51,9 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 061 |
+| **Last handoff ID** | 082 |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
-| **Review** | `claude_review` running **Claude Code** (`ollama/qwen3.6:27b-q4_K_M`) |
+| **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
 | **Bridge** | `/home/svend/claude-bridge/bridge.py` |
 
@@ -68,9 +68,14 @@ Read these files in order to reconstruct full project state:
 | **Spor D-Hardening** | 047-049 | Human commit gate enforced, sequential execution hardened |
 | **Spor E** | 051 | Prompt Compiler Hardening — __pycache__ exclusion, socket fix, lazy imports |
 | **Spor F** | 052-061 | Prompt Compiler Integration Testing + Bridge Hardening — tool-independent bridge, auto-restart |
+| **Spor C-Hardening** | 062, 067 | Skeleton corrections — innerHTML removal, config fixes, revert father governance dir |
+| **Spor F5** | 064-066, 068-070, 074-075 | Bridge stabilization — .env loading, ollama reload cycle, auto-restart with detached subprocess |
+| **Spor G** | 071, 073, 076-081 | Prompt Compiler Simplificering — 8-field form, dead panel removal, DPMtF cleanup |
 
 ### Human Final Verdict
-Spor D, D-Hardening, E, and F approved. Bridge is now tool-independent (OpenCode + Claude Code). Awaiting next Spor definition.
+All Spors A-G approved. DPMtF-WebUI simplified to Prompt Compiler with
+8 fields. Bridge is tool-independent with ollama reload and auto-restart.
+Both local sessions run OpenCode. Awaiting next Spor definition.
 
 ---
 
@@ -90,17 +95,18 @@ and bridge mechanics:
 | 7 | **Implementer NEVER commits** — changes remain unstaged. | 03_IMPLEMENTOR.md (H2) |
 | 8 | **Stop after 2 failed patching attempts** — document, escalate, do not guess. | 12_CODING_STANDARD.md |
 | 9 | **Tool-independent bridge** — bridge.py auto-detects OpenCode vs Claude Code and uses correct injection method (paste-buffer for OpenCode, send-keys for Claude Code). No tool-specific code paths in governance. | bridge.py (F5a) |
-| 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. | bridge.py (F5b) |
+| 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. Uses detached subprocess (start_new_session=True) to survive own death. | bridge.py (F5b, F5e, F5f) |
+| 11 | **Ollama reload before dispatch** — ollama model is stopped and restarted before each handoff dispatch to ensure fresh server-side context. Configured via DPMTF_OLLAMA_MODEL and DPMTF_OLLAMA_START_SCRIPT in .env. | bridge.py (F5c, F5d) |
 
 ---
 
 ## 5. Current Next Task
 
-**Awaiting Human direction for next Spor.**
+**Spor G complete — Prompt Compiler is operational with 8 fields.**
 
-All planned Spors (A-F) complete. Candidates for next phase:
+Next candidates:
+- ENO rebuild — once Prompt Compiler is stable, rebuild ENO with simplified framework
 - Governance validation — verify all governance templates are valid for bridge flow
-- ENO governance cleanup — remove legacy docs/dpmtf/ structural copies
 - New feature Spor — to be defined by Human
 
 Do NOT start new work without explicit Human instruction.
@@ -160,7 +166,7 @@ Verify with `tmux ls` that all three now exist.
 | Session | Role | Tool/Model | Purpose |
 |---------|------|------------|---------|
 | `claude_implementer` | Implementor (03) | **OpenCode** (`ollama/qwen3.6:27b-q4_K_M`) | Code execution — receives handoffs, writes code |
-| `claude_review` | Review (04) | Claude Code (`ollama/qwen3.6:27b-q4_K_M`) | Validation & dispatch — reviews diffs, prepares commits for Human |
+| `claude_review` | Review (04) | OpenCode 1.17.7 (`ollama/qwen3.6:27b-q4_K_M`) | Validation & dispatch — reviews diffs, prepares commits for Human |
 | `claude_architect` | Architect (02) | Claude Code (`deepseek-v4-pro:cloud`) | Design & escalation — designs handoffs |
 
 ---
@@ -260,6 +266,18 @@ Current value in `.env`:
 ```
 DPMTF_IMPLEMENTER_START_CMD=OPENCODE_CONFIG_DIR=/home/svend/.config/opencode-roles/implementer OPENCODE_CONFIG=/home/svend/.config/opencode-roles/implementer/opencode.json /home/svend/.opencode/bin/opencode
 ```
+
+**Ollama reload cycle (F5c/F5d):** Before each dispatch, the ollama model
+is stopped (`ollama stop`) and reloaded via `start_ollama_model.sh`. This
+ensures fresh server-side context (0 tokens). Configure via:
+- DPMTF_OLLAMA_MODEL=qwen3.6:27b-q4_K_M
+- DPMTF_OLLAMA_START_SCRIPT=/home/svend/ai-pc-resource-webui-v2/scripts/actions/start_ollama_model.sh
+
+**Auto-restart (F5b/F5e/F5f):** After each `bridge.py complete`, the
+implementer session is killed and restarted with fresh client-side context.
+Uses a detached subprocess (`start_new_session=True`) to survive the death
+of the calling process (which runs inside the session being killed).
+Configure via DPMTF_IMPLEMENTER_START_CMD in .env.
 
 ---
 

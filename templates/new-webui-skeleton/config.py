@@ -45,14 +45,7 @@ if _ini_path.exists():
 
 def get_db_path() -> str:
     """Database path. .ini [database] path, or fallback."""
-    return _config.get("database", "path", fallback="databases/{DATABASE}")
-
-def get_bridge_dir() -> str:
-    """Bridge directory. Env var DPMTF_BRIDGE_DIR, or .ini [paths] bridge_dir, or fallback."""
-    env = os.environ.get("DPMTF_BRIDGE_DIR")
-    if env:
-        return env
-    return _config.get("paths", "bridge_dir", fallback="/home/svend/claude-bridge")
+    return _config.get("database", "path", fallback="databases/app.db")
 
 def get_project_root() -> str:
     """Project root directory. .ini [paths] project_root, or derived from this file's location."""
@@ -62,8 +55,8 @@ def get_project_root() -> str:
     return str(Path(__file__).resolve().parent)
 
 def get_governance_dir() -> str:
-    """Governance docs directory (relative to project root)."""
-    return _config.get("paths", "governance_dir", fallback="docs/dpmtf")
+    """Governance docs directory — structural constant for Child projects."""
+    return "docs/dpmtf"
 
 def get_governance_dir_abs() -> str:
     """Governance docs directory (absolute path)."""
@@ -106,13 +99,4 @@ def get_exports_dir() -> str:
     """Exports directory (relative to project root)."""
     return _config.get("paths", "exports_dir", fallback="exports")
 
-# ── Bridge session names (env vars with defaults) ───────────────
 
-def get_review_session() -> str:
-    return os.environ.get("DPMTF_REVIEW_SESSION", "claude_review")
-
-def get_implementer_session() -> str:
-    return os.environ.get("DPMTF_IMPLEMENTER_SESSION", "claude_implementer")
-
-def get_architect_session() -> str:
-    return os.environ.get("DPMTF_ARCHITECT_SESSION", "claude_architect")
