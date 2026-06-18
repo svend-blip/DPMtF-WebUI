@@ -51,11 +51,12 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 089 |
+| **Last handoff ID** | 097 (completed — API endpoints committed `4d92586`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
-| **Bridge** | `/home/svend/claude-bridge/bridge.py` |
+| **Bridge (prod)** | `/home/svend/claude-bridge/bridge.py` |
+| **BridgeV002 (dev)** | Under udvikling i `DPMtF/docs/bridgeV002/` og `DPMtF/scripts/bridgeV002/` |
 
 ### Completed Spors
 
@@ -72,14 +73,20 @@ Read these files in order to reconstruct full project state:
 | **Spor F5** | 064-066, 068-070, 074-075 | Bridge stabilization — .env loading, ollama reload cycle, auto-restart with detached subprocess |
 | **Spor G** | 071, 073, 076-081 | Prompt Compiler Simplificering — 8-field form, dead panel removal, DPMtF cleanup |
 | **Spor G-Accelerated** | 086-089 | Accelerated WebUI Factory UI integration — conditional form, create+start endpoints, 10 i18n labels |
+| **Spor I** | 092-097 | BridgeV002 Database Integration — INI configs, core library, dispatch scripts, DB schema (3 tables), bridge_lib lookup functions, 5 REST API endpoints under /api/bridge-v2/ |
 
 ### Human Final Verdict
-All Spors A-G approved. DPMtF-WebUI is a Prompt Compiler with 8 fields
+All Spors A-G and Spor I approved. DPMtF-WebUI is a Prompt Compiler with 8 fields
 and an integrated Accelerated WebUI Factory. When Deployment Strategy
 "accelerated" is selected, the form switches to a 3-field "Create New
 WebUI" flow that runs initialize_new_webui.py and starts the new server.
 Bridge is tool-independent with ollama reload and auto-restart. Both
-local sessions run OpenCode. Awaiting next Spor definition.
+local sessions run OpenCode.
+
+Spor I committed `4d92586` (API endpoints), `e568fff` (DB schema + lookup functions).
+BridgeV002 database foundation is complete: 3 tables (`bridge_roles`, `bridge_flows`, `bridge_flow_steps`),
+6 lookup functions in bridge_lib.py, and 5 GET endpoints exposing them via REST.
+Awaiting next Spor definition for BridgeV002 UI integration or dispatch migration.
 
 ---
 
@@ -106,20 +113,125 @@ and bridge mechanics:
 
 ## 5. Current Next Task
 
-**Spor G complete — Prompt Compiler is operational with 8 fields + Accelerated WebUI Factory.**
+**Spor I complete — BridgeV002 database foundation is operational.**
 
-The Accelerated WebUI Factory is integrated into the Prompt Compiler UI:
-- Select "accelerated" in Deployment Strategy → form switches to WebUI creation mode
-- Fill in New webui (name), Port, Title → "Create New WebUI" runs the factory script
-- "Start WebUI Server" launches uvicorn → clickable link to new project
-- Manual step: create 10_PROJECT.md and 11_SCOPE.md in new project's docs/dpmtf/
+BridgeV002 now has a complete database-backed configuration layer:
+- SQLite tables (`bridge_roles`, `bridge_flows`, `bridge_flow_steps`) with seed data for 5 roles, 3 flows, 5 heavy steps
+- Database lookup functions in bridge_lib.py (6 new functions, fully backward compatible)
+- REST API endpoints under `/api/bridge-v2/` (status, list/get roles, list/get flows)
+- All code committed (`e568fff`, `4d92586`) and pushed to GitHub
 
-Next candidates:
-- ENO rebuild — once Prompt Compiler is stable, rebuild ENO with simplified framework
-- Governance validation — verify all governance templates are valid for bridge flow
-- New feature Spor — to be defined by Human
+Next candidates for BridgeV002:
+- **Spor J (UI Integration):** Add "Bridge Setup" panel to Prompt Compiler UI — flow editor, role editor, INI export/import using the new REST endpoints
+- **Spor K (Dispatch Migration):** Migrate dispatch.py from INI-based `load_role_config()`/`load_flow_config()` to database-backed functions
+- **ENO rebuild** — once Prompt Compiler is stable, rebuild ENO with simplified framework
+- **Governance validation** — verify all governance templates are valid for bridge flow
 
 Do NOT start new work without explicit Human instruction.
+
+---
+
+## 5b. BridgeV002 — Database Foundation Complete (Spor I)
+
+**Status:** Spor I COMPLETE (handoffs 092-097, commits `52a621c`, `e568fff`, `4d92586`). Kører PARALLEL med eksisterende bridge. Ingen driftsskift før Human beslutter det.
+
+### What Spor I Delivered
+
+| Phase | Handoff | Commit | Deliverable |
+|-------|---------|--------|-------------|
+| Foundation (H1-H2) | 092-094 | `52a621c` | INI configs (`bridgeV002.ini`, `roles/default.ini`, `flows/heavy.ini`, `flows/simplified.ini`), bridge_lib.py core library, dispatch.py, role_setup.py, role_teardown.py |
+| DB Schema (H3) | 095 | `e568fff` | 3 SQLite tables (`bridge_roles` 12 cols, `bridge_flows` 8 cols, `bridge_flow_steps` 13 cols), seed data: 5 roles, 3 flows, 5 heavy steps |
+| DB Functions (H4) | 096 | `e568fff` | 6 lookup functions in bridge_lib.py (`_bridgev002_tables_exist`, `load_role_from_db`, `load_flow_from_db`, `list_roles_from_db`, `list_flows_from_db`) — all parameterized SQL, backward compatible with INI functions |
+| REST API (H5) | 097 | `4d92586` | 5 GET endpoints under `/api/bridge-v2/`: status, list roles, get role, list flows, get flow with steps — proper 404/500 error handling |
+
+### BridgeV002 Overview
+
+BridgeV002 er et konfigurationsdrevet bridge-system under bygning ved siden af det eksisterende `bridge.py`. Hovedmålet: alle flow-definitioner, roller, scripts og deliverables skal være styres via database — ingen hardkodede rolle-navne i Python.
+
+| Aspect | Eksisterende bridge | BridgeV002 (Spor I status) |
+|--------|-------------------|------------------------------|
+| Rollesnavne | Hardkodet (`architect`, `implementer` osv.) | Database-backed via `bridge_roles` table + INI fallback |
+| Flow-definition | Ingen — manuelt defineret i kode | Database-driven via `bridge_flows` + `bridge_flow_steps` |
+| Scripts | Én stor `bridge.py` med alle kommandoer | Small focused scripts (dispatch, setup, teardown) |
+| Config placering | Hardcodede stier i Python | SQLite tables seeded by init_db.py, INI fallback |
+| REST API | Ingen | 5 endpoints under `/api/bridge-v2/` |
+| UI-integration | Ingen | ⏳ Next: Prompt Compiler "Bridge Setup" panel under Setup-gruppen |
+| Dispatch migration | — | ⏳ Next: migrate dispatch.py from INI to DB functions |
+| Migration | — | Parallel drift; switch til BridgeV002 først når Human beslutter |
+
+### Arkitektur (as-built after Spor I)
+
+```
+DPMtF-WebUI/
+├── app.py                          ← 5 new /api/bridge-v2/ endpoints (handoff 097)
+├── docs/bridgeV002/                ← INI-filer (fallback + reference)
+│   ├── flows/
+│   │   ├── heavy.ini               ← Full chain: Architect→Implementer→Review1→Review2→Human
+│   │   ├── simplified.ini          ← Direct: Implementer→Review (no architect)
+│   │   └── escalation.ini          ← Review→Architect escalation path
+│   ├── roles/
+│   │   └── default.ini             ← Alle roller [role:NAME] sektioner
+│   └── bridgeV002.ini              ← Global konfiguration
+├── scripts/bridgeV002/             ← Python-scripts (versioneres)
+│   ├── dispatch.py                 ← ÉN genanvendbar dispatcher (--from-role, --to-role) [INI-based]
+│   ├── role_setup.py               ← Start session med korrekt model/tool
+│   ├── role_teardown.py            ← Kill session + unload model + fri VRAM
+│   └── bridge_lib.py              ← INI-læsning + 6 DB lookup functions (handoff 096)
+├── scripts/init_db.py              ← Schema creation + seed data (handoff 095)
+└── databases/
+    └── dpmtf.db                    ← bridge_roles, bridge_flows, bridge_flow_steps tables
+```
+
+### Database Schema (as built by handoff 095)
+
+**bridge_roles** (12 columns): `role_key`, `tmux_session`, `start_cmd`, `model_type`, `cloud_model`, `ollama_model`, `setup_script`, `teardown_script`, `deliver_error_msg`, `is_active`, `created_at`, `updated_at`
+
+**bridge_flows** (8 columns): `flow_key`, `name`, `description`, `step_order`, `is_default`, `is_active`, `created_at`, `updated_at`
+
+**bridge_flow_steps** (13 columns): `id`, `flow_key`, `step_key`, `from_role`, `to_role`, `deliverable_dir`, `deliverable_pattern`, `pre_dispatch_script`, `post_dispatch_script`, `error_msg`, `sort_order`, `is_active`
+
+### Seed Data (5 roles, 3 flows)
+
+| Role | Session | Model Type |
+|------|---------|-----------|
+| architect | claude_architect | cloud |
+| implementer | claude_implementer | ollama |
+| review_heavy1 | claude_review | ollama |
+| review_heavy2 | claude_review_2 | ollama |
+| reviewer_lite | claude_review_lite | ollama |
+
+**Flows:** `heavy` (5 steps, default), `simplified` (direct implementer→review), `escalation` (review→architect)
+
+### Udviklingsstrategi — Små handoffs via eksisterende bridge
+
+**BridgeV002 udvikles og testes via den nuværende bridge.** Vi bruger ikke BridgeV002 dispatcher endnu. I stedet:
+
+1. **Architect designer** BridgeV002-funktioner som en del af handoffs
+2. **Implementer skriver** kode gennem `reviewtoimplementor/{ID}-handoff.md` som ethvert andet spor
+3. **Review validerer** at koden overholder governance og bridge-principper
+4. **Verdict sendes til Human** for godkendelse som normalt
+
+### Beslutninger der er taget (af Human)
+
+- **Architect-model:** Behold cloud (`deepseek-v4-pro:cloud`) for nu — 0 GB VRAM, ingen ekstra model-skift nødvendigt
+- **Placering:** `DPMtF/docs/bridgeV002/` for INI-filer, `DPMtF/scripts/bridgeV002/` for scripts
+- **Bridge Setup UI-panel:** Placeres under "Setup"-gruppen i Prompt Compiler med flow-editor, role-editor og INI-export/import
+- **VRAM:** Sekventiel kørsel — kun én model i context ad gangen. BridgeV002 dispatcher skal altid kill modtager før start
+- **Driftsskift:** Ikke besluttet. Kører videre på eksisterende bridge indtil andet besluttes af Human
+
+### Aktive hard rules der gælder for BridgeV002-udvikling
+
+Samme 11 hard rules som gælder for alt arbejde — ingen nye undtagelser:
+- Sekventiel kørsel (reglen #1): Ingen parallelle bridge flows under udvikling
+- STOP after handoff (reglen #2): Architect skriver filer og designs scripts, men stopper efter `bridge.py send`
+- Målet er at BridgeV002 skal overholde disse rules når det går i drift — ikke at omgå dem under udvikling
+
+### Resten af BridgeV002 (Efter Spor I)
+
+Spor I leverede database-grundlaget. Næste spor:
+1. **UI Integration** — Bridge Setup panel der kalder `/api/bridge-v2/` endpoints
+2. **Dispatch Migration** — flyt dispatch.py fra `load_role_config()` til `load_role_from_db()`
+3. **Full round-trip test** — komplet handoff gennem BridgeV002 dispatcher (valider dispatch.py + role_setup.py + role_teardown.py med DB)
 
 ---
 
@@ -329,6 +441,14 @@ curl -s -X POST http://localhost:9130/api/create-webui/start \
 
 # 8. Compiler i18n labels seeded
 sqlite3 databases/dpmtf.db "SELECT COUNT(*) FROM ui_text_slots WHERE slot_key LIKE 'lbl_compiler_%';" | xargs -I{} sh -c '[ {} -eq 10 ] && echo "✅ 10 compiler labels" || echo "❌ FAIL: expected 10, got {}"'
+
+# 9. BridgeV002 database tables exist
+python3 scripts/bridgeV002/bridge_lib.py | grep -q "Database-backed lookup" && echo "✅ BridgeV002 DB functions work" || echo "❌ FAIL: BridgeV002 tables missing"
+
+# 10. BridgeV002 API endpoints respond (requires running server)
+curl -s http://localhost:9130/api/bridge-v2/status | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ BridgeV002 status OK' if d.get('available') else '❌ FAIL')"
+curl -s http://localhost:9130/api/bridge-v2/roles | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'✅ {d[\"count\"]} BridgeV002 roles' if d.get('count', 0) >= 5 else '❌ FAIL')"
+curl -s http://localhost:9130/api/bridge-v2/flows | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'✅ {d[\"count\"]} BridgeV002 flows' if d.get('count', 0) >= 3 else '❌ FAIL')"
 ```
 
 ---
