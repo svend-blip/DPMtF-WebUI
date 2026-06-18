@@ -3781,6 +3781,147 @@ cursor.execute("""
     WHERE group_name IN ('journals', 'reports', 'periodic')
 """)
 
+# ── Spor I: BridgeV002 Database Integration ────────────────
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bridge_roles (
+    role_key TEXT PRIMARY KEY,
+    tmux_session TEXT NOT NULL,
+    start_cmd TEXT,
+    model_type TEXT DEFAULT 'ollama',
+    cloud_model TEXT,
+    ollama_model TEXT,
+    setup_script TEXT,
+    teardown_script TEXT,
+    deliver_error_msg TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bridge_flows (
+    flow_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    step_order TEXT,
+    is_default INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bridge_flow_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    flow_key TEXT NOT NULL,
+    step_key TEXT NOT NULL,
+    from_role TEXT NOT NULL,
+    to_role TEXT NOT NULL,
+    deliverable_dir TEXT,
+    deliverable_pattern TEXT,
+    pre_dispatch_script TEXT,
+    post_dispatch_script TEXT,
+    error_msg TEXT,
+    sort_order INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    FOREIGN KEY (flow_key) REFERENCES bridge_flows(flow_key),
+    UNIQUE(flow_key, step_key)
+)
+""")
+
+cursor.executemany(
+    """INSERT OR IGNORE INTO bridge_roles
+       (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
+        setup_script, teardown_script, deliver_error_msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+    [
+        ("architect", "claude_architect",
+         "cd {PROJECT_ROOT} && claude",
+         "cloud", "deepseek-v4-pro:cloud", None,
+         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
+         "Architect session stopped unexpectedly. Check tmux status with 'tmux ls'."),
+        ("implementer", "claude_implementer",
+         "OPENCODE_CONFIG_DIR={PROJECT_ROOT}/.config/opencode-roles/implementer OPENCODE_CONFIG={PROJECT_ROOT}/.config/opencode-roles/implementer/opencode.json opencode",
+         "ollama", None, "qwen3.6:27b-q4_K_M",
+         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
+         "Implementer session stopped unexpectedly. Start manually in tmux."),
+        ("review_heavy1", "claude_review",
+         "cd {PROJECT_ROOT} && claude",
+         "cloud", "deepseek-v4-flash:cloud", None,
+         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
+         "Review session stopped unexpectedly. Check tmux status with 'tmux ls'."),
+        ("review_heavy2", "claude_review_2",
+         "cd {PROJECT_ROOT} && claude",
+         "cloud", "deepseek-v4-flash:cloud", None,
+         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
+         "Review2 session stopped unexpectedly. Start manually."),
+        ("reviewer_lite", "claude_review_lite",
+         "OPENCODE_CONFIG_DIR={PROJECT_ROOT}/.config/opencode-roles/review OPENCODE_CONFIG={PROJECT_ROOT}/.config/opencode-roles/review/opencode.json opencode",
+         "ollama", None, "qwen3.6:27b-q4_K_M",
+         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
+         "Lite review session stopped unexpectedly. Start manually in tmux."),
+    ],
+)
+
+cursor.executemany(
+    """INSERT OR IGNORE INTO bridge_flows
+       (flow_key, name, description, step_order, is_default) VALUES (?, ?, ?, ?, ?)""",
+    [
+        ("heavy", "Heavy",
+         "Full chain: Architect -> Implementer -> Review1 -> Review2 -> Human",
+         "architect_to_implementer,implementer_to_review_heavy1,review_heavy1_to_heavy2,review_heavy2_to_human",
+         1),
+        ("simplified", "Simplified",
+         "Direct: Implementer -> Review (no architect)",
+         "architect_to_implementer,implementer_to_reviewer_lite,reviewer_lite_to_human",
+         0),
+        ("escalation", "Escalation",
+         "Review escalates to Architect for architectural questions",
+         "review_to_architect,architect_to_review_response",
+         0),
+    ],
+)
+
+cursor.executemany(
+    """INSERT OR IGNORE INTO bridge_flow_steps
+       (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
+        pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+    [
+        ("heavy", "architect_to_implementer", "architect", "implementer",
+         "reviewtoimplementor", "{ID}-handoff.md", None, None,
+         "Failed to deliver handoff to implementer.", 1),
+        ("heavy", "implementer_to_review_heavy1", "implementer", "review_heavy1",
+         "implementertoreview", "{ID}-callback.md", None, None,
+         "Failed to deliver completion signal to review.", 2),
+        ("heavy", "review_heavy1_to_heavy2", "review_heavy1", "review_heavy2",
+         "architecttoreview", "{ID}-callback.md", None, None,
+         "Failed to deliver response to review2.", 3),
+        ("heavy", "review_heavy2_to_human", "review_heavy2", "human",
+         "implementertoreview", "{ID}-review-verdict.md", None, None,
+         "Failed to deliver verdict. Present to Human manually.", 4),
+        ("heavy", "review_to_architect_escalation", "review_heavy1", "architect",
+         "reviewtoarchitect", "{ID}-handoff.md", None, None,
+         "Escalation failed. Present question to Architect manually.", 5),
+        ("simplified", "architect_to_implementer", "architect", "implementer",
+         "reviewtoimplementor", "{ID}-handoff.md", None, None,
+         "Failed to deliver handoff to implementer.", 1),
+        ("simplified", "implementer_to_reviewer_lite", "implementer", "reviewer_lite",
+         "implementertoreview", "{ID}-callback.md", None, None,
+         "Failed to deliver completion signal to lite review.", 2),
+        ("simplified", "reviewer_lite_to_human", "reviewer_lite", "human",
+         "implementertoreview", "{ID}-review-verdict.md", None, None,
+         "Failed to deliver verdict. Present to Human manually.", 3),
+        ("escalation", "review_to_architect", "review_heavy1", "architect",
+         "reviewtoarchitect", "{ID}-handoff.md", None, None,
+         "Escalation failed. Present question to Architect manually.", 1),
+        ("escalation", "architect_to_review_response", "architect", "review_heavy1",
+         "architecttoreview", "{ID}-callback.md", None, None,
+         "Failed to deliver architect answer back to review.", 2),
+    ],
+)
+
 # Commit changes and close connection
 conn.commit()
 conn.close()
