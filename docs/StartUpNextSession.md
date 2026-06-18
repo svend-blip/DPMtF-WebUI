@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 082 |
+| **Last handoff ID** | 089 |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -71,11 +71,15 @@ Read these files in order to reconstruct full project state:
 | **Spor C-Hardening** | 062, 067 | Skeleton corrections — innerHTML removal, config fixes, revert father governance dir |
 | **Spor F5** | 064-066, 068-070, 074-075 | Bridge stabilization — .env loading, ollama reload cycle, auto-restart with detached subprocess |
 | **Spor G** | 071, 073, 076-081 | Prompt Compiler Simplificering — 8-field form, dead panel removal, DPMtF cleanup |
+| **Spor G-Accelerated** | 086-089 | Accelerated WebUI Factory UI integration — conditional form, create+start endpoints, 10 i18n labels |
 
 ### Human Final Verdict
-All Spors A-G approved. DPMtF-WebUI simplified to Prompt Compiler with
-8 fields. Bridge is tool-independent with ollama reload and auto-restart.
-Both local sessions run OpenCode. Awaiting next Spor definition.
+All Spors A-G approved. DPMtF-WebUI is a Prompt Compiler with 8 fields
+and an integrated Accelerated WebUI Factory. When Deployment Strategy
+"accelerated" is selected, the form switches to a 3-field "Create New
+WebUI" flow that runs initialize_new_webui.py and starts the new server.
+Bridge is tool-independent with ollama reload and auto-restart. Both
+local sessions run OpenCode. Awaiting next Spor definition.
 
 ---
 
@@ -102,7 +106,13 @@ and bridge mechanics:
 
 ## 5. Current Next Task
 
-**Spor G complete — Prompt Compiler is operational with 8 fields.**
+**Spor G complete — Prompt Compiler is operational with 8 fields + Accelerated WebUI Factory.**
+
+The Accelerated WebUI Factory is integrated into the Prompt Compiler UI:
+- Select "accelerated" in Deployment Strategy → form switches to WebUI creation mode
+- Fill in New webui (name), Port, Title → "Create New WebUI" runs the factory script
+- "Start WebUI Server" launches uvicorn → clickable link to new project
+- Manual step: create 10_PROJECT.md and 11_SCOPE.md in new project's docs/dpmtf/
 
 Next candidates:
 - ENO rebuild — once Prompt Compiler is stable, rebuild ENO with simplified framework
@@ -308,6 +318,17 @@ find docs/governance-templates-v2/knowledge-fragments -name "*.md" | wc -l
 python3 -m py_compile app.py && echo "✅ app.py OK"
 python3 -m py_compile scripts/init_db.py && echo "✅ init_db.py OK"
 node --check static/js/dpmtf-app.js && echo "✅ dpmtf-app.js OK"
+
+# 7. Accelerated WebUI Factory endpoints respond
+curl -s -X POST http://localhost:9130/api/create-webui/initialize \
+  -H "Content-Type: application/json" \
+  -d '{"name":"","port":0,"title":""}' | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ /initialize OK' if d.get('detail') else '❌ FAIL')"
+curl -s -X POST http://localhost:9130/api/create-webui/start \
+  -H "Content-Type: application/json" \
+  -d '{"project_dir":"/tmp/nonexistent","port":9132}' | python3 -c "import sys,json; d=json.load(sys.stdin); print('✅ /start OK' if d.get('detail') else '❌ FAIL')"
+
+# 8. Compiler i18n labels seeded
+sqlite3 databases/dpmtf.db "SELECT COUNT(*) FROM ui_text_slots WHERE slot_key LIKE 'lbl_compiler_%';" | xargs -I{} sh -c '[ {} -eq 10 ] && echo "✅ 10 compiler labels" || echo "❌ FAIL: expected 10, got {}"'
 ```
 
 ---
