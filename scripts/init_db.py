@@ -542,6 +542,17 @@ ui_labels_data = [
     ("LBL-1000215", "lbl_handoff_file_written", "template_manager", "File written:", "Label preceding the handoff file path"),
     ("LBL-1000216", "lbl_dispatch_command", "template_manager", "Dispatch command:", "Label preceding the dispatch shell command"),
     ("LBL-1000217", "lbl_btn_copy_command", "template_manager", "Copy Command", "Button to copy dispatch command to clipboard"),
+    # ── Accelerated WebUI Factory labels (2026-06-18) ──
+    ("LBL-1000218", "lbl_compiler_new_webui_name", "template_manager", "New webui", "Accelerated: new webui name field"),
+    ("LBL-1000219", "lbl_compiler_new_webui_port", "template_manager", "Port", "Accelerated: port number field"),
+    ("LBL-1000220", "lbl_compiler_new_webui_title", "template_manager", "Title", "Accelerated: project title field"),
+    ("LBL-1000221", "lbl_compiler_create_webui_btn", "template_manager", "Create New WebUI", "Accelerated: create button"),
+    ("LBL-1000222", "lbl_compiler_start_server_btn", "template_manager", "Start WebUI Server", "Accelerated: start server button"),
+    ("LBL-1000223", "lbl_compiler_webui_created", "template_manager", "WebUI project created successfully", "Accelerated: success message"),
+    ("LBL-1000224", "lbl_compiler_governance_reminder", "template_manager", "Governance files to create in docs/dpmtf/:", "Accelerated: governance reminder"),
+    ("LBL-1000225", "lbl_compiler_open_webui", "template_manager", "Open WebUI", "Accelerated: open webui link text"),
+    ("LBL-1000226", "lbl_compiler_script_error", "template_manager", "Script error", "Accelerated: script error heading"),
+    ("LBL-1000227", "lbl_compiler_field_required", "template_manager", "This field is required", "Accelerated: field required message"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -1113,6 +1124,28 @@ ui_label_translations_data = [
     ("LBL-1000217", "da-DK", "Kopier Kommando"),
     ("LBL-1000217", "de-DE", "Befehl kopieren"),
     ("LBL-1000217", "sv-SE", "Kopiera kommando"),
+    # ── Accelerated WebUI Factory (en-US) ──
+    ("LBL-1000218", "en-US", "New webui"),
+    ("LBL-1000219", "en-US", "Port"),
+    ("LBL-1000220", "en-US", "Title"),
+    ("LBL-1000221", "en-US", "Create New WebUI"),
+    ("LBL-1000222", "en-US", "Start WebUI Server"),
+    ("LBL-1000223", "en-US", "WebUI project created successfully"),
+    ("LBL-1000224", "en-US", "Governance files to create in docs/dpmtf/:"),
+    ("LBL-1000225", "en-US", "Open WebUI"),
+    ("LBL-1000226", "en-US", "Script error"),
+    ("LBL-1000227", "en-US", "This field is required"),
+    # ── Accelerated WebUI Factory (da-DK) ──
+    ("LBL-1000218", "da-DK", "Nyt webui"),
+    ("LBL-1000219", "da-DK", "Port"),
+    ("LBL-1000220", "da-DK", "Titel"),
+    ("LBL-1000221", "da-DK", "Opret nyt WebUI"),
+    ("LBL-1000222", "da-DK", "Start WebUI Server"),
+    ("LBL-1000223", "da-DK", "WebUI projekt oprettet"),
+    ("LBL-1000224", "da-DK", "Governance-filer der skal oprettes i docs/dpmtf/:"),
+    ("LBL-1000225", "da-DK", "Åbn WebUI"),
+    ("LBL-1000226", "da-DK", "Script fejl"),
+    ("LBL-1000227", "da-DK", "Dette felt er påkrævet"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
@@ -1249,6 +1282,17 @@ ui_text_slots_data = [
     ("lbl_handoff_file_written", "File written info label"),
     ("lbl_dispatch_command", "Dispatch command label"),
     ("lbl_btn_copy_command", "Copy dispatch command button"),
+    # ── Accelerated WebUI Factory slots ──
+    ("lbl_compiler_new_webui_name", "Accelerated: new webui name field"),
+    ("lbl_compiler_new_webui_port", "Accelerated: port number field"),
+    ("lbl_compiler_new_webui_title", "Accelerated: project title field"),
+    ("lbl_compiler_create_webui_btn", "Accelerated: create button"),
+    ("lbl_compiler_start_server_btn", "Accelerated: start server button"),
+    ("lbl_compiler_webui_created", "Accelerated: success message"),
+    ("lbl_compiler_governance_reminder", "Accelerated: governance reminder"),
+    ("lbl_compiler_open_webui", "Accelerated: open webui link text"),
+    ("lbl_compiler_script_error", "Accelerated: script error heading"),
+    ("lbl_compiler_field_required", "Accelerated: field required message"),
 ]
 for slot_key, description in ui_text_slots_data:
     cursor.execute("""
@@ -1382,6 +1426,17 @@ ui_text_slot_labels_data = [
     ("lbl_handoff_file_written", "lbl_handoff_file_written"),
     ("lbl_dispatch_command", "lbl_dispatch_command"),
     ("lbl_btn_copy_command", "lbl_btn_copy_command"),
+    # ── Accelerated WebUI Factory bindings ──
+    ("lbl_compiler_new_webui_name", "lbl_compiler_new_webui_name"),
+    ("lbl_compiler_new_webui_port", "lbl_compiler_new_webui_port"),
+    ("lbl_compiler_new_webui_title", "lbl_compiler_new_webui_title"),
+    ("lbl_compiler_create_webui_btn", "lbl_compiler_create_webui_btn"),
+    ("lbl_compiler_start_server_btn", "lbl_compiler_start_server_btn"),
+    ("lbl_compiler_webui_created", "lbl_compiler_webui_created"),
+    ("lbl_compiler_governance_reminder", "lbl_compiler_governance_reminder"),
+    ("lbl_compiler_open_webui", "lbl_compiler_open_webui"),
+    ("lbl_compiler_script_error", "lbl_compiler_script_error"),
+    ("lbl_compiler_field_required", "lbl_compiler_field_required"),
 ]
 for slot_key, label_key in ui_text_slot_labels_data:
     cursor.execute("""
