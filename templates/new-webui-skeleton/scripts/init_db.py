@@ -8,8 +8,13 @@ Seeds essential labels in da-DK, en-US, de-DE, and sv-SE locales.
 Idempotent — safe to re-run (INSERT OR IGNORE/REPLACE).
 """
 
+import sys
 import sqlite3
 from pathlib import Path
+
+# Ensure project root is in sys.path so 'import config' works
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from config import get_db_path
 
 DB_PATH = get_db_path()
