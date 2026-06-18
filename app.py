@@ -11,6 +11,16 @@ from fastapi import HTTPException
 import config  # DPMtF-WebUI central config (Spor A — hardcoding cleanup)
 from pathlib import Path
 
+# BridgeV002 database-backed lookup (Spor I)
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts" / "bridgeV002"))
+from bridge_lib import (
+    load_role_from_db,
+    load_flow_from_db,
+    list_roles_from_db,
+    list_flows_from_db,
+    _bridgev002_tables_exist,
+)
+
 app = FastAPI(title="DPMtF WebUI")
 
 # Mount static files
@@ -3984,6 +3994,62 @@ async def save_subgroup_state(request: Request):
     conn.commit()
     conn.close()
     return {"status": "saved", "subgroup_key": subgroup_key, "state": state}
+
+
+# ── Spor I: BridgeV002 Database Integration API ────────────────
+
+@app.get("/api/bridge-v2/status")
+async def bridge_v2_status():
+    """Check whether BridgeV002 database tables are available."""
+    tables_exist = _bridgev002_tables_exist(DB_PATH)
+    return {
+        "available": tables_exist,
+        "tables": ["bridge_roles", "bridge_flows", "bridge_flow_steps"] if tables_exist else [],
+    }
+
+
+@app.get("/api/bridge-v2/roles")
+async def bridge_v2_list_roles():
+    """Return all active BridgeV002 roles from database."""
+    try:
+        roles = list_roles_from_db(DB_PATH)
+        return {"roles": roles, "count": len(roles)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list bridge roles: {e}")
+
+
+@app.get("/api/bridge-v2/roles/{role_key}")
+async def bridge_v2_get_role(role_key: str):
+    """Return a single BridgeV002 role configuration from database."""
+    try:
+        role = load_role_from_db(role_key, DB_PATH)
+        return {"role": role}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load bridge role: {e}")
+
+
+@app.get("/api/bridge-v2/flows")
+async def bridge_v2_list_flows():
+    """Return all active BridgeV002 flows from database."""
+    try:
+        flows = list_flows_from_db(DB_PATH)
+        return {"flows": flows, "count": len(flows)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list bridge flows: {e}")
+
+
+@app.get("/api/bridge-v2/flows/{flow_key}")
+async def bridge_v2_get_flow(flow_key: str):
+    """Return a BridgeV002 flow definition and its steps from database."""
+    try:
+        flow_data = load_flow_from_db(flow_key, DB_PATH)
+        return {"flow": flow_data["flow"], "steps": flow_data["steps"], "step_count": len(flow_data["steps"])}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load bridge flow: {e}")
 
 
 if __name__ == "__main__":
