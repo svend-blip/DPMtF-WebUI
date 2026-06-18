@@ -835,14 +835,34 @@ function runValidationDrawer() {
 
 
 
-/* ── Static Compile Form (8 fields) ─────────── */
+/* ── Compiler Form with Deployment Strategy first & conditional visibility ── */
 function buildCompilerForm() {
   var container = document.getElementById("template-manager-content");
   if (!container) return;
   clear(container);
 
-  // Target Session (role-based, tool-independent)
+  // ── 1. Deployment Strategy (first — controls visibility) ──
+  var depDiv = el("div", "dpmtf-form-group");
+  depDiv.id = "compile-group-deployment";
+  depDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_deployment_strategy", "Deployment Strategy")));
+  var depSelect = el("select", null);
+  depSelect.id = "compile-deployment_strategy";
+  var emptyOpt = document.createElement("option");
+  emptyOpt.value = "";
+  emptyOpt.textContent = lbl("lbl_compiler_no_deployment", "(none)");
+  depSelect.appendChild(emptyOpt);
+  ["standard", "accelerated"].forEach(function (val) {
+    var opt = document.createElement("option");
+    opt.value = val;
+    opt.textContent = val;
+    depSelect.appendChild(opt);
+  });
+  depDiv.appendChild(depSelect);
+  container.appendChild(depDiv);
+
+  // ── 2. Target Session (hidden when accelerated) ──
   var sessionDiv = el("div", "dpmtf-form-group");
+  sessionDiv.id = "compile-group-session";
   sessionDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_session", "Target Session")));
   var sessionSelect = el("select", null);
   sessionSelect.id = "compile-target_session";
@@ -859,8 +879,9 @@ function buildCompilerForm() {
   sessionDiv.appendChild(sessionSelect);
   container.appendChild(sessionDiv);
 
-  // Target Project
+  // ── 3. Target Project (auto-set when accelerated) ──
   var projDiv = el("div", "dpmtf-form-group");
+  projDiv.id = "compile-group-project";
   projDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_project", "Target Project")));
   var projInput = el("input", null);
   projInput.type = "text";
@@ -869,8 +890,9 @@ function buildCompilerForm() {
   projDiv.appendChild(projInput);
   container.appendChild(projDiv);
 
-  // Phase Key
+  // ── 4. Phase Key (hidden when accelerated) ──
   var phaseDiv = el("div", "dpmtf-form-group");
+  phaseDiv.id = "compile-group-phase";
   phaseDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_phase_key", "Phase Key")));
   var phaseInput = el("input", null);
   phaseInput.type = "text";
@@ -879,8 +901,9 @@ function buildCompilerForm() {
   phaseDiv.appendChild(phaseInput);
   container.appendChild(phaseDiv);
 
-  // Goal
+  // ── 5. Goal (hidden when accelerated) ──
   var goalDiv = el("div", "dpmtf-form-group");
+  goalDiv.id = "compile-group-goal";
   goalDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_goal", "Goal")));
   var goalTextarea = el("textarea", null);
   goalTextarea.id = "compile-goal";
@@ -889,26 +912,49 @@ function buildCompilerForm() {
   goalDiv.appendChild(goalTextarea);
   container.appendChild(goalDiv);
 
-  // Deployment Strategy (optional)
-  var depDiv = el("div", "dpmtf-form-group");
-  depDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_deployment_strategy", "Deployment Strategy (optional)")));
-  var depSelect = el("select", null);
-  depSelect.id = "compile-deployment_strategy";
-  var emptyOpt = document.createElement("option");
-  emptyOpt.value = "";
-  emptyOpt.textContent = lbl("lbl_compiler_no_deployment", "(none)");
-  depSelect.appendChild(emptyOpt);
-  ["standard", "accelerated"].forEach(function (val) {
-    var opt = document.createElement("option");
-    opt.value = val;
-    opt.textContent = val;
-    depSelect.appendChild(opt);
-  });
-  depDiv.appendChild(depSelect);
-  container.appendChild(depDiv);
+  // ── 6. Accelerated fields (visible only when accelerated) ──
+  // New webui name
+  var nameDiv = el("div", "dpmtf-form-group");
+  nameDiv.id = "compile-group-accel-name";
+  nameDiv.style.display = "none";
+  nameDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_new_webui_name", "New webui")));
+  var nameInput = el("input", null);
+  nameInput.type = "text";
+  nameInput.id = "compile-accel-name";
+  nameInput.maxLength = 10;
+  nameInput.placeholder = "mywebui";
+  nameDiv.appendChild(nameInput);
+  container.appendChild(nameDiv);
 
-  // Scope & Gate confirmation
+  // Port
+  var portDiv = el("div", "dpmtf-form-group");
+  portDiv.id = "compile-group-accel-port";
+  portDiv.style.display = "none";
+  portDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_new_webui_port", "Port")));
+  var portInput = el("input", null);
+  portInput.type = "number";
+  portInput.id = "compile-accel-port";
+  portInput.min = 9132;
+  portInput.max = 9199;
+  portInput.placeholder = "9136";
+  portDiv.appendChild(portInput);
+  container.appendChild(portDiv);
+
+  // Title
+  var titleDiv = el("div", "dpmtf-form-group");
+  titleDiv.id = "compile-group-accel-title";
+  titleDiv.style.display = "none";
+  titleDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_new_webui_title", "Title")));
+  var titleInput = el("input", null);
+  titleInput.type = "text";
+  titleInput.id = "compile-accel-title";
+  titleInput.placeholder = "My Project";
+  titleDiv.appendChild(titleInput);
+  container.appendChild(titleDiv);
+
+  // ── 7. Scope & Gate confirmation (hidden when accelerated) ──
   var scopeDiv = el("div", "dpmtf-form-group");
+  scopeDiv.id = "compile-group-scope";
   var scopeLabel = el("label", "dpmtf-label", null);
   var scopeCheckbox = el("input", null);
   scopeCheckbox.type = "checkbox";
@@ -918,8 +964,9 @@ function buildCompilerForm() {
   scopeDiv.appendChild(scopeLabel);
   container.appendChild(scopeDiv);
 
-  // Allowed files (optional)
+  // ── 8. Allowed files (hidden when accelerated) ──
   var allowedDiv = el("div", "dpmtf-form-group");
+  allowedDiv.id = "compile-group-allowed";
   allowedDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_allowed_files", "Allowed files (optional, one per line)")));
   var allowedTextarea = el("textarea", null);
   allowedTextarea.id = "compile-allowed_files";
@@ -928,8 +975,9 @@ function buildCompilerForm() {
   allowedDiv.appendChild(allowedTextarea);
   container.appendChild(allowedDiv);
 
-  // Forbidden files (optional)
+  // ── 9. Forbidden files (hidden when accelerated) ──
   var forbiddenDiv = el("div", "dpmtf-form-group");
+  forbiddenDiv.id = "compile-group-forbidden";
   forbiddenDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_forbidden_files", "Forbidden files (optional, one per line)")));
   var forbiddenTextarea = el("textarea", null);
   forbiddenTextarea.id = "compile-forbidden_files";
@@ -938,23 +986,111 @@ function buildCompilerForm() {
   forbiddenDiv.appendChild(forbiddenTextarea);
   container.appendChild(forbiddenDiv);
 
-  // Output area (hidden until compile)
+  // ── Output area (shared for compile and accelerated) ──
   var outputDiv = el("div", null);
   outputDiv.id = "compile-output";
   outputDiv.style.display = "none";
   container.appendChild(outputDiv);
 
-  // Warning area (hidden until warning)
+  // ── Warning area ──
   var warningDiv = el("div", null);
   warningDiv.id = "compile-warning";
   warningDiv.style.display = "none";
   container.appendChild(warningDiv);
 
-  // Compile button
+  // ── Compile Prompt button (hidden when accelerated) ──
   var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  compileBtn.id = "compile-btn-submit";
   compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
   compileBtn.onclick = compilePromptV2;
   container.appendChild(compileBtn);
+
+  // ── Create New WebUI button (visible only when accelerated) ──
+  var createBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  createBtn.id = "compile-btn-create-webui";
+  createBtn.style.display = "none";
+  createBtn.textContent = lbl("lbl_compiler_create_webui_btn", "Create New WebUI");
+  createBtn.onclick = createNewWebUI;
+  container.appendChild(createBtn);
+
+  // ── Start WebUI Server button (replaces Create after success) ──
+  var startBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  startBtn.id = "compile-btn-start-server";
+  startBtn.style.display = "none";
+  startBtn.textContent = lbl("lbl_compiler_start_server_btn", "Start WebUI Server");
+  container.appendChild(startBtn);
+
+  // ── Deployment Strategy onchange handler ──
+  depSelect.onchange = function () {
+    var isAccelerated = depSelect.value === "accelerated";
+
+    // Standard fields: hide when accelerated
+    var standardIds = [
+      "compile-group-session", "compile-group-phase", "compile-group-goal",
+      "compile-group-scope", "compile-group-allowed", "compile-group-forbidden"
+    ];
+    standardIds.forEach(function (id) {
+      var stEl = document.getElementById(id);
+      if (stEl) stEl.style.display = isAccelerated ? "none" : "";
+    });
+
+    // Accelerated fields: show only when accelerated
+    var accelIds = [
+      "compile-group-accel-name", "compile-group-accel-port", "compile-group-accel-title"
+    ];
+    accelIds.forEach(function (id) {
+      var acEl = document.getElementById(id);
+      if (acEl) acEl.style.display = isAccelerated ? "" : "none";
+    });
+
+    // Buttons
+    var compileBtnEl = document.getElementById("compile-btn-submit");
+    var createBtnEl = document.getElementById("compile-btn-create-webui");
+    var startBtnEl = document.getElementById("compile-btn-start-server");
+    if (compileBtnEl) compileBtnEl.style.display = isAccelerated ? "none" : "";
+    if (createBtnEl) createBtnEl.style.display = isAccelerated ? "" : "none";
+    if (startBtnEl) startBtnEl.style.display = "none"; // always hide on switch
+
+    // Target Project: auto-set to Father project when accelerated
+    var projEl = document.getElementById("compile-target_project");
+    if (isAccelerated && projEl) {
+      projEl.value = projEl.placeholder || lbl("lbl_compiler_project_placeholder", "");
+      projEl.readOnly = true;
+    } else if (projEl) {
+      projEl.readOnly = false;
+    }
+
+    // Reset hidden fields
+    if (isAccelerated) {
+      // Reset standard fields
+      var sessionEl = document.getElementById("compile-target_session");
+      if (sessionEl) sessionEl.value = "claude_implementer";
+      var phaseEl = document.getElementById("compile-phase_key");
+      if (phaseEl) phaseEl.value = "";
+      var goalEl = document.getElementById("compile-goal");
+      if (goalEl) goalEl.value = "";
+      var scopeEl = document.getElementById("compile-scope_gate_confirmed");
+      if (scopeEl) scopeEl.checked = false;
+      var allowedEl = document.getElementById("compile-allowed_files");
+      if (allowedEl) allowedEl.value = "";
+      var forbiddenEl = document.getElementById("compile-forbidden_files");
+      if (forbiddenEl) forbiddenEl.value = "";
+    } else {
+      // Reset accelerated fields
+      var nameEl = document.getElementById("compile-accel-name");
+      if (nameEl) nameEl.value = "";
+      var portEl = document.getElementById("compile-accel-port");
+      if (portEl) portEl.value = "";
+      var titleEl = document.getElementById("compile-accel-title");
+      if (titleEl) titleEl.value = "";
+    }
+
+    // Hide output/warning on switch
+    var outEl = document.getElementById("compile-output");
+    if (outEl) { outEl.style.display = "none"; clear(outEl); }
+    var warnEl = document.getElementById("compile-warning");
+    if (warnEl) { warnEl.style.display = "none"; clear(warnEl); }
+  };
 }
 
 function compilePromptV2() {
@@ -1167,6 +1303,191 @@ function assignHandoffId(promptText, compileData) {
       clear(dispatchDiv);
       dispatchDiv.appendChild(el("p", "dpmtf-error",
         lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.detail || err.message || "Failed to assign handoff ID")));
+    });
+}
+
+/* ── Accelerated WebUI Factory: Create New WebUI ── */
+function createNewWebUI() {
+  var outputDiv = document.getElementById("compile-output");
+  if (!outputDiv) return;
+  outputDiv.style.display = "block";
+  clear(outputDiv);
+  outputDiv.appendChild(
+    el("p", "dpmtf-muted", lbl("lbl_status_compiling", "Compiling..."))
+  );
+
+  var nameEl = document.getElementById("compile-accel-name");
+  var portEl = document.getElementById("compile-accel-port");
+  var titleEl = document.getElementById("compile-accel-title");
+
+  document.querySelectorAll(".dpmtf-field-error").forEach(function (errEl) {
+    errEl.style.borderColor = "";
+    errEl.classList.remove("dpmtf-field-error");
+  });
+  document.querySelectorAll(".dpmtf-error-text").forEach(function (msgEl) {
+    msgEl.remove();
+  });
+
+  var hasError = false;
+  if (!nameEl || !nameEl.value.trim()) {
+    highlightField(nameEl, lbl("lbl_compiler_field_required", "This field is required"));
+    hasError = true;
+  }
+  if (!portEl || !portEl.value) {
+    highlightField(portEl, lbl("lbl_compiler_field_required", "This field is required"));
+    hasError = true;
+  }
+  if (!titleEl || !titleEl.value.trim()) {
+    highlightField(titleEl, lbl("lbl_compiler_field_required", "This field is required"));
+    hasError = true;
+  }
+  if (hasError) return;
+
+  var portNum = parseInt(portEl.value, 10);
+
+  fetch("/api/create-webui/initialize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: nameEl.value.trim(),
+      port: portNum,
+      title: titleEl.value.trim()
+    })
+  })
+    .then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw data;
+        return data;
+      });
+    })
+    .then(function (data) {
+      clear(outputDiv);
+
+      var pre = el("pre", null);
+      pre.style.whiteSpace = "pre-wrap";
+      pre.style.fontSize = "0.85em";
+      pre.style.background = "#0d1117";
+      pre.style.padding = "12px";
+      pre.style.borderRadius = "4px";
+      pre.style.maxHeight = "500px";
+      pre.style.overflowY = "auto";
+      if (data.success) {
+        pre.textContent = data.output;
+        outputDiv.appendChild(pre);
+
+        var successP = el("p", null);
+        var badge = el("span", "dpmtf-badge dpmtf-badge-success");
+        badge.textContent = lbl("lbl_compiler_webui_created", "WebUI project created successfully");
+        successP.appendChild(badge);
+        outputDiv.appendChild(successP);
+
+        // Hide Create button, show Start Server button
+        var createBtnEl = document.getElementById("compile-btn-create-webui");
+        var startBtnEl = document.getElementById("compile-btn-start-server");
+        if (createBtnEl) createBtnEl.style.display = "none";
+        if (startBtnEl) {
+          startBtnEl.style.display = "";
+          var pDir = data.project_dir;
+          var pPort = data.port;
+          startBtnEl.onclick = function () { startWebUIServer(pDir, pPort); };
+        }
+
+        // Governance reminder
+        var govP = el("p", "dpmtf-muted");
+        govP.textContent = lbl("lbl_compiler_governance_reminder", "Governance files to create in docs/dpmtf/:");
+        outputDiv.appendChild(govP);
+
+      } else {
+        pre.textContent = data.error || (data.detail || "Unknown error");
+        pre.classList.add("dpmtf-error");
+        outputDiv.appendChild(pre);
+      }
+    })
+    .catch(function (err) {
+      clear(outputDiv);
+      if (err.errors && err.errors.length) {
+        outputDiv.appendChild(
+          el("h4", "dpmtf-error", lbl("lbl_compile_validation_errors", "Validation Errors"))
+        );
+        err.errors.forEach(function (fieldErr) {
+          var errMsg = el("p", "dpmtf-error-text");
+          errMsg.textContent = "\u274C " + fieldErr.error;
+          errMsg.style.color = "#f85149";
+          errMsg.style.margin = "4px 0";
+          outputDiv.appendChild(errMsg);
+        });
+      } else {
+        var errP = el("p", "dpmtf-error");
+        errP.textContent = lbl("lbl_compiler_script_error", "Script error: ") + escapeHtml(err.detail || err.message || "Initialization failed");
+        outputDiv.appendChild(errP);
+      }
+    });
+}
+
+function highlightField(inputEl, message) {
+  if (!inputEl) return;
+  inputEl.style.borderColor = "#f85149";
+  inputEl.classList.add("dpmtf-field-error");
+  var errDiv = document.createElement("span");
+  errDiv.className = "dpmtf-error-text";
+  errDiv.textContent = message;
+  errDiv.style.color = "#f85149";
+  errDiv.style.fontSize = "0.8em";
+  errDiv.style.display = "block";
+  errDiv.style.marginTop = "2px";
+  inputEl.parentNode.appendChild(errDiv);
+}
+
+/* ── Accelerated WebUI Factory: Start Server ── */
+function startWebUIServer(projectDir, port) {
+  var outputDiv = document.getElementById("compile-output");
+  if (!outputDiv) return;
+  clear(outputDiv);
+  outputDiv.appendChild(
+    el("p", "dpmtf-muted", lbl("lbl_status_starting_server", "Starting server..."))
+  );
+
+  fetch("/api/create-webui/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_dir: projectDir,
+      port: port
+    })
+  })
+    .then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw data;
+        return data;
+      });
+    })
+    .then(function (data) {
+      clear(outputDiv);
+
+      var successP = el("p", null);
+      var badge = el("span", "dpmtf-badge dpmtf-badge-success");
+      badge.textContent = "✅ " + (data.message || lbl("lbl_status_server_started", "Server started"));
+      successP.appendChild(badge);
+      outputDiv.appendChild(successP);
+
+      var link = document.createElement("a");
+      link.href = data.url;
+      link.target = "_blank";
+      link.textContent = lbl("lbl_compiler_open_webui", "Open WebUI") + " (" + data.url + ")";
+      link.style.marginTop = "8px";
+      link.style.display = "inline-block";
+      outputDiv.appendChild(link);
+
+      var govP = el("p", "dpmtf-muted");
+      govP.textContent = lbl("lbl_compiler_governance_reminder", "Governance files to create in docs/dpmtf/:");
+      govP.style.marginTop = "12px";
+      outputDiv.appendChild(govP);
+    })
+    .catch(function (err) {
+      clear(outputDiv);
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.detail || err.message || "Failed to start server");
+      outputDiv.appendChild(errP);
     });
 }
 
