@@ -15,14 +15,18 @@ After running:
     .venv/bin/uvicorn app:app --host 0.0.0.0 --port 9132 --reload &
 """
 
+import sys
+from pathlib import Path
+# Ensure project root is in sys.path so 'import config' works
+# regardless of where the script is invoked from
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import argparse
 import config
 import os
 import shutil
 import subprocess
-import sys
 import time
-from pathlib import Path
 
 import json
 import socket
@@ -249,9 +253,13 @@ def main():
     # 9. Initialize database
     print("\n🗄️ Initializing database...")
     python = str(project_dir / ".venv" / "bin" / "python3")
+    child_env = os.environ.copy()
+    child_env.pop("PYTHONPATH", None)
+
     result = subprocess.run(
         [python, str(project_dir / "scripts" / "init_db.py")],
-        capture_output=True, text=True, cwd=str(project_dir)
+        capture_output=True, text=True, cwd=str(project_dir),
+        env=child_env,
     )
     if result.returncode != 0:
         print(f"  ❌ Database init failed: {result.stderr}")
@@ -266,6 +274,7 @@ def main():
         cwd=str(project_dir),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=child_env,
     )
 
     # Wait for server to start
