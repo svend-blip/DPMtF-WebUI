@@ -72,6 +72,7 @@ function switchLanguage(newLocale) {
       // Genindlæs alle panels med nye labels
       if (typeof loadDbStatus === "function") loadDbStatus();
       if (typeof loadProjectPlans === "function") loadProjectPlans();
+      if (typeof loadBridgeSetup === "function") loadBridgeSetup();
     })
     .catch(function (err) {
       console.warn("Failed to switch language:", err.message);
@@ -1491,6 +1492,541 @@ function startWebUIServer(projectDir, port) {
     });
 }
 
+/* ── 11. Bridge Setup Panel ────────────────────────── */
+function loadBridgeStatus() {
+  var container = document.getElementById("bridge-status-content");
+  if (!container) return;
+  clear(container);
+
+  fetch("/api/bridge-v2/status")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var badge = el("span", "dpmtf-badge " +
+        (data.available ? "dpmtf-badge-success" : "dpmtf-badge-danger"));
+      badge.textContent = data.available
+        ? lbl("lbl_bridge_status_available", "Bridge configuration available")
+        : lbl("lbl_bridge_inactive", "Inactive");
+      container.appendChild(badge);
+      if (data.tables && data.tables.length) {
+        var info = el("div", "dpmtf-small", null);
+        info.textContent = data.tables.join(", ");
+        container.appendChild(info);
+      }
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      container.appendChild(errP);
+    });
+}
+
+function loadBridgeRoles() {
+  var container = document.getElementById("bridge-roles-list-container");
+  if (!container) return;
+  clear(container);
+
+  fetch("/api/bridge-v2/roles")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var roles = data.roles || [];
+      if (!roles.length) {
+        container.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_roles", "No roles configured")));
+        return;
+      }
+      roles.forEach(function (role) {
+        container.appendChild(renderRoleCard(role));
+      });
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      container.appendChild(errP);
+    });
+}
+
+function renderRoleCard(role) {
+  var card = el("div", "dpmtf-card");
+
+  // Header: role key + status badge
+  var header = el("div", null);
+  header.style.display = "flex";
+  header.style.justifyContent = "space-between";
+  header.style.alignItems = "center";
+  var h4 = el("h4", null, escapeHtml(role.role_key));
+  header.appendChild(h4);
+
+  var badge = el("span", "dpmtf-badge " +
+    (role.is_active ? "dpmtf-badge-success" : "dpmtf-badge-danger"));
+  badge.textContent = role.is_active
+    ? lbl("lbl_bridge_active", "Active")
+    : lbl("lbl_bridge_inactive", "Inactive");
+  header.appendChild(badge);
+  card.appendChild(header);
+
+  // Role details as key-value pairs
+  var fields = [
+    [lbl("lbl_bridge_tmux_session", "Tmux Session"), role.tmux_session],
+    [lbl("lbl_bridge_start_cmd", "Start Command"), role.start_cmd],
+    [lbl("lbl_bridge_model_type", "Model Type"), role.model_type],
+    [lbl("lbl_bridge_cloud_model", "Cloud Model"), role.cloud_model],
+    [lbl("lbl_bridge_ollama_model", "Ollama Model"), role.ollama_model],
+  ];
+  fields.forEach(function (pair) {
+    if (!pair[1]) return;
+    var row = el("div", null);
+    row.appendChild(el("span", "dpmtf-small", escapeHtml(pair[0]) + ": "));
+    row.appendChild(el("span", null, escapeHtml(String(pair[1]))));
+    card.appendChild(row);
+  });
+
+  // Action buttons: Edit and Delete
+  var actions = el("div", null);
+  actions.style.marginTop = "8px";
+
+  var editBtn = el("button", "dpmtf-btn");
+  editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
+  editBtn.onclick = function () { editBridgeRole(role.role_key); };
+  actions.appendChild(editBtn);
+
+  var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
+  delBtn.onclick = function () { deleteBridgeRole(role.role_key); };
+  actions.appendChild(delBtn);
+
+  card.appendChild(actions);
+  return card;
+}
+
+function loadBridgeFlows() {
+  var container = document.getElementById("bridge-flows-list-container");
+  if (!container) return;
+  clear(container);
+
+  fetch("/api/bridge-v2/flows")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var flows = data.flows || [];
+      if (!flows.length) {
+        container.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_flows", "No flows configured")));
+        return;
+      }
+      flows.forEach(function (flow) {
+        fetch("/api/bridge-v2/flows/" + encodeURIComponent(flow.flow_key))
+          .then(function (res) { return res.json(); })
+          .then(function (fd) {
+            container.appendChild(renderFlowCard(fd.flow, fd.steps || []));
+          })
+          .catch(function () {
+            container.appendChild(renderFlowCard(flow, []));
+          });
+      });
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      container.appendChild(errP);
+    });
+}
+
+function renderFlowCard(flow, steps) {
+  var card = el("div", "dpmtf-card");
+
+  // Header: flow name + badges
+  var header = el("div", null);
+  header.style.display = "flex";
+  header.style.justifyContent = "space-between";
+  header.style.alignItems = "center";
+  var h4 = el("h4", null, escapeHtml(flow.name || flow.flow_key));
+  header.appendChild(h4);
+
+  var badges = el("span", null);
+  if (flow.is_default) {
+    var defBadge = el("span", "dpmtf-badge dpmtf-badge-warning");
+    defBadge.textContent = lbl("lbl_bridge_flow_is_default", "Default");
+    badges.appendChild(defBadge);
+  }
+  var statusBadge = el("span", "dpmtf-badge " +
+    (flow.is_active ? "dpmtf-badge-success" : "dpmtf-badge-danger"));
+  statusBadge.textContent = flow.is_active
+    ? lbl("lbl_bridge_active", "Active")
+    : lbl("lbl_bridge_inactive", "Inactive");
+  badges.appendChild(statusBadge);
+  header.appendChild(badges);
+  card.appendChild(header);
+
+  // Flow details
+  var details = [
+    escapeHtml(flow.flow_key),
+    flow.description ? escapeHtml(flow.description) : null,
+  ].filter(Boolean).join(" — ");
+  card.appendChild(el("p", "dpmtf-small", details));
+
+  // Steps table if any
+  if (steps && steps.length) {
+    var stepTitle = el("h5", null, lbl("lbl_bridge_steps_title", "Steps"));
+    card.appendChild(stepTitle);
+
+    var table = el("table", "dpmtf-table");
+    var thead = el("thead", null);
+    var thrRow = el("tr", null);
+    [
+      lbl("lbl_bridge_step_sort_order", "#"),
+      lbl("lbl_bridge_step_key", "Key"),
+      lbl("lbl_bridge_step_from_role", "From"),
+      lbl("lbl_bridge_step_to_role", "To")
+    ].forEach(function (h) {
+      thrRow.appendChild(el("th", null, h));
+    });
+    thead.appendChild(thrRow);
+    table.appendChild(thead);
+
+    var tbody = el("tbody", null);
+    steps.forEach(function (step) {
+      var row = el("tr", null);
+      row.appendChild(td(String(step.sort_order)));
+      row.appendChild(td(escapeHtml(step.step_key)));
+      row.appendChild(td(escapeHtml(step.from_role)));
+      row.appendChild(td(escapeHtml(step.to_role)));
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    card.appendChild(table);
+  }
+
+  // Action buttons
+  var actions = el("div", null);
+  actions.style.marginTop = "8px";
+
+  var editBtn = el("button", "dpmtf-btn");
+  editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
+  editBtn.onclick = function () { editBridgeFlow(flow.flow_key); };
+  actions.appendChild(editBtn);
+
+  var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
+  delBtn.onclick = function () { deleteBridgeFlow(flow.flow_key); };
+  actions.appendChild(delBtn);
+
+  card.appendChild(actions);
+  return card;
+}
+
+function addBridgeRole() {
+  var container = document.getElementById("bridge-roles-list-container");
+  if (!container) return;
+
+  var existing = document.getElementById("bridge-role-form");
+  if (existing) { existing.remove(); return; }
+
+  var form = el("div", "dpmtf-card");
+  form.id = "bridge-role-form";
+
+  var cancelBtn = el("button", "dpmtf-btn");
+  cancelBtn.textContent = lbl("lbl_bridge_cancel", "Cancel");
+  cancelBtn.onclick = function () { form.remove(); };
+
+  var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  saveBtn.textContent = lbl("lbl_bridge_save", "Save");
+  saveBtn.onclick = function () {
+    var rk = document.getElementById("bridge-input-role_key").value.trim();
+    var ts = document.getElementById("bridge-input-tmux_session").value.trim();
+    if (!rk || !ts) { alert(lbl("lbl_bridge_role_key", "Role Key") + " and " + lbl("lbl_bridge_tmux_session", "Tmux Session") + " are required."); return; }
+
+    var body = { role_key: rk, tmux_session: ts };
+    var mt = document.getElementById("bridge-input-model_type");
+    if (mt) body.model_type = mt.value;
+    var cm = document.getElementById("bridge-input-cloud_model");
+    if (cm && cm.value.trim()) body.cloud_model = cm.value.trim();
+    var om = document.getElementById("bridge-input-ollama_model");
+    if (om && om.value.trim()) body.ollama_model = om.value.trim();
+
+    fetch("/api/bridge-v2/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        alert(lbl("lbl_bridge_created", "Successfully created") + ": " + data.role_key);
+        loadBridgeRoles();
+      })
+      .catch(function (err) {
+        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+      });
+  };
+
+  form.appendChild(el("h4", null, lbl("lbl_bridge_role_add", "Add Role")));
+
+  var fields = [
+    ["bridge-input-role_key", "text", lbl("lbl_bridge_role_key", "Role Key"), "role_key"],
+    ["bridge-input-tmux_session", "text", lbl("lbl_bridge_tmux_session", "Tmux Session"), "claude_..."],
+    ["bridge-input-start_cmd", "text", lbl("lbl_bridge_start_cmd", "Start Command"), ""],
+  ];
+  fields.forEach(function (f) {
+    var div = el("div", "dpmtf-form-group");
+    div.appendChild(el("label", "dpmtf-label", f[2]));
+    var input = el("input", null);
+    input.id = f[0];
+    input.type = f[1];
+    input.placeholder = f[3];
+    div.appendChild(input);
+    form.appendChild(div);
+  });
+
+  // Model type select
+  var mtDiv = el("div", "dpmtf-form-group");
+  mtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_model_type", "Model Type")));
+  var mtSelect = el("select", null);
+  mtSelect.id = "bridge-input-model_type";
+  [["ollama", lbl("lbl_bridge_ollama_option", "Ollama")], ["cloud", lbl("lbl_bridge_cloud_option", "Cloud")]].forEach(function (pair) {
+    var opt = document.createElement("option");
+    opt.value = pair[0];
+    opt.textContent = pair[1];
+    mtSelect.appendChild(opt);
+  });
+  mtDiv.appendChild(mtSelect);
+  form.appendChild(mtDiv);
+
+  // Model name inputs
+  [["bridge-input-cloud_model", lbl("lbl_bridge_cloud_model", "Cloud Model"), ""],
+   ["bridge-input-ollama_model", lbl("lbl_bridge_ollama_model", "Ollama Model"), ""]].forEach(function (f) {
+    var div = el("div", "dpmtf-form-group");
+    div.appendChild(el("label", "dpmtf-label", f[1]));
+    var input = el("input", null);
+    input.id = f[0];
+    input.type = "text";
+    input.placeholder = f[2];
+    div.appendChild(input);
+    form.appendChild(div);
+  });
+
+  var btnRow = el("div", null);
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
+  form.appendChild(btnRow);
+
+  container.insertBefore(form, container.firstChild);
+}
+
+function addBridgeFlow() {
+  var container = document.getElementById("bridge-flows-list-container");
+  if (!container) return;
+
+  var existing = document.getElementById("bridge-flow-form");
+  if (existing) { existing.remove(); return; }
+
+  var form = el("div", "dpmtf-card");
+  form.id = "bridge-flow-form";
+
+  var cancelBtn = el("button", "dpmtf-btn");
+  cancelBtn.textContent = lbl("lbl_bridge_cancel", "Cancel");
+  cancelBtn.onclick = function () { form.remove(); };
+
+  var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  saveBtn.textContent = lbl("lbl_bridge_save", "Save");
+  saveBtn.onclick = function () {
+    var fk = document.getElementById("bridge-input-flow_key").value.trim();
+    var nm = document.getElementById("bridge-input-name").value.trim();
+    if (!fk || !nm) { alert(lbl("lbl_bridge_flow_key", "Flow Key") + " and " + lbl("lbl_bridge_flow_name", "Name") + " are required."); return; }
+
+    var body = { flow_key: fk, name: nm };
+    var desc = document.getElementById("bridge-input-description");
+    if (desc && desc.value.trim()) body.description = desc.value.trim();
+    body.steps = [];
+
+    fetch("/api/bridge-v2/flows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        alert(lbl("lbl_bridge_created", "Successfully created") + ": " + data.flow_key);
+        loadBridgeFlows();
+      })
+      .catch(function (err) {
+        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+      });
+  };
+
+  form.appendChild(el("h4", null, lbl("lbl_bridge_flow_add", "Add Flow")));
+
+  [["bridge-input-flow_key", lbl("lbl_bridge_flow_key", "Flow Key"), ""],
+   ["bridge-input-name", lbl("lbl_bridge_flow_name", "Name"), ""],
+   ["bridge-input-description", lbl("lbl_bridge_flow_description", "Description"), ""]].forEach(function (f) {
+    var div = el("div", "dpmtf-form-group");
+    div.appendChild(el("label", "dpmtf-label", f[1]));
+    var input = el("input", null);
+    input.id = f[0];
+    input.type = "text";
+    input.placeholder = f[2];
+    div.appendChild(input);
+    form.appendChild(div);
+  });
+
+  var btnRow = el("div", null);
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
+  form.appendChild(btnRow);
+
+  container.insertBefore(form, container.firstChild);
+}
+
+function deleteBridgeRole(roleKey) {
+  if (!confirm(escapeHtml(roleKey) + "?")) return;
+  fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), { method: "DELETE" })
+    .then(function (res) { return res.json(); })
+    .then(function () {
+      alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": " + roleKey);
+      loadBridgeRoles();
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function deleteBridgeFlow(flowKey) {
+  if (!confirm(escapeHtml(flowKey) + "?")) return;
+  fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), { method: "DELETE" })
+    .then(function (res) { return res.json(); })
+    .then(function () {
+      alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": " + flowKey);
+      loadBridgeFlows();
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function editBridgeRole(roleKey) {
+  fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var role = data.role;
+      var newSession = prompt(lbl("lbl_bridge_tmux_session", "Tmux Session") + ":", role.tmux_session);
+      if (newSession === null) return;
+
+      var body = {};
+      if (newSession !== role.tmux_session) body.tmux_session = newSession;
+      if (!Object.keys(body).length) return;
+
+      fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      })
+        .then(function (res) { return res.json(); })
+        .then(function () {
+          alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + roleKey);
+          loadBridgeRoles();
+        })
+        .catch(function (err) {
+          alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+        });
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function editBridgeFlow(flowKey) {
+  fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var flow = data.flow;
+      var newName = prompt(lbl("lbl_bridge_flow_name", "Name") + ":", flow.name);
+      if (newName === null) return;
+
+      var body = {};
+      if (newName !== flow.name) body.name = newName;
+      if (!Object.keys(body).length) return;
+
+      fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      })
+        .then(function (res) { return res.json(); })
+        .then(function () {
+          alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + flowKey);
+          loadBridgeFlows();
+        })
+        .catch(function (err) {
+          alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+        });
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function buildBridgeExport() {
+  var container = document.getElementById("bridge-export-content");
+  if (!container) return;
+  clear(container);
+
+  [
+    ["all", lbl("lbl_bridge_export_all", "Export All")],
+    ["roles", lbl("lbl_bridge_export_roles", "Export Roles")],
+    ["flows", lbl("lbl_bridge_export_flows", "Export Flows")]
+  ].forEach(function (pair) {
+    var btn = el("button", "dpmtf-btn");
+    btn.textContent = pair[1];
+    btn.onclick = function () { exportBridge(pair[0]); };
+    container.appendChild(btn);
+  });
+
+  var outputDiv = el("pre", null);
+  outputDiv.id = "bridge-export-output";
+  outputDiv.style.whiteSpace = "pre-wrap";
+  outputDiv.style.fontSize = "0.85em";
+  outputDiv.style.background = "#0d1117";
+  outputDiv.style.padding = "8px";
+  outputDiv.style.borderRadius = "4px";
+  outputDiv.style.marginTop = "8px";
+  outputDiv.style.maxHeight = "300px";
+  outputDiv.style.overflowY = "auto";
+  container.appendChild(outputDiv);
+}
+
+function exportBridge(type) {
+  var outputDiv = document.getElementById("bridge-export-output");
+  if (!outputDiv) return;
+  outputDiv.textContent = lbl("lbl_status_loading", "Loading...");
+
+  fetch("/api/bridge-v2/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: type })
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      outputDiv.textContent = JSON.stringify(data.data || data, null, 2);
+    })
+    .catch(function (err) {
+      outputDiv.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+    });
+}
+
+function loadBridgeSetup() {
+  loadBridgeStatus();
+  loadBridgeRoles();
+  loadBridgeFlows();
+  buildBridgeExport();
+
+  var addRoleBtn = document.getElementById("bridge-add-role-btn");
+  if (addRoleBtn) addRoleBtn.onclick = function () { addBridgeRole(); };
+
+  var addFlowBtn = document.getElementById("bridge-add-flow-btn");
+  if (addFlowBtn) addFlowBtn.onclick = function () { addBridgeFlow(); };
+}
+
 /* ── 10. Init ──────────────────────────────────────── */
 function onReady() {
   loadLabels();
@@ -1506,6 +2042,7 @@ function onReady() {
   loadDbStatus();
   buildCompilerForm();
   initDrawer();
+  loadBridgeSetup();
 }
 
 if (document.readyState === "loading") {
