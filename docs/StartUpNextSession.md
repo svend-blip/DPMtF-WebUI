@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 109 (completed — Fase 1-6 Hardening committed and pushed, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 110 (completed — UX Flow↔Steps Integration committed and pushed, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -81,6 +81,7 @@ Read these files in order to reconstruct full project state:
 | **Hardening F4** | 105 | BridgeV002 Steps CRUD — 4 backend endpoints (GET list, POST create, PUT update, DELETE soft-delete), frontend Steps panel with flow selector + step cards + inline form w/ dropdowns, convention auto-fill logic. 6 new i18n labels (LBL-1000277-LBL-1000282). ~577 lines across 4 files. Commit `729b3a5`. |
 | **Hardening F5** | 108 | BridgeV002 Parameteriserede Script-kald — dispatch.py DB-driven path, payload builder, CLI converter, parameterised script calls. Commit `bb27ab3`. |
 | **Hardening F6** | 109 | BridgeV002 Database-oprydning & Struktur — eno.db removed, H99 backups cleaned, .gitignore `databases/*.db`, dpmtf.db untracked from git, BACKUP-STRATEGY.md documented. Initial REJECTED → rework → APPROVED. Commit `abab50d`. |
+| **Hardening UX** | 110 | BridgeV002 UX Flow↔Steps Integration — Manage Steps button on Flow cards, step count badge replacing read-only steps table, backend `all_steps` flat array with `flow_key` annotation, auto-select first flow on load, "View All Steps" export button. 4 subtasks, APPROVED første gang. Commit `e0aa8f8`. |
 
 ### Human Final Verdict
 
