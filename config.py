@@ -54,6 +54,14 @@ def get_bridge_dir() -> str:
         return env
     return _config.get("paths", "bridge_dir", fallback="/home/svend/claude-bridge")
 
+def get_bridge_base_path() -> str:
+    """Bridge base path. .ini [bridge] base_path, or fallback to project_root/claude-bridge."""
+    configured = _config.get("bridge", "base_path", fallback=None)
+    if configured:
+        return configured
+    return str(Path(get_project_root()) / "claude-bridge")
+
+
 def get_project_root() -> str:
     """Project root directory. .ini [paths] project_root, or derived from this file's location."""
     configured = _config.get("paths", "project_root", fallback=None)
