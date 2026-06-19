@@ -36,7 +36,34 @@ def main():
         description="BridgeV002 role setup — start a role session with fresh context"
     )
     parser.add_argument("--role", required=True, help="Role name matching [role:NAME] in config")
+    parser.add_argument("--flow-key", default=None,
+                        help="Flow key (e.g. 'heavy', 'simplified')")
+    parser.add_argument("--step-key", default=None,
+                        help="Step key within the flow")
+    parser.add_argument("--from-role", default=None,
+                        help="Source role name")
+    parser.add_argument("--to-role", default=None,
+                        help="Target role name (overrides --role if given)")
+    parser.add_argument("--deliverable-dir", default=None,
+                        help="Deliverable directory relative to bridge_dir")
+    parser.add_argument("--deliverable-pattern", default=None,
+                        help="Deliverable filename pattern with {ID} placeholder")
+    parser.add_argument("--deliverable-file", default=None,
+                        help="Resolved deliverable filename")
+    parser.add_argument("--handoff-id", default=None,
+                        help="Handoff ID")
+    parser.add_argument("--bridge-dir", default=None,
+                        help="Bridge directory path")
     args = parser.parse_args()
+
+    if args.flow_key:
+        print(f"  Flow: {args.flow_key}")
+    if args.step_key:
+        print(f"  Step: {args.step_key}")
+    if args.from_role:
+        print(f"  From: {args.from_role}")
+    if args.handoff_id:
+        print(f"  Handoff ID: {args.handoff_id}")
 
     role_config = load_role_config(args.role)
     tmux_session = role_config["tmux_session"]
