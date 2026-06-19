@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 101 (completed — frontend JS committed `a2fa53b`, test corrections `4d3b1ed`) |
+| **Last handoff ID** | 104 (completed — Fase 1-3 Hardening committed, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -75,6 +75,9 @@ Read these files in order to reconstruct full project state:
 | **Spor G-Accelerated** | 086-089 | Accelerated WebUI Factory UI integration — conditional form, create+start endpoints, 10 i18n labels |
 | **Spor I** | 092-097 | BridgeV002 Database Integration — INI configs, core library, dispatch scripts, DB schema (3 tables), bridge_lib lookup functions, 5 REST API endpoints under /api/bridge-v2/ |
 | **Spor J** | 098-101 | BridgeV002 UI Integration — 7 CRUD endpoints + export (app.py +295), 48 i18n labels da-DK/en-US (init_db.py +282, domain fix `4d3b1ed`), HTML panel skeleton (index.html +27), frontend JS 14 functions (dpmtf-app.js +537). Total ~1.141 lines. Commits `a2fa53b`, `4d3b1ed`. |
+| **Hardening F1** | 102 | BridgeV002 Config Infrastructure — `[bridge] base_path` in dpmtf.ini, `get_bridge_base_path()` getter, bridge_lib.py path-resolve fix (eliminate hardcoded fallbacks), .gitignore update. Commit `cef2812`. |
+| **Hardening F2** | 103 | BridgeV002 Script Registry — `bridge_scripts` table + CHECK constraint, 3 seed scripts (role_setup, role_teardown, dispatch), GET `/api/bridge-v2/scripts`. Commit `65e7d9f`. |
+| **Hardening F3** | 104 | BridgeV002 Convention Rules — `bridge_convention_rules` table, 3 rules (handoff/callback/verdict), ALTER bridge_flow_steps + rule_key FK, map all 11 steps, GET `/api/bridge-v2/conventions`. Commit `dab0dba`. |
 
 ### Human Final Verdict
 
@@ -122,9 +125,9 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 
 | Fase | Titel | Tasks | Status |
 |------|-------|-------|--------|
-| **Fase 1** | Konfiguration & Infrastructure | dpmtf.ini bridge-sektion, config.py getter, .gitignore, path-resolve | ⏳ Ikke startet |
-| **Fase 2** | Script Registry | Ny `bridge_scripts` tabel, seed data, API endpoints | ⏳ Ikke startet |
-| **Fase 3** | Convention Rules | Ny `bridge_convention_rules` tabel med templates for dir/pattern/error_msg | ⏳ Ikke startet |
+| **Fase 1** | Konfiguration & Infrastructure | dpmtf.ini bridge-sektion, config.py getter, .gitignore, path-resolve | ✅ Komplet (`cef2812`) |
+| **Fase 2** | Script Registry | Ny `bridge_scripts` tabel, seed data, API endpoints | ✅ Komplet (`65e7d9f`) |
+| **Fase 3** | Convention Rules | Ny `bridge_convention_rules` tabel med templates for dir/pattern/error_msg | ✅ Komplet (`dab0dba`) |
 | **Fase 4** | Steps CRUD (backend + frontend) | API endpoints, Flow-card "Manage Steps", form dropdowns, auto-fill fra conventions | ⏳ Ikke startet |
 | **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ⏳ Ikke startet |
 | **Fase 6** | Database-oprydning & Struktur | Identificér eno.db, ryd H99-backups, .gitignore databases/, backup-strategi | ⏳ Ikke startet |
