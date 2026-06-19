@@ -4063,6 +4063,17 @@ async def bridge_v2_list_scripts():
         raise HTTPException(status_code=500, detail=f"Failed to list bridge scripts: {e}")
 
 
+@app.get("/api/bridge-v2/conventions")
+async def bridge_v2_list_conventions():
+    """Return all convention rules from database."""
+    try:
+        from scripts.bridgeV002.bridge_lib import list_conventions_from_db
+        conventions = list_conventions_from_db(DB_PATH)
+        return {"conventions": conventions, "count": len(conventions)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list bridge conventions: {e}")
+
+
 # ── Spor J: BridgeV002 CRUD API ────────────────
 
 @app.post("/api/bridge-v2/roles")

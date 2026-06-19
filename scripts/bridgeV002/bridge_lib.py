@@ -423,6 +423,60 @@ def list_scripts_from_db(db_path=None):
         return []
 
 
+def list_conventions_from_db(db_path=None):
+    """List all convention rules from bridge_convention_rules table.
+
+    Returns:
+        list of dicts, one per rule, ordered by rule_key.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM bridge_convention_rules ORDER BY rule_key"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+
+
+def resolve_convention_from_db(rule_key, db_path=None):
+    """Resolve a single convention rule by key.
+
+    Args:
+        rule_key: The convention key (e.g. 'handoff', 'callback', 'verdict')
+        db_path: Optional path to SQLite database. Uses config.get_db_path() if not given.
+
+    Returns:
+        dict with keys: rule_key, step_type, dir_template, pattern_template, error_template
+
+    Raises:
+        ValueError: If rule_key not found.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM bridge_convention_rules WHERE rule_key = ?",
+            (rule_key,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            raise ValueError(f"Convention rule '{rule_key}' not found in bridge_convention_rules")
+        result = dict(row)
+        conn.close()
+        return result
+    except sqlite3.OperationalError:
+        return {}
+
+
 if __name__ == "__main__":
     print("BridgeV002 core library")
     bridge_config = load_bridge_config()

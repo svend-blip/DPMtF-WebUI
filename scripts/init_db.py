@@ -3960,6 +3960,65 @@ cursor.executemany(
     ],
 )
 
+# ── Fase 3: Bridge Convention Rules ────────────────────
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bridge_convention_rules (
+    rule_key TEXT PRIMARY KEY,
+    step_type TEXT NOT NULL,
+    dir_template TEXT NOT NULL,
+    pattern_template TEXT NOT NULL,
+    error_template TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.executemany(
+    """INSERT OR IGNORE INTO bridge_convention_rules
+       (rule_key, step_type, dir_template, pattern_template, error_template)
+       VALUES (?, ?, ?, ?, ?)""",
+    [
+        ("handoff", "Handoff",
+         "reviewtoimplementor", "{ID}-handoff.md",
+         "Failed to deliver handoff to {to_role}."),
+        ("callback", "Callback",
+         "implementertoreview", "{ID}-callback.md",
+         "Failed to deliver callback to {to_role}."),
+        ("verdict", "Verdict",
+         "implementertoreview", "{ID}-review-verdict.md",
+         "Failed to deliver verdict. Present to Human manually."),
+    ],
+)
+
+# Add rule_key FK column to bridge_flow_steps (idempotent — ignore if exists)
+try:
+    cursor.execute("""
+    ALTER TABLE bridge_flow_steps ADD COLUMN rule_key TEXT REFERENCES bridge_convention_rules(rule_key)
+    """)
+except sqlite3.OperationalError:
+    pass  # Column already exists
+
+# Map existing steps to convention rules
+cursor.executemany(
+    """UPDATE bridge_flow_steps SET rule_key = ? WHERE step_key = ? AND flow_key = ?""",
+    [
+        # Heavy flow
+        ("handoff", "architect_to_implementer", "heavy"),
+        ("callback", "implementer_to_review_heavy1", "heavy"),
+        ("callback", "review_heavy1_to_heavy2", "heavy"),
+        ("verdict", "review_heavy2_to_human", "heavy"),
+        ("callback", "review_to_architect_escalation", "heavy"),
+        # Simplified flow
+        ("handoff", "architect_to_implementer", "simplified"),
+        ("callback", "implementer_to_reviewer_lite", "simplified"),
+        ("verdict", "reviewer_lite_to_human", "simplified"),
+        # Escalation flow
+        ("handoff", "review_to_architect", "escalation"),
+        ("callback", "architect_to_review_response", "escalation"),
+    ],
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
