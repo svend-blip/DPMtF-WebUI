@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 105 (completed — Fase 1-4 Hardening committed and pushed, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 109 (completed — Fase 1-6 Hardening committed and pushed, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -79,7 +79,8 @@ Read these files in order to reconstruct full project state:
 | **Hardening F2** | 103 | BridgeV002 Script Registry — `bridge_scripts` table + CHECK constraint, 3 seed scripts (role_setup, role_teardown, dispatch), GET `/api/bridge-v2/scripts`. Commit `65e7d9f`. |
 | **Hardening F3** | 104 | BridgeV002 Convention Rules — `bridge_convention_rules` table, 3 rules (handoff/callback/verdict), ALTER bridge_flow_steps + rule_key FK, map all 11 steps, GET `/api/bridge-v2/conventions`. Commit `dab0dba`. |
 | **Hardening F4** | 105 | BridgeV002 Steps CRUD — 4 backend endpoints (GET list, POST create, PUT update, DELETE soft-delete), frontend Steps panel with flow selector + step cards + inline form w/ dropdowns, convention auto-fill logic. 6 new i18n labels (LBL-1000277-LBL-1000282). ~577 lines across 4 files. Commit `729b3a5`. |
-| **Hardening F5** | 108 | BridgeV002 Parameteriserede Script-kald — dispatch.py DB-driven path, payload builder, CLI converter, parameterised script calls. Replaces handoff 107 (missing tmux session protection constraints). Status: pending review. |
+| **Hardening F5** | 108 | BridgeV002 Parameteriserede Script-kald — dispatch.py DB-driven path, payload builder, CLI converter, parameterised script calls. Commit `bb27ab3`. |
+| **Hardening F6** | 109 | BridgeV002 Database-oprydning & Struktur — eno.db removed, H99 backups cleaned, .gitignore `databases/*.db`, dpmtf.db untracked from git, BACKUP-STRATEGY.md documented. Initial REJECTED → rework → APPROVED. Commit `abab50d`. |
 
 ### Human Final Verdict
 
@@ -131,8 +132,8 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 2** | Script Registry | Ny `bridge_scripts` tabel, seed data, API endpoints | ✅ Komplet (`65e7d9f`) |
 | **Fase 3** | Convention Rules | Ny `bridge_convention_rules` tabel med templates for dir/pattern/error_msg | ✅ Komplet (`dab0dba`) |
 | **Fase 4** | Steps CRUD (backend + frontend) | API endpoints, Flow-card "Manage Steps", form dropdowns, auto-fill fra conventions | ✅ Komplet (`729b3a5`) |
-| **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ⏳ Ikke startet |
-| **Fase 6** | Database-oprydning & Struktur | Identificér eno.db, ryd H99-backups, .gitignore databases/, backup-strategi | ⏳ Ikke startet |
+| **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ✅ Komplet (`bb27ab3`) |
+| **Fase 6** | Database-oprydning & Struktur | eno.db fjernet, H99-backups ryddet, .gitignore `databases/*.db`, dpmtf.db untracked, BACKUP-STRATEGY.md | ✅ Komplet (`abab50d`) |
 
 #### Fase 1: Konfiguration & Infrastructure
 
