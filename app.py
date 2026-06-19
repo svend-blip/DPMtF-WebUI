@@ -4052,6 +4052,301 @@ async def bridge_v2_get_flow(flow_key: str):
         raise HTTPException(status_code=500, detail=f"Failed to load bridge flow: {e}")
 
 
+# ── Spor J: BridgeV002 CRUD API ────────────────
+
+@app.post("/api/bridge-v2/roles")
+async def bridge_v2_create_role(request: Request):
+    """Create a new BridgeV002 role configuration."""
+    data = await request.json()
+    required = ["role_key", "tmux_session"]
+    for f in required:
+        if f not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {f}")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT role_key FROM bridge_roles WHERE role_key = ?",
+        (data["role_key"],)
+    )
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"Role '{data['role_key']}' already exists")
+
+    model_type = data.get("model_type", "ollama")
+
+    cursor.execute("""
+        INSERT INTO bridge_roles
+        (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
+         setup_script, teardown_script, deliver_error_msg)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["role_key"],
+        data["tmux_session"],
+        data.get("start_cmd"),
+        model_type,
+        data.get("cloud_model"),
+        data.get("ollama_model"),
+        data.get("setup_script"),
+        data.get("teardown_script"),
+        data.get("deliver_error_msg"),
+    ))
+    conn.commit()
+    conn.close()
+    return {"status": "created", "role_key": data["role_key"]}
+
+
+@app.put("/api/bridge-v2/roles/{role_key}")
+async def bridge_v2_update_role(role_key: str, request: Request):
+    """Update a BridgeV002 role configuration. Only provided fields are updated."""
+    data = await request.json()
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT role_key FROM bridge_roles WHERE role_key = ?",
+        (role_key,)
+    )
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Role '{role_key}' not found")
+
+    updatable = [
+        "tmux_session", "start_cmd", "model_type", "cloud_model", "ollama_model",
+        "setup_script", "teardown_script", "deliver_error_msg", "is_active",
+    ]
+    sets = []
+    params = []
+    for field in updatable:
+        if field in data:
+            sets.append(f"{field} = ?")
+            params.append(data[field])
+
+    if not sets:
+        conn.close()
+        return {"status": "no changes", "role_key": role_key}
+
+    sets.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(role_key)
+
+    cursor.execute(
+        f"UPDATE bridge_roles SET {', '.join(sets)} WHERE role_key = ?",
+        params,
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "role_key": role_key}
+
+
+@app.delete("/api/bridge-v2/roles/{role_key}")
+async def bridge_v2_delete_role(role_key: str):
+    """Soft-delete a BridgeV002 role (set is_active=0)."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT role_key FROM bridge_roles WHERE role_key = ?",
+        (role_key,)
+    )
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Role '{role_key}' not found")
+
+    cursor.execute(
+        "UPDATE bridge_roles SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE role_key = ?",
+        (role_key,)
+    )
+
+    cursor.execute(
+        "UPDATE bridge_flow_steps SET is_active = 0 "
+        "WHERE (from_role = ? OR to_role = ?) AND is_active = 1",
+        (role_key, role_key)
+    )
+
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "role_key": role_key}
+
+
+@app.post("/api/bridge-v2/flows")
+async def bridge_v2_create_flow(request: Request):
+    """Create a new BridgeV002 flow definition with optional steps."""
+    data = await request.json()
+    required = ["flow_key", "name"]
+    for f in required:
+        if f not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {f}")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT flow_key FROM bridge_flows WHERE flow_key = ?",
+        (data["flow_key"],)
+    )
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"Flow '{data['flow_key']}' already exists")
+
+    is_default = data.get("is_default", 0)
+
+    if is_default:
+        cursor.execute(
+            "UPDATE bridge_flows SET is_default = 0 WHERE is_default = 1"
+        )
+
+    cursor.execute("""
+        INSERT INTO bridge_flows (flow_key, name, description, step_order, is_default)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        data["flow_key"],
+        data["name"],
+        data.get("description"),
+        data.get("step_order"),
+        is_default,
+    ))
+
+    step_count = 0
+    steps = data.get("steps", [])
+    for i, step in enumerate(steps):
+        if "from_role" not in step or "to_role" not in step:
+            continue
+        cursor.execute("""
+            INSERT INTO bridge_flow_steps
+            (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
+             pre_dispatch_script, post_dispatch_script, error_msg, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["flow_key"],
+            step.get("step_key", f"step_{i+1}"),
+            step["from_role"],
+            step["to_role"],
+            step.get("deliverable_dir"),
+            step.get("deliverable_pattern"),
+            step.get("pre_dispatch_script"),
+            step.get("post_dispatch_script"),
+            step.get("error_msg"),
+            i + 1,
+        ))
+        step_count += 1
+
+    conn.commit()
+    conn.close()
+    return {"status": "created", "flow_key": data["flow_key"], "steps_added": step_count}
+
+
+@app.put("/api/bridge-v2/flows/{flow_key}")
+async def bridge_v2_update_flow(flow_key: str, request: Request):
+    """Update a BridgeV002 flow definition. Only provided fields are updated."""
+    data = await request.json()
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT flow_key FROM bridge_flows WHERE flow_key = ?",
+        (flow_key,)
+    )
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
+
+    updatable = [
+        "name", "description", "step_order", "is_default", "is_active",
+    ]
+    sets = []
+    params = []
+    for field in updatable:
+        if field in data:
+            sets.append(f"{field} = ?")
+            params.append(data[field])
+
+    if not sets:
+        conn.close()
+        return {"status": "no changes", "flow_key": flow_key}
+
+    if data.get("is_default"):
+        cursor.execute(
+            "UPDATE bridge_flows SET is_default = 0 WHERE is_default = 1"
+        )
+
+    sets.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(flow_key)
+
+    cursor.execute(
+        f"UPDATE bridge_flows SET {', '.join(sets)} WHERE flow_key = ?",
+        params,
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "flow_key": flow_key}
+
+
+@app.delete("/api/bridge-v2/flows/{flow_key}")
+async def bridge_v2_delete_flow(flow_key: str):
+    """Soft-delete a BridgeV002 flow (set is_active=0 on flow and all steps)."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT flow_key FROM bridge_flows WHERE flow_key = ?",
+        (flow_key,)
+    )
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
+
+    cursor.execute(
+        "UPDATE bridge_flow_steps SET is_active = 0 WHERE flow_key = ? AND is_active = 1",
+        (flow_key,)
+    )
+
+    cursor.execute(
+        "UPDATE bridge_flows SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE flow_key = ?",
+        (flow_key,)
+    )
+
+    conn.commit()
+    conn.close()
+    return {"status": "deleted", "flow_key": flow_key}
+
+
+@app.post("/api/bridge-v2/export")
+async def bridge_v2_export(request: Request):
+    """Export BridgeV002 configuration as JSON for backup/restoration."""
+    try:
+        data = await request.json()
+        export_type = data.get("type", "all")
+    except Exception:
+        export_type = "all"
+
+    result = {}
+    if export_type in ("all", "roles"):
+        try:
+            roles = list_roles_from_db(DB_PATH)
+            result["roles"] = roles
+        except Exception:
+            result["roles"] = []
+
+    if export_type in ("all", "flows"):
+        try:
+            flows_list = list_flows_from_db(DB_PATH)
+            flow_details = []
+            for flow in flows_list:
+                try:
+                    fd = load_flow_from_db(flow["flow_key"], DB_PATH)
+                    flow_details.append(fd)
+                except Exception:
+                    flow_details.append({"flow": flow, "steps": []})
+            result["flows"] = flow_details
+        except Exception:
+            result["flows"] = []
+
+    return {"export_type": export_type, "data": result}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9130)
