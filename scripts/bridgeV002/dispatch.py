@@ -5,6 +5,7 @@ Reads config dynamically from bridge_lib. No hardcoded roles, sessions, or paths
 """
 import argparse
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,9 @@ from bridge_lib import (
     load_bridge_config,
     load_role_config,
     load_flow_config,
+    load_role_from_db,
+    load_flow_from_db,
+    resolve_convention_from_db,
     get_next_id,
     ensure_subdir,
     resolve_placeholders,
@@ -221,6 +225,270 @@ def log(direction, handoff_id, status, message, source="manual"):
         f.write(entry)
 
 
+def build_step_payload(step, flow_key, handoff_id, bridge_dir):
+    """Build a structured payload dict from a step row, convention rule, and context.
+
+    The payload is the single source of truth passed to all dispatch scripts via CLI.
+
+    Args:
+        step: dict from bridge_flow_steps row
+        flow_key: the flow key (e.g. 'heavy', 'simplified')
+        handoff_id: string handoff ID (e.g. '106')
+        bridge_dir: path to the bridge directory
+
+    Returns:
+        dict with keys: flow_key, step_key, from_role, to_role,
+                       deliverable_dir, deliverable_pattern,
+                       deliverable_file, error_msg, handoff_id, bridge_dir
+    """
+    payload = {
+        "flow_key": flow_key,
+        "step_key": step.get("step_key", ""),
+        "from_role": step.get("from_role", ""),
+        "to_role": step.get("to_role", ""),
+        "handoff_id": handoff_id,
+        "bridge_dir": bridge_dir,
+    }
+
+    # deliverable_dir: use step value, fall back to convention template
+    rule_key = step.get("rule_key")
+    if step.get("deliverable_dir"):
+        payload["deliverable_dir"] = step["deliverable_dir"]
+    elif rule_key:
+        try:
+            convention = resolve_convention_from_db(rule_key)
+            payload["deliverable_dir"] = convention.get("dir_template", "")
+        except (ValueError, sqlite3.OperationalError):
+            payload["deliverable_dir"] = ""
+    else:
+        payload["deliverable_dir"] = ""
+
+    # deliverable_pattern: use step value, fall back to convention template
+    if step.get("deliverable_pattern"):
+        payload["deliverable_pattern"] = step["deliverable_pattern"]
+    elif rule_key:
+        try:
+            convention = resolve_convention_from_db(rule_key)
+            payload["deliverable_pattern"] = convention.get("pattern_template", "")
+        except (ValueError, sqlite3.OperationalError):
+            payload["deliverable_pattern"] = ""
+    else:
+        payload["deliverable_pattern"] = ""
+
+    # deliverable_file: pattern with {ID} replaced by handoff_id
+    pattern = payload.get("deliverable_pattern", "")
+    payload["deliverable_file"] = pattern.replace("{ID}", handoff_id)
+
+    # error_msg: use step value, fall back to convention template
+    if step.get("error_msg"):
+        payload["error_msg"] = step["error_msg"]
+    elif rule_key:
+        try:
+            convention = resolve_convention_from_db(rule_key)
+            tmpl = convention.get("error_template", "")
+            payload["error_msg"] = tmpl.format(
+                step_type=step.get("step_key", ""),
+                to_role=payload["to_role"],
+            )
+        except (ValueError, sqlite3.OperationalError):
+            payload["error_msg"] = f"Failed to deliver to {payload['to_role']}."
+    else:
+        payload["error_msg"] = f"Failed to deliver to {payload['to_role']}."
+
+    return payload
+
+
+def step_to_cli_args(payload):
+    """Convert a payload dict to a list of CLI arguments for subprocess invocation.
+
+    Returns list like ['--flow-key', 'heavy', '--step-key', 'architect_to_implementer', ...]
+    """
+    args = []
+    key_map = {
+        "flow_key": "--flow-key",
+        "step_key": "--step-key",
+        "from_role": "--from-role",
+        "to_role": "--to-role",
+        "deliverable_dir": "--deliverable-dir",
+        "deliverable_pattern": "--deliverable-pattern",
+        "deliverable_file": "--deliverable-file",
+        "handoff_id": "--handoff-id",
+        "bridge_dir": "--bridge-dir",
+    }
+    for pk, flag in key_map.items():
+        val = payload.get(pk)
+        if val is not None:
+            args.append(flag)
+            args.append(str(val))
+    return args
+
+
+def execute_script_with_params(script_path, payload):
+    """Execute a pre/post dispatch script with flow-context parameters.
+
+    Args:
+        script_path: Path to the Python script to execute.
+        payload: dict with flow context (flow_key, step_key, from_role, etc.)
+
+    Returns:
+        True on success, False on failure.
+    """
+    if not script_path:
+        return True
+    if not os.path.exists(script_path):
+        return True
+
+    cli_args = step_to_cli_args(payload)
+    cmd = ["python3", script_path] + cli_args
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"  Script {script_path} failed (rc={result.returncode})")
+        stderr_preview = result.stderr[:300] if result.stderr else "(no stderr)"
+        print(f"  Stderr: {stderr_preview}")
+        return False
+    stdout_truncated = result.stdout[:500] if result.stdout else ""
+    if stdout_truncated:
+        print(f"  Script output: {stdout_truncated.rstrip()}")
+    return True
+
+
+def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
+    """Execute a single flow step using database-backed configuration.
+
+    Replaces INI-based run_flow_step(). All role config, step data, and
+    convention templates are loaded from the database at runtime.
+
+    Golden rule sequential dispatch sequence:
+      1. Load flow + step from DB
+      2. Build payload from step + convention
+      3. Load to_role from DB
+      4. Kill target tmux session
+      5. Unload Ollama model if applicable
+      6. Wait 1 second
+      7. Start fresh target session with start_cmd from DB
+      8. Wait for session to be ready
+      9. Reload Ollama model if applicable
+      10. Wait for model to be ready (3 seconds)
+      11. Execute pre-dispatch script with payload
+      12. Inject prompt (tool-aware: paste-buffer for OpenCode, send-keys for Claude)
+      13. Execute post-dispatch script with payload
+      14. Update symlink
+      15. Log dispatch event
+    """
+    import config as dpmtf_config
+
+    if bridge_dir is None:
+        bridge_dir = os.environ.get(
+            "DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path()
+        )
+
+    # Step 1: Load flow + step from DB
+    try:
+        flow_data = load_flow_from_db(flow_key, db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading flow '{flow_key}' from database: {e}")
+        return False
+
+    steps = flow_data["steps"]
+    target_step = None
+    if step_key:
+        for s in steps:
+            if s.get("step_key") == step_key:
+                target_step = s
+                break
+    else:
+        target_step = steps[0] if steps else None
+
+    if not target_step:
+        step_err = (f"Step '{step_key}' not found in flow '{flow_key}'"
+                     if step_key else f"No active steps in flow '{flow_key}'")
+        print(f"Error: {step_err}")
+        return False
+
+    # Step 2: Build payload from step + convention
+    payload = build_step_payload(target_step, flow_key, handoff_id, bridge_dir)
+
+    # Step 3: Load to_role from DB
+    try:
+        to_role = load_role_from_db(payload["to_role"],
+                                    db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{payload['to_role']}' from database: {e}")
+        return False
+
+    print(f"\nDispatch: {payload['from_role']} -> {payload['to_role']}")
+    print(f"  Flow: {flow_key}, Step: {payload['step_key']}")
+    print(f"  Deliverable: {payload['deliverable_file']}")
+
+    tmux_session = to_role["tmux_session"]
+    start_cmd = to_role.get("start_cmd", "")
+    model_type = to_role.get("model_type", "")
+    ollama_model = to_role.get("ollama_model", "")
+
+    kill_session(tmux_session)
+
+    if model_type == "ollama" and ollama_model:
+        unload_ollama_model(ollama_model)
+
+    time.sleep(1)
+
+    if start_cmd:
+        start_session(tmux_session, start_cmd)
+
+    if not wait_session_ready(tmux_session):
+        print(f"  ERROR: {payload['error_msg']}")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "failed",
+            payload["error_msg"],
+        )
+        return False
+
+    if model_type == "ollama" and ollama_model:
+        reload_ollama_model(ollama_model)
+        time.sleep(3)
+
+    pre_script = target_step.get("pre_dispatch_script")
+    if pre_script:
+        resolved_path = resolve_placeholders(pre_script, bridge_dir=bridge_dir)
+        print(f"  Running pre-dispatch script: {resolved_path}")
+        if not execute_script_with_params(resolved_path, payload):
+            print(f"  Pre-dispatch script failed -- aborting")
+            return False
+
+    deliverable_dir = payload["deliverable_dir"]
+    full_deliverable_path = os.path.join(bridge_dir,
+                                         deliverable_dir,
+                                         payload["deliverable_file"])
+    ensure_subdir(bridge_dir, deliverable_dir)
+
+    inject_prompt(tmux_session, f"Read and execute {full_deliverable_path}")
+    time.sleep(0.5)
+
+    post_script = target_step.get("post_dispatch_script")
+    if post_script:
+        resolved_path = resolve_placeholders(post_script, bridge_dir=bridge_dir)
+        print(f"  Running post-dispatch script: {resolved_path}")
+        execute_script_with_params(resolved_path, payload)
+
+    update_symlink(bridge_dir, deliverable_dir, payload["deliverable_file"])
+
+    log(
+        f"{payload['from_role']}->{payload['to_role']}",
+        handoff_id,
+        "dispatched",
+        f"Delivered {payload['deliverable_file']} to {tmux_session} (DB-driven)",
+    )
+
+    return True
+
+
 def run_flow_step(step_config, bridge_dir, handoff_id):
     """Execute a single flow step (defined in INI).
 
@@ -363,12 +631,16 @@ def main():
     parser = argparse.ArgumentParser(
         description="BridgeV002 dispatcher — universal role transition"
     )
-    parser.add_argument("--from-role", required=True, help="Source role name (matches INI [role:NAME])")
-    parser.add_argument("--to-role", required=True, help="Target role name (matches INI [role:NAME])")
+    parser.add_argument("--from-role", default=None, help="Source role name (matches INI [role:NAME])")
+    parser.add_argument("--to-role", default=None, help="Target role name (matches INI [role:NAME])")
     parser.add_argument("--id", default=None, help="Handoff ID (auto-generated if omitted)")
     parser.add_argument("--flow", default=None, help="Flow name for step lookup (e.g. heavy, simplified)")
     parser.add_argument("--step", default=None, help="Specific step name in flow")
     parser.add_argument("--deliverable", default=None, help="Existing deliverable file path to dispatch")
+    parser.add_argument("--db-flow", default=None,
+                        help="DB flow_key for database-driven dispatch")
+    parser.add_argument("--db-step", default=None,
+                        help="DB step_key within the flow (optional)")
 
     args = parser.parse_args()
 
@@ -376,6 +648,14 @@ def main():
     bridge_dir = _bridge_dir()
 
     handoff_id = args.id or f"{get_next_id(bridge_dir):03d}"
+
+    if args.db_flow:
+        run_flow_step_db(args.db_flow, args.db_step, handoff_id, bridge_dir)
+        sys.exit(0)
+
+    if not (args.from_role and args.to_role):
+        print("Error: --from-role and --to-role are required for INI-based dispatch")
+        sys.exit(1)
 
     if args.flow:
         flow_config = load_flow_config(args.flow)

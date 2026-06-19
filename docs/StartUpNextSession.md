@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 104 (completed — Fase 1-3 Hardening committed, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 105 (completed — Fase 1-4 Hardening committed and pushed, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -78,6 +78,8 @@ Read these files in order to reconstruct full project state:
 | **Hardening F1** | 102 | BridgeV002 Config Infrastructure — `[bridge] base_path` in dpmtf.ini, `get_bridge_base_path()` getter, bridge_lib.py path-resolve fix (eliminate hardcoded fallbacks), .gitignore update. Commit `cef2812`. |
 | **Hardening F2** | 103 | BridgeV002 Script Registry — `bridge_scripts` table + CHECK constraint, 3 seed scripts (role_setup, role_teardown, dispatch), GET `/api/bridge-v2/scripts`. Commit `65e7d9f`. |
 | **Hardening F3** | 104 | BridgeV002 Convention Rules — `bridge_convention_rules` table, 3 rules (handoff/callback/verdict), ALTER bridge_flow_steps + rule_key FK, map all 11 steps, GET `/api/bridge-v2/conventions`. Commit `dab0dba`. |
+| **Hardening F4** | 105 | BridgeV002 Steps CRUD — 4 backend endpoints (GET list, POST create, PUT update, DELETE soft-delete), frontend Steps panel with flow selector + step cards + inline form w/ dropdowns, convention auto-fill logic. 6 new i18n labels (LBL-1000277-LBL-1000282). ~577 lines across 4 files. Commit `729b3a5`. |
+| **Hardening F5** | 108 | BridgeV002 Parameteriserede Script-kald — dispatch.py DB-driven path, payload builder, CLI converter, parameterised script calls. Replaces handoff 107 (missing tmux session protection constraints). Status: pending review. |
 
 ### Human Final Verdict
 
@@ -128,7 +130,7 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 1** | Konfiguration & Infrastructure | dpmtf.ini bridge-sektion, config.py getter, .gitignore, path-resolve | ✅ Komplet (`cef2812`) |
 | **Fase 2** | Script Registry | Ny `bridge_scripts` tabel, seed data, API endpoints | ✅ Komplet (`65e7d9f`) |
 | **Fase 3** | Convention Rules | Ny `bridge_convention_rules` tabel med templates for dir/pattern/error_msg | ✅ Komplet (`dab0dba`) |
-| **Fase 4** | Steps CRUD (backend + frontend) | API endpoints, Flow-card "Manage Steps", form dropdowns, auto-fill fra conventions | ⏳ Ikke startet |
+| **Fase 4** | Steps CRUD (backend + frontend) | API endpoints, Flow-card "Manage Steps", form dropdowns, auto-fill fra conventions | ✅ Komplet (`729b3a5`) |
 | **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ⏳ Ikke startet |
 | **Fase 6** | Database-oprydning & Struktur | Identificér eno.db, ryd H99-backups, .gitignore databases/, backup-strategi | ⏳ Ikke startet |
 
@@ -183,6 +185,19 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | 6.2 | Ryd H99-backups | Slet .bak.h99, .bak.h99v2, .preh99.review |
 | 6.3 | .gitignore databases/ | Sørg for dpmtf.db ikke er i git-history (det er runtime-state) |
 | 6.4 | Backup-strategi | Definér: automatisk backup før init_db.py? Navngivningskonvention? |
+
+### BridgeV002 Udviklingsregler — TMUX SESSION BESKYTTELSE
+
+**KRITISK:** Under udvikling af BridgeV002 må handoffs IKKE instruere implementeren
+i at køre dispatch-kode (`dispatch.py --flow`, `dispatch.py --db-flow`,
+`role_teardown.py --role X --force`). Disse kalder `kill_session()` og dræber
+`claude_architect`, `claude_review`, eller `claude_implementer`.
+
+- **Tilladt session-kill:** Kun `bridge.py complete` auto-restart af `claude_implementer`
+  (dokumenteret rule #10 ovenfor).
+- **Forbudt under udvikling:** Alt der kalder `tmux kill-session` udover bridge.py's
+  egen auto-restart mekanisme.
+- **Validation:** Kun `py_compile` og `--help` tests. Ingen dispatch eller teardown kald.
 
 ### Hvad skal IKKE være hardcoded (Human krav)
 
