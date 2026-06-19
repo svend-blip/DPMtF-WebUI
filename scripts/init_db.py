@@ -4071,6 +4071,12 @@ _bridge_setup_labels = [
     ("LBL-1000273", "lbl_bridge_cloud_option", "main", "Cloud", "Cloud option label"),
     ("LBL-1000274", "lbl_bridge_no_roles", "main", "No roles configured", "Empty state: no roles"),
     ("LBL-1000275", "lbl_bridge_no_flows", "main", "No flows configured", "Empty state: no flows"),
+    ("LBL-1000277", "lbl_bridge_select_flow", "main", "Select Flow", "Flow selector label"),
+    ("LBL-1000278", "lbl_bridge_step_form_title", "main", "Add/Edit Step", "Step form modal title"),
+    ("LBL-1000279", "lbl_bridge_rule_key", "main", "Convention Rule", "Rule key dropdown label"),
+    ("LBL-1000280", "lbl_bridge_script_pre", "main", "Pre-Dispatch Script", "Pre-dispatch script dropdown"),
+    ("LBL-1000281", "lbl_bridge_script_post", "main", "Post-Dispatch Script", "Post-dispatch script dropdown"),
+    ("LBL-1000282", "lbl_bridge_auto_filled", "main", "(auto-filled)", "Indicator: field auto-filled from convention"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -4177,6 +4183,19 @@ _bridge_setup_translations = [
     ("LBL-1000274", "da-DK", "Ingen roller konfigureret"),
     ("LBL-1000275", "en-US", "No flows configured"),
     ("LBL-1000275", "da-DK", "Ingen flows konfigureret"),
+    # Steps UI labels - da-DK translations
+    ("LBL-1000277", "en-US", "Select Flow"),
+    ("LBL-1000277", "da-DK", "Vælg Flow"),
+    ("LBL-1000278", "en-US", "Add/Edit Step"),
+    ("LBL-1000278", "da-DK", "Tilføj/Redigér Trin"),
+    ("LBL-1000279", "en-US", "Convention Rule"),
+    ("LBL-1000279", "da-DK", "Konvention Regel"),
+    ("LBL-1000280", "en-US", "Pre-Dispatch Script"),
+    ("LBL-1000280", "da-DK", "Forud-script"),
+    ("LBL-1000281", "en-US", "Post-Dispatch Script"),
+    ("LBL-1000281", "da-DK", "Efter-script"),
+    ("LBL-1000282", "en-US", "(auto-filled)"),
+    ("LBL-1000282", "da-DK", "(auto-udfyldt)"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""
@@ -4292,6 +4311,12 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_cloud_option", "lbl_bridge_cloud_option"),
     ("lbl_bridge_no_roles", "lbl_bridge_no_roles"),
     ("lbl_bridge_no_flows", "lbl_bridge_no_flows"),
+    ("lbl_bridge_select_flow", "lbl_bridge_select_flow"),
+    ("lbl_bridge_step_form_title", "lbl_bridge_step_form_title"),
+    ("lbl_bridge_rule_key", "lbl_bridge_rule_key"),
+    ("lbl_bridge_script_pre", "lbl_bridge_script_pre"),
+    ("lbl_bridge_script_post", "lbl_bridge_script_post"),
+    ("lbl_bridge_auto_filled", "lbl_bridge_auto_filled"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""

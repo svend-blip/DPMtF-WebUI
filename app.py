@@ -4074,6 +4074,212 @@ async def bridge_v2_list_conventions():
         raise HTTPException(status_code=500, detail=f"Failed to list bridge conventions: {e}")
 
 
+@app.get("/api/bridge-v2/steps/{flow_key}")
+async def bridge_v2_list_steps(flow_key: str):
+    """Return all steps for a flow, with available roles/conventions/scripts for dropdowns."""
+    try:
+        from scripts.bridgeV002.bridge_lib import list_flows_from_db, list_roles_from_db, list_scripts_from_db, list_conventions_from_db
+
+        flows = list_flows_from_db(DB_PATH)
+        flow_keys = [f["flow_key"] for f in flows]
+        if flow_key not in flow_keys:
+            raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        steps_rows = cursor.execute(
+            "SELECT * FROM bridge_flow_steps WHERE flow_key = ? ORDER BY sort_order ASC",
+            (flow_key,)
+        ).fetchall()
+        steps = [dict(r) for r in steps_rows]
+
+        roles_data = list_roles_from_db(DB_PATH)
+        role_keys = [r["role_key"] for r in roles_data]
+        conventions_data = list_conventions_from_db(DB_PATH)
+        scripts_data = list_scripts_from_db(DB_PATH)
+
+        conn.close()
+        return {
+            "steps": steps,
+            "count": len(steps),
+            "flow_key": flow_key,
+            "available_roles": role_keys,
+            "available_conventions": conventions_data,
+            "available_scripts": scripts_data,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list bridge steps: {e}")
+
+
+@app.post("/api/bridge-v2/steps/{flow_key}")
+async def bridge_v2_create_step(request: Request, flow_key: str):
+    """Create a new step for the given flow."""
+    from scripts.bridgeV002.bridge_lib import resolve_convention_from_db, list_flows_from_db
+
+    data = await request.json()
+    required = ["step_key", "from_role", "to_role"]
+    for f in required:
+        if f not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {f}")
+
+    flows = list_flows_from_db(DB_PATH)
+    if flow_key not in [fl["flow_key"] for fl in flows]:
+        raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM bridge_flow_steps WHERE flow_key = ? AND step_key = ? AND is_active = 1",
+        (flow_key, data["step_key"])
+    )
+    if cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"Step '{data['step_key']}' already exists in flow '{flow_key}'")
+
+    deliverable_dir = data.get("deliverable_dir", None)
+    deliverable_pattern = data.get("deliverable_pattern", None)
+    error_msg = data.get("error_msg", None)
+    rule_key = data.get("rule_key", None)
+
+    if rule_key:
+        convention = resolve_convention_from_db(rule_key, DB_PATH)
+        if convention and "rule_key" in convention:
+            deliverable_dir = convention.get("dir_template", deliverable_dir)
+            deliverable_pattern = convention.get("pattern_template", deliverable_pattern)
+            error_msg = convention.get("error_template", error_msg)
+
+    result = cursor.execute(
+        "SELECT MAX(sort_order) as max_so FROM bridge_flow_steps WHERE flow_key = ?",
+        (flow_key,)
+    ).fetchone()
+    max_so = result["max_so"] if result["max_so"] is not None else 0
+
+    cursor.execute("""
+        INSERT INTO bridge_flow_steps
+            (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
+             pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        flow_key, data["step_key"], data["from_role"], data["to_role"],
+        deliverable_dir, deliverable_pattern,
+        data.get("pre_dispatch_script"), data.get("post_dispatch_script"),
+        error_msg, rule_key, max_so + 1,
+    ))
+    new_id = cursor.lastrowid
+    conn.commit()
+
+    row = cursor.execute(
+        "SELECT * FROM bridge_flow_steps WHERE id = ?", (new_id,)
+    ).fetchone()
+    conn.close()
+    return {"step": dict(row), "created": True}
+
+
+@app.put("/api/bridge-v2/steps/{flow_key}/{step_id}")
+async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
+    """Update a step. Supports partial updates — only provided fields are changed."""
+    from scripts.bridgeV002.bridge_lib import resolve_convention_from_db
+
+    data = await request.json()
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    row = cursor.execute(
+        "SELECT * FROM bridge_flow_steps WHERE id = ? AND flow_key = ?",
+        (step_id, flow_key)
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Step {step_id} not found in flow '{flow_key}'")
+
+    existing = dict(row)
+    updates = []
+    params = []
+
+    field_map = {
+        "from_role": "from_role",
+        "to_role": "to_role",
+        "deliverable_dir": "deliverable_dir",
+        "deliverable_pattern": "deliverable_pattern",
+        "pre_dispatch_script": "pre_dispatch_script",
+        "post_dispatch_script": "post_dispatch_script",
+        "error_msg": "error_msg",
+        "sort_order": "sort_order",
+    }
+
+    for field, column in field_map.items():
+        if field in data:
+            updates.append(f"{column} = ?")
+            params.append(data[field])
+
+    if "rule_key" in data and data["rule_key"] != existing.get("rule_key"):
+        rule_key_val = data["rule_key"]
+        convention = resolve_convention_from_db(rule_key_val, DB_PATH) if rule_key_val else None
+
+        updates.append("rule_key = ?")
+        params.append(rule_key_val)
+
+        if convention and "rule_key" in convention:
+            if "deliverable_dir" not in data and convention.get("dir_template"):
+                updates.append("deliverable_dir = ?")
+                params.append(convention["dir_template"])
+            if "deliverable_pattern" not in data and convention.get("pattern_template"):
+                updates.append("deliverable_pattern = ?")
+                params.append(convention["pattern_template"])
+            if "error_msg" not in data and convention.get("error_template"):
+                updates.append("error_msg = ?")
+                params.append(convention["error_template"])
+
+    if not updates:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    params.append(step_id)
+    params.append(flow_key)
+    cursor.execute(
+        f"UPDATE bridge_flow_steps SET {', '.join(updates)} WHERE id = ? AND flow_key = ?",
+        params,
+    )
+    conn.commit()
+
+    updated = cursor.execute(
+        "SELECT * FROM bridge_flow_steps WHERE id = ?", (step_id,)
+    ).fetchone()
+    conn.close()
+    return {"step": dict(updated), "updated": True}
+
+
+@app.delete("/api/bridge-v2/steps/{flow_key}/{step_id}")
+async def bridge_v2_delete_step(flow_key: str, step_id: int):
+    """Soft-delete a step (set is_active = 0)."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    row = cursor.execute(
+        "SELECT * FROM bridge_flow_steps WHERE id = ? AND flow_key = ?",
+        (step_id, flow_key)
+    ).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Step {step_id} not found in flow '{flow_key}'")
+
+    deleted = dict(row)
+    cursor.execute(
+        "UPDATE bridge_flow_steps SET is_active = 0 WHERE id = ? AND flow_key = ?",
+        (step_id, flow_key)
+    )
+    conn.commit()
+    conn.close()
+    return {"deleted": True, "step": deleted}
+
+
 # ── Spor J: BridgeV002 CRUD API ────────────────
 
 @app.post("/api/bridge-v2/roles")
