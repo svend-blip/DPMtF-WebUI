@@ -6,6 +6,7 @@ __pycache__/
 .env
 
 # Bridge runtime artifacts
+databases/*.db
 databases/*.bak.*
 databases/*.preh99.*
 .playwright-mcp/
