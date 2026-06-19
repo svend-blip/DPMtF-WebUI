@@ -1661,41 +1661,28 @@ function renderFlowCard(flow, steps) {
   ].filter(Boolean).join(" — ");
   card.appendChild(el("p", "dpmtf-small", details));
 
-  // Steps table if any
+  // Step count badge
   if (steps && steps.length) {
-    var stepTitle = el("h5", null, lbl("lbl_bridge_steps_title", "Steps"));
-    card.appendChild(stepTitle);
-
-    var table = el("table", "dpmtf-table");
-    var thead = el("thead", null);
-    var thrRow = el("tr", null);
-    [
-      lbl("lbl_bridge_step_sort_order", "#"),
-      lbl("lbl_bridge_step_key", "Key"),
-      lbl("lbl_bridge_step_from_role", "From"),
-      lbl("lbl_bridge_step_to_role", "To")
-    ].forEach(function (h) {
-      thrRow.appendChild(el("th", null, h));
-    });
-    thead.appendChild(thrRow);
-    table.appendChild(thead);
-
-    var tbody = el("tbody", null);
-    steps.forEach(function (step) {
-      var row = el("tr", null);
-      row.appendChild(td(String(step.sort_order)));
-      row.appendChild(td(escapeHtml(step.step_key)));
-      row.appendChild(td(escapeHtml(step.from_role)));
-      row.appendChild(td(escapeHtml(step.to_role)));
-      tbody.appendChild(row);
-    });
-    table.appendChild(tbody);
-    card.appendChild(table);
+    card.appendChild(el("p", "dpmtf-badge dpmtf-badge-info", String(steps.length) + " step(s)"));
+  } else {
+    card.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_steps", "No steps configured")));
   }
 
   // Action buttons
   var actions = el("div", null);
   actions.style.marginTop = "8px";
+
+  var manageBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  manageBtn.textContent = lbl("lbl_bridge_manage_steps", "Manage Steps");
+  manageBtn.onclick = function () {
+    _bridgeStepsFlowKey = flow.flow_key;
+    var sel = document.getElementById("bridge-steps-flow-select");
+    if (sel) sel.value = flow.flow_key;
+    _fetchBridgeSteps(flow.flow_key);
+    var stepsSection = document.getElementById("bridge-steps-section");
+    if (stepsSection) stepsSection.scrollIntoView({ behavior: "smooth" });
+  };
+  actions.appendChild(manageBtn);
 
   var editBtn = el("button", "dpmtf-btn");
   editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
@@ -1972,9 +1959,10 @@ function buildBridgeExport() {
   clear(container);
 
   [
-    ["all", lbl("lbl_bridge_export_all", "Export All")],
-    ["roles", lbl("lbl_bridge_export_roles", "Export Roles")],
-    ["flows", lbl("lbl_bridge_export_flows", "Export Flows")]
+    ["all", lbl("lbl_bridge_export_all", "View All")],
+    ["roles", lbl("lbl_bridge_export_roles", "View Roles")],
+    ["flows", lbl("lbl_bridge_export_flows", "View Flows")],
+    ["all_steps", lbl("lbl_bridge_view_all_steps", "View All Steps")]
   ].forEach(function (pair) {
     var btn = el("button", "dpmtf-btn");
     btn.textContent = pair[1];
@@ -2000,14 +1988,21 @@ function exportBridge(type) {
   if (!outputDiv) return;
   outputDiv.textContent = lbl("lbl_status_loading", "Loading...");
 
+  var requestType = type === "all_steps" ? "all" : type;
+
   fetch("/api/bridge-v2/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: type })
+    body: JSON.stringify({ type: requestType })
   })
     .then(function (res) { return res.json(); })
     .then(function (data) {
-      outputDiv.textContent = JSON.stringify(data.data || data, null, 2);
+      var payload = data.data || data;
+      if (type === "all_steps" && payload.all_steps) {
+        outputDiv.textContent = JSON.stringify(payload.all_steps, null, 2);
+      } else {
+        outputDiv.textContent = JSON.stringify(payload, null, 2);
+      }
     })
     .catch(function (err) {
       outputDiv.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
@@ -2087,12 +2082,16 @@ function _loadBridgeStepsFlow() {
       defaultOpt.value = "";
       defaultOpt.textContent = lbl("lbl_bridge_select_flow", "Select Flow");
       select.appendChild(defaultOpt);
-      flows.forEach(function (flow) {
+       flows.forEach(function (flow) {
         var opt = document.createElement("option");
         opt.value = flow.flow_key;
         opt.textContent = flow.name || flow.flow_key;
         select.appendChild(opt);
       });
+      if (flows.length > 0 && !select.value) {
+        select.value = flows[0].flow_key;
+        _fetchBridgeSteps(flows[0].flow_key);
+      }
       select.onchange = function () {
         if (this.value) _fetchBridgeSteps(this.value);
       };

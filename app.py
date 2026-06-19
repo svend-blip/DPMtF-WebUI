@@ -4572,6 +4572,22 @@ async def bridge_v2_export(request: Request):
         except Exception:
             result["flows"] = []
 
+    if export_type == "all":
+        all_steps = []
+        try:
+            flows_to_check = list_flows_from_db(DB_PATH)
+            for flow in flows_to_check:
+                try:
+                    fd = load_flow_from_db(flow["flow_key"], DB_PATH)
+                    for s in (fd.get("steps") or []):
+                        s["flow_key"] = flow["flow_key"]
+                        all_steps.append(s)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        result["all_steps"] = all_steps
+
     return {"export_type": export_type, "data": result}
 
 
