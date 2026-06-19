@@ -121,6 +121,14 @@ h4 { color: #8b949e; font-size: 0.9em; margin: 12px 0 6px 0; }
 }
 .dpmtf-btn-danger:hover { background: #f85149; }
 
+/* ── Bridge button row ────────────────────────────── */
+.bridge-btn-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 6px 0 12px 0;
+}
+
 /* ── Form elements ────────────────────────────────── */
 .dpmtf-input, .dpmtf-select, .dpmtf-textarea {
   background: #0d1117;
