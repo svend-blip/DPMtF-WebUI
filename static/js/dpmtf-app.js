@@ -2014,10 +2014,343 @@ function exportBridge(type) {
     });
 }
 
+/* ── Steps CRUD (Fase 4) ─────────────────────────────── */
+var _bridgeStepsFlowKey = null;
+var _bridgeStepsMetadata = null;
+var _bridgeEditingStepId = null;
+
+function renderStepCard(step, meta) {
+  var card = el("div", "dpmtf-card");
+
+  // Header: step_key + status badge
+  var header = el("div", null);
+  header.style.display = "flex";
+  header.style.justifyContent = "space-between";
+  header.style.alignItems = "center";
+  var h4 = el("h4", null, escapeHtml(step.step_key || step.id));
+  header.appendChild(h4);
+
+  var badge = el("span", "dpmtf-badge " +
+    (step.is_active ? "dpmtf-badge-success" : "dpmtf-badge-danger"));
+  badge.textContent = step.is_active
+    ? lbl("lbl_bridge_active", "Active")
+    : lbl("lbl_bridge_inactive", "Inactive");
+  header.appendChild(badge);
+  card.appendChild(header);
+
+  // Step details
+  var fields = [
+    ["From/To Role", (step.from_role || "") + " -> " + (step.to_role || "")],
+    ["Rule Key", step.rule_key],
+    ["Dir", step.deliverable_dir],
+    ["Pattern", step.deliverable_pattern],
+    ["Pre-script", step.pre_dispatch_script],
+    ["Post-script", step.post_dispatch_script],
+    ["Sort", String(step.sort_order || 0)],
+  ];
+  fields.forEach(function (pair) {
+    if (!pair[1]) return;
+    var row = el("div", null);
+    row.appendChild(el("span", "dpmtf-small", escapeHtml(pair[0]) + ": "));
+    row.appendChild(el("span", null, escapeHtml(String(pair[1]))));
+    card.appendChild(row);
+  });
+
+  // Action buttons
+  var actions = el("div", null);
+  actions.style.marginTop = "8px";
+
+  var editBtn = el("button", "dpmtf-btn");
+  editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
+  editBtn.onclick = function () { _editBridgeStep(step.id, step.flow_key || _bridgeStepsFlowKey); };
+  actions.appendChild(editBtn);
+
+  var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
+  delBtn.onclick = function () { _deleteBridgeStep(step.id, step.flow_key || _bridgeStepsFlowKey); };
+  actions.appendChild(delBtn);
+
+  card.appendChild(actions);
+  return card;
+}
+
+function _loadBridgeStepsFlow() {
+  var select = document.getElementById("bridge-steps-flow-select");
+  if (!select) return;
+
+  fetch("/api/bridge-v2/flows")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var flows = data.flows || [];
+      clear(select);
+      var defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.textContent = lbl("lbl_bridge_select_flow", "Select Flow");
+      select.appendChild(defaultOpt);
+      flows.forEach(function (flow) {
+        var opt = document.createElement("option");
+        opt.value = flow.flow_key;
+        opt.textContent = flow.name || flow.flow_key;
+        select.appendChild(opt);
+      });
+      select.onchange = function () {
+        if (this.value) _fetchBridgeSteps(this.value);
+      };
+    })
+    .catch(function (err) {
+      console.error("Failed to load bridge flows for steps selector:", err.message);
+    });
+}
+
+function _fetchBridgeSteps(flowKey) {
+  _bridgeStepsFlowKey = flowKey;
+  var container = document.getElementById("bridge-steps-list-container");
+  if (!container) return;
+  clear(container);
+
+  fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var steps = data.steps || [];
+      _bridgeStepsMetadata = {
+        available_roles: data.available_roles || [],
+        available_conventions: data.available_conventions || [],
+        available_scripts: data.available_scripts || []
+      };
+      if (!steps.length) {
+        container.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_flows", "No steps for this flow")));
+        return;
+      }
+      steps.forEach(function (step) {
+        step.flow_key = flowKey;
+        container.appendChild(renderStepCard(step, _bridgeStepsMetadata));
+      });
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      container.appendChild(errP);
+    });
+}
+
+function _showStepForm(initialData) {
+  var container = document.getElementById("bridge-steps-list-container");
+  if (!container) return;
+
+  // Remove any existing form
+  var existing = document.getElementById("bridge-step-form");
+  if (existing) existing.remove();
+
+  var meta = initialData._meta || _bridgeStepsMetadata || {
+    available_roles: [],
+    available_conventions: [],
+    available_scripts: []
+  };
+  var data = initialData.data || {};
+
+  var form = el("div", "dpmtf-card");
+  form.id = "bridge-step-form";
+
+  var cancelBtn = el("button", "dpmtf-btn");
+  cancelBtn.textContent = lbl("lbl_bridge_cancel", "Cancel");
+  cancelBtn.onclick = function () { form.remove(); _bridgeEditingStepId = null; };
+
+  var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  saveBtn.textContent = lbl("lbl_bridge_save", "Save");
+  saveBtn.onclick = function () {
+    var sk = document.getElementById("bridge-input-step_key").value.trim();
+    if (!sk) { alert(lbl("lbl_bridge_step_key", "Step Key") + " is required."); return; }
+
+    var body = { step_key: sk };
+    var fr = document.getElementById("bridge-input-from_role");
+    if (fr.value) body.from_role = fr.value;
+    var tr = document.getElementById("bridge-input-to_role");
+    if (tr.value) body.to_role = tr.value;
+    var rk = document.getElementById("bridge-input-rule_key");
+    if (rk.value) body.rule_key = rk.value;
+    var dd = document.getElementById("bridge-input-deliverable_dir");
+    if (dd.value) body.deliverable_dir = dd.value.trim();
+    var dp = document.getElementById("bridge-input-deliverable_pattern");
+    if (dp.value) body.deliverable_pattern = dp.value.trim();
+    var ps = document.getElementById("bridge-input-pre_dispatch_script");
+    if (ps.value) body.pre_dispatch_script = ps.value;
+    var pos = document.getElementById("bridge-input-post_dispatch_script");
+    if (pos.value) body.post_dispatch_script = pos.value;
+    var em = document.getElementById("bridge-input-error_msg");
+    if (em.value) body.error_msg = em.value.trim();
+    var so = document.getElementById("bridge-input-sort_order");
+    if (so.value !== "") body.sort_order = parseInt(so.value, 10);
+
+    _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body);
+  };
+
+  form.appendChild(el("h4", null, lbl("lbl_bridge_step_form_title", "Add/Edit Step")));
+
+  // Helper to create a select dropdown
+  var makeSelect = function (id, options, valueAttr, textAttr, selected) {
+    var sel = document.createElement("select");
+    sel.id = id;
+    var defaultOpt = document.createElement("option");
+    defaultOpt.value = "";
+    defaultOpt.textContent = "--";
+    sel.appendChild(defaultOpt);
+    (options || []).forEach(function (item) {
+      var opt = document.createElement("option");
+      opt.value = item[valueAttr] || item;
+      opt.textContent = item[textAttr] || item[valueAttr] || item;
+      if (opt.value === selected) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    return sel;
+  };
+
+  // Text input fields
+  [["bridge-input-step_key", lbl("lbl_bridge_step_key", "Step Key"), data.step_key || ""],
+   ["bridge-input-deliverable_dir", lbl("lbl_bridge_deliverable_dir", "Deliverable Dir"), data.deliverable_dir || ""],
+   ["bridge-input-deliverable_pattern", lbl("lbl_bridge_deliverable_pattern", "Pattern"), data.deliverable_pattern || ""],
+   ["bridge-input-error_msg", lbl("lbl_bridge_deliver_error_msg", "Error Msg"), data.error_msg || ""]].forEach(function (f) {
+    var div = el("div", "dpmtf-form-group");
+    div.appendChild(el("label", "dpmtf-label", f[1]));
+    var input = el("input", null);
+    input.id = f[0];
+    input.type = "text";
+    input.value = f[2];
+    div.appendChild(input);
+    form.appendChild(div);
+  });
+
+  // From role dropdown
+  var frDiv = el("div", "dpmtf-form-group");
+  frDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_step_from_role", "From Role")));
+  frDiv.appendChild(makeSelect("bridge-input-from_role", meta.available_roles, "role_key", "name", data.from_role));
+  form.appendChild(frDiv);
+
+  // To role dropdown
+  var trDiv = el("div", "dpmtf-form-group");
+  trDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_step_to_role", "To Role")));
+  trDiv.appendChild(makeSelect("bridge-input-to_role", meta.available_roles, "role_key", "name", data.to_role));
+  form.appendChild(trDiv);
+
+  // Rule key dropdown with auto-fill on change
+  var rkDiv = el("div", "dpmtf-form-group");
+  rkDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_rule_key", "Convention Rule")));
+  var rkSelect = makeSelect("bridge-input-rule_key", meta.available_conventions, "rule_key", "step_type", data.rule_key);
+  rkSelect.onchange = function () { _autoFillFromConvention(this.value, form, meta.available_conventions); };
+  rkDiv.appendChild(rkSelect);
+  form.appendChild(rkDiv);
+
+  // Pre-dispatch script dropdown (pre or both only)
+  var preScripts = meta.available_scripts.filter(function (s) { return s.stage === "pre" || s.stage === "both"; });
+  var psDiv = el("div", "dpmtf-form-group");
+  psDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_script_pre", "Pre-Dispatch Script")));
+  psDiv.appendChild(makeSelect("bridge-input-pre_dispatch_script", preScripts, "script_key", "name", data.pre_dispatch_script));
+  form.appendChild(psDiv);
+
+  // Post-dispatch script dropdown (post or both only)
+  var postScripts = meta.available_scripts.filter(function (s) { return s.stage === "post" || s.stage === "both"; });
+  var posDiv = el("div", "dpmtf-form-group");
+  posDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_script_post", "Post-Dispatch Script")));
+  posDiv.appendChild(makeSelect("bridge-input-post_dispatch_script", postScripts, "script_key", "name", data.post_dispatch_script));
+  form.appendChild(posDiv);
+
+  // Sort order (number input)
+  var soDiv = el("div", "dpmtf-form-group");
+  soDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_step_sort_order", "Sort Order")));
+  var soInput = el("input", null);
+  soInput.id = "bridge-input-sort_order";
+  soInput.type = "number";
+  soInput.value = data.sort_order != null ? String(data.sort_order) : "0";
+  soDiv.appendChild(soInput);
+  form.appendChild(soDiv);
+
+  // Buttons
+  var btnRow = el("div", null);
+  btnRow.appendChild(saveBtn);
+  btnRow.appendChild(cancelBtn);
+  form.appendChild(btnRow);
+
+  container.insertBefore(form, container.firstChild);
+}
+
+function _autoFillFromConvention(ruleKey, form, conventions) {
+  if (!ruleKey || !conventions) return;
+  var conv = (conventions || []).filter(function (c) { return c.rule_key === ruleKey; })[0];
+  if (!conv) return;
+
+  var dirInput = document.getElementById("bridge-input-deliverable_dir");
+  if (dirInput && conv.dir_template) dirInput.value = conv.dir_template;
+
+  var patInput = document.getElementById("bridge-input-deliverable_pattern");
+  if (patInput && conv.pattern_template) patInput.value = conv.pattern_template;
+
+  var errInput = document.getElementById("bridge-input-error_msg");
+  if (errInput && conv.error_template) errInput.value = conv.error_template;
+}
+
+function _submitBridgeStep(flowKey, stepId, body) {
+  var method = stepId ? "PUT" : "POST";
+  var url = stepId
+    ? "/api/bridge-v2/steps/" + encodeURIComponent(flowKey) + "/" + stepId
+    : "/api/bridge-v2/steps/" + encodeURIComponent(flowKey);
+
+  fetch(url, {
+    method: method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  })
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      var msg = stepId ? lbl("lbl_bridge_updated", "Successfully updated") : lbl("lbl_bridge_created", "Successfully created");
+      alert(msg + ": " + (data.step ? data.step.step_key : body.step_key));
+      var form = document.getElementById("bridge-step-form");
+      if (form) form.remove();
+      _bridgeEditingStepId = null;
+      _fetchBridgeSteps(flowKey);
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function _editBridgeStep(stepId, flowKey) {
+  fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var step = (data.steps || []).filter(function (s) { return s.id === stepId; })[0];
+      if (!step) throw new Error("Step not found: " + stepId);
+      _bridgeEditingStepId = stepId;
+      _showStepForm({ data: step, _meta: {
+        available_roles: data.available_roles || [],
+        available_conventions: data.available_conventions || [],
+        available_scripts: data.available_scripts || []
+      }});
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function _deleteBridgeStep(stepId, flowKey) {
+  if (!confirm("Delete step #" + stepId + "?")) return;
+  fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey) + "/" + stepId, { method: "DELETE" })
+    .then(function (res) { return res.json(); })
+    .then(function () {
+      alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": #" + stepId);
+      _fetchBridgeSteps(flowKey);
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
 function loadBridgeSetup() {
   loadBridgeStatus();
   loadBridgeRoles();
   loadBridgeFlows();
+  _loadBridgeStepsFlow();
   buildBridgeExport();
 
   var addRoleBtn = document.getElementById("bridge-add-role-btn");
@@ -2031,6 +2364,9 @@ function loadBridgeSetup() {
 
   var expFlowsBtn = document.getElementById("bridge-export-flows-btn");
   if (expFlowsBtn) expFlowsBtn.onclick = function () { exportBridge("flows"); };
+
+  var addStepBtn = document.getElementById("bridge-add-step-btn");
+  if (addStepBtn) addStepBtn.onclick = function () { _showStepForm({ data: {}, _meta: _bridgeStepsMetadata }); };
 }
 
 /* ── 10. Init ──────────────────────────────────────── */
