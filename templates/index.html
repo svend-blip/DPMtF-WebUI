@@ -70,11 +70,6 @@
                 <span class="panel-group-toggle">▼</span>
             </div>
             <div class="panel-group-body">
-                <section id="db-status-section">
-                    <h2 data-slot="lbl_panel_db_status">Database Status</h2>
-                    <div id="db-status-content"></div>
-                </section>
-
                 <button id="system-setup-btn" type="button" data-slot="lbl_btn_system_setup">System Setup</button>
                 <div id="system-setup-drawer" class="drawer">
                     <div id="drawer-content"></div>
@@ -88,15 +83,21 @@
                     <!-- Roles -->
                     <section id="bridge-roles-section">
                         <h3 data-slot="lbl_bridge_roles_title">Roles</h3>
+                        <div class="bridge-btn-row">
+                            <button id="bridge-add-role-btn" type="button" data-slot="lbl_bridge_role_add">Add Role</button>
+                            <button id="bridge-export-roles-btn" type="button" data-slot="lbl_bridge_export_roles">Export Roles</button>
+                        </div>
                         <div id="bridge-roles-list-container" class="dpmtf-card-grid"></div>
-                        <button id="bridge-add-role-btn" type="button" data-slot="lbl_bridge_role_add">Add Role</button>
                     </section>
 
                     <!-- Flows -->
                     <section id="bridge-flows-section">
                         <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
+                        <div class="bridge-btn-row">
+                            <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
+                            <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">Export Flows</button>
+                        </div>
                         <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
-                        <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
                     </section>
 
                     <!-- Export -->
@@ -104,6 +105,11 @@
                         <h3 data-slot="lbl_bridge_export">Export</h3>
                         <div id="bridge-export-content"></div>
                     </section>
+                </section>
+
+                <section id="db-status-section">
+                    <h2 data-slot="lbl_panel_db_status">Database Status</h2>
+                    <div id="db-status-content"></div>
                 </section>
             </div>
         </section>

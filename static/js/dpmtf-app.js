@@ -2023,8 +2023,14 @@ function loadBridgeSetup() {
   var addRoleBtn = document.getElementById("bridge-add-role-btn");
   if (addRoleBtn) addRoleBtn.onclick = function () { addBridgeRole(); };
 
+  var expRolesBtn = document.getElementById("bridge-export-roles-btn");
+  if (expRolesBtn) expRolesBtn.onclick = function () { exportBridge("roles"); };
+
   var addFlowBtn = document.getElementById("bridge-add-flow-btn");
   if (addFlowBtn) addFlowBtn.onclick = function () { addBridgeFlow(); };
+
+  var expFlowsBtn = document.getElementById("bridge-export-flows-btn");
+  if (expFlowsBtn) expFlowsBtn.onclick = function () { exportBridge("flows"); };
 }
 
 /* ── 10. Init ──────────────────────────────────────── */
