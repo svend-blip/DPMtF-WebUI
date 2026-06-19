@@ -79,6 +79,32 @@
                 <div id="system-setup-drawer" class="drawer">
                     <div id="drawer-content"></div>
                 </div>
+
+                <!-- Bridge Setup -->
+                <section id="bridge-setup-section">
+                    <h2 data-slot="lbl_bridge_panel_title">Bridge Setup</h2>
+                    <div id="bridge-status-content"></div>
+
+                    <!-- Roles -->
+                    <section id="bridge-roles-section">
+                        <h3 data-slot="lbl_bridge_roles_title">Roles</h3>
+                        <div id="bridge-roles-list-container" class="dpmtf-card-grid"></div>
+                        <button id="bridge-add-role-btn" type="button" data-slot="lbl_bridge_role_add">Add Role</button>
+                    </section>
+
+                    <!-- Flows -->
+                    <section id="bridge-flows-section">
+                        <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
+                        <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
+                        <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
+                    </section>
+
+                    <!-- Export -->
+                    <section id="bridge-export-section">
+                        <h3 data-slot="lbl_bridge_export">Export</h3>
+                        <div id="bridge-export-content"></div>
+                    </section>
+                </section>
             </div>
         </section>
     </main>
