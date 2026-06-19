@@ -19,11 +19,11 @@ import config
 def resolve_placeholders(text, bridge_dir=None, project_root=None):
     """Replace {BRIDGE_DIR}, {PROJECT_ROOT}, {SCRIPTS_DIR} in config values."""
     if bridge_dir is None:
-        bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", os.path.expanduser("~/.bridge"))
+        bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR") or config.get_bridge_base_path()
     if project_root is None:
         project_root = os.environ.get(
             "DPMTF_PROJECT_ROOT"
-        ) or str(Path(__file__).resolve().parent.parent)
+        ) or config.get_project_root()
 
     replacements = {
         "{BRIDGE_DIR}": bridge_dir,
