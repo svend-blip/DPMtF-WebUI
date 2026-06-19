@@ -4052,6 +4052,17 @@ async def bridge_v2_get_flow(flow_key: str):
         raise HTTPException(status_code=500, detail=f"Failed to load bridge flow: {e}")
 
 
+@app.get("/api/bridge-v2/scripts")
+async def bridge_v2_list_scripts():
+    """Return all active BridgeV002 scripts from database."""
+    try:
+        from scripts.bridgeV002.bridge_lib import list_scripts_from_db
+        scripts = list_scripts_from_db(DB_PATH)
+        return {"scripts": scripts, "count": len(scripts)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list bridge scripts: {e}")
+
+
 # ── Spor J: BridgeV002 CRUD API ────────────────
 
 @app.post("/api/bridge-v2/roles")

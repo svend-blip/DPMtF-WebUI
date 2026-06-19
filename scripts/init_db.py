@@ -3922,6 +3922,44 @@ cursor.executemany(
     ],
 )
 
+# ── Fase 2: Bridge Script Registry ────────────────────────
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bridge_scripts (
+    script_key TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    path TEXT NOT NULL,
+    stage TEXT CHECK(stage IN ('pre', 'post', 'both')),
+    params_required TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+""")
+
+cursor.executemany(
+    """INSERT OR IGNORE INTO bridge_scripts
+       (script_key, name, description, path, stage, params_required) VALUES (?, ?, ?, ?, ?, ?)""",
+    [
+        ("role_setup", "Role Setup",
+         "Start role session with fresh context, load correct model/tool",
+         "scripts/bridgeV002/role_setup.py",
+         "pre",
+         "--role"),
+        ("role_teardown", "Role Teardown",
+         "Stop role session, unload Ollama model, free VRAM",
+         "scripts/bridgeV002/role_teardown.py",
+         "post",
+         "--role,--force"),
+        ("dispatch", "Dispatcher",
+         "Universal role-to-role transition dispatcher",
+         "scripts/bridgeV002/dispatch.py",
+         "both",
+         "--from-role,--to-role,--id,--flow,--step,--deliverable"),
+    ],
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions

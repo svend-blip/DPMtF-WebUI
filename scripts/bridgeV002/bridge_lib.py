@@ -402,6 +402,27 @@ def list_flows_from_db(db_path=None):
     return [dict(r) for r in rows]
 
 
+def list_scripts_from_db(db_path=None):
+    """List all active scripts from bridge_scripts table.
+
+    Returns:
+        list of dicts, one per active script, ordered by script_key.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM bridge_scripts WHERE is_active = 1 ORDER BY script_key"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+
+
 if __name__ == "__main__":
     print("BridgeV002 core library")
     bridge_config = load_bridge_config()
