@@ -357,28 +357,31 @@ def execute_script_with_params(script_path, payload):
     return True
 
 
+def session_alive(session_name):
+    """Check if tmux session exists and is running. Instant yes/no, no wait."""
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", session_name],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     """Execute a single flow step using database-backed configuration.
 
     Replaces INI-based run_flow_step(). All role config, step data, and
     convention templates are loaded from the database at runtime.
 
-    Golden rule sequential dispatch sequence:
+    Golden rule sequential dispatch sequence (no-kill v2):
       1. Load flow + step from DB
       2. Build payload from step + convention
       3. Load to_role from DB
-      4. Kill target tmux session
-      5. Unload Ollama model if applicable
-      6. Wait 1 second
-      7. Start fresh target session with start_cmd from DB
-      8. Wait for session to be ready
-      9. Reload Ollama model if applicable
-      10. Wait for model to be ready (3 seconds)
-      11. Execute pre-dispatch script with payload
-      12. Inject prompt (tool-aware: paste-buffer for OpenCode, send-keys for Claude)
-      13. Execute post-dispatch script with payload
-      14. Update symlink
-      15. Log dispatch event
+      4. Check session_alive(target) -- instant yes/no, no wait
+      5. Verify deliverable file exists -- fail fast if missing
+      6. Ensure deliverable subdirectory exists
+      7. Inject prompt (tool-aware: paste-buffer for OpenCode, send-keys for Claude)
+      8. Post-dispatch: offload predecessor's Ollama model to free VRAM
+      9. Update symlink + log dispatch event
     """
     import config as dpmtf_config
 
@@ -426,33 +429,37 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     print(f"  Deliverable: {payload['deliverable_file']}")
 
     tmux_session = to_role["tmux_session"]
-    start_cmd = to_role.get("start_cmd", "")
+    from_ollama_model = ""
     model_type = to_role.get("model_type", "")
     ollama_model = to_role.get("ollama_model", "")
 
-    kill_session(tmux_session)
-
-    if model_type == "ollama" and ollama_model:
-        unload_ollama_model(ollama_model)
-
-    time.sleep(1)
-
-    if start_cmd:
-        start_session(tmux_session, start_cmd)
-
-    if not wait_session_ready(tmux_session):
-        print(f"  ERROR: {payload['error_msg']}")
+    # Step 4: Check session is alive (persistent session, not started)
+    if not session_alive(tmux_session):
+        print(f"  ERROR: Target session '{tmux_session}' is not running")
         log(
             f"{payload['from_role']}->{payload['to_role']}",
             handoff_id,
             "failed",
-            payload["error_msg"],
+            f"Target session '{tmux_session}' is not running",
         )
         return False
 
-    if model_type == "ollama" and ollama_model:
-        reload_ollama_model(ollama_model)
-        time.sleep(3)
+    # Step 5: Verify deliverable file exists (fail fast)
+    full_deliverable_path = os.path.join(bridge_dir,
+                                         payload["deliverable_dir"],
+                                         payload["deliverable_file"])
+    if not os.path.exists(full_deliverable_path):
+        print(f"  ERROR: Deliverable missing: {full_deliverable_path}")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "failed",
+            f"Deliverable missing: {full_deliverable_path}",
+        )
+        return False
+
+    # Step 6
+    ensure_subdir(bridge_dir, payload["deliverable_dir"])
 
     pre_script = target_step.get("pre_dispatch_script")
     if pre_script:
@@ -462,14 +469,14 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             print(f"  Pre-dispatch script failed -- aborting")
             return False
 
-    deliverable_dir = payload["deliverable_dir"]
-    full_deliverable_path = os.path.join(bridge_dir,
-                                         deliverable_dir,
-                                         payload["deliverable_file"])
-    ensure_subdir(bridge_dir, deliverable_dir)
-
     inject_prompt(tmux_session, f"Read and execute {full_deliverable_path}")
     time.sleep(0.5)
+
+    # Post-dispatch: offload predecessor's model to free VRAM
+    from_role = load_role_from_db(payload["from_role"],
+                                  db_path=dpmtf_config.get_db_path())
+    if from_role.get("model_type") == "ollama" and from_role.get("ollama_model"):
+        unload_ollama_model(from_role["ollama_model"])
 
     post_script = target_step.get("post_dispatch_script")
     if post_script:

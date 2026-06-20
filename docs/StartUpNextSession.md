@@ -14,14 +14,14 @@ You are **Architect / Handoff Writer / Governance Controller** in the
 DPMtF governance loop. Your role is defined in
 `docs/governance-templates-v2/02_ARCHITECT.md`.
 
-- **Tmux session:** `claude_architect`
-- **Model:** `deepseek-v4-pro:cloud` (via Ollama)
-- **Tool:** Claude Code (OpenCode config available at
-  `~/.config/opencode-roles/architect/opencode.json`)
-
 The Architect designs technical approaches, generates implementation
 handoffs, makes architectural decisions for escalations, and maintains
 cross-project oversight per 21_ALIGNMENT.md.
+
+> **Note:** Session name, model, and tool assignments are managed by the
+> BridgeV002 no-kill dispatch protocol (see §4, Rule 12). Do not hardcode
+> them here — they live in `bridge_roles` (database) and are resolved at
+> runtime by `bridge_lib.load_role_from_db()`.
 
 ---
 
@@ -94,6 +94,8 @@ local sessions run OpenCode.
 
 **Spor J (UI Integration):** Full-stack BridgeV002 CRUD UI delivered across 4 handoffs (H98-H101). Test-kørt af Human: alle CRUD-operationer PASS, da-DK sprog-skift fikset ved domain-migration (`bridge_setup` → `main`) i commit `4d3b1ed`.
 
+**No-Kill Decision (2026-06-20):** BridgeV002 dispatch protocol shifts from pre-dispatch kill+restart to post-dispatch ollama stop. Tmux sessions become persistent; server-side context cleared by model offload. 85-90% of existing code reused unchanged (~47 lines modified). Architect cross-cycle state preserved via this file's save-state mechanism (§5b.5). Analysis: `~/Dokumenter/Bridgeflowfuture/ReuseMostParts.md`.
+
 ---
 
 ## 4. Active Hard Rules
@@ -112,8 +114,9 @@ and bridge mechanics:
 | 7 | **Implementer NEVER commits** — changes remain unstaged. | 03_IMPLEMENTOR.md (H2) |
 | 8 | **Stop after 2 failed patching attempts** — document, escalate, do not guess. | 12_CODING_STANDARD.md |
 | 9 | **Tool-independent bridge** — bridge.py auto-detects OpenCode vs Claude Code and uses correct injection method (paste-buffer for OpenCode, send-keys for Claude Code). No tool-specific code paths in governance. | bridge.py (F5a) |
-| 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. Uses detached subprocess (start_new_session=True) to survive own death. | bridge.py (F5b, F5e, F5f) |
-| 11 | **Ollama reload before dispatch** — ollama model is stopped and restarted before each handoff dispatch to ensure fresh server-side context. Configured via DPMTF_OLLAMA_MODEL and DPMTF_OLLAMA_START_SCRIPT in .env. | bridge.py (F5c, F5d) |
+| 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. Uses detached subprocess (start_new_session=True) to survive own death. NOTE: This applies to the legacy bridge only; BridgeV002 no-kill mode (Rule 12) does not kill sessions. | bridge.py (F5b, F5e, F5f) |
+| 11 | **Ollama reload before dispatch** — ollama model is stopped and restarted before each handoff dispatch to ensure fresh server-side context. Configured via DPMTF_OLLAMA_MODEL and DPMTF_OLLAMA_START_SCRIPT in .env. NOTE: This applies to the legacy bridge only; BridgeV002 no-kill mode uses post-dispatch offload instead. | bridge.py (F5c, F5d) |
+| 12 | **BridgeV002 no-kill dispatch** — BridgeV002 `run_flow_step_db()` must NOT call `kill_session()`, `start_session()`, or `reload_ollama_model()` in the dispatch path. Sessions are persistent; server-side context is cleared by post-dispatch `ollama stop` of the predecessor's model. Client-side state is cleared by `/clear` (Claude Code) or soft-clear preamble (OpenCode). Architect restores cross-cycle state via StartUpNextSession.md save-state mechanism (§5b.4). | ReuseMostParts.md §3, BridgeV002NoTmuxKill.md §2 |
 
 ---
 
@@ -188,18 +191,18 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | 6.3 | .gitignore databases/ | Sørg for dpmtf.db ikke er i git-history (det er runtime-state) |
 | 6.4 | Backup-strategi | Definér: automatisk backup før init_db.py? Navngivningskonvention? |
 
-### BridgeV002 Udviklingsregler — TMUX SESSION BESKYTTELSE
+### BridgeV002 Development Rules — Session Protection
 
-**KRITISK:** Under udvikling af BridgeV002 må handoffs IKKE instruere implementeren
-i at køre dispatch-kode (`dispatch.py --flow`, `dispatch.py --db-flow`,
-`role_teardown.py --role X --force`). Disse kalder `kill_session()` og dræber
-`claude_architect`, `claude_review`, eller `claude_implementer`.
+**CRITICAL:** During development of BridgeV002, handoffs MUST NOT instruct the
+implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
+`role_teardown.py --role X --force`) that would disrupt active sessions.
 
-- **Tilladt session-kill:** Kun `bridge.py complete` auto-restart af `claude_implementer`
-  (dokumenteret rule #10 ovenfor).
-- **Forbudt under udvikling:** Alt der kalder `tmux kill-session` udover bridge.py's
-  egen auto-restart mekanisme.
-- **Validation:** Kun `py_compile` og `--help` tests. Ingen dispatch eller teardown kald.
+- **No-kill mode (Rule 12):** The new dispatch protocol does not kill tmux
+  sessions. It injects prompts into running sessions and offloads models post-dispatch.
+- **Allowed model offload:** Only post-dispatch `ollama stop` of the predecessor's model.
+- **Prohibited during development:** Anything that calls `tmux kill-session` on an active
+  Architect, Review, or Implementer session (except legacy bridge.py auto-restart).
+- **Validation:** Only `py_compile` and `--help` tests. No dispatch or teardown calls.
 
 ### Hvad skal IKKE være hardcoded (Human krav)
 
@@ -212,14 +215,106 @@ i at køre dispatch-kode (`dispatch.py --flow`, `dispatch.py --db-flow`,
 | `post_dispatch_script` | NULL alle steder, ingen registry | Dropdown-valg fra `bridge_scripts` tabel |
 | `base_bridge_path` | Ingen konfiguration — implicit `/home/svend/claude-bridge/` | `[bridge] base_path` i dpmtf.ini + config.py getter |
 
-### Nøgleprinciper (af Human)
+### Key Principles (of Human)
 
-1. **BridgeV002 er en del af DPMtF-repo** — scripts versioneres, deliverable-mapper eksterne
-2. **Ingen hardcoded data** — alt konfigurerbart via frontend dropdowns og templates
-3. **Scripts modtager parametre** — alle 6 params (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern) sendes til scriptet ved kald
-4. **Konventioner først** — templates styres via `bridge_convention_rules`, ikke manuelt
+1. **BridgeV002 is part of DPMtF-repo** — scripts are versioned, deliverable folders external
+2. **No hardcoded data** — everything configurable via frontend dropdowns and templates
+3. **Scripts receive parameters** — all 6 params (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern) sent to script at call time
+4. **Conventions first** — templates governed via `bridge_convention_rules`, not manually
 
-Do NOT start hardening work without explicit Human instruction per fase.
+---
+
+## 5b. BridgeV002 Dispatch Protocol Decision — No-Kill Mode
+
+> **Decision date:** 2026-06-20
+> **Analysis artifacts:** `~/Dokumenter/Bridgeflowfuture/ReuseMostParts.md`,
+> `~/Dokumenter/Bridgeflowfuture/BridgeV002NoTmuxKill.md`,
+> `~/Dokumenter/Bridgeflowfuture/BridgeV002StartUpSessionState.md`
+
+### 5b.1 The Decision
+
+**Replace pre-dispatch kill+restart with post-dispatch ollama stop.**
+
+| Current (kill-before) | New (offload-after) |
+|----------------------|---------------------|
+| Kill tmux session, unload model, restart session, reload model before injecting prompt | Inject prompt into running session, then offload predecessor's model after injection |
+| 15-step dispatch sequence | 9-step dispatch sequence |
+| ~5600ms per dispatch | ~1600ms per dispatch (71% faster) |
+
+**Rationale:** Tmux sessions are persistent. Server-side context is cleared by `ollama stop` + lazy reload. Client-side state is cleared by `/clear` (Claude Code) or soft-clear preamble (OpenCode). 85-90% of existing BridgeV002 code is reused unchanged.
+
+### 5b.2 What Changes in dispatch.py
+
+| Removed from dispatch path | Added to dispatch path |
+|---------------------------|----------------------|
+| `kill_session(tmux)` before injection | `session_alive()` check — single call, no poll loop |
+| `unload_ollama_model()` pre-dispatch | Deliverable existence verification |
+| `start_session()` + `wait_session_ready()` | `/clear` prefix for Claude Code sessions |
+| `reload_ollama_model()` + sleep(3) | Post-dispatch offload of predecessor's model |
+
+Total: ~47 lines changed out of ~5000 BridgeV002 lines (0.94%).
+
+### 5b.3 What Stays Unchanged
+
+- Database schema — no migrations for Phase 1
+- `bridge_lib.py` — all lookup functions work identically
+- All 12 API endpoints (`/api/bridge-v2/...`)
+- Convention rules (handoff, callback, verdict)
+- Frontend CRUD UI
+- Seed data in `init_db.py`
+- `role_setup.py` and `role_teardown.py` — same code, different frequency
+
+### 5b.4 Architect Context Gap — Resolved by Save-State Mechanism
+
+When the Architect receives verdict feedback after `ollama stop`, it has zero server-side memory. This is resolved by using this file (`StartUpNextSession.md`) as durable save-state:
+
+1. **Before dispatch:** Architect writes cycle snapshot (§5b.5) to this file
+2. **During chain:** `ollama stop` clears volatile context; file on disk survives
+3. **After verdict:** Architect reads this file first → full design intent restored
+4. **Architect evaluates:** "Did implementation match my original design?"
+
+This is a process change, not a code change. The dispatch protocol already injects file paths as prompts. For verdict-feedback steps, the injected prompt references both this file and the verdict:
+
+```
+"Read docs/StartUpNextSession.md first. Then read {verdict_file}."
+```
+
+### 5b.5 Active Cycle Snapshot
+
+> **Update this section before each dispatch.** Append the current handoff's design intent below. On restore (after ollama stop), read everything under this heading to reconstruct context.
+
+--- BEGIN CYCLE SNAPSHOT ---
+
+**Last cycle:** Handoff 111 — BridgeV002 No-Kill Phase 1: Dispatch Control Flow Restructure (APPROVED, implementation verified +42/-35 lines)
+**Previous cycle:** Handoff 110 — BridgeV002 UX Flow↔Steps Integration (APPROVED, `e0aa8f8`)
+
+**Next cycle pending:** No-Kill Phase 2 — Architect verdict-feedback loop med prompt_template enrichment i convention_rules (optional)
+
+**Open design decisions:**
+- [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — APPROVED
+- [ ] Add prompt_template column to convention_rules for Architect verdict-feedback (Phase 2, optional)
+- [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
+
+**Key design decisions from H111:**
+- Kun kontrol-flow i dispatch.py — ingen nye filer, ingen schema ændringer
+- session_alive(): enkelt tmux has-session kald, ikke polling loop
+- deliverable eksistens-check før injection (fail fast)
+- Post-dispatch: unload_ollama_model(fra_role's model) istedet for pre-dispatch unload
+- reload_ollama_model() og kill_session() bevares som funktioner — IKKE kaldt fra dispatch-stien
+- run_flow_step() (INI-baseret) og manual_dispatch() er uforandret
+- Em dash i docstring → double hyphen (Python encoding workaround)
+- from_ollama_model = "" placeholder til Phase 2
+
+--- END CYCLE SNAPSHOT ---
+
+**Save-state update procedure:** Before dispatching any handoff, update the cycle snapshot block above with:
+- Current handoff ID and title
+- Original task description (extracted from handoff `<task>` section)
+- Key design decisions
+- Verification checklist for verdict review
+Then proceed to dispatch. Do not skip this step — it is the Architect's memory across ollama stop cycles.
+
+Do NOT start hardening or no-kill work without explicit Human instruction per phase.
 
 ---
 
@@ -473,6 +568,55 @@ implementer session is killed and restarted with fresh client-side context.
 Uses a detached subprocess (`start_new_session=True`) to survive the death
 of the calling process (which runs inside the session being killed).
 Configure via DPMTF_IMPLEMENTER_START_CMD in .env.
+
+### 8.6 BridgeV002 No-Kill Dispatch Protocol (NEW — Rule 12)
+
+> This section describes the **target state** for BridgeV002's dispatch
+> protocol after no-kill migration. The legacy bridge (§8.5) remains active
+> until no-kill is implemented.
+
+The new `run_flow_step_db()` dispatch sequence (9 steps, not 15):
+
+```
+Current dispatch (15 steps):          New dispatch (9 steps):
+────────────────────                  ────────────────────
+kill_session(target)                  [check] session_alive(target) — one-shot boolean
+unload_ollama_model()                 [check] deliverable file exists → fail fast
+time.sleep(1)                         [inject] /clear + prompt (Claude Code)
+start_session(target)                       or soft-clear + paste-buffer (OpenCode)
+wait_session_ready(target)             [offload] ollama stop predecessor_model
+reload_ollama_model()                 [update] symlink + trace.log
+time.sleep(3)
+execute_pre_dispatch_script()        (same as before, but no kill/start/reload)
+inject_prompt(target)
+execute_post_dispatch_script()
+update_symlink()
+log_dispatch()
+```
+
+**Key behavioral change:** Tmux sessions are never killed by BridgeV002 dispatch. Sessions persist across multiple dispatch cycles. Server-side LLM context is cleared by `ollama stop` of the predecessor's model after each injection, not by process termination.
+
+**Architect save-state cycle:**
+```
+Cycle N — Architect dispatches handoff {ID}:
+  1. Reads StartUpNextSession.md (§5b.5) → restores context from prior cycle
+  2. Designs handoff, writes {ID}-handoff.md
+  3. Updates §5b.5 with cycle snapshot (saves state before ollama stop)
+  4. Executes dispatch command
+  5. STOP — wait for Human (Rule 2)
+
+  POST-DISPATCH: ollama stop Architect_model
+    → Server-side context cleared, file on disk survives
+
+Cycle N — Verdict feedback arrives:
+  1. Architect model lazy-loads (BLANK server-side context)
+  2. FIRST ACTION: reads StartUpNextSession.md → restores design intent
+  3. SECOND ACTION: reads verdict file → new input for this cycle
+  4. Evaluates: "Did implementation match my original design?"
+  5. Writes assessment, updates §5b.5 with outcome
+```
+
+**Migration scope:** ~47 lines changed in dispatch.py (0.94% of BridgeV002 codebase). Database schema unchanged for Phase 1. All API endpoints unchanged. See `~/Dokumenter/Bridgeflowfuture/ReuseMostParts.md` for full analysis.
 
 ---
 
