@@ -2482,7 +2482,10 @@ function _editBridgeStep(stepId, flowKey) {
 function _deleteBridgeStep(stepId, flowKey) {
   if (!confirm("Delete step #" + stepId + "?")) return;
   fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey) + "/" + stepId, { method: "DELETE" })
-    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
     .then(function () {
       alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": #" + stepId);
       _fetchBridgeSteps(flowKey);
