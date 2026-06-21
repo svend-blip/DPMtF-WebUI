@@ -4685,6 +4685,37 @@ async def bridge_v2_start_tmux_for_flow(flow_key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/bridge-v2/flows/{flow_key}/start-coding")
+async def bridge_v2_start_coding_for_flow(flow_key: str):
+    """Start coding frontends for all roles in a BridgeV002 flow via start_coding.py."""
+    try:
+        import subprocess
+        import os
+
+        script_path = os.path.join(
+            os.environ.get("DPMTF_PROJECT_ROOT", config.get_project_root()),
+            "scripts", "bridgeV002", "start_coding.py"
+        )
+
+        result = subprocess.run(
+            ["python3", script_path, flow_key],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode == 0:
+            return {
+                "status": "ok",
+                "message": result.stdout.strip() or f"No roles with start_cmd for '{flow_key}'",
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.stderr.strip())
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="start_coding timed out after 30s")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/bridge-v2/export")
 async def bridge_v2_export(request: Request):
     """Export BridgeV002 configuration as JSON for backup/restoration."""

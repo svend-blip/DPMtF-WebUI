@@ -1708,6 +1708,12 @@ function renderFlowCard(flow, steps) {
   startTmuxBtn.onclick = function () { startTmuxForFlow(flow.flow_key); };
   actions.appendChild(startTmuxBtn);
 
+  // --- START CODING button (new for BridgeV002) ---
+  var startCodingBtn = el("button", "dpmtf-btn dpmtf-btn-info");
+  startCodingBtn.textContent = lbl("lbl_bridge_start_coding", "Start code interface");
+  startCodingBtn.onclick = function () { startCodingForFlow(flow.flow_key); };
+  actions.appendChild(startCodingBtn);
+
   card.appendChild(actions);
   return card;
 }
@@ -1715,6 +1721,22 @@ function renderFlowCard(flow, steps) {
 // ---- START TMUX FOR FLOW (BridgeV002) ----
 function startTmuxForFlow(flowKey) {
   fetch("/api/bridge-v2/flows/" + flowKey + "/start-tmux", { method: "POST" })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.status === "ok") {
+        alert("✅ " + data.message);
+      } else {
+        alert("❌ Error: " + (data.detail || "Unknown error"));
+      }
+    })
+    .catch(function(err) {
+      alert("Network error: " + err.message);
+    });
+}
+
+// ---- START CODING FOR FLOW (BridgeV002) ----
+function startCodingForFlow(flowKey) {
+  fetch("/api/bridge-v2/flows/" + flowKey + "/start-coding", { method: "POST" })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.status === "ok") {
