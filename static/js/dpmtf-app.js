@@ -1676,6 +1676,12 @@ function renderFlowCard(flow, steps) {
     card.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_steps", "No steps configured")));
   }
 
+  if (flow.auto_complete_enabled) {
+    var acBadge = el("span", "dpmtf-badge dpmtf-badge-warning");
+    acBadge.textContent = lbl("lbl_bridge_flow_auto_complete", "Auto-complete enabled");
+    card.appendChild(acBadge);
+  }
+
   // Action buttons
   var actions = el("div", null);
   actions.style.marginTop = "8px";
@@ -1919,6 +1925,8 @@ function addBridgeFlow() {
     var body = { flow_key: fk, name: nm };
     var desc = document.getElementById("bridge-input-description");
     if (desc && desc.value.trim()) body.description = desc.value.trim();
+    var acInput = document.getElementById("bridge-input-auto_complete_enabled");
+    if (acInput) body.auto_complete_enabled = acInput.checked ? 1 : 0;
     body.steps = [];
 
     fetch("/api/bridge-v2/flows", {
@@ -1953,6 +1961,16 @@ function addBridgeFlow() {
     div.appendChild(input);
     form.appendChild(div);
   });
+
+  var acDiv = el("div", null);
+  var acLabel = el("label", null);
+  var acInput = el("input", null);
+  acInput.type = "checkbox";
+  acInput.id = "bridge-input-auto_complete_enabled";
+  acLabel.appendChild(acInput);
+  acLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_flow_auto_complete", "Auto-complete enabled")));
+  acDiv.appendChild(acLabel);
+  form.appendChild(acDiv);
 
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
@@ -2278,6 +2296,8 @@ function renderStepCard(step, meta) {
     ["Pre-script", step.pre_dispatch_script],
     ["Post-script", step.post_dispatch_script],
     ["Sort", String(step.sort_order || 0)],
+    ["Auto-chain", step.auto_chain_to_next ? "Yes" : "No"],
+    ["Require validation", step.validation_required ? "Yes" : "No"],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -2418,6 +2438,11 @@ function _showStepForm(initialData) {
     var so = document.getElementById("bridge-input-sort_order");
     if (so.value !== "") body.sort_order = parseInt(so.value, 10);
 
+    var acn = document.getElementById("bridge-input-auto_chain_to_next");
+    if (acn) body.auto_chain_to_next = acn.checked ? 1 : 0;
+    var vreq = document.getElementById("bridge-input-validation_required");
+    if (vreq) body.validation_required = vreq.checked ? 1 : 0;
+
     _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body);
   };
 
@@ -2489,6 +2514,30 @@ function _showStepForm(initialData) {
   posDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_script_post", "Post-Dispatch Script")));
   posDiv.appendChild(makeSelect("bridge-input-post_dispatch_script", postScripts, "script_key", "name", data.post_dispatch_script));
   form.appendChild(posDiv);
+
+  // Auto-chain checkbox
+  var acnDiv = el("div", null);
+  var acnLabel = el("label", null);
+  var acnInput = el("input", null);
+  acnInput.type = "checkbox";
+  acnInput.id = "bridge-input-auto_chain_to_next";
+  if (data.auto_chain_to_next) acnInput.checked = true;
+  acnLabel.appendChild(acnInput);
+  acnLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_step_auto_chain", "Auto-chain to next")));
+  acnDiv.appendChild(acnLabel);
+  form.appendChild(acnDiv);
+
+  // Validation required checkbox
+  var vreqDiv = el("div", null);
+  var vreqLabel = el("label", null);
+  var vreqInput = el("input", null);
+  vreqInput.type = "checkbox";
+  vreqInput.id = "bridge-input-validation_required";
+  if (data.validation_required) vreqInput.checked = true;
+  vreqLabel.appendChild(vreqInput);
+  vreqLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_step_validation_required", "Require validation")));
+  vreqDiv.appendChild(vreqLabel);
+  form.appendChild(vreqDiv);
 
   // Sort order (number input)
   var soDiv = el("div", "dpmtf-form-group");
@@ -2587,12 +2636,111 @@ function _deleteBridgeStep(stepId, flowKey) {
     });
 }
 
+function loadConventionsAdmin() {
+  var container = document.getElementById("bridge-conventions-container");
+  if (!container) return;
+  clear(container);
+
+  fetch("/api/bridge-v2/conventions")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var conves = data.conventions || [];
+      if (!conves.length) {
+        container.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_flows", "No conventions configured")));
+        return;
+      }
+      renderConventionList(conves, container);
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      container.appendChild(errP);
+    });
+}
+
+function renderConventionList(conves, container) {
+  conves.forEach(function (conv) {
+    var card = el("div", "dpmtf-card");
+
+    var header = el("div", null);
+    header.style.display = "flex";
+    header.style.justifyContent = "space-between";
+    header.style.alignItems = "center";
+    var h4 = el("h4", null, escapeHtml(conv.rule_key));
+    header.appendChild(h4);
+    var badgeText = conv.step_type || conv.type || "";
+    if (badgeText) {
+      var typeBadge = el("span", "dpmtf-badge dpmtf-badge-info");
+      typeBadge.textContent = escapeHtml(badgeText);
+      header.appendChild(typeBadge);
+    }
+    card.appendChild(header);
+
+    if (conv.description) {
+      card.appendChild(el("p", "dpmtf-small", escapeHtml(conv.description)));
+    }
+
+    var ctLabel = el("label", "dpmtf-label");
+    ctLabel.textContent = lbl("lbl_bridge_content_template", "Content Template");
+    card.appendChild(ctLabel);
+    var ctTa = el("textarea", null);
+    ctTa.id = "conv-ct-" + escapeHtml(conv.rule_key);
+    ctTa.rows = "4";
+    ctTa.style.width = "100%";
+    ctTa.style.background = "#0d1117";
+    ctTa.style.color = "#c9d1d9";
+    ctTa.style.padding = "6px";
+    ctTa.textContent = conv.content_template || "";
+    card.appendChild(ctTa);
+
+    var vsLabel = el("label", "dpmtf-label");
+    vsLabel.textContent = lbl("lbl_bridge_validation_schema", "Validation Schema (JSON array)");
+    card.appendChild(vsLabel);
+    var vsTa = el("textarea", null);
+    vsTa.id = "conv-vs-" + escapeHtml(conv.rule_key);
+    vsTa.rows = "2";
+    vsTa.style.width = "100%";
+    vsTa.style.background = "#0d1117";
+    vsTa.style.color = "#c9d1d9";
+    vsTa.style.padding = "6px";
+    vsTa.textContent = conv.validation_schema || "";
+    card.appendChild(vsTa);
+
+    var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+    saveBtn.textContent = lbl("lbl_bridge_save", "Save");
+    saveBtn.style.marginTop = "4px";
+    (function (rk, ta1, ta2) {
+      saveBtn.onclick = function () {
+        fetch("/api/bridge-v2/conventions/" + encodeURIComponent(rk), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content_template: ta1.textContent || null,
+            validation_schema: ta2.textContent || null
+          })
+        })
+          .then(function (res) { return res.json(); })
+          .then(function () {
+            alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + rk);
+          })
+          .catch(function (err) {
+            alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+          });
+      };
+    })(conv.rule_key, ctTa, vsTa);
+    card.appendChild(saveBtn);
+
+    container.appendChild(card);
+  });
+}
+
 function loadBridgeSetup() {
   loadBridgeStatus();
   loadBridgeRoles();
   loadBridgeFlows();
   _loadBridgeStepsFlow();
   buildBridgeExport();
+  loadConventionsAdmin();
 
   var addRoleBtn = document.getElementById("bridge-add-role-btn");
   if (addRoleBtn) addRoleBtn.onclick = function () { addBridgeRole(); };

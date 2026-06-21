@@ -58,14 +58,6 @@ def main():
     ollama_model = role_config.get("ollama_model", "")
 
     print(f"Tearing down role '{args.role}'...")
-    print(f"  Killing session '{tmux_session}'...")
-    result = subprocess.run(
-        ["tmux", "kill-session", "-t", tmux_session],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        stderr = result.stderr.strip() if hasattr(result, "stderr") else ""
-        print(f"  Session already gone or error: {stderr}")
 
     if model_type == "ollama" and ollama_model:
         print(f"  Unloading Ollama model '{ollama_model}' to free VRAM...")

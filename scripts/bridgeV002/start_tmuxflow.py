@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""start_tmuxflow.py — Ensure all tmux sessions for a flow exist.
+"""start_tmuxflow.py — Inspect required sessions and preload models for a BridgeV002 flow.
+
+BridgeV002 no-kill policy: This script does NOT create tmux sessions.
+Session creation is handled exclusively by the start-tmux endpoint (H118).
 
 Usage:
     python3 scripts/bridgeV002/start_tmuxflow.py <flow_key>
-
-Iterates through all active steps in the given flow, looks up each
-FROM-ROLE's tmux_session, checks if the session exists via `tmux ls`,
-and creates any missing sessions.
 
 Example:
     python3 scripts/bridgeV002/start_tmuxflow.py strict_review
@@ -14,7 +13,6 @@ Example:
 
 import argparse
 import os
-import re
 import sqlite3
 import subprocess
 import sys
@@ -23,18 +21,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 
 def get_active_flow_roles(db_path, flow_key):
-    """Fetch all unique FROM-ROLE tmux sessions for active steps in a flow."""
+    """Fetch all unique FROM-ROLE tmux sessions and ollama models for a flow."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
     roles = set()
+    models = set()
     rows = conn.execute(
-        """
-        SELECT DISTINCT r.tmux_session
-        FROM bridge_flow_steps s
-        JOIN bridge_roles r ON s.from_role = r.role_key
-        WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
-        """,
+        "SELECT DISTINCT r.tmux_session, r.ollama_model, r.model_type "
+        "FROM bridge_flow_steps s "
+        "JOIN bridge_roles r ON s.from_role = r.role_key "
+        "WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1",
         (flow_key,),
     ).fetchall()
 
@@ -42,46 +39,35 @@ def get_active_flow_roles(db_path, flow_key):
         ts = row["tmux_session"]
         if ts:
             roles.add(ts)
+        model = row["ollama_model"]
+        if model and row["model_type"] == "ollama":
+            models.add(model)
 
     conn.close()
-    return roles
+    return roles, models
 
 
-def list_existing_tmux_sessions():
-    """Return a set of existing tmux session names."""
-    try:
-        output = subprocess.check_output(
-            ["tmux", "list-sessions"], stderr=subprocess.DEVNULL, text=True
+def preload_ollama_models(models):
+    """Pull all Ollama models for a flow (load from registry)."""
+    loaded = []
+    for model in sorted(models):
+        print(f"  Pulling Ollama model '{model}'...")
+        result = subprocess.run(
+            ["ollama", "pull", model],
+            capture_output=True, text=True,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return set()
-
-    pattern = re.compile(r"^(\S+):")
-    sessions = set()
-    for line in output.strip().split("\n"):
-        m = pattern.match(line)
-        if m:
-            sessions.add(m.group(1))
-    return sessions
-
-
-def create_missing_sessions(required, existing):
-    """Create any missing tmux sessions (detached).
-
-    Returns a list of session names that were created.
-    """
-    created = []
-    for session_name in sorted(required - existing):
-        cmd = ["tmux", "new-session", "-d", "-s", session_name]
-        print(f"  Creating tmux session: {session_name}")
-        subprocess.run(cmd, check=True)
-        created.append(session_name)
-    return created
+        if result.returncode == 0:
+            loaded.append(model)
+            print(f"    Model '{model}' ready")
+        else:
+            msg = result.stdout.strip() or result.stderr.strip()
+            print(f"    WARNING: Failed to pull '{model}': {msg}")
+    return loaded
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Ensure all tmux sessions for a BridgeV002 flow exist."
+        description="Check required sessions and preload models for a BridgeV002 flow (no tmux create)."
     )
     parser.add_argument("flow_key", help="Flow key (e.g. strict_review)")
     args = parser.parse_args()
@@ -104,24 +90,27 @@ def main():
         sys.exit(1)
 
     # 1. Get all required tmux session names from flow
-    required_sessions = get_active_flow_roles(db_path, args.flow_key)
+    required_sessions, required_models = get_active_flow_roles(db_path, args.flow_key)
     if not required_sessions:
         print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
         return
 
-    # 2. What already exists?
-    existing_sessions = list_existing_tmux_sessions()
+    # 2. Report sessions (inspection only — no create)
+    print(f"Required tmux sessions for flow '{args.flow_key}':")
+    for s in sorted(required_sessions):
+        print(f"  - {s} (ensure session is running via /api/bridge-v2/start-tmux)")
 
-    # 3. What's missing?
-    missing = required_sessions - existing_sessions
+    # 3. Preload Ollama models
+    if required_models:
+        print(f"\nRequired Ollama models:")
+        for m in sorted(required_models):
+            print(f"  - {m}")
 
-    if not missing:
-        print(f"All {len(required_sessions)} tmux sessions exist for '{args.flow_key}'.")
-        return
-
-    # 4. Create them
-    created = create_missing_sessions(missing, existing_sessions)
-    print(f"\nDone: {len(created)} session(s) created.")
+        loaded = preload_ollama_models(required_models)
+        print(f"\nDone: {len(loaded)} model(s) preloaded. "
+              f"Sessions must be started manually via start-tmux endpoint.")
+    else:
+        print("\nDone: No Ollama models required.")
 
 
 if __name__ == "__main__":

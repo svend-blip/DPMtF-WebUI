@@ -4074,6 +4074,50 @@ async def bridge_v2_list_conventions():
         raise HTTPException(status_code=500, detail=f"Failed to list bridge conventions: {e}")
 
 
+@app.patch("/api/bridge-v2/conventions/{rule_key}")
+async def bridge_v2_patch_convention(rule_key: str, request: Request):
+    """Patch a convention rule — only the fields provided are updated."""
+    data = await request.json()
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT rule_key FROM bridge_convention_rules WHERE rule_key = ?",
+        (rule_key,)
+    )
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Convention '{rule_key}' not found")
+
+    updatable = [
+        "content_template",
+        "validation_schema",
+        "rule_type",
+    ]
+    sets = []
+    params = []
+    for field in updatable:
+        if field in data:
+            sets.append(f"{field} = ?")
+            params.append(data[field])
+
+    if not sets:
+        conn.close()
+        return {"status": "no changes", "rule_key": rule_key}
+
+    params.append(rule_key)
+    cursor.execute(
+        f"UPDATE bridge_convention_rules SET {', '.join(sets)} WHERE rule_key = ?",
+        params,
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "updated", "rule_key": rule_key}
+
+
 @app.get("/api/bridge-v2/steps/{flow_key}")
 async def bridge_v2_list_steps(flow_key: str):
     """Return all steps for a flow, with available roles/conventions/scripts for dropdowns."""
@@ -4175,13 +4219,16 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
     cursor.execute("""
         INSERT INTO bridge_flow_steps
             (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
-             pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order,
+             auto_chain_to_next, validation_required)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         flow_key, data["step_key"], data["from_role"], data["to_role"],
         deliverable_dir, deliverable_pattern,
         data.get("pre_dispatch_script"), data.get("post_dispatch_script"),
         error_msg, rule_key, max_so + 1,
+        int(data.get("auto_chain_to_next", 0)),
+        int(data.get("validation_required", 0)),
     ))
     new_id = cursor.lastrowid
     conn.commit()
@@ -4227,6 +4274,8 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
         "post_dispatch_script": "post_dispatch_script",
         "error_msg": "error_msg",
         "sort_order": "sort_order",
+        "auto_chain_to_next": "auto_chain_to_next",
+        "validation_required": "validation_required",
     }
 
     for field, column in field_map.items():
@@ -4593,6 +4642,7 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
 
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
+        "auto_complete_enabled",
     ]
     sets = []
     params = []

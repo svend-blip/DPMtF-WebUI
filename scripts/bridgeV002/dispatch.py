@@ -25,6 +25,8 @@ from bridge_lib import (
     load_role_from_db,
     load_flow_from_db,
     resolve_convention_from_db,
+    resolve_content_template_from_db,
+    validate_deliverable_against_schema,
     get_next_id,
     ensure_subdir,
     resolve_placeholders,
@@ -39,30 +41,6 @@ def _bridge_dir():
     return os.environ.get(
         "DPMTF_BRIDGE_DIR", os.path.expanduser("~/.bridge")
     )
-
-
-def kill_session(session_name):
-    """Kill a tmux session. Non-destructive — silently succeeds if not exists."""
-    subprocess.run(
-        ["tmux", "kill-session", "-t", session_name],
-        capture_output=True, text=True,
-    )
-    return True
-
-
-def start_session(session_name, start_cmd):
-    """Start a new detached tmux session with the given command."""
-    result = subprocess.Popen(
-        ["bash", "-c", (
-            f"tmux kill-session -t '{session_name}' 2>/dev/null; "
-            f"sleep 0.3; "
-            f"tmux new-session -d -s {session_name} '{start_cmd}'"
-        )],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return result
 
 
 def wait_session_ready(session_name, timeout=5):
@@ -484,10 +462,32 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             print(f"  Pre-dispatch script failed -- aborting")
             return False
 
-    # Compose final injection text: use convention prompt_template if available
+    # Validate deliverable if step requires validation and rule_key is set
+    step_validation_required = target_step.get("validation_required", 0)
+    if step_validation_required and rule_key:
+        vresult = validate_deliverable_against_schema(full_deliverable_path, rule_key,
+                                                      db_path=dpmtf_config.get_db_path())
+        if not vresult["valid"]:
+            print(f"  ERROR: Deliverable validation failed, missing sections: {vresult['missing']}")
+            log(
+                f"{payload['from_role']}->{payload['to_role']}",
+                handoff_id,
+                "failed",
+                f"Validation failed: missing {', '.join(vresult['missing'])}",
+            )
+            return False
+
+    # Compose final injection text: use convention prompt_template or content_template from DB
     prompt_text = payload.get("prompt_template", "")
     if not prompt_text:
-        prompt_text = f"Read and execute {full_deliverable_path}"
+        ctemplate = resolve_content_template_from_db(rule_key, db_path=dpmtf_config.get_db_path())
+        if ctemplate:
+            prompt_text = ctemplate.replace("{handoff_id}", payload["handoff_id"])
+            prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
+            prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
+            prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        else:
+            prompt_text = f"Read and execute {full_deliverable_path}"
     else:
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
@@ -544,17 +544,10 @@ def run_flow_step(step_config, bridge_dir, handoff_id):
     model_type = to_role.get("model_type", "")
     ollama_model = to_role.get("ollama_model", "")
 
-    kill_session(tmux_session)
-
     if model_type == "ollama" and ollama_model:
         unload_ollama_model(ollama_model)
 
-    time.sleep(1)
-
-    if start_cmd:
-        start_session(tmux_session, start_cmd)
-
-    if not wait_session_ready(tmux_session):
+    if not session_alive(tmux_session):
         error_msg = step_config.get("error_msg", f"Target session did not start")
         print(f"  ERROR: {error_msg}")
         log(
@@ -612,23 +605,15 @@ def manual_dispatch(from_role_name, to_role_name, handoff_id, deliverable_path, 
     to_role = load_role_config(to_role_name)
 
     tmux_session = to_role["tmux_session"]
-    start_cmd = to_role.get("start_cmd", "")
     model_type = to_role.get("model_type", "")
     ollama_model = to_role.get("ollama_model", "")
 
     print(f"\nManual Dispatch: {from_role_name} -> {to_role_name}")
 
-    kill_session(tmux_session)
-
     if model_type == "ollama" and ollama_model:
         unload_ollama_model(ollama_model)
 
-    time.sleep(1)
-
-    if start_cmd:
-        start_session(tmux_session, start_cmd)
-
-    if not wait_session_ready(tmux_session):
+    if not session_alive(tmux_session):
         error_msg = to_role.get("deliver_error_msg", f"Failed to deliver to {to_role_name}")
         print(f"  ERROR: {error_msg}")
         log(
