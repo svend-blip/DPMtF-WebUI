@@ -4288,6 +4288,32 @@ cursor.execute(
     ("escalation_content", "escalation"),
 )
 
+# H140: governance_file column on bridge_roles — role-specific governance reference
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN governance_file TEXT DEFAULT NULL
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# Seed governance_file for strict_review roles
+cursor.execute(
+    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
+    ("02_ARCHITECT.md", "archi01"),
+)
+cursor.execute(
+    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
+    ("03_IMPLEMENTOR.md", "imple01"),
+)
+cursor.execute(
+    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
+    ("04_REVIEW.md", "review01"),
+)
+cursor.execute(
+    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
+    ("04_REVIEW.md", "review02"),
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions

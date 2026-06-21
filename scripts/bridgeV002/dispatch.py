@@ -655,6 +655,16 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             f"Read and proceed with: {full_deliverable_path}"
         )
 
+    # Prepend governance file reference for target role
+    gov_file = to_role.get("governance_file")
+    project_root_sc = os.path.dirname(dpmtf_config.get_db_path())
+    if gov_file:
+        gov_path = os.path.join(project_root_sc, "docs", "governance-templates-v2", gov_file)
+        prompt_text = (
+            f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
+            f"{prompt_text}"
+        )
+
     # Step 8: Inject callback prompt into to_role's tmux session
     inject_prompt(tmux_session, prompt_text)
     time.sleep(0.5)
@@ -788,7 +798,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         return False
 
     # Ensure escalation subdirectory exists (for symlink)
-    ensure_subdir_from_base(bridge_dir, "escalations")
+    os.makedirs(esc_dir, exist_ok=True)
 
     # Step 4: Resolve escalation convention content_template
     ctemplate = resolve_content_template_from_db(
@@ -808,6 +818,16 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
             f"The role '{from_role_key}' has escalated a question for handoff "
             f"#{handoff_id}.\n"
             f"Please review and respond. Read the question from: {full_question_path}"
+        )
+
+    # Prepend governance file reference for target role
+    gov_file = to_role_data.get("governance_file")
+    if gov_file:
+        gov_path_e = os.path.join(os.path.dirname(dpmtf_config.get_db_path()),
+                                  "docs", "governance-templates-v2", gov_file)
+        prompt_text = (
+            f"Your role is defined in {gov_path_e}. Read it now before proceeding.\n\n"
+            f"{prompt_text}"
         )
 
     # Step 6: Inject prompt into architect's tmux session
@@ -1067,6 +1087,13 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         reload_ollama_model(to_role_data["ollama_model"])
         time.sleep(3)
 
+    # Step 5.5: Prepend governance file reference if target role has one
+    gov_file = to_role_data.get("governance_file")
+    project_root = os.path.dirname(dpmtf_config.get_db_path())
+    if gov_file:
+        gov_path = os.path.join(project_root, "docs", "governance-templates-v2", gov_file)
+        print(f"  Governance: {gov_file}")
+
     # Step 6: Resolve handoff convention content_template
     ctemplate = resolve_content_template_from_db(
         "handoff", db_path=dpmtf_config.get_db_path()
@@ -1088,6 +1115,13 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             f"The role '{from_role_key}' has dispatched handoff "
             f"#{handoff_id} to you.\n"
             f"Read and execute {handoff_abs}"
+        )
+
+    # Prepend governance file reference for target role
+    if gov_file:
+        prompt_text = (
+            f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
+            f"{prompt_text}"
         )
 
     # Step 8: Inject prompt into target role's tmux session
