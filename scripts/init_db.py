@@ -4597,6 +4597,23 @@ for slot_key, label_key in _bridge_setup_slot_labels:
         VALUES (?, ?)
     """, (slot_key, label_key))
 
+# ── Bridge ID Counters (DB-driven, flow-isolated) ────────────────────
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS bridge_id_counters (
+    flow_key TEXT PRIMARY KEY,
+    next_id  INTEGER NOT NULL DEFAULT 1
+)
+""")
+
+# Seed: one counter per active flow — auto-create via INSERT OR IGNORE.
+# Human updates next_id when starting a new flow cycle.
+cursor.execute(
+    """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
+       VALUES (?, ?)""",
+    ("strict_review", 139),
+)
+
 # Commit changes and close connection
 conn.commit()
 conn.close()

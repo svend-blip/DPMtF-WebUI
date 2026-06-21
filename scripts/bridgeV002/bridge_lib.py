@@ -214,6 +214,72 @@ def get_next_id(bridge_dir=None):
     return max(existing) + 1 if existing else 1
 
 
+def get_next_id_for_flow(flow_key, db_path=None):
+    """Return the next handoff ID for a specific flow, auto-incrementing.
+
+    Uses bridge_id_counters table — completely independent of file system
+    or legacy bridge directories. Flow-isolated: each flow has its own
+    counter. One atomic SELECT + UPDATE per call.
+
+    Args:
+        flow_key: The flow key (e.g. 'strict_review', 'heavy').
+        db_path: Optional path to SQLite database. Defaults to config.get_db_path().
+
+    Returns:
+        int — the next ID, or 1 if counter row did not exist (auto-created).
+    """
+    if db_path is None:
+        import config as _config
+        db_path = _config.get_db_path()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+
+        # Try to read existing counter
+        cursor.execute(
+            "SELECT next_id FROM bridge_id_counters WHERE flow_key = ?",
+            (flow_key,)
+        )
+        row = cursor.fetchone()
+
+        if row and row[0]:
+            new_id = row[0]
+            cursor.execute(
+                "UPDATE bridge_id_counters SET next_id = next_id + 1 WHERE flow_key = ?",
+                (flow_key,)
+            )
+        else:
+            # Auto-create counter at 1 for unknown flows
+            try:
+                cursor.execute(
+                    "INSERT INTO bridge_id_counters (flow_key, next_id) VALUES (?, 1)",
+                    (flow_key,)
+                )
+            except sqlite3.IntegrityError:
+                # Race condition: another call created it between SELECT and INSERT.
+                # Fall back to reading it now.
+                cursor.execute(
+                    "SELECT next_id FROM bridge_id_counters WHERE flow_key = ?",
+                    (flow_key,)
+                )
+                row2 = cursor.fetchone()
+                new_id = row2[0] if row2 else 1
+
+            cursor.execute(
+                "UPDATE bridge_id_counters SET next_id = next_id + 1 WHERE flow_key = ?",
+                (flow_key,)
+            )
+
+        conn.commit()
+        return new_id
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet — safe fallback
+        return 1
+    finally:
+        conn.close()
+
+
 def ensure_subdir(bridge_dir, subdir):
     """Ensure a deliverable directory exists.
 
