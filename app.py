@@ -4674,7 +4674,6 @@ async def bridge_v2_start_tmux_for_flow(flow_key: str):
             return {
                 "status": "ok",
                 "message": result.stdout.strip() or f"All sessions exist for '{flow_key}'",
-                "created": max(0, int(result.stdout.strip().split(": ")[1].split("(")[0]) if ": " in result.stdout else 0) if ":" in result.stdout and "Done:" in result.stdout else 0,
             }
         else:
             raise HTTPException(status_code=500, detail=result.stderr.strip())
