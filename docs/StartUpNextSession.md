@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 138 (completed — H138 signal-send, full legacy bridge.py independence achieved, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 143 (completed — H143 governance_file dynamic dropdown from disk, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -99,6 +99,10 @@ Read these files in order to reconstruct full project state:
 | **Hardening H136** | 136 | BridgeV002 signal-complete: replace legacy bridge.py cmd_complete() — callback dispatch via signal_complete(), DB-driven with convention content_template, tool-aware injection, VRAM cleanup, symlink update, trace logging. Commit `cad6295`. |
 | **Hardening H137** | 137 | BridgeV002 signal-escalation + signal-answer: replace legacy cmd_ask_architect()/cmd_answer_review() — DB-driven role-aware escalation supporting multiple review roles (review01, review02). Commit `955a256`. |
 | **Hardening H138** | 138 | BridgeV002 signal-send: replace legacy cmd_send() — initial handoff dispatch with 10-step sequential dispatch, XML section validation, model stop+reload for clean context, convention template resolution. Commit `60250bb`. |
+| **Hardening H140** | 140 | BridgeV002 governance_file column + prompt prepend — ALTER TABLE bridge_roles ADD COLUMN governance_file TEXT; seed data for archi01 (02_ARCHITECT.md), imple01 (03_IMPLEMENTOR.md), review01+review02 (04_REVIEW.md); prepend governance file reference in signal_complete, signal_escalation, signal_send prompts. Commit `aefcd6a`. |
+| **Hardening H141** | 141 | BridgeV002 start_tmuxflow rewrite — replace ollama model preload logic with automatic tmux session creation; session_exists() via tmux has-session, create_session() via tmux new-session -d. Sessions only created if missing. Commit `a5c899b`. |
+| **Hardening H142** | 142 | BridgeV002 governance_file editable from frontend — governance_file shown in role card; dropdown added to role edit form with (None) + governance template files. i18n label LBL-1000298 (en-US/da-DK). Commit `701c5a5`. |
+| **Hardening H143** | 143 | BridgeV002 governance_file dropdown reads from disk — replace hardcoded filenames with GET /api/bridge-v2/governance-files endpoint that lists all .md files from docs/governance-templates-v2/. Frontend fetches list dynamically on role edit. Commit `1f3c647`. |
 
 ### Human Final Verdict
 
@@ -174,6 +178,7 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 8** | Flow Management Suite | start-coding, stop-tmux, attach-tmux, i18n labels, H121 parsing fix. Commits `6a8b6a7`, `ae6d3db`, `6b4179c`, `a2745f9`. | ✅ Komplet |
 | **Fase 9** | No-Kill Complete + DB-driven Callbacks | Eliminate ALL tmux lifecycle (H132+H134), add DB content templates + validation schemas (H131), convention admin UI. Commits `916cfe1`. | ✅ Komplet |
 | **Fase 10** | Full Legacy Independence | Replace all 4 legacy bridge.py kernel functions with BridgeV002 equivalents: signal-send (H138), signal-complete (H136), signal-escalation + signal-answer (H137). Commits `cad6295`, `955a256`, `60250bb`. | ✅ Komplet |
+| **Fase 11** | Governance Integration | governance_file column on bridge_roles + prompt prepend (H140), start_tmuxflow rewrite for tmux auto-create (H141), governance_file frontend editable (H142), dynamic dropdown from disk (H143). Commits `aefcd6a`, `a5c899b`, `701c5a5`, `1f3c647`. | ✅ Komplet |
 
 #### Fase 1: Konfiguration & Infrastructure
 
@@ -325,8 +330,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 138 — BridgeV002 signal-send: replace legacy cmd_send() (COMPLETED)
-**Previous cycles completed:** H123 (attach-tmux), H131 (DB-driven callbacks), H132 (eliminate ALL tmux lifecycle), H134 (clean up flow scripts to zero tmux calls), H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send)
+**Last cycle:** Handoff 143 — BridgeV002 governance_file frontend dropdown reads from disk (COMPLETED)
+**Previous cycles completed:** H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send), H140 (governance_file column + prompt prepend), H141 (start_tmuxflow rewrite — tmux session auto-create), H142 (governance_file editable from frontend), H143 (dynamic governance file dropdown from disk)
 
 **Migration Status — Legacy → BridgeV002:**
 | Legacy Function | BridgeV002 Replacement | Commit |
@@ -358,6 +363,10 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - [x] H136: signal_complete() replacing legacy cmd_complete() — callback dispatch via DB convention, tool-aware injection, VRAM cleanup — COMPLETED (`cad6295`)
 - [x] H137: signal_escalation() + signal_answer() replacing legacy cmd_ask_architect()/cmd_answer_review() — role-aware escalation supporting multiple review roles — COMPLETED (`955a256`)
 - [x] H138: signal_send() replacing legacy cmd_send() — initial handoff dispatch with XML validation, model stop+reload, convention templates — COMPLETED (`60250bb`)
+- [x] H140: governance_file column on bridge_roles + prompt prepend in signal_complete/signal_escalation/signal_send — seed data for archi01, imple01, review01, review02 — COMPLETED (`aefcd6a`)
+- [x] H141: start_tmuxflow.py rewrite — replace ollama preload with tmux session auto-create (session_exists/create_session) — COMPLETED (`a5c899b`)
+- [x] H142: governance_file editable from frontend — role card display + dropdown in edit form + i18n LBL-1000298 — COMPLETED (`701c5a5`)
+- [x] H143: governance_file dropdown reads from disk — GET /api/bridge-v2/governance-files endpoint lists .md files dynamically — COMPLETED (`1f3c647`)
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -493,6 +502,30 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - Prompt built from handoff convention content_template with {handoff_id}, {source_role}, {next_role}, {bridge_dir} placeholders
 - All 4 signal functions now cover the complete legacy bridge.py kernel: send → complete → escalation → answer
 
+**Key design decisions from H140:**
+- ALTER TABLE bridge_roles ADD COLUMN governance_file TEXT DEFAULT NULL — role-specific governance file reference
+- Seed data: archi01 → 02_ARCHITECT.md, imple01 → 03_IMPLEMENTOR.md, review01+review02 → 04_REVIEW.md
+- Governance file path constructed as: {project_root}/docs/governance-templates-v2/{governance_file}
+- Prompt prepend in signal_complete, signal_escalation, signal_send: "Your role is defined in {gov_path}. Read it now before proceeding."
+- governance_file added to PUT /api/bridge-v2/roles/{role_key} updatable fields list (app.py)
+
+**Key design decisions from H141:**
+- start_tmuxflow.py rewritten: removed all ollama model preload logic
+- session_exists() checks via tmux has-session -t, create_session() via tmux new-session -d -s
+- Script now creates missing tmux sessions instead of just reporting them
+- SQL query simplified — only selects tmux_session, no longer joins ollama_model/model_type
+
+**Key design decisions from H142:**
+- governance_file shown in role card display (renderRoleCard fields array)
+- Dropdown in role edit form (editBridgeRoleFull) with (None) + governance files
+- i18n label LBL-1000298 added to all 4 layers: ui_labels, ui_label_translations (da-DK: "Styrefil"), ui_text_slots, ui_text_slot_labels
+
+**Key design decisions from H143:**
+- GET /api/bridge-v2/governance-files endpoint reads docs/governance-templates-v2/ from disk via config.get_governance_dir_abs()
+- Returns sorted list of all .md files — no hardcoded filenames in frontend
+- Frontend fetches list dynamically when edit form renders; falls back to (None) only on error
+- Future governance files automatically appear in dropdown without code changes
+
 --- END CYCLE SNAPSHOT ---
 
 **Save-state update procedure:** Before dispatching any handoff, update the cycle snapshot block above with:
@@ -554,7 +587,7 @@ DPMtF-WebUI/
 
 ### Database Schema (3 tabeller)
 
-**bridge_roles** (13 cols): `role_key`, `tmux_session`, `start_cmd`, `model_type`, `cloud_model`, `ollama_model`, `setup_script`, `teardown_script`, `deliver_error_msg`, `is_active`, `created_at`, `updated_at`, `restart_policy`
+**bridge_roles** (14 cols): `role_key`, `tmux_session`, `start_cmd`, `model_type`, `cloud_model`, `ollama_model`, `setup_script`, `teardown_script`, `deliver_error_msg`, `is_active`, `governance_file`, `created_at`, `updated_at`, `restart_policy`
 
 **bridge_flows** (9 cols): `flow_key`, `name`, `description`, `step_order`, `is_default`, `is_active`, `created_at`, `updated_at`, `auto_complete_enabled`
 
