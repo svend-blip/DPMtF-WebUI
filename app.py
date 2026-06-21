@@ -4292,37 +4292,55 @@ async def bridge_v2_create_role(request: Request):
             raise HTTPException(status_code=400, detail=f"Missing required field: {f}")
 
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT role_key FROM bridge_roles WHERE role_key = ?",
+    existing = cursor.execute(
+        "SELECT * FROM bridge_roles WHERE role_key = ?",
         (data["role_key"],)
-    )
-    if cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=409, detail=f"Role '{data['role_key']}' already exists")
+    ).fetchone()
 
-    model_type = data.get("model_type", "ollama")
+    if not existing:
+        model_type = data.get("model_type", "ollama")
+        cursor.execute("""
+            INSERT INTO bridge_roles
+            (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
+             setup_script, teardown_script, deliver_error_msg)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data["role_key"],
+            data["tmux_session"],
+            data.get("start_cmd"),
+            model_type,
+            data.get("cloud_model"),
+            data.get("ollama_model"),
+            data.get("setup_script"),
+            data.get("teardown_script"),
+            data.get("deliver_error_msg"),
+        ))
+    else:
+        # Role exists (active or soft-deleted) — reactivate/update it
+        row = dict(existing) if not isinstance(existing, dict) else dict(existing)
+        model_type = row["model_type"] if not data.get("model_type") else data["model_type"]
+        sets = []
+        params = []
+        for field in ["tmux_session", "start_cmd", "model_type", "cloud_model",
+                      "ollama_model", "setup_script", "teardown_script",
+                      "deliver_error_msg"]:
+            if field in data:
+                sets.append(f"{field} = ?")
+                params.append(data[field])
+        # Always reactivate if it was soft-deleted
+        if not row.get("is_active"):
+            sets.append("is_active = 1")
+        sets.append("updated_at = datetime('now')")
+        cursor.execute(
+            f"UPDATE bridge_roles SET {', '.join(sets)} WHERE role_key = ?",
+            params + [data["role_key"]],
+        )
 
-    cursor.execute("""
-        INSERT INTO bridge_roles
-        (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
-         setup_script, teardown_script, deliver_error_msg)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        data["role_key"],
-        data["tmux_session"],
-        data.get("start_cmd"),
-        model_type,
-        data.get("cloud_model"),
-        data.get("ollama_model"),
-        data.get("setup_script"),
-        data.get("teardown_script"),
-        data.get("deliver_error_msg"),
-    ))
     conn.commit()
-    conn.close()
-    return {"status": "created", "role_key": data["role_key"]}
+    return {"status": "created", "role_key": data["role_key"]} if not existing else {"status": "updated", "role_key": data["role_key"]}
 
 
 @app.put("/api/bridge-v2/roles/{role_key}")
