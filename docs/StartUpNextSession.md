@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 118 (completed — start_tmuxflow.py script + tmux start endpoint + frontend "Start tmux" button, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 123 (completed — flow management suite: start-coding, stop-tmux, attach-tmux + example DB export, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -89,6 +89,10 @@ Read these files in order to reconstruct full project state:
 | **Hardening H116** | 116 | GET list_steps filters inactive + DELETE row_factory — fixed `is_active=1` filter removal and sqlite3.Row on DELETE. Commit `7e94c25`. |
 | **Hardening H117** | 117 | Step & Flow hard-delete consistency — all steps delete permanently (hard), GET removes is_active filter, CREATE auto-reactivates roles, DELETE flow checks step count first + hard-deletes. Commit `e43f0d2`. |
 | **Hardening H118** | 118 | start_tmuxflow.py — script that creates missing tmux sessions per flow key; POST /api/bridge-v2/flows/{flow_key}/start-tmux endpoint; frontend "Start tmux" button on all flow cards; i18n labels lbl_bridge_start_tmux + lbl_bridge_starting. Commit `60b8b71`. |
+| **Hardening H119** | 119 | BridgeV002 start-coding — POST /api/bridge-v2/flows/{flow_key}/start-coding endpoint; scripts/bridgeV002/start_coding.py (execute start_cmd for all roles in a flow); frontend "Start code interface" button; dedup by role_key, ordered by sort_order. +174 lines. Commit `6a8b6a7`. |
+| **Hardening H120** | 120 | BridgeV002 stop-tmux — POST /api/bridge-v2/flows/{flow_key}/stop-tmux endpoint; scripts/bridgeV002/stop_tmuxflow.py (kill all tmux sessions for a flow via `tmux kill-session -t`); frontend "Stop tmux" button (dpmtf-btn-danger) with confirm dialog. +130 lines. Commit `ae6d3db`. |
+| **Hardening H121** | 121 | BridgeV002 fix: start-tmux endpoint parsing bug — removed broken JSON-parsing of stdout response in start_tmux_for_flow endpoint (result.stdout contained "Done: N session(s) created" not JSON). +1 line cleanup. Commit `6b4179c`. |
+| **Hardening H123** | 123 | BridgeV002 attach-tmux — POST /api/bridge-v2/flows/{flow_key}/attach-tmux endpoint; scripts/bridgeV002/attach_tmux.py (open terminal tabs for each flow session); frontend "Attach tmux" button; auto-detect terminal (xfce4-terminal → gnome-terminal → x-terminal-emulator). DELETE flow bugfix: res.text() → error before JSON parse. +87 lines JS + new script. Commit `a2745f9`. |
 
 ### Human Final Verdict
 
@@ -146,6 +150,7 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ✅ Komplet (`bb27ab3`) |
 | **Fase 6** | Database-oprydning & Struktur | eno.db fjernet, H99-backups ryddet, .gitignore `databases/*.db`, dpmtf.db untracked, BACKUP-STRATEGY.md | ✅ Komplet (`abab50d`) |
 | **Fase 7** | No-Kill Dispatch + Hard-delete | Session persistence, post-dispatch offload, hard-delete for steps+flows, start_tmuxflow.py | ✅ Komplet (H111-H118) |
+| **Fase 8** | Flow Management Suite | start-coding (execute start_cmd per role), stop-tmux (kill sessions), attach-tmux (open terminal tabs), i18n labels for all buttons, H121 parsing fix. Commits `6a8b6a7`, `ae6d3db`, `6b4179c`, `a2745f9`. |
 
 #### Fase 1: Konfiguration & Infrastructure
 
@@ -293,8 +298,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 118 — start_tmuxflow.py + POST /start-tmux endpoint + frontend "Start tmux" button (COMPLETED)
-**Previous cycles completed:** H114 (post-dispatch-common refactoring), H115 (convention autofill guard + role reactivation upsert), H116 (GET is_active filter + DELETE row_factory), H117 (Step & Flow hard-delete consistency), H118 (tmux session auto-creation)
+**Last cycle:** Handoff 123 — attach-tmux endpoint + script + frontend button (COMPLETED)
+**Previous cycles completed:** H114 (post-dispatch-common refactoring), H115 (convention autofill guard + role reactivation upsert), H116 (GET is_active filter + DELETE row_factory), H117 (Step & Flow hard-delete consistency), H118 (tmux session auto-creation), H119 (start-coding), H120 (stop-tmux), H121 (parsing fix), H123 (attach-tmux)
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
@@ -305,6 +310,10 @@ This is a process change, not a code change. The dispatch protocol already injec
 - [x] H116: GET filter inactive steps + DELETE row_factory — COMPLETED (`7e94c25`)
 - [x] H117: Step & Flow hard-delete consistency — COMPLETED (`e43f0d2`)
 - [x] H118: start_tmuxflow.py + POST /start-tmux endpoint + frontend button — COMPLETED (`60b8b71`)
+- [x] H119: start_coding.py + POST /start-coding endpoint + frontend "Start code interface" button — COMPLETED (`6a8b6a7`)
+- [x] H120: stop_tmuxflow.py + POST /stop-tmux endpoint + frontend "Stop tmux" button — COMPLETED (`ae6d3db`)
+- [x] H121: start-tmux endpoint parsing bugfix — removed broken stdout JSON parsing — COMPLETED (`6b4179c`)
+- [x] H123: attach_tmux.py + POST /attach-tmux endpoint + frontend "Attach tmux" button + DELETE flow res.text() fix — COMPLETED (`a2745f9`)
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -359,6 +368,38 @@ This is a process change, not a code change. The dispatch protocol already injec
 - POST /api/bridge-v2/flows/{flow_key}/start-tmux endpoint kører script som subprocess med 30 sek timeout
 - Frontend "Start tmux" button (dpmtf-btn-success) på alle flow cards, kaldes via fetch til above endpoint
 - i18n labels: lbl_bridge_start_tmux ("Start tmux") og lbl_bridge_starting ("Starting...") i alle 4 i18n-lag
+- Ingen DB schema ændringer — bruger eksisterende bridge_roles.tmux_session kolonne
+
+**Key design decisions from H119:**
+- start_coding.py itererer over alle active steps i en flow, lookupker from_role's tmux_session + start_cmd fra DB
+- Deduplikation by role_key (første forekomst vinder), sorteret af sort_order
+- Execute start_cmd i eksisterende tmux session via `tmux send-keys`; forudsætter sessions er oprettet via start_tmuxflow.py first
+- resolve_placeholders() fra bridge_lib resolverer {bridge_dir} og {project_root} placeholders i start_cmd
+- Script importerer config.py via importlib.util (undgår ModuleNotFoundError når kørt fra /home/svend/)
+- POST endpoint: subprocess.run med 30 sek timeout; returnerer stdout som status message
+- Frontend "Start code interface" button (dpmtf-btn-info) på alle flow cards — ingen i18n label brugt (hardcoded tekst)
+- Ingen DB schema ændringer — bruger eksisterende bridge_roles.start_cmd kolonne
+
+**Key design decisions from H120:**
+- stop_tmuxflow.py: modsat af start_tmuxflow.py — itererer over alle active steps, lookupker from_role's tmux_session, kalder `tmux kill-session -t`
+- Silent failure på ikke-eksisterende sessions (kun log WARNING)
+- POST /stop-tmux endpoint med samme pattern som /start-tmux og /start-coding: subprocess.run 30s timeout
+- Frontend "Stop tmux" button (dpmtf-btn-danger) med confirm dialog ("Stop all tmux sessions for 'X'?")
+- i18n label lbl_bridge_stop_tmux ("Stop tmux")
+- Ingen DB schema ændringer — bruger eksisterende bridge_roles.tmux_session kolonne
+
+**Key design decisions from H121:**
+- Bugfix: start-tmux endpoint forsøgte at parse stdout som JSON (result.stdout indeholder "Done: N session(s) created" ikke JSON)
+- fjernet broken `.split(": ")` parsing — kun returner simple status/message object
+- Ingen andre ændringer; pure cleanup
+
+**Key design decisions from H123:**
+- attach_tmux.py: modsat af stop_tmuxflow.py — finder terminal emulator (xfce4-terminal → gnome-terminal → x-terminal-emulator), åbner ny tab for hver session
+- attach_in_new_tab() bruger terminal-specifikke args (xfce4: --command, gnome: --, generic: -e)
+- Tjekker eksistens af hver session via `tmux has-session` før attach (skipper ikke-kørende)
+- POST /attach-tmux endpoint med samme subprocess pattern som andre flow-endpoints
+- Frontend "Attach tmux" button (dpmtf-btn-info) — ingen confirm dialog (non-destructive action)
+- DELETE flow bugfix: added `if (!res.ok) return res.text().then(function(txt) { throw new Error(txt); })` før res.json() — forhindrer JSON parse error på HTTP error responses (samme princip som H115's delete step fix)
 - Ingen DB schema ændringer — bruger eksisterende bridge_roles.tmux_session kolonne
 
 --- END CYCLE SNAPSHOT ---
