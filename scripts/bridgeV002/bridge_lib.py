@@ -452,7 +452,8 @@ def resolve_convention_from_db(rule_key, db_path=None):
         db_path: Optional path to SQLite database. Uses config.get_db_path() if not given.
 
     Returns:
-        dict with keys: rule_key, step_type, dir_template, pattern_template, error_template
+        dict with keys: rule_key, step_type, dir_template, pattern_template,
+                       error_template, prompt_template
 
     Raises:
         ValueError: If rule_key not found.

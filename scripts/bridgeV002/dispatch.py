@@ -30,6 +30,9 @@ from bridge_lib import (
     resolve_placeholders,
 )
 
+# ── Constants ──────────────────────────────────────────────
+_STARTUP_FILE = "docs/StartUpNextSession.md"
+
 
 def _bridge_dir():
     """Return the configured bridge directory."""
@@ -239,7 +242,8 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
     Returns:
         dict with keys: flow_key, step_key, from_role, to_role,
                        deliverable_dir, deliverable_pattern,
-                       deliverable_file, error_msg, handoff_id, bridge_dir
+                       deliverable_file, error_msg, prompt_template,
+                       handoff_id, bridge_dir
     """
     payload = {
         "flow_key": flow_key,
@@ -295,6 +299,16 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
     else:
         payload["error_msg"] = f"Failed to deliver to {payload['to_role']}."
 
+    # prompt_template: convention-provided template for enriched injection (Phase 2)
+    if rule_key:
+        try:
+            convention = resolve_convention_from_db(rule_key)
+            payload["prompt_template"] = convention.get("prompt_template", "")
+        except (ValueError, sqlite3.OperationalError):
+            payload["prompt_template"] = ""
+    else:
+        payload["prompt_template"] = ""
+
     return payload
 
 
@@ -314,6 +328,7 @@ def step_to_cli_args(payload):
         "deliverable_file": "--deliverable-file",
         "handoff_id": "--handoff-id",
         "bridge_dir": "--bridge-dir",
+        "prompt_template": "--prompt-template",
     }
     for pk, flag in key_map.items():
         val = payload.get(pk)
@@ -469,7 +484,15 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             print(f"  Pre-dispatch script failed -- aborting")
             return False
 
-    inject_prompt(tmux_session, f"Read and execute {full_deliverable_path}")
+    # Compose final injection text: use convention prompt_template if available
+    prompt_text = payload.get("prompt_template", "")
+    if not prompt_text:
+        prompt_text = f"Read and execute {full_deliverable_path}"
+    else:
+        prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
+
+    inject_prompt(tmux_session, prompt_text)
     time.sleep(0.5)
 
     # Post-dispatch: offload predecessor's model to free VRAM
