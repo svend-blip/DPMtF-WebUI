@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 110 (completed — UX Flow↔Steps Integration committed and pushed, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 114 (completed — post-dispatch-common refactoring + convention autofill condition fix + delete step JSON-parse guard, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -82,6 +82,10 @@ Read these files in order to reconstruct full project state:
 | **Hardening F5** | 108 | BridgeV002 Parameteriserede Script-kald — dispatch.py DB-driven path, payload builder, CLI converter, parameterised script calls. Commit `bb27ab3`. |
 | **Hardening F6** | 109 | BridgeV002 Database-oprydning & Struktur — eno.db removed, H99 backups cleaned, .gitignore `databases/*.db`, dpmtf.db untracked from git, BACKUP-STRATEGY.md documented. Initial REJECTED → rework → APPROVED. Commit `abab50d`. |
 | **Hardening UX** | 110 | BridgeV002 UX Flow↔Steps Integration — Manage Steps button on Flow cards, step count badge replacing read-only steps table, backend `all_steps` flat array with `flow_key` annotation, auto-select first flow on load, "View All Steps" export button. 4 subtasks, APPROVED første gang. Commit `e0aa8f8`. |
+| **Hardening H111** | 111 | BridgeV002 No-Kill Phase 1 — dispatch control flow restructure: remove kill/start/reload from run_flow_step_db(), add session_alive() + post-dispatch offload (~47 lines) |
+| **Hardening H112** | 112 | BridgeV002 No-Kill Phase 2 — prompt_template enrichment in convention_rules + dispatch integration: ALTER TABLE, verdict_feedback convention with StartUpNextSession.md reference |
+| **Hardening H113** | 113 | BridgeV002 Phase 3 — first post-dispatch script archi01-imple01.py in scripts/bridgeV002/ |
+| **Hardening H114** | 114 | Post-dispatch common refactoring: archi01-imple01.py → post-dispatch-common.py, convention-agnostic post-dispatch for all 4 heavy flow steps; role reactivation upsert logic replacing hard 409; convention autofill condition guard + delete step JSON-parse fix |
 
 ### Human Final Verdict
 
@@ -285,16 +289,18 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 113 — archi01-imple01.py first post-dispatch script (COMPLETED, committed `d479eeb`)
-**Previous cycle:** Handoff 112 — BridgeV002 No-Kill Phase 2: prompt_template Enrichment (COMPLETED pending commit)
+**Last cycle:** Handoff 114 — post-dispatch-common refactoring (COMPLETED)
+**Previous cycles completed:** H111 (no-kill dispatch control flow), H112 (prompt_template enrichment), H113 (archi01-imple01.py first post-dispatch script `d479eeb`)
 
-**Next cycle pending:** H114 — post-dispatch-common refactoring (reusable script for ALL heavy flow steps)
+**Next cycle pending:** H116 — step delete fix: GET filter inactive steps + DELETE row_factory
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
 - [x] H112: prompt_template enrichment in convention_rules + dispatch integration — COMPLETED
 - [x] H113: First post-dispatch script (archi01-imple01.py) — COMPLETED (`d479eeb`)
-- [ ] H114: Replace archi01-imple01.py with generic post-dispatch-common.py — IN PROGRESS
+- [x] H114: post-dispatch-common.py replacing archi01-imple01.py — COMPLETED (`ae4b1c0`)
+- [x] H115: Convention autofill condition guard + delete step JSON-parse fix — COMPLETED (`6549710`, `ae4b1c0`)
+- [ ] H116: Step delete fix — GET missing `is_active = 1` filter, DELETE missing `row_factory`
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -327,6 +333,12 @@ This is a process change, not a code change. The dispatch protocol already injec
 - post-dispatch-common.py lookupker from_role's model dynamisk i bridge_roles ved runtime
 - Nye steps behøver kun DB seed-entry med post_dispatch_script = "post-dispatch-common" — ingen kodeændringer fremover
 - archi01-imple01.py slettes; post-dispatch-common.py genbruges af alle 4 heavy flow steps
+
+**Key design decisions from H115:**
+- Convention auto-fill kun på NEW steps: `isNewStep = !_bridgeEditingStepId` flag i `_showStepForm()` gater `_autoFillFromConvention`
+- Delete step JSON-parse fix: `if (!res.ok) throw new Error("HTTP " + res.status)` før `res.json()` — forhindrer "JSON.parse unexpected character" på failed HTTP responses
+- Role upsert: erstatter hard 409 med op-sert logic der reaktiverer soft-deleted roles
+- bridge_v2_update_step fikset med `conn.row_factory = sqlite3.Row` (manglede tidligere → dict access fejl)
 
 --- END CYCLE SNAPSHOT ---
 
