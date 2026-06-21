@@ -2174,18 +2174,35 @@ function editBridgeRoleFull(roleKey) {
       omDiv.appendChild(omInput);
       form.appendChild(omDiv);
 
-      // governance_file select
+      // governance_file select — loaded dynamically from disk
       var gfDiv = el("div", "dpmtf-form-group");
       gfDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_governance_file", "Governance File")));
       var gfSelect = el("select", null);
       gfSelect.id = "bridge-edit-input-governance_file";
-      [["", lbl("lbl_bridge_none_option", "(None)")], ["01_HUMAN.md", "01_HUMAN.md"], ["02_ARCHITECT.md", "02_ARCHITECT.md"], ["03_IMPLEMENTOR.md", "03_IMPLEMENTOR.md"], ["04_REVIEW.md", "04_REVIEW.md"]].forEach(function (pair) {
-        var opt = document.createElement("option");
-        opt.value = pair[0];
-        opt.textContent = pair[1];
-        if ((role.governance_file || "") === pair[0]) opt.selected = true;
-        gfSelect.appendChild(opt);
-      });
+
+      // None option (always first)
+      var noneOpt = document.createElement("option");
+      noneOpt.value = "";
+      noneOpt.textContent = lbl("lbl_bridge_none_option", "(None)");
+      if (!role.governance_file) noneOpt.selected = true;
+      gfSelect.appendChild(noneOpt);
+
+      fetch("/api/bridge-v2/governance-files")
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var files = data.files || [];
+          files.forEach(function (f) {
+            var opt = document.createElement("option");
+            opt.value = f;
+            opt.textContent = f;
+            if (role.governance_file === f) opt.selected = true;
+            gfSelect.appendChild(opt);
+          });
+        })
+        .catch(function () {
+          // Silently OK — dropdown stays with (None) only
+        });
+
       gfDiv.appendChild(gfSelect);
       form.appendChild(gfDiv);
 
