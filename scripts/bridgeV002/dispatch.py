@@ -965,6 +965,165 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
     return True
 
 
+def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=None):
+    """Signal initial handoff dispatch from review to target role.
+
+    Replaces legacy cmd_send(). DB-driven: resolves both roles,
+    validates handoff file exists with required XML sections, performs
+    model stop+reload for clean context, and injects dispatch prompt
+    into the target role's tmux session.
+
+    Golden rule sequential dispatch sequence (no-kill v2):
+      1. Load from_role + to_role from DB
+      2. Check target session is alive
+      3. Verify handoff file exists with required XML sections
+      4. Stop target role's Ollama model (clear VRAM + context)
+      5. Reload target role's Ollama model (fresh context)
+      6. Resolve handoff convention content_template
+      7. Build prompt with placeholder replacement
+      8. Inject prompt into target role's tmux session
+      9. Update symlink in handoff directory
+      10. Log dispatch event to trace.log
+    """
+    import config as dpmtf_config
+
+    if bridge_dir is None:
+        bridge_dir = os.environ.get(
+            "DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path()
+        )
+
+    # Step 1: Load both roles from DB
+    try:
+        from_role_data = load_role_from_db(from_role_key,
+                                           db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{from_role_key}' from database: {e}")
+        return False
+
+    try:
+        to_role_data = load_role_from_db(to_role_key,
+                                         db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{to_role_key}' from database: {e}")
+        return False
+
+    tmux_session = to_role_data["tmux_session"]
+
+    print(f"\nSignal Send: {from_role_key} -> {to_role_key}")
+    print(f"  Flow: {flow_key}")
+
+    # Step 2: Check target session is alive
+    if not session_alive(tmux_session):
+        print(f"  ERROR: Target session '{tmux_session}' is not running")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "send_failed",
+            f"Target session '{tmux_session}' is not running",
+        )
+        return False
+
+    # Step 3: Verify handoff file exists with required XML sections
+    handoff_dir = os.path.join(bridge_dir, "reviewtoimplementor")
+    handoff_file = f"{handoff_id}-handoff.md"
+    handoff_path = os.path.join(handoff_dir, handoff_file)
+
+    if not os.path.exists(handoff_path):
+        print(f"  ERROR: Handoff file missing: {handoff_path}")
+        print(f"  Prompt Compiler must write handoff file before signaling send")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "send_failed",
+            f"Handoff file missing: {handoff_path}",
+        )
+        return False
+
+    # Validate required XML sections in handoff content (matches legacy cmd_send)
+    with open(handoff_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    required_sections = ["<role>", "<task>", "<constraint>"]
+    missing = [s for s in required_sections if s not in content]
+    if missing:
+        print(f"  ERROR: Handoff file missing required XML sections: "
+              f"{', '.join(missing)}")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "send_failed",
+            f"Missing XML sections: {', '.join(missing)}",
+        )
+        return False
+
+    handoff_abs = os.path.abspath(handoff_path)
+
+    # Ensure handoff subdirectory exists (for symlink)
+    ensure_subdir(bridge_dir, "reviewtoimplementor")
+
+    # Step 4: Stop target role's Ollama model — clear VRAM and context
+    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
+        unload_ollama_model(to_role_data["ollama_model"])
+        time.sleep(1)
+
+    # Step 5: Reload target role's Ollama model with fresh context
+    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
+        reload_ollama_model(to_role_data["ollama_model"])
+        time.sleep(3)
+
+    # Step 6: Resolve handoff convention content_template
+    ctemplate = resolve_content_template_from_db(
+        "handoff", db_path=dpmtf_config.get_db_path()
+    ) or ""
+
+    # Step 7: Build prompt with placeholder replacement
+    if ctemplate:
+        prompt_text = ctemplate.replace("{handoff_id}", handoff_id)
+        prompt_text = prompt_text.replace("{source_role}", from_role_key)
+        prompt_text = prompt_text.replace("{next_role}", to_role_key)
+        prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        # Append explicit dispatch instruction with absolute path
+        prompt_text += (
+            f"\n\n## Dispatch Instruction\n"
+            f"Read and execute {handoff_abs}"
+        )
+    else:
+        prompt_text = (
+            f"The role '{from_role_key}' has dispatched handoff "
+            f"#{handoff_id} to you.\n"
+            f"Read and execute {handoff_abs}"
+        )
+
+    # Step 8: Inject prompt into target role's tmux session
+    inject_prompt(tmux_session, prompt_text)
+    time.sleep(0.5)
+
+    print(f"  Handoff dispatch prompt injected into '{tmux_session}'")
+
+    # Step 9: Update symlink in handoff directory
+    link_path = os.path.join(handoff_dir, "current.md")
+    try:
+        if os.path.islink(link_path) or os.path.exists(link_path):
+            os.unlink(link_path)
+    except FileNotFoundError:
+        pass
+    os.symlink(handoff_file, link_path)
+
+    # Step 10: Log dispatch event to trace.log
+    log(
+        f"{from_role_key}->{to_role_key}",
+        handoff_id,
+        "dispatched",
+        f"Handoff {handoff_file} dispatched to {tmux_session}",
+    )
+
+    print(f"  Logged dispatched for handoff #{handoff_id}")
+    print(f"✅ Handoff {handoff_id} sent to {tmux_session}")
+    print(f"   File: {handoff_path}")
+    print(f"   Waiting for work from target role...")
+
+    return True
+
+
 def run_flow_step(step_config, bridge_dir, handoff_id):
     """Execute a single flow step (defined in INI).
 
@@ -1102,6 +1261,8 @@ def main():
                         help="DB flow_key for database-driven dispatch")
     parser.add_argument("--db-step", default=None,
                         help="DB step_key within the flow (optional)")
+    parser.add_argument("--signal-send", action="store_true",
+                        help="Signal initial handoff dispatch from review to target role")
     parser.add_argument("--signal-complete", action="store_true",
                         help="Signal role completion — dispatch callback to next role")
     parser.add_argument("--signal-escalation", action="store_true",
@@ -1124,6 +1285,20 @@ def main():
     else:
         # No flow specified — use sequential placeholder (legacy INI path)
         handoff_id = "001"
+
+    if args.signal_send:
+        # Signal-send path: initial handoff dispatch from review to target role
+        if not args.to_role:
+            print("Error: --to-role is required for --signal-send")
+            sys.exit(1)
+        signal_send(
+            args.db_flow,
+            args.from_role,
+            args.to_role,
+            handoff_id,
+            bridge_dir,
+        )
+        sys.exit(0)
 
     if args.signal_escalation:
         # Signal-escalation path: review escalates question to architect
