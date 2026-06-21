@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Role teardown script — gracefully stop a role session and clean up.
-Reads role configuration dynamically via bridge_lib. Unloads Ollama model to free VRAM.
+Role teardown script — unload an Ollama model to free VRAM.
+Reads role configuration from the database (bridge_roles table).
+No tmux kill-session calls — sessions are persistent in no-kill mode.
 """
 import argparse
 import os
@@ -14,14 +15,14 @@ PROJECT_ROOT = os.environ.get(
 )
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bridge_lib import load_role_config
+from bridge_lib import load_role_from_db
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="BridgeV002 role teardown — stop a role session and clean up context"
     )
-    parser.add_argument("--role", required=True, help="Role name matching [role:NAME] in config")
+    parser.add_argument("--role", required=True, help="Role key (matches bridge_roles.role_key)")
     parser.add_argument("--force", action="store_true", help="Skip confirmation for programmatic use")
     parser.add_argument("--flow-key", default=None,
                         help="Flow key (e.g. 'heavy', 'simplified')")
@@ -52,7 +53,7 @@ def main():
     if args.handoff_id:
         print(f"  Handoff ID: {args.handoff_id}")
 
-    role_config = load_role_config(args.role)
+    role_config = load_role_from_db(args.role)
     tmux_session = role_config["tmux_session"]
     model_type = role_config.get("model_type", "")
     ollama_model = role_config.get("ollama_model", "")

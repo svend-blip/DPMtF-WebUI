@@ -19,9 +19,6 @@ PROJECT_ROOT = os.environ.get(
 sys.path.insert(0, str(Path(__file__).parent))
 
 from bridge_lib import (
-    load_bridge_config,
-    load_role_config,
-    load_flow_config,
     load_role_from_db,
     load_flow_from_db,
     resolve_convention_from_db,
@@ -1124,143 +1121,17 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     return True
 
 
-def run_flow_step(step_config, bridge_dir, handoff_id):
-    """Execute a single flow step (defined in INI).
-
-    Golden rule sequential dispatch sequence:
-      1. Kill target tmux session
-      2. Unload Ollama model if applicable
-      3. Wait 1 second
-      4. Start fresh target session with start_cmd from INI
-      5. Wait for session to be ready
-      6. Reload Ollama model if applicable
-      7. Wait for model to be ready (3 seconds)
-      8. Inject prompt (tool-aware: paste-buffer for OpenCode, send-keys for Claude)
-    """
-    from_role_name = step_config.get("from_role", "")
-    to_role_name = step_config.get("to_role", "")
-
-    to_role = load_role_config(to_role_name)
-
-    print(f"\nDispatch: {from_role_name} -> {to_role_name}")
-
-    tmux_session = to_role["tmux_session"]
-    start_cmd = to_role.get("start_cmd", "")
-    model_type = to_role.get("model_type", "")
-    ollama_model = to_role.get("ollama_model", "")
-
-    if model_type == "ollama" and ollama_model:
-        unload_ollama_model(ollama_model)
-
-    if not session_alive(tmux_session):
-        error_msg = step_config.get("error_msg", f"Target session did not start")
-        print(f"  ERROR: {error_msg}")
-        log(
-            f"{from_role_name}->{to_role_name}",
-            handoff_id,
-            "failed",
-            error_msg,
-        )
-        return False
-
-    if model_type == "ollama" and ollama_model:
-        reload_ollama_model(ollama_model)
-        time.sleep(3)
-
-    pre_script = step_config.get("pre_dispatch_script", "")
-    if pre_script:
-        resolved = resolve_placeholders(pre_script, bridge_dir=bridge_dir)
-        if not execute_script(resolved):
-            print(f"  Pre-dispatch script failed — aborting")
-            return False
-
-    deliverable_dir = step_config.get("deliverable_dir", "")
-    deliverable_pattern = step_config.get("deliverable_pattern", "")
-    deliverable_file = deliverable_pattern.replace("{ID}", handoff_id)
-
-    full_deliverable_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
-    ensure_subdir(bridge_dir, deliverable_dir)
-
-    inject_prompt(tmux_session, f"Read and execute {full_deliverable_path}")
-    time.sleep(0.5)
-
-    post_script = step_config.get("post_dispatch_script", "")
-    if post_script:
-        resolved = resolve_placeholders(post_script, bridge_dir=bridge_dir)
-        execute_script(resolved)
-
-    update_symlink(bridge_dir, deliverable_dir, deliverable_file)
-
-    log(
-        f"{from_role_name}->{to_role_name}",
-        handoff_id,
-        "dispatched",
-        f"Delivered {deliverable_file} to {tmux_session}",
-    )
-
-    return True
-
-
-def manual_dispatch(from_role_name, to_role_name, handoff_id, deliverable_path, bridge_dir):
-    """Perform a direct role-to-role dispatch using INI role configs.
-
-    Same golden rule sequence as run_flow_step.
-    """
-    from_role = load_role_config(from_role_name)
-    to_role = load_role_config(to_role_name)
-
-    tmux_session = to_role["tmux_session"]
-    model_type = to_role.get("model_type", "")
-    ollama_model = to_role.get("ollama_model", "")
-
-    print(f"\nManual Dispatch: {from_role_name} -> {to_role_name}")
-
-    if model_type == "ollama" and ollama_model:
-        unload_ollama_model(ollama_model)
-
-    if not session_alive(tmux_session):
-        error_msg = to_role.get("deliver_error_msg", f"Failed to deliver to {to_role_name}")
-        print(f"  ERROR: {error_msg}")
-        log(
-            f"{from_role_name}->{to_role_name}",
-            handoff_id,
-            "failed",
-            error_msg,
-        )
-        sys.exit(1)
-
-    if model_type == "ollama" and ollama_model:
-        reload_ollama_model(ollama_model)
-        time.sleep(3)
-
-    time.sleep(0.5)
-
-    inject_prompt(tmux_session, f"Read and execute {deliverable_path}")
-
-    log(
-        f"{from_role_name}->{to_role_name}",
-        handoff_id,
-        "dispatched",
-        f"Delivered to {tmux_session} via manual dispatch",
-    )
-
-    print(f"  Delivered to {to_role_name} — session '{tmux_session}'")
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="BridgeV002 dispatcher — universal role transition"
     )
-    parser.add_argument("--from-role", default=None, help="Source role name (matches INI [role:NAME])")
-    parser.add_argument("--to-role", default=None, help="Target role name (matches INI [role:NAME])")
+    parser.add_argument("--from-role", default=None, help="Source role key (matches bridge_roles.role_key)")
+    parser.add_argument("--to-role", default=None, help="Target role key (matches bridge_roles.role_key)")
     parser.add_argument("--id", default=None, help="Handoff ID (auto-generated if omitted)")
-    parser.add_argument("--flow", default=None, help="Flow name for step lookup (e.g. heavy, simplified)")
-    parser.add_argument("--step", default=None, help="Specific step name in flow")
-    parser.add_argument("--deliverable", default=None, help="Existing deliverable file path to dispatch")
     parser.add_argument("--db-flow", default=None,
-                        help="DB flow_key for database-driven dispatch")
-    parser.add_argument("--db-step", default=None,
-                        help="DB step_key within the flow (optional)")
+                        help="DB flow_key for database-driven dispatch (required)")
+    parser.add_argument("--step-key", default=None,
+                        help="DB step_key within the flow (for --signal-complete)")
     parser.add_argument("--signal-send", action="store_true",
                         help="Signal initial handoff dispatch from review to target role")
     parser.add_argument("--signal-complete", action="store_true",
@@ -1272,19 +1143,19 @@ def main():
 
     args = parser.parse_args()
 
-    bridge_config = load_bridge_config()
     bridge_dir = _bridge_dir()
 
-    # Determine handoff ID: explicit --id overrides; DB-driven flow gets auto-incremented counter;
-    # legacy INI-based dispatch falls back to positional numbering (1, 2, 3...).
+    if not args.db_flow:
+        print("Error: --db-flow is required for all BridgeV002 dispatch operations")
+        print("  Legacy INI-based dispatch has been removed.")
+        sys.exit(1)
+
+    # Determine handoff ID: explicit --id overrides; DB auto-incremented counter.
     if args.id:
         handoff_id = args.id
-    elif args.db_flow:
+    else:
         import config as _config
         handoff_id = f"{get_next_id_for_flow(args.db_flow, db_path=_config.get_db_path()):03d}"
-    else:
-        # No flow specified — use sequential placeholder (legacy INI path)
-        handoff_id = "001"
 
     if args.signal_send:
         # Signal-send path: initial handoff dispatch from review to target role
@@ -1330,53 +1201,18 @@ def main():
 
     if args.signal_complete:
         # Signal-complete path: role has finished its deliverable, dispatch to next role
-        # Accept --db-step (preferred) or fall back to --step for convenience
-        sc_step = args.db_step if args.db_step else args.step
         signal_complete(
             args.db_flow,
-            sc_step,
+            args.step_key,
             args.from_role,
             handoff_id,
             bridge_dir,
         )
         sys.exit(0)
 
-    if args.db_flow:
-        run_flow_step_db(args.db_flow, args.db_step, handoff_id, bridge_dir)
-        sys.exit(0)
-
-    if not (args.from_role and args.to_role):
-        print("Error: --from-role and --to-role are required for INI-based dispatch")
-        sys.exit(1)
-
-    if args.flow:
-        flow_config = load_flow_config(args.flow)
-        step_name = None
-        step_key = None
-
-        if args.step:
-            step_key = f"step:{args.step}"
-        else:
-            if "flow" in flow_config:
-                steps_str = flow_config["flow"].get("steps", "")
-                steps_list = [s.strip() for s in steps_str.split(",")]
-                if steps_list:
-                    step_name = steps_list[0]
-                    step_key = f"step:{step_name}"
-
-        if step_key and step_key in flow_config:
-            step_config = dict(flow_config[step_key])
-            step_config["id"] = handoff_id
-            run_flow_step(step_config, bridge_dir, handoff_id)
-        else:
-            print(f"Error: Step not found in flow '{args.flow}'")
-            sys.exit(1)
-
-    elif args.deliverable:
-        manual_dispatch(args.from_role, args.to_role, handoff_id, args.deliverable, bridge_dir)
-    else:
-        print("Error: Provide either --flow or --deliverable")
-        sys.exit(1)
+    # No signal flag but db-flow provided — run full flow step via DB dispatch
+    run_flow_step_db(args.db_flow, args.step_key, handoff_id, bridge_dir)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
