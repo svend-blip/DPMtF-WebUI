@@ -27,7 +27,7 @@ from bridge_lib import (
     resolve_convention_from_db,
     resolve_content_template_from_db,
     validate_deliverable_against_schema,
-    get_next_id,
+    get_next_id_for_flow,
     ensure_subdir,
     resolve_placeholders,
 )
@@ -519,6 +519,204 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     return True
 
 
+def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=None):
+    """Signal that a role has completed its deliverable for a flow step.
+
+    Replaces legacy bridge.py complete <ID>. DB-driven: loads the completed
+    step, resolves callback convention, builds prompt from content_template,
+    injects into next role's tmux session, and optionally chains to next step.
+
+    Golden rule sequential dispatch sequence (no-kill v2):
+      1. Load flow + steps from DB
+      2. Find current step (by step_key or by matching from_role)
+      3. Build payload from step + convention
+      4. Load to_role from DB -> get tmux_session
+      5. Check session_alive(to_role) -- fail if not running
+      6. Verify deliverable file exists (written by completing role)
+      7. Resolve content_template placeholders ({handoff_id}, {source_role}, ...)
+      8. Inject callback prompt into to_role's tmux session
+      9. Post-dispatch: stop from_role's Ollama model (VRAM cleanup)
+      10. Update symlink in deliverable_dir
+      11. Log completion event to trace.log
+      12. If auto_complete_enabled: chain to next step via run_flow_step_db()
+    """
+    import config as dpmtf_config
+
+    if bridge_dir is None:
+        bridge_dir = os.environ.get(
+            "DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path()
+        )
+
+    # Step 1: Load flow + steps from DB
+    try:
+        flow_data = load_flow_from_db(flow_key, db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading flow '{flow_key}' from database: {e}")
+        return False
+
+    steps = flow_data["steps"]
+    auto_complete_enabled = flow_data["flow"].get("auto_complete_enabled", 0)
+
+    # Step 2: Find current step (by step_key or by matching from_role)
+    current_step = None
+    if step_key:
+        for s in steps:
+            if s.get("step_key") == step_key:
+                current_step = s
+                break
+    elif from_role_key:
+        for s in steps:
+            if s.get("from_role") == from_role_key:
+                current_step = s
+                break
+
+    if not current_step:
+        lookup = step_key if step_key else from_role_key
+        print(f"Error: Step not found for '{lookup}' in flow '{flow_key}'")
+        return False
+
+    # Step 3: Build payload from step + convention
+    payload = build_step_payload(current_step, flow_key, handoff_id, bridge_dir)
+
+    # Step 4: Load to_role from DB
+    try:
+        to_role = load_role_from_db(payload["to_role"],
+                                    db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{payload['to_role']}' from database: {e}")
+        return False
+
+    rule_key = current_step.get("rule_key")
+
+    print(f"\nSignal Complete: {payload['from_role']} -> {payload['to_role']}")
+    print(f"  Flow: {flow_key}, Step: {payload['step_key']}")
+    print(f"  Deliverable: {payload['deliverable_file']}")
+
+    tmux_session = to_role["tmux_session"]
+
+    # Step 5: Check target session is alive
+    if not session_alive(tmux_session):
+        print(f"  ERROR: Target session '{tmux_session}' is not running")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "signal_complete_failed",
+            f"Target session '{tmux_session}' is not running",
+        )
+        return False
+
+    # Step 6: Verify deliverable file exists (written by completing role)
+    full_deliverable_path = os.path.join(bridge_dir,
+                                         payload["deliverable_dir"],
+                                         payload["deliverable_file"])
+    if not os.path.exists(full_deliverable_path):
+        print(f"  ERROR: Deliverable missing: {full_deliverable_path}")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "signal_complete_failed",
+            f"Deliverable missing: {full_deliverable_path}",
+        )
+        return False
+
+    # Ensure deliverable subdirectory exists (for symlink)
+    ensure_subdir(bridge_dir, payload["deliverable_dir"])
+
+    # Step 7: Build callback prompt from convention content_template
+    step_validation_required = current_step.get("validation_required", 0)
+    if step_validation_required and rule_key:
+        vresult = validate_deliverable_against_schema(
+            full_deliverable_path, rule_key,
+            db_path=dpmtf_config.get_db_path(),
+        )
+        if not vresult["valid"]:
+            print(f"  ERROR: Deliverable validation failed, missing sections: {vresult['missing']}")
+            log(
+                f"{payload['from_role']}->{payload['to_role']}",
+                handoff_id,
+                "signal_complete_failed",
+                f"Validation failed: missing {', '.join(vresult['missing'])}",
+            )
+            return False
+
+    # Compose prompt: use content_template with placeholder replacement
+    ctemplate = resolve_content_template_from_db(
+        rule_key, db_path=dpmtf_config.get_db_path()
+    ) if rule_key else ""
+
+    if ctemplate:
+        prompt_text = ctemplate.replace("{handoff_id}", payload["handoff_id"])
+        prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
+        prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
+        prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        # Also inject the actual deliverable file path so next role knows what to read
+        prompt_text += f"\n\n## Current Deliverable\nRead your input from: {full_deliverable_path}"
+    else:
+        prompt_text = (
+            f"Your previous role '{payload['from_role']}' has completed handoff "
+            f"#{payload['handoff_id']}.\n"
+            f"Read and proceed with: {full_deliverable_path}"
+        )
+
+    # Step 8: Inject callback prompt into to_role's tmux session
+    inject_prompt(tmux_session, prompt_text)
+    time.sleep(0.5)
+
+    # Step 9: Post-dispatch - stop from_role's Ollama model (VRAM cleanup)
+    try:
+        from_role_data = load_role_from_db(payload["from_role"],
+                                           db_path=dpmtf_config.get_db_path())
+        if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
+            unload_ollama_model(from_role_data["ollama_model"])
+    except ValueError:
+        pass  # from_role not in DB - not an ollama role, skip
+
+    # Step 10: Update symlink
+    deliverable_dir = payload["deliverable_dir"]
+    if os.path.isabs(deliverable_dir):
+        # For absolute paths, update symlink in the deepest subdirectory
+        link_dir = deliverable_dir
+    else:
+        link_dir = os.path.join(bridge_dir, deliverable_dir)
+
+    link_path = os.path.join(link_dir, "current.md")
+    try:
+        if os.path.islink(link_path) or os.path.exists(link_path):
+            os.unlink(link_path)
+    except FileNotFoundError:
+        pass
+    os.symlink(payload["deliverable_file"], link_path)
+
+    # Step 11: Log completion event
+    log(
+        f"{payload['from_role']}->{payload['to_role']}",
+        handoff_id,
+        "signal_complete",
+        f"Callback dispatched to {tmux_session} (DB-driven)",
+    )
+
+    print(f"  Callback injected into '{tmux_session}'")
+    print(f"  Symlink updated in {link_dir}")
+    print(f"  Logged signal_complete for handoff #{handoff_id}")
+
+    # Step 12: Auto-chain to next step if enabled
+    if auto_complete_enabled:
+        current_sort = current_step.get("sort_order", 0)
+        next_step = None
+        for s in steps:
+            if s.get("sort_order", 0) == current_sort + 1:
+                next_step = s
+                break
+        if next_step:
+            print(f"\n  Auto-chain enabled - dispatching next step: {next_step['step_key']}")
+            # Generate new ID for next step
+            import config as _config
+            next_id = f"{get_next_id_for_flow(flow_key, db_path=_config.get_db_path()):03d}"
+            run_flow_step_db(flow_key, next_step["step_key"], next_id, bridge_dir)
+
+    return True
+
+
 def run_flow_step(step_config, bridge_dir, handoff_id):
     """Execute a single flow step (defined in INI).
 
@@ -656,13 +854,37 @@ def main():
                         help="DB flow_key for database-driven dispatch")
     parser.add_argument("--db-step", default=None,
                         help="DB step_key within the flow (optional)")
+    parser.add_argument("--signal-complete", action="store_true",
+                        help="Signal role completion — dispatch callback to next role")
 
     args = parser.parse_args()
 
     bridge_config = load_bridge_config()
     bridge_dir = _bridge_dir()
 
-    handoff_id = args.id or f"{get_next_id(bridge_dir):03d}"
+    # Determine handoff ID: explicit --id overrides; DB-driven flow gets auto-incremented counter;
+    # legacy INI-based dispatch falls back to positional numbering (1, 2, 3...).
+    if args.id:
+        handoff_id = args.id
+    elif args.db_flow:
+        import config as _config
+        handoff_id = f"{get_next_id_for_flow(args.db_flow, db_path=_config.get_db_path()):03d}"
+    else:
+        # No flow specified — use sequential placeholder (legacy INI path)
+        handoff_id = "001"
+
+    if args.signal_complete:
+        # Signal-complete path: role has finished its deliverable, dispatch to next role
+        # Accept --db-step (preferred) or fall back to --step for convenience
+        sc_step = args.db_step if args.db_step else args.step
+        signal_complete(
+            args.db_flow,
+            sc_step,
+            args.from_role,
+            handoff_id,
+            bridge_dir,
+        )
+        sys.exit(0)
 
     if args.db_flow:
         run_flow_step_db(args.db_flow, args.db_step, handoff_id, bridge_dir)

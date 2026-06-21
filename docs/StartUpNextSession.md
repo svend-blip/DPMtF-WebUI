@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 123 (completed — flow management suite: start-coding, stop-tmux, attach-tmux + example DB export, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 134 (completed — H131 DB-driven callbacks + H132/H134 no-kill completion, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -93,6 +93,9 @@ Read these files in order to reconstruct full project state:
 | **Hardening H120** | 120 | BridgeV002 stop-tmux — POST /api/bridge-v2/flows/{flow_key}/stop-tmux endpoint; scripts/bridgeV002/stop_tmuxflow.py (kill all tmux sessions for a flow via `tmux kill-session -t`); frontend "Stop tmux" button (dpmtf-btn-danger) with confirm dialog. +130 lines. Commit `ae6d3db`. |
 | **Hardening H121** | 121 | BridgeV002 fix: start-tmux endpoint parsing bug — removed broken JSON-parsing of stdout response in start_tmux_for_flow endpoint (result.stdout contained "Done: N session(s) created" not JSON). +1 line cleanup. Commit `6b4179c`. |
 | **Hardening H123** | 123 | BridgeV002 attach-tmux — POST /api/bridge-v2/flows/{flow_key}/attach-tmux endpoint; scripts/bridgeV002/attach_tmux.py (open terminal tabs for each flow session); frontend "Attach tmux" button; auto-detect terminal (xfce4-terminal → gnome-terminal → x-terminal-emulator). DELETE flow bugfix: res.text() → error before JSON parse. +87 lines JS + new script. Commit `a2745f9`. |
+| **Hardening H131** | 131 | BridgeV002 DB-driven callbacks — 7 new columns across 4 tables (auto_complete_enabled, auto_chain_to_next, validation_required, restart_policy, content_template, validation_schema, rule_type), convention seeds for callback/handoff/verdict templates, resolve_content_template_from_db() + validate_deliverable_against_schema() in bridge_lib.py, PATCH /api/bridge-v2/conventions endpoint, Convention admin UI with textareas, auto_complete checkbox on Flow cards, auto_chain/validation checkboxes on Step forms. 7 DB columns, 6 files changed (~935 lines). Commit `916cfe1`. |
+| **Hardening H132** | 132 | BridgeV002 eliminate ALL tmux kill/start — remove kill-session from role_teardown.py, remove all tmux lifecycle from role_setup.py, delete kill_session()/start_session() functions and calls from dispatch.py, drop restart_policy column/labels/UI. Only ollama stop/pull remains. 5 files changed. |
+| **Hardening H134** | 134 | BridgeV002 eliminate remaining tmux kill/start from stop_tmuxflow.py + start_tmuxflow.py — replace stop_sessions() with session inspection + ollama unload, replace create_missing_sessions() with inspection + ollama preload. Zero tmux lifecycle calls remain in ALL bridgeV002 Python files. 2 files changed. |
 
 ### Human Final Verdict
 
@@ -127,7 +130,7 @@ and bridge mechanics:
 | 9 | **Tool-independent bridge** — bridge.py auto-detects OpenCode vs Claude Code and uses correct injection method (paste-buffer for OpenCode, send-keys for Claude Code). No tool-specific code paths in governance. | bridge.py (F5a) |
 | 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. Uses detached subprocess (start_new_session=True) to survive own death. NOTE: This applies to the legacy bridge only; BridgeV002 no-kill mode (Rule 12) does not kill sessions. | bridge.py (F5b, F5e, F5f) |
 | 11 | **Ollama reload before dispatch** — ollama model is stopped and restarted before each handoff dispatch to ensure fresh server-side context. Configured via DPMTF_OLLAMA_MODEL and DPMTF_OLLAMA_START_SCRIPT in .env. NOTE: This applies to the legacy bridge only; BridgeV002 no-kill mode uses post-dispatch offload instead. | bridge.py (F5c, F5d) |
-| 12 | **BridgeV002 no-kill dispatch** — BridgeV002 `run_flow_step_db()` must NOT call `kill_session()`, `start_session()`, or `reload_ollama_model()` in the dispatch path. Sessions are persistent; server-side context is cleared by post-dispatch `ollama stop` of the predecessor's model. Client-side state is cleared by `/clear` (Claude Code) or soft-clear preamble (OpenCode). Architect restores cross-cycle state via StartUpNextSession.md save-state mechanism (§5b.4). | ReuseMostParts.md §3, BridgeV002NoTmuxKill.md §2 |
+| 12 | **BridgeV002 no-kill dispatch** — BridgeV002 `run_flow_step_db()` must NOT call `kill_session()`, `start_session()`, or `reload_ollama_model()` in the dispatch path. ZERO tmux kill/new-session calls exist in ANY bridgeV002 Python file (H132+H134). Sessions are persistent; server-side context is cleared by post-dispatch `ollama stop` of the predecessor's model. Client-side state is cleared by `/clear` (Claude Code) or soft-clear preamble (OpenCode). Architect restores cross-cycle state via StartUpNextSession.md save-state mechanism (§5b.4). | ReuseMostParts.md §3, BridgeV002NoTmuxKill.md §2, H132+H134 commit `916cfe1` |
 
 ---
 
@@ -150,7 +153,8 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ✅ Komplet (`bb27ab3`) |
 | **Fase 6** | Database-oprydning & Struktur | eno.db fjernet, H99-backups ryddet, .gitignore `databases/*.db`, dpmtf.db untracked, BACKUP-STRATEGY.md | ✅ Komplet (`abab50d`) |
 | **Fase 7** | No-Kill Dispatch + Hard-delete | Session persistence, post-dispatch offload, hard-delete for steps+flows, start_tmuxflow.py | ✅ Komplet (H111-H118) |
-| **Fase 8** | Flow Management Suite | start-coding (execute start_cmd per role), stop-tmux (kill sessions), attach-tmux (open terminal tabs), i18n labels for all buttons, H121 parsing fix. Commits `6a8b6a7`, `ae6d3db`, `6b4179c`, `a2745f9`. |
+| **Fase 8** | Flow Management Suite | start-coding, stop-tmux, attach-tmux, i18n labels, H121 parsing fix. Commits `6a8b6a7`, `ae6d3db`, `6b4179c`, `a2745f9`. | ✅ Komplet |
+| **Fase 9** | No-Kill Complete + DB-driven Callbacks | Eliminate ALL tmux lifecycle (H132+H134), add DB content templates + validation schemas (H131), convention admin UI. Commits `916cfe1`. | ✅ Komplet |
 
 #### Fase 1: Konfiguration & Infrastructure
 
@@ -174,9 +178,10 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | # | Task | Detaljer |
 |---|------|----------|
 | 3.1 | Schema | `bridge_convention_rules` med rule_key, step_type, dir_template, pattern_template, error_template |
-| 3.2 | Seed data | "handoff", "callback", "verdict" templates |
-| 3.3 | API endpoints | GET/POST/PUT/DELETE `/api/bridge-v2/conventions` |
+| 3.2 | Seed data | "handoff", "callback", "verdict" templates + rule_type classifications |
+| 3.3 | API endpoints | GET/POST/PUT/DELETE `/api/bridge-v2/conventions` + PATCH/{rule_key} (H131) |
 | 3.4 | bridge_flow_steps ALTER | Erstat rå-strings med FK-reference: rule_key istedet for individuelle strings |
+| 3.5 | **NEW (H131)**: content_template + validation_schema columns for DB-driven template rendering |
 
 #### Fase 4: Steps CRUD (backend + frontend)
 
@@ -221,12 +226,14 @@ implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
 
 | Felt | Nuværende tilstand | Måltilstand |
 |------|-------------------|-------------|
-| `deliverable_dir` i steps | Hardcoded strings i init_db.py seed | Beregnet fra convention_rules templates ved runtime |
-| `deliverable_pattern` i steps | Hardcoded `{ID}-handoff.md` osv. | Template fra convention_rules |
-| `error_msg` i steps | Hardcoded med forkerte navne/referencer | Template: "Failed to deliver {step_type} to {to_role}." |
+| `deliverable_dir` i steps | Hardcoded strings i init_db.py seed | Beregnet fra convention_rules templates ved runtime ✅ H131 |
+| `deliverable_pattern` i steps | Hardcoded `{ID}-handoff.md` osv. | Template fra convention_rules ✅ H131 |
+| `error_msg` i steps | Hardcoded med forkerte navne/referencer | Template: "Failed to deliver {step_type} to {to_role}." ✅ H131 |
 | `pre_dispatch_script` | NULL alle steder, ingen registry | Dropdown-valg fra `bridge_scripts` tabel |
 | `post_dispatch_script` | NULL alle steder, ingen registry | Dropdown-valg fra `bridge_scripts` tabel |
-| `base_bridge_path` | Ingen konfiguration — implicit `/home/svend/claude-bridge/` | `[bridge] base_path` i dpmtf.ini + config.py getter |
+| `base_bridge_path` | Ingen konfiguration — implicit `/home/svend/claude-bridge/` | `[bridge] base_path` i dpmtf.ini + config.py getter ✅ H131 |
+| **Template content** | Hardcoded XML i legacy bridge.py (lines 424-470) | DB-driven via `content_template` column ✅ H131 |
+| **Validation schema** | None — deliverables unvalidated | JSON schema in DB via `validation_schema` column ✅ H131 |
 
 ### Key Principles (of Human)
 
@@ -234,6 +241,7 @@ implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
 2. **No hardcoded data** — everything configurable via frontend dropdowns and templates
 3. **Scripts receive parameters** — all 6 params (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern) sent to script at call time
 4. **Conventions first** — templates governed via `bridge_convention_rules`, not manually
+5. **No tmux lifecycle in scripts** — session creation/destruction only via REST endpoints ✅ H132+H134
 
 ---
 
@@ -298,8 +306,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 123 — attach-tmux endpoint + script + frontend button (COMPLETED)
-**Previous cycles completed:** H114 (post-dispatch-common refactoring), H115 (convention autofill guard + role reactivation upsert), H116 (GET is_active filter + DELETE row_factory), H117 (Step & Flow hard-delete consistency), H118 (tmux session auto-creation), H119 (start-coding), H120 (stop-tmux), H121 (parsing fix), H123 (attach-tmux)
+**Last cycle:** Handoff 134 — BridgeV002 eliminate remaining tmux kill/start from stop_tmuxflow.py + start_tmuxflow.py (COMPLETED)
+**Previous cycles completed:** H123 (attach-tmux), H131 (DB-driven callbacks), H132 (eliminate ALL tmux lifecycle), H134 (clean up flow scripts to zero tmux calls)
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
@@ -314,6 +322,9 @@ This is a process change, not a code change. The dispatch protocol already injec
 - [x] H120: stop_tmuxflow.py + POST /stop-tmux endpoint + frontend "Stop tmux" button — COMPLETED (`ae6d3db`)
 - [x] H121: start-tmux endpoint parsing bugfix — removed broken stdout JSON parsing — COMPLETED (`6b4179c`)
 - [x] H123: attach_tmux.py + POST /attach-tmux endpoint + frontend "Attach tmux" button + DELETE flow res.text() fix — COMPLETED (`a2745f9`)
+- [x] H131: DB-driven callback system — 7 columns across 4 tables, convention templates + validation_schema seeds, resolve_content_template_from_db(), PATCH endpoint, Convention admin UI — COMPLETED (`916cfe1`)
+- [x] H132: Eliminate ALL tmux kill/start from role_teardown.py, role_setup.py, dispatch.py — only ollama stop/pull remains — COMPLETED (`916cfe1`)
+- [x] H134: Fix stop_tmuxflow.py + start_tmuxflow.py to zero tmux lifecycle — replace stop_sessions with inspection+ollama unload, replace create_missing_sessions with inspection+ollama preload — COMPLETED (`916cfe1`)
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -381,7 +392,7 @@ This is a process change, not a code change. The dispatch protocol already injec
 - Ingen DB schema ændringer — bruger eksisterende bridge_roles.start_cmd kolonne
 
 **Key design decisions from H120:**
-- stop_tmuxflow.py: modsat af start_tmuxflow.py — itererer over alle active steps, lookupker from_role's tmux_session, kalder `tmux kill-session -t`
+- stop_tmuxflow.py: modsat af start_tmuxflow.py — itererer over alle active steps, lookupker from_role's tmux_session. EFTER H134: IKKE longer kalder `tmux kill-session` — kun session inspection + ollama unload
 - Silent failure på ikke-eksisterende sessions (kun log WARNING)
 - POST /stop-tmux endpoint med samme pattern som /start-tmux og /start-coding: subprocess.run 30s timeout
 - Frontend "Stop tmux" button (dpmtf-btn-danger) med confirm dialog ("Stop all tmux sessions for 'X'?")
@@ -401,6 +412,30 @@ This is a process change, not a code change. The dispatch protocol already injec
 - Frontend "Attach tmux" button (dpmtf-btn-info) — ingen confirm dialog (non-destructive action)
 - DELETE flow bugfix: added `if (!res.ok) return res.text().then(function(txt) { throw new Error(txt); })` før res.json() — forhindrer JSON parse error på HTTP error responses (samme princip som H115's delete step fix)
 - Ingen DB schema ændringer — bruger eksisterende bridge_roles.tmux_session kolonne
+
+**Key design decisions from H131:**
+- 7 ADD COLUMN migrations across 4 tables — all with DEFAULT values, zero data deletion
+- restart_policy column added but later dropped in H132 (meaningless without session lifecycle)
+- Convention templates stored in content_template column (TEXT), validation_schema as JSON array
+- resolve_content_template_from_db() replaces hardcoded XML template strings
+- validate_deliverable_against_schema() reads required tags from DB, validates file content
+- PATCH /api/bridge-v2/conventions/{rule_key} enables inline editing via UI textareas
+- Convention admin section added to Setup panel between Roles and Export
+
+**Key design decisions from H132:**
+- role_teardown.py: removed tmux kill-session, kept only ollama stop for VRAM cleanup
+- role_setup.py: removed ALL tmux lifecycle (kill + new-session), kept only ollama pull
+- dispatch.py: deleted kill_session() and start_session() functions entirely (~50 lines)
+- Legacy run_flow_step() and manual_dispatch() paths use session_alive() instead of kill/start
+- restart_policy column dropped from init_db.py, seed labels removed (LBL-1000290-LBL-1000294)
+- bridgeV002 no-kill policy: only ollama stop/pull permitted as lifecycle operations
+
+**Key design decisions from H134:**
+- stop_tmuxflow.py: replaced stop_sessions() with list_flow_sessions() + unload_ollama_models()
+- start_tmuxflow.py: replaced create_missing_sessions() with get_active_flow_roles() + preload_ollama_models()
+- Both scripts now return inspection-only output — report sessions needed, preload models only
+- Session creation/destruction delegated to /api/bridge-v2/start-tmux and stop-tmux endpoints
+- zero executable tmux lifecycle calls remain in ALL bridgeV002 Python files
 
 --- END CYCLE SNAPSHOT ---
 
@@ -452,10 +487,10 @@ DPMtF-WebUI/
 ├── static/js/dpmtf-app.js          ← 14 BridgeV002 funktioner (~537 linjer)
 ├── templates/index.html            ← Bridge Setup panel med Roles/Flows sektioner
 ├── scripts/bridgeV002/
-│   ├── bridge_lib.py               ← INI + DB lookup functions
-│   ├── dispatch.py                 ← Dispatcher (currently INI-based)
-│   ├── role_setup.py               ← Start session med korrekt model/tool
-│   └── role_teardown.py            ← Kill session + unload model + fri VRAM
+│   ├── bridge_lib.py               ← INI + DB lookup functions, content template resolver, deliverable validator
+│   ├── dispatch.py                 ← DB-driven dispatch (run_flow_step_db), legacy INI paths preserved as dead code
+│   ├── role_setup.py               ← Preload Ollama model (no tmux)
+│   └── role_teardown.py            ← Unload Ollama model + fri VRAM (no tmux kill)
 ├── scripts/init_db.py              ← Schema + seed data + i18n labels
 └── databases/
     └── dpmtf.db                    ← bridge_roles, bridge_flows, bridge_flow_steps
@@ -463,11 +498,11 @@ DPMtF-WebUI/
 
 ### Database Schema (3 tabeller)
 
-**bridge_roles** (12 cols): `role_key`, `tmux_session`, `start_cmd`, `model_type`, `cloud_model`, `ollama_model`, `setup_script`, `teardown_script`, `deliver_error_msg`, `is_active`, `created_at`, `updated_at`
+**bridge_roles** (13 cols): `role_key`, `tmux_session`, `start_cmd`, `model_type`, `cloud_model`, `ollama_model`, `setup_script`, `teardown_script`, `deliver_error_msg`, `is_active`, `created_at`, `updated_at`, `restart_policy`
 
-**bridge_flows** (8 cols): `flow_key`, `name`, `description`, `step_order`, `is_default`, `is_active`, `created_at`, `updated_at`
+**bridge_flows** (9 cols): `flow_key`, `name`, `description`, `step_order`, `is_default`, `is_active`, `created_at`, `updated_at`, `auto_complete_enabled`
 
-**bridge_flow_steps** (13 cols): `id`, `flow_key`, `step_key`, `from_role`, `to_role`, `deliverable_dir`, `deliverable_pattern`, `pre_dispatch_script`, `post_dispatch_script`, `error_msg`, `sort_order`, `is_active`
+**bridge_flow_steps** (16 cols): `id`, `flow_key`, `step_key`, `from_role`, `to_role`, `deliverable_dir`, `deliverable_pattern`, `pre_dispatch_script`, `post_dispatch_script`, `error_msg`, `sort_order`, `is_active`, `auto_chain_to_next`, `validation_required`, `rule_key`
 
 ### Problemer Identificeret under Test — Hardening Krav
 
