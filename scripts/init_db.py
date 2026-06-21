@@ -4323,6 +4323,8 @@ _bridge_setup_slots = [
     ("lbl_bridge_rename_invalid", "Error: rename invalid"),
     ("lbl_bridge_renamed", "Success message: renamed"),
     ("lbl_bridge_edit_role", "Full edit role form heading"),
+    ("lbl_bridge_start_tmux", "Start tmux button for flow"),
+    ("lbl_bridge_starting", "Label shown while starting tmux"),
 ]
 for slot_key, description in _bridge_setup_slots:
     cursor.execute("""
@@ -4390,6 +4392,8 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_rename_invalid", "lbl_bridge_rename_invalid"),
     ("lbl_bridge_renamed", "lbl_bridge_renamed"),
     ("lbl_bridge_edit_role", "lbl_bridge_edit_role"),
+    ("lbl_bridge_start_tmux", "lbl_bridge_start_tmux"),
+    ("lbl_bridge_starting", "lbl_bridge_starting"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""

@@ -4653,6 +4653,38 @@ async def bridge_v2_delete_flow(flow_key: str):
     return {"status": "deleted", "flow_key": flow_key}
 
 
+@app.post("/api/bridge-v2/flows/{flow_key}/start-tmux")
+async def bridge_v2_start_tmux_for_flow(flow_key: str):
+    """Start tmux sessions for all active from_roles in a BridgeV002 flow."""
+    try:
+        import subprocess
+        import os
+
+        script_path = os.path.join(
+            os.environ.get("DPMTF_PROJECT_ROOT", config.get_project_root()),
+            "scripts", "bridgeV002", "start_tmuxflow.py"
+        )
+
+        result = subprocess.run(
+            ["python3", script_path, flow_key],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode == 0:
+            return {
+                "status": "ok",
+                "message": result.stdout.strip() or f"All sessions exist for '{flow_key}'",
+                "created": max(0, int(result.stdout.strip().split(": ")[1].split("(")[0]) if ": " in result.stdout else 0) if ":" in result.stdout and "Done:" in result.stdout else 0,
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.stderr.strip())
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="start_tmuxflow timed out after 30s")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/bridge-v2/export")
 async def bridge_v2_export(request: Request):
     """Export BridgeV002 configuration as JSON for backup/restoration."""

@@ -1702,8 +1702,30 @@ function renderFlowCard(flow, steps) {
   delBtn.onclick = function () { deleteBridgeFlow(flow.flow_key); };
   actions.appendChild(delBtn);
 
+  // --- START TMUX button (new for BridgeV002) ---
+  var startTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-success");
+  startTmuxBtn.textContent = lbl("lbl_bridge_start_tmux", "Start tmux");
+  startTmuxBtn.onclick = function () { startTmuxForFlow(flow.flow_key); };
+  actions.appendChild(startTmuxBtn);
+
   card.appendChild(actions);
   return card;
+}
+
+// ---- START TMUX FOR FLOW (BridgeV002) ----
+function startTmuxForFlow(flowKey) {
+  fetch("/api/bridge-v2/flows/" + flowKey + "/start-tmux", { method: "POST" })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.status === "ok") {
+        alert("✅ " + data.message);
+      } else {
+        alert("❌ Error: " + (data.detail || "Unknown error"));
+      }
+    })
+    .catch(function(err) {
+      alert("Network error: " + err.message);
+    });
 }
 
 function addBridgeRole() {
