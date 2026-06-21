@@ -1714,6 +1714,12 @@ function renderFlowCard(flow, steps) {
   startCodingBtn.onclick = function () { startCodingForFlow(flow.flow_key); };
   actions.appendChild(startCodingBtn);
 
+  // --- STOP TMUX button (new for BridgeV002) ---
+  var stopTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  stopTmuxBtn.textContent = lbl("lbl_bridge_stop_tmux", "Stop tmux");
+  stopTmuxBtn.onclick = function () { stopTmuxForFlow(flow.flow_key); };
+  actions.appendChild(stopTmuxBtn);
+
   card.appendChild(actions);
   return card;
 }
@@ -1737,6 +1743,23 @@ function startTmuxForFlow(flowKey) {
 // ---- START CODING FOR FLOW (BridgeV002) ----
 function startCodingForFlow(flowKey) {
   fetch("/api/bridge-v2/flows/" + flowKey + "/start-coding", { method: "POST" })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.status === "ok") {
+        alert("✅ " + data.message);
+      } else {
+        alert("❌ Error: " + (data.detail || "Unknown error"));
+      }
+    })
+    .catch(function(err) {
+      alert("Network error: " + err.message);
+    });
+}
+
+// ---- STOP TMUX FOR FLOW (BridgeV002) ----
+function stopTmuxForFlow(flowKey) {
+  if (!confirm("Stop all tmux sessions for '" + flowKey + "'?")) return;
+  fetch("/api/bridge-v2/flows/" + flowKey + "/stop-tmux", { method: "POST" })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.status === "ok") {

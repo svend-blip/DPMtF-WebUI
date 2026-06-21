@@ -4716,6 +4716,37 @@ async def bridge_v2_start_coding_for_flow(flow_key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/bridge-v2/flows/{flow_key}/stop-tmux")
+async def bridge_v2_stop_tmux_for_flow(flow_key: str):
+    """Stop all tmux sessions for a BridgeV002 flow via stop_tmuxflow.py."""
+    try:
+        import subprocess
+        import os
+
+        script_path = os.path.join(
+            os.environ.get("DPMTF_PROJECT_ROOT", config.get_project_root()),
+            "scripts", "bridgeV002", "stop_tmuxflow.py"
+        )
+
+        result = subprocess.run(
+            ["python3", script_path, flow_key],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode == 0:
+            return {
+                "status": "ok",
+                "message": result.stdout.strip() or f"No sessions for '{flow_key}'",
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.stderr.strip())
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="stop_tmuxflow timed out after 30s")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/bridge-v2/export")
 async def bridge_v2_export(request: Request):
     """Export BridgeV002 configuration as JSON for backup/restoration."""
