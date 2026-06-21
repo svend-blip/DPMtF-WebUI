@@ -4558,6 +4558,18 @@ async def bridge_v2_delete_role(role_key: str):
     return {"status": "deleted", "role_key": role_key}
 
 
+@app.get("/api/bridge-v2/governance-files")
+async def bridge_v2_list_governance_files():
+    """List all .md files in the governance-templates-v2 directory (disk-read)."""
+    gov_dir = config.get_governance_dir_abs()
+    if not gov_dir or not os.path.isdir(gov_dir):
+        return {"files": []}
+    files = sorted(
+        f for f in os.listdir(gov_dir) if f.lower().endswith(".md")
+    )
+    return {"files": files}
+
+
 @app.post("/api/bridge-v2/flows")
 async def bridge_v2_create_flow(request: Request):
     """Create a new BridgeV002 flow definition with optional steps."""
