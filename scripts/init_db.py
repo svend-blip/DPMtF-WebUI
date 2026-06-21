@@ -4130,6 +4130,10 @@ _bridge_setup_labels = [
     ("LBL-1000280", "lbl_bridge_script_pre", "main", "Pre-Dispatch Script", "Pre-dispatch script dropdown"),
     ("LBL-1000281", "lbl_bridge_script_post", "main", "Post-Dispatch Script", "Post-dispatch script dropdown"),
     ("LBL-1000282", "lbl_bridge_auto_filled", "main", "(auto-filled)", "Indicator: field auto-filled from convention"),
+    ("LBL-1000283", "lbl_bridge_rename", "main", "Rename", "Rename button"),
+    ("LBL-1000284", "lbl_bridge_rename_invalid", "main", "No change made", "Error: renamed role key is same as original"),
+    ("LBL-1000285", "lbl_bridge_renamed", "main", "Successfully renamed", "Success message: renamed"),
+    ("LBL-1000286", "lbl_bridge_edit_role", "main", "Edit Role", "Full edit role form heading"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -4249,6 +4253,14 @@ _bridge_setup_translations = [
     ("LBL-1000281", "da-DK", "Efter-script"),
     ("LBL-1000282", "en-US", "(auto-filled)"),
     ("LBL-1000282", "da-DK", "(auto-udfyldt)"),
+    ("LBL-1000283", "en-US", "Rename"),
+    ("LBL-1000283", "da-DK", "Omdøb"),
+    ("LBL-1000284", "en-US", "No change made"),
+    ("LBL-1000284", "da-DK", "Ingen ændring foretaget"),
+    ("LBL-1000285", "en-US", "Successfully renamed"),
+    ("LBL-1000285", "da-DK", "Omdøbet succesfuldt"),
+    ("LBL-1000286", "en-US", "Edit Role"),
+    ("LBL-1000286", "da-DK", "Rediger rolle"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""
@@ -4307,6 +4319,10 @@ _bridge_setup_slots = [
     ("lbl_bridge_cloud_option", "Cloud option label"),
     ("lbl_bridge_no_roles", "Empty state: no roles"),
     ("lbl_bridge_no_flows", "Empty state: no flows"),
+    ("lbl_bridge_rename", "Rename button"),
+    ("lbl_bridge_rename_invalid", "Error: rename invalid"),
+    ("lbl_bridge_renamed", "Success message: renamed"),
+    ("lbl_bridge_edit_role", "Full edit role form heading"),
 ]
 for slot_key, description in _bridge_setup_slots:
     cursor.execute("""
@@ -4370,6 +4386,10 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_script_pre", "lbl_bridge_script_pre"),
     ("lbl_bridge_script_post", "lbl_bridge_script_post"),
     ("lbl_bridge_auto_filled", "lbl_bridge_auto_filled"),
+    ("lbl_bridge_rename", "lbl_bridge_rename"),
+    ("lbl_bridge_rename_invalid", "lbl_bridge_rename_invalid"),
+    ("lbl_bridge_renamed", "lbl_bridge_renamed"),
+    ("lbl_bridge_edit_role", "lbl_bridge_edit_role"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""

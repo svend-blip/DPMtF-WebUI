@@ -1579,15 +1579,23 @@ function renderRoleCard(role) {
     card.appendChild(row);
   });
 
-  // Action buttons: Edit and Delete
+  // Action buttons: Rename, Edit and Delete
   var actions = el("div", null);
   actions.style.marginTop = "8px";
 
+  // Rename button (was the old "Edit")
+  var renameBtn = el("button", "dpmtf-btn");
+  renameBtn.textContent = lbl("lbl_bridge_rename", "Rename");
+  renameBtn.onclick = function () { renameBridgeRole(role.role_key); };
+  actions.appendChild(renameBtn);
+
+  // Edit button (new full edit)
   var editBtn = el("button", "dpmtf-btn");
   editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
-  editBtn.onclick = function () { editBridgeRole(role.role_key); };
+  editBtn.onclick = function () { editBridgeRoleFull(role.role_key); };
   actions.appendChild(editBtn);
 
+  // Delete button (unchanged)
   var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
   delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
   delBtn.onclick = function () { deleteBridgeRole(role.role_key); };
@@ -1891,31 +1899,167 @@ function deleteBridgeFlow(flowKey) {
     });
 }
 
-function editBridgeRole(roleKey) {
+function renameBridgeRole(oldRoleKey) {
+  var newKey = prompt(lbl("lbl_bridge_rename", "Rename") + " (" + escapeHtml(oldRoleKey) + "):");
+  if (newKey === null) return;
+  newKey = newKey.trim();
+  if (!newKey || newKey === oldRoleKey) {
+    alert(lbl("lbl_status_error_prefix", "Error: ") + lbl("lbl_bridge_rename_invalid", "No change made"));
+    return;
+  }
+
+  fetch("/api/bridge-v2/roles/" + encodeURIComponent(oldRoleKey) + "/rename", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_role_key: newKey })
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (data.dependents && data.dependents > 0) {
+        var msg = lbl("lbl_bridge_renamed", "Successfully renamed") + ": " + oldRoleKey + " → " + escapeHtml(newKey);
+        msg += "\n\n" + escapeHtml(String(data.dependents)) + " flow step(s) reference this role.";
+        alert(msg);
+      } else {
+        alert(lbl("lbl_bridge_renamed", "Successfully renamed") + ": " + oldRoleKey + " → " + escapeHtml(newKey));
+      }
+      loadBridgeRoles();
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function editBridgeRoleFull(roleKey) {
   fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey))
     .then(function (res) { return res.json(); })
     .then(function (data) {
       var role = data.role;
-      var newSession = prompt(lbl("lbl_bridge_tmux_session", "Tmux Session") + ":", role.tmux_session);
-      if (newSession === null) return;
 
-      var body = {};
-      if (newSession !== role.tmux_session) body.tmux_session = newSession;
-      if (!Object.keys(body).length) return;
+      var existing = document.getElementById("bridge-role-edit-form");
+      if (existing) { existing.remove(); }
 
-      fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      })
-        .then(function (res) { return res.json(); })
-        .then(function () {
-          alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + roleKey);
-          loadBridgeRoles();
+      var form = el("div", "dpmtf-card");
+      form.id = "bridge-role-edit-form";
+
+      var cancelBtn = el("button", "dpmtf-btn");
+      cancelBtn.textContent = lbl("lbl_bridge_cancel", "Cancel");
+      cancelBtn.onclick = function () { form.remove(); };
+
+      var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      saveBtn.textContent = lbl("lbl_bridge_save", "Save");
+      saveBtn.onclick = function () {
+        var body = {};
+
+        var ts = document.getElementById("bridge-edit-input-tmux_session").value.trim();
+        if (!ts) { alert(lbl("lbl_bridge_tmux_session", "Tmux Session") + " is required."); return; }
+        body.tmux_session = ts;
+
+        var sc = document.getElementById("bridge-edit-input-start_cmd").value;
+        if (sc) body.start_cmd = sc;
+
+        var mt = document.getElementById("bridge-edit-input-model_type");
+        if (mt && mt.value) body.model_type = mt.value;
+
+        var cm = document.getElementById("bridge-edit-input-cloud_model");
+        if (cm) body.cloud_model = cm.value.trim();
+
+        var om = document.getElementById("bridge-edit-input-ollama_model");
+        if (om) body.ollama_model = om.value.trim();
+
+        fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
         })
-        .catch(function (err) {
-          alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-        });
+          .then(function (res) { return res.json(); })
+          .then(function () {
+            alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + escapeHtml(roleKey));
+            loadBridgeRoles();
+          })
+          .catch(function (err) {
+            alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+          });
+      };
+
+      form.appendChild(el("h4", null, lbl("lbl_bridge_edit_role", "Edit Role") + ": " + escapeHtml(roleKey)));
+      form.appendChild(cancelBtn);
+      form.appendChild(saveBtn);
+      form.style.display = "flex";
+      form.style.flexDirection = "column";
+      form.style.gap = "8px";
+
+      // role_key (readonly)
+      var rkDiv = el("div", "dpmtf-form-group");
+      rkDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_role_key", "Role Key") + " " + el("span", "dpmtf-badge dpmtf-badge-danger", "(locked)")));
+      var rkInput = el("input", null);
+      rkInput.id = "bridge-edit-input-role_key";
+      rkInput.type = "text";
+      rkInput.value = role.role_key;
+      rkInput.disabled = true;
+      rkInput.style.background = "#161b22";
+      rkInput.style.color = "#8b949e";
+      rkDiv.appendChild(rkInput);
+      form.appendChild(rkDiv);
+
+      // tmux_session
+      var tsDiv = el("div", "dpmtf-form-group");
+      tsDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_tmux_session", "Tmux Session")));
+      var tsInput = el("input", null);
+      tsInput.id = "bridge-edit-input-tmux_session";
+      tsInput.type = "text";
+      tsInput.value = role.tmux_session || "";
+      tsDiv.appendChild(tsInput);
+      form.appendChild(tsDiv);
+
+      // start_cmd
+      var scDiv = el("div", "dpmtf-form-group");
+      scDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_start_cmd", "Start Command")));
+      var scInput = el("input", null);
+      scInput.id = "bridge-edit-input-start_cmd";
+      scInput.type = "text";
+      scInput.value = role.start_cmd || "";
+      scDiv.appendChild(scInput);
+      form.appendChild(scDiv);
+
+      // model_type select
+      var mtDiv = el("div", "dpmtf-form-group");
+      mtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_model_type", "Model Type")));
+      var mtSelect = el("select", null);
+      mtSelect.id = "bridge-edit-input-model_type";
+      [["ollama", lbl("lbl_bridge_ollama_option", "Ollama")], ["cloud", lbl("lbl_bridge_cloud_option", "Cloud")]].forEach(function (pair) {
+        var opt = document.createElement("option");
+        opt.value = pair[0];
+        opt.textContent = pair[1];
+        if (role.model_type === pair[0]) opt.selected = true;
+        mtSelect.appendChild(opt);
+      });
+      mtDiv.appendChild(mtSelect);
+      form.appendChild(mtDiv);
+
+      // cloud_model
+      var cmDiv = el("div", "dpmtf-form-group");
+      cmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_cloud_model", "Cloud Model")));
+      var cmInput = el("input", null);
+      cmInput.id = "bridge-edit-input-cloud_model";
+      cmInput.type = "text";
+      cmInput.value = role.cloud_model || "";
+      cmDiv.appendChild(cmInput);
+      form.appendChild(cmDiv);
+
+      // ollama_model
+      var omDiv = el("div", "dpmtf-form-group");
+      omDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_ollama_model", "Ollama Model")));
+      var omInput = el("input", null);
+      omInput.id = "bridge-edit-input-ollama_model";
+      omInput.type = "text";
+      omInput.value = role.ollama_model || "";
+      omDiv.appendChild(omInput);
+      form.appendChild(omDiv);
+
+      var container = document.getElementById("bridge-roles-list-container");
+      if (container) {
+        container.insertBefore(form, container.firstChild);
+      }
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
