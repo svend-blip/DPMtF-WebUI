@@ -3997,6 +3997,9 @@ cursor.executemany(
         ("callback", "Callback",
          "implementertoreview", "{ID}-callback.md",
          "Failed to deliver callback to {to_role}."),
+        ("escalation", "Escalation",
+         "escalations", "{ID}-{from_role}-question.md",
+         "Failed to escalate question to architect."),
         ("verdict", "Verdict",
          "implementertoreview", "{ID}-review-verdict.md",
          "Failed to deliver verdict. Present to Human manually."),
@@ -4248,6 +4251,41 @@ cursor.execute(
        SET validation_schema = ?
        WHERE rule_key = 'verdict_feedback' AND validation_schema IS NULL""",
     ('["<role>", "<task>", "<feedback>"]',),
+)
+
+# H137: Escalation convention — review → architect escalation prompts
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'escalation' AND content_template IS NULL""",
+    (
+        "<handoff>\n"
+        "<role>{next_role}</role>\n"
+        "<task>A review role has escalated a question. Review the deliverable and provide your architect guidance.\n\n"
+        "## Escalation Details\n"
+        "Handoff ID: {handoff_id}\n"
+        "Source Role: {source_role}\n\n"
+        "## Required Sections\n"
+        "- <role>: The target role for this response\n"
+        "- <decision>: Your architect decision\n"
+        "- <reasoning>: Why this decision\n"
+        "- <action>: What the review should do next</task>\n"
+        "<notification>The escalation from {source_role} (ID: {handoff_id}) requires your architect input.</notification>\n"
+        "</handoff>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'escalation' AND validation_schema IS NULL""",
+    ('["<role>", "<decision>", "<reasoning>", "<action>"]',),
+)
+
+# H137: Set rule_type for escalation convention
+cursor.execute(
+    "UPDATE bridge_convention_rules SET rule_type = ? WHERE rule_key = ?",
+    ("escalation_content", "escalation"),
 )
 
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────

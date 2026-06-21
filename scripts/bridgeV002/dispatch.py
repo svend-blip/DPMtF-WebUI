@@ -717,6 +717,254 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     return True
 
 
+def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=None):
+    """Signal that a review role has escalated a question to architect.
+
+    Replaces legacy cmd_ask_architect(). DB-driven: resolves both roles,
+    builds escalation prompt from convention content_template, injects into
+    architect's tmux session, and cleans up VRAM.
+
+    Golden rule sequential dispatch sequence (no-kill v2):
+      1. Load from_role + to_role from DB
+      2. Check target session is alive
+      3. Verify escalation question file exists (written by review)
+      4. Resolve escalation convention content_template
+      5. Build prompt with placeholder replacement
+      6. Inject prompt into architect's tmux session
+      7. Post-dispatch: stop from_role's Ollama model (VRAM cleanup)
+      8. Update symlink in escalation directory
+      9. Log escalation event to trace.log
+    """
+    import config as dpmtf_config
+
+    if bridge_dir is None:
+        bridge_dir = os.environ.get(
+            "DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path()
+        )
+
+    # Step 1: Load both roles from DB
+    try:
+        from_role_data = load_role_from_db(from_role_key,
+                                           db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{from_role_key}' from database: {e}")
+        return False
+
+    try:
+        to_role_data = load_role_from_db(to_role_key,
+                                         db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{to_role_key}' from database: {e}")
+        return False
+
+    tmux_session = to_role_data["tmux_session"]
+
+    print(f"\nSignal Escalation: {from_role_key} -> {to_role_key}")
+    print(f"  Flow: {flow_key}")
+
+    # Step 2: Check target session is alive
+    if not session_alive(tmux_session):
+        print(f"  ERROR: Target session '{tmux_session}' is not running")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "escalation_failed",
+            f"Target session '{tmux_session}' is not running",
+        )
+        return False
+
+    # Step 3: Verify escalation question file exists (written by review)
+    # The question file lives in the bridge dir under an escalation subdirectory
+    esc_dir = os.path.join(bridge_dir, "escalations")
+    question_file = f"{handoff_id}-{from_role_key}-question.md"
+    full_question_path = os.path.join(esc_dir, question_file)
+
+    if not os.path.exists(full_question_path):
+        print(f"  ERROR: Escalation question file missing: {full_question_path}")
+        print(f"  Review must write its question before signaling escalation")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "escalation_failed",
+            f"Question file missing: {full_question_path}",
+        )
+        return False
+
+    # Ensure escalation subdirectory exists (for symlink)
+    ensure_subdir_from_base(bridge_dir, "escalations")
+
+    # Step 4: Resolve escalation convention content_template
+    ctemplate = resolve_content_template_from_db(
+        "escalation", db_path=dpmtf_config.get_db_path()
+    ) or ""
+
+    # Step 5: Build prompt with placeholder replacement
+    if ctemplate:
+        prompt_text = ctemplate.replace("{handoff_id}", handoff_id)
+        prompt_text = prompt_text.replace("{source_role}", from_role_key)
+        prompt_text = prompt_text.replace("{next_role}", to_role_key)
+        prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        # Inject the actual question file path so architect knows what to read
+        prompt_text += f"\n\n## Escalation Question File\nRead the escalation question from: {full_question_path}"
+    else:
+        prompt_text = (
+            f"The role '{from_role_key}' has escalated a question for handoff "
+            f"#{handoff_id}.\n"
+            f"Please review and respond. Read the question from: {full_question_path}"
+        )
+
+    # Step 6: Inject prompt into architect's tmux session
+    inject_prompt(tmux_session, prompt_text)
+    time.sleep(0.5)
+
+    # Step 7: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
+    try:
+        if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
+            unload_ollama_model(from_role_data["ollama_model"])
+    except Exception:
+        pass  # Not an ollama role or model already stopped
+
+    # Step 8: Update symlink in escalation directory
+    link_path = os.path.join(esc_dir, "current.md")
+    try:
+        if os.path.islink(link_path) or os.path.exists(link_path):
+            os.unlink(link_path)
+    except FileNotFoundError:
+        pass
+    os.symlink(question_file, link_path)
+
+    # Step 9: Log escalation event
+    log(
+        f"{from_role_key}->{to_role_key}",
+        handoff_id,
+        "escalation_asked",
+        f"Escalation dispatched to {tmux_session} (DB-driven)",
+    )
+
+    print(f"  Escalation prompt injected into '{tmux_session}'")
+    print(f"  Symlink updated in {esc_dir}")
+    print(f"  Logged escalation_asked for handoff #{handoff_id}")
+
+    return True
+
+
+def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=None):
+    """Signal that architect has answered an escalation question.
+
+    Replaces legacy cmd_answer_review(). Sends response back to the review
+    role that originated the escalation. No auto-chain — review continues work.
+
+    Golden rule sequential dispatch sequence (no-kill v2):
+      1. Load from_role + to_role from DB
+      2. Check target session is alive
+      3. Build prompt from escalation convention content_template
+      4. Inject prompt into review's tmux session
+      5. Post-dispatch: stop from_role's Ollama model (VRAM cleanup)
+      6. Update symlink in answer directory
+      7. Log answer event to trace.log
+    """
+    import config as dpmtf_config
+
+    if bridge_dir is None:
+        bridge_dir = os.environ.get(
+            "DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path()
+        )
+
+    # Step 1: Load both roles from DB
+    try:
+        from_role_data = load_role_from_db(from_role_key,
+                                           db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{from_role_key}' from database: {e}")
+        return False
+
+    try:
+        to_role_data = load_role_from_db(to_role_key,
+                                         db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading role '{to_role_key}' from database: {e}")
+        return False
+
+    tmux_session = to_role_data["tmux_session"]
+
+    print(f"\nSignal Answer: {from_role_key} -> {to_role_key}")
+    print(f"  Flow: {flow_key}")
+
+    # Step 2: Check target session is alive
+    if not session_alive(tmux_session):
+        print(f"  ERROR: Target session '{tmux_session}' is not running")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "answer_failed",
+            f"Target session '{tmux_session}' is not running",
+        )
+        return False
+
+    # Step 3: Build prompt from escalation convention content_template
+    # (same convention as signal_escalation — architect answer uses same structure)
+    ctemplate = resolve_content_template_from_db(
+        "escalation", db_path=dpmtf_config.get_db_path()
+    ) or ""
+
+    # Check for optional architect response file
+    ans_dir = os.path.join(bridge_dir, "escalations")
+    response_file = f"{handoff_id}-{from_role_key}-response.md"
+    full_response_path = os.path.join(ans_dir, response_file)
+
+    if ctemplate:
+        prompt_text = ctemplate.replace("{handoff_id}", handoff_id)
+        prompt_text = prompt_text.replace("{source_role}", from_role_key)
+        prompt_text = prompt_text.replace("{next_role}", to_role_key)
+        prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+    else:
+        prompt_text = (
+            f"The role '{from_role_key}' has provided an escalation response "
+            f"for handoff #{handoff_id}.\n"
+            f"Please review the architect's decision and proceed."
+        )
+
+    # If architect wrote a response file, include it in the prompt
+    if os.path.exists(full_response_path):
+        prompt_text += f"\n\n## Architect Response File\nRead the architect's response from: {full_response_path}"
+    else:
+        prompt_text += f"\n\n## Note\nNo separate response file found. The architect may have provided inline guidance."
+
+    # Step 4: Inject prompt into review's tmux session
+    inject_prompt(tmux_session, prompt_text)
+    time.sleep(0.5)
+
+    # Step 5: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
+    try:
+        if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
+            unload_ollama_model(from_role_data["ollama_model"])
+    except Exception:
+        pass  # Not an ollama role or model already stopped
+
+    # Step 6: Update symlink in answer directory
+    link_path = os.path.join(ans_dir, "current_answer.md")
+    if os.path.exists(full_response_path):
+        try:
+            if os.path.islink(link_path) or os.path.exists(link_path):
+                os.unlink(link_path)
+        except FileNotFoundError:
+            pass
+        os.symlink(response_file, link_path)
+
+    # Step 7: Log answer event
+    log(
+        f"{from_role_key}->{to_role_key}",
+        handoff_id,
+        "escalation_answered",
+        f"Answer dispatched to {tmux_session} (DB-driven)",
+    )
+
+    print(f"  Answer prompt injected into '{tmux_session}'")
+    print(f"  Logged escalation_answered for handoff #{handoff_id}")
+
+    return True
+
+
 def run_flow_step(step_config, bridge_dir, handoff_id):
     """Execute a single flow step (defined in INI).
 
@@ -856,6 +1104,10 @@ def main():
                         help="DB step_key within the flow (optional)")
     parser.add_argument("--signal-complete", action="store_true",
                         help="Signal role completion — dispatch callback to next role")
+    parser.add_argument("--signal-escalation", action="store_true",
+                        help="Signal review escalation to architect")
+    parser.add_argument("--signal-answer", action="store_true",
+                        help="Signal architect answer back to review")
 
     args = parser.parse_args()
 
@@ -872,6 +1124,34 @@ def main():
     else:
         # No flow specified — use sequential placeholder (legacy INI path)
         handoff_id = "001"
+
+    if args.signal_escalation:
+        # Signal-escalation path: review escalates question to architect
+        if not args.to_role:
+            print("Error: --to-role is required for --signal-escalation")
+            sys.exit(1)
+        signal_escalation(
+            args.db_flow,
+            args.from_role,
+            args.to_role,
+            handoff_id,
+            bridge_dir,
+        )
+        sys.exit(0)
+
+    if args.signal_answer:
+        # Signal-answer path: architect responds back to review
+        if not args.to_role:
+            print("Error: --to-role is required for --signal-answer")
+            sys.exit(1)
+        signal_answer(
+            args.db_flow,
+            args.from_role,
+            args.to_role,
+            handoff_id,
+            bridge_dir,
+        )
+        sys.exit(0)
 
     if args.signal_complete:
         # Signal-complete path: role has finished its deliverable, dispatch to next role
