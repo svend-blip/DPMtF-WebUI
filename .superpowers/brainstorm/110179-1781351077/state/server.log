@@ -1,0 +1,8 @@
+{"type":"server-started","port":52918,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:52918","screen_dir":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content","state_dir":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/state"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content/overview.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content/v3-gaps.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content/eno6-approaches.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content/prompt-design.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content/prompt-design-v2.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/110179-1781351077/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

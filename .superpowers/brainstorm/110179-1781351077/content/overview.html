@@ -1,0 +1,44 @@
+<h2>Brainstorm: 2O + ENO-6</h2>
+<p class="subtitle">To parallelle design-opgaver under DPMtF governance</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">2O — Parallel-kørsel test (DPMtF-WebUI)</div>
+    <div class="mockup-body">
+      <p><strong>Hvad:</strong> Sidste fase i Blok 6. Sammenlign prompt-eksekvering på cloud (deepseek-v4-pro:cloud) vs lokal (qwen36-27b-q4km).</p>
+      <p><strong>Eksisterende infrastruktur:</strong> prompt_templates, prompt_runs, workflow_runs, template_model_hitrates</p>
+      <p><strong>Mål:</strong> Baseline performance-data til model selection decision tree</p>
+      <p><strong>Metrics:</strong> Success, duration, tokens, cost, output quality</p>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">ENO-6 — Næste funktionelle fase (ENO)</div>
+    <div class="mockup-body">
+      <p><strong>Hvad:</strong> ENO's kerne er complete — evaluation, nightrun, i18n, panel groups. Hvad er næste skridt?</p>
+      <p><strong>Mulige retninger:</strong> Sammenlignings-visualiseringer, historiske trends, integration med DPMtF prompt compiler, auto-re-evaluering</p>
+      <p><strong>Relation til 2O:</strong> Kunne ENO være consumer af 2O's sammenlignings-data?</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Første spørgsmål</h3>
+  <p>Skal vi designe disse <strong>sammen</strong> (2O producerer data som ENO-6 konsumerer) eller <strong>hver for sig</strong> (uafhængige designs)?</p>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="together" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Sammen — integreret design</h3>
+      <p>2O bygger sammenlignings-infrastruktur i DPMtF-WebUI. ENO-6 bygger visualisering der consumer 2O's data via API. Ét sammenhængende system.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="separate" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Hver for sig — uafhængige designs</h3>
+      <p>2O designes som DPMtF-WebUI feature. ENO-6 designes som ENO's egen næste fase — kan være noget helt andet end sammenligning.</p>
+    </div>
+  </div>
+</div>

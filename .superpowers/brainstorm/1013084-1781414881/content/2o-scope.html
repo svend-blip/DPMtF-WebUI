@@ -1,0 +1,30 @@
+<h2>2O: Hvad skal bygges?</h2>
+<p class="subtitle">Vi har allerede bridge + 6 prompts. Hvad mangler for at 2O er "færdig"?</p>
+
+<div class="options">
+  <div class="option" data-choice="lightweight" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Lightweight — Formaliser processen</h3>
+      <p>2O = dokumentation + 3-5 parallel-kørsler med eksisterende værktøjer. Cloud model kører prompt → samme prompt sendes via bridge til lokal model → resultater sammenlignes manuelt → data registreres i prompt_runs. Ingen ny kode i DPMtF-WebUI.</p>
+      <p><strong>Output:</strong> Baseline-data i prompt_runs + opdateret model decision tree.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="dashboard" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Dashboard — Comparison panel i DPMtF-WebUI</h3>
+      <p>Nyt "Model Comparison" panel i System Setup drawer. Viser side-by-side resultater for cloud vs lokal på samme prompt. Ny comparison_runs tabel. Automatisk farvekodning (grøn=cloud bedre, blå=lokal bedre, grå=ens).</p>
+      <p><strong>Output:</strong> Frontend-panel + API + database + baseline-data.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Data nu, panel senere</h3>
+      <p>Fase 2O-a: Kør 3-5 parallel-kørsler nu med bridge'en. Registrér struktureret i prompt_runs med comparison metadata. Opdatér model decision tree.</p>
+      <p>Fase 2O-b: Byg comparison panel baseret på erfaringerne fra 2O-a.</p>
+      <p><strong>Output:</strong> Baseline-data først, panel derefter.</p>
+    </div>
+  </div>
+</div>

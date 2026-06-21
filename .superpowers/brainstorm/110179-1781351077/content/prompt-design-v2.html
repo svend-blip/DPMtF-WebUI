@@ -1,0 +1,50 @@
+<h2>Prompt-struktur: Alignment-test for lokal model</h2>
+<p class="subtitle">Template der refererer governance-regler og giver lokal model præcis kontekst</p>
+
+<div class="section">
+  <h3>Prompt Template — 6 sektioner</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px; color:#e6edf3;">
+    <p><code style="color:#ff7b72;">&lt;role&gt;</code><span style="color:#e6edf3;"> Du er Implementer i DPMtF governance rollen.</span><code style="color:#ff7b72;">&lt;/role&gt;</code></p>
+    <p><code style="color:#ff7b72;">&lt;project&gt;</code><span style="color:#e6edf3;"> {target_project_path}</span><code style="color:#ff7b72;">&lt;/project&gt;</code></p>
+    <p><code style="color:#ff7b72;">&lt;governance&gt;</code></p>
+    <p style="margin-left:16px;color:#e6edf3;">Læs og anvend disse governance filer FØR du starter:</p>
+    <p style="margin-left:16px;color:#e6edf3;">- {governance_file_1}</p>
+    <p style="margin-left:16px;color:#e6edf3;">- {governance_file_2}</p>
+    <p style="margin-left:16px;color:#e6edf3;">Nøgleregler der SKAL overholdes:</p>
+    <p style="margin-left:16px;color:#e6edf3;">- {key_rule_1}</p>
+    <p style="margin-left:16px;color:#e6edf3;">- {key_rule_2}</p>
+    <p><code style="color:#ff7b72;">&lt;/governance&gt;</code></p>
+    <p><code style="color:#ff7b72;">&lt;task&gt;</code><span style="color:#e6edf3;"> {concrete_task_description}</span><code style="color:#ff7b72;">&lt;/task&gt;</code></p>
+    <p><code style="color:#ff7b72;">&lt;scope&gt;</code></p>
+    <p style="margin-left:16px;color:#e6edf3;">Filer du MÅ modificere: {allowed_files}</p>
+    <p style="margin-left:16px;color:#e6edf3;">Filer du IKKE må røre: {forbidden_files}</p>
+    <p><code style="color:#ff7b72;">&lt;/scope&gt;</code></p>
+    <p><code style="color:#ff7b72;">&lt;validation&gt;</code><span style="color:#e6edf3;"> {validation_checks}</span><code style="color:#ff7b72;">&lt;/validation&gt;</code></p>
+    <p><code style="color:#ff7b72;">&lt;constraint&gt;</code><span style="color:#e6edf3;"> COMMIT IKKE. Stop efter implementation. Jeg reviewer diff'en før commit.</span><code style="color:#ff7b72;">&lt;/constraint&gt;</code></p>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Første prompt: v3 Governance Doc Alignment</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3;">
+      <tr><td style="padding:8px;color:#8b949e;">Opgave</td><td style="padding:8px;color:#e6edf3;">Opdatér 02_SCOPE.md (fase 3C-3 → 3C-14) og 00_PROJECT.md (Current Commit, Current Status)</td></tr>
+      <tr><td style="padding:8px;color:#8b949e;">Størrelse</td><td style="padding:8px;color:#e6edf3;">Medium-lav. 2 filer, dokumentation-only, veldefineret ændring.</td></tr>
+      <tr><td style="padding:8px;color:#8b949e;">Governance refs</td><td style="padding:8px;color:#e6edf3;">superpowers.md (Father-Child sync), alignmentstructure.md (Regel 5: audit)</td></tr>
+      <tr><td style="padding:8px;color:#8b949e;">Risiko</td><td style="padding:8px;color:#3fb950;">Lav — kun .md filer, ingen kode.</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Pipeline efter baseline</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3;">
+      <tr style="border-bottom:1px solid #30363d;"><th style="padding:8px;text-align:left;color:#8b949e;">#</th><th style="padding:8px;text-align:left;color:#8b949e;">Opgave</th><th style="padding:8px;text-align:left;color:#8b949e;">Sværhed</th><th style="padding:8px;text-align:left;color:#8b949e;">Filer</th></tr>
+      <tr><td style="padding:8px;color:#e6edf3;">1</td><td style="padding:8px;color:#e6edf3;">Governance doc alignment</td><td style="padding:8px;color:#d29922;">Medium-lav</td><td style="padding:8px;color:#8b949e;">2 .md filer</td></tr>
+      <tr><td style="padding:8px;color:#e6edf3;">2</td><td style="padding:8px;color:#e6edf3;">Tilføj lbl() helper til v3</td><td style="padding:8px;color:#d29922;">Medium</td><td style="padding:8px;color:#8b949e;">1 JS fil</td></tr>
+      <tr><td style="padding:8px;color:#e6edf3;">3</td><td style="padding:8px;color:#e6edf3;">Panel groups til v3</td><td style="padding:8px;color:#ff7b72;">Medium-høj</td><td style="padding:8px;color:#8b949e;">DB+JS+CSS+HTML</td></tr>
+      <tr><td style="padding:8px;color:#e6edf3;">4</td><td style="padding:8px;color:#e6edf3;">README.md v3-specifik</td><td style="padding:8px;color:#3fb950;">Lav</td><td style="padding:8px;color:#8b949e;">1 .md fil</td></tr>
+    </table>
+  </div>
+</div>

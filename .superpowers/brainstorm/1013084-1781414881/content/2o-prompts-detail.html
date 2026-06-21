@@ -1,0 +1,58 @@
+<h2>2O Design — De 3 parallel-kørsler</h2>
+<p class="subtitle">Konkrete prompts til sammenligning cloud vs lokal</p>
+
+<div class="section">
+  <h3>Run #1: Genbrug — README.md (lav sværhed)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <p style="color:#e6edf3;"><strong>Prompt:</strong> Prompt #4 fra ENO-6 (README.md v3-specifik)</p>
+    <p style="color:#8b949e;">Lokal model har allerede kørt denne — first-try success. Cloud model kører samme prompt nu. Direkte sammenligning: gjorde cloud det bedre, dårligere, eller ens?</p>
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3; margin-top:8px;">
+      <tr><td style="padding:4px;color:#8b949e;">Sværhed</td><td style="padding:4px;color:#3fb950;">Lav</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Filer</td><td style="padding:4px;">1 .md</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Lokal resultat</td><td style="padding:4px;color:#3fb950;">✅ First-try (kendt)</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Cloud resultat</td><td style="padding:4px;color:#d29922;">? — køres nu</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Run #2: Ny — Footer med build-info (medium sværhed)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <p style="color:#e6edf3;"><strong>Ny prompt:</strong> Tilføj en footer til v3's index.html der viser:</p>
+    <ul style="color:#e6edf3;">
+      <li>Build timestamp (fra git log)</li>
+      <li>Port nummer (9123)</li>
+      <li>Projektnavn</li>
+    </ul>
+    <p style="color:#8b949e;">Kræver: HTML ændring + JS ændring (fetch git info) + CSS styling. 3 filer.</p>
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3; margin-top:8px;">
+      <tr><td style="padding:4px;color:#8b949e;">Sværhed</td><td style="padding:4px;color:#d29922;">Medium</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Filer</td><td style="padding:4px;">HTML + JS + CSS (3)</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Begge modeller</td><td style="padding:4px;color:#3fb950;">Frisk — ingen har set den før</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Run #3: Ny — CHANGELOG opdatering (medium-lav sværhed)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <p style="color:#e6edf3;"><strong>Ny prompt:</strong> Opdatér v3's CHANGELOG med entries for de seneste commits (bridge tests, CSS dark theme, panel groups).</p>
+    <p style="color:#8b949e;">Kræver: Læs git log, skriv struktureret CHANGELOG entries. 1 .md fil.</p>
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3; margin-top:8px;">
+      <tr><td style="padding:4px;color:#8b949e;">Sværhed</td><td style="padding:4px;color:#d29922;">Medium-lav</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Filer</td><td style="padding:4px;">1 .md</td></tr>
+      <tr><td style="padding:4px;color:#8b949e;">Begge modeller</td><td style="padding:4px;color:#3fb950;">Frisk — ingen har set den før</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Rækkefølge</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px; color:#e6edf3;">
+    <p><strong>1.</strong> Cloud kører prompt → registrer i prompt_runs</p>
+    <p><strong>2.</strong> Send via bridge til lokal → lokal kører → cloud reviewer</p>
+    <p><strong>3.</strong> Registrer lokal resultat i prompt_runs</p>
+    <p><strong>4.</strong> Skriv comparison summary til docs/superpowers/comparisons/</p>
+    <p><strong>5.</strong> Gentag for næste run</p>
+  </div>
+</div>

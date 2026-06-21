@@ -4130,6 +4130,7 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
         raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
 
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     cursor.execute(
@@ -4189,6 +4190,7 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     row = cursor.execute(

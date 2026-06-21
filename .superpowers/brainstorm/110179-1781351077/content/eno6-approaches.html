@@ -1,0 +1,32 @@
+<h2>ENO-6: Tre tilgange til prompt-generering og alignment-test</h2>
+<p class="subtitle">Fælles for alle: Jeg genererer prompts → lokal model eksekverer (uden commit) → jeg reviewer → vi lærer</p>
+
+<div class="options">
+  <div class="option" data-choice="lightweight" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Lightweight — Process-fokuseret</h3>
+      <p><strong>ENO ændringer:</strong> Ingen ny kode. Bruger eksisterende prompt_runs tabel til at registrere resultater.</p>
+      <p><strong>Workflow:</strong> Jeg genererer prompt → du sender til lokal Claude Code session → lokal model eksekverer → jeg reviewer diff → du committer hvis OK → vi registrerer i prompt_runs → governance templates forbedres.</p>
+      <p><strong>Fordel:</strong> Starter nu. Ingen udviklingstid. Læring med det samme.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="tracker" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Tracker — ENO får alignment-dashboard</h3>
+      <p><strong>ENO ændringer:</strong> Ny "Alignment Test" panel i ENO. Viser per-projekt alignment status, genererede prompts, og lokal-model resultater. Ny `alignment_tests` tabel.</p>
+      <p><strong>Workflow:</strong> Som A, men med struktureret tracking i ENO's frontend. Dashboard viser hvilke gaps der er lukket, hvilke der mangler, og success-rate per opgavetype.</p>
+      <p><strong>Fordel:</strong> Systematisk overblik. Data-drevet forbedring af både prompts og governance templates.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="hybrid" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Hybrid — Start lightweight, byg tracker incrementalt</h3>
+      <p><strong>Fase 1 (nu):</strong> Lightweight proces på 2-3 prompts. Lær hvad der virker. Få baseline data.</p>
+      <p><strong>Fase 2 (efter baseline):</strong> Byg alignment-dashboard i ENO baseret på erfaringerne fra fase 1.</p>
+      <p><strong>Fordel:</strong> Vi bygger ikke features før vi ved hvad vi har brug for. Undgår over-engineering.</p>
+    </div>
+  </div>
+</div>

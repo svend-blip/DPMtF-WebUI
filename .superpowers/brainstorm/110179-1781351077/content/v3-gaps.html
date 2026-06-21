@@ -1,0 +1,32 @@
+<h2>v3 Alignment-gaps: AI PC Resource WebUI v3 ↔ DPMtF-WebUI</h2>
+<p class="subtitle">Systematisk gennemgang af v3 mod globale governance-regler fra superpowers.md</p>
+
+<div class="section">
+  <h3>✅ Allerede aligned (ingen ændring nødvendig)</h3>
+  <table style="width:100%; border-collapse: collapse;">
+    <tr style="background:#1a3a1a"><td style="padding:8px"><strong>innerHTML</strong></td><td style="padding:8px">0 forekomster — perfekt compliance</td></tr>
+    <tr style="background:#1a3a1a"><td style="padding:8px"><strong>4-lags i18n arkitektur</strong></td><td style="padding:8px">ui_text_slots → ui_text_slot_labels → ui_labels → ui_label_translations. API traverserer alle 4 lag korrekt.</td></tr>
+    <tr style="background:#1a3a1a"><td style="padding:8px"><strong>/api/labels endpoint</strong></td><td style="padding:8px">Returnerer {slot_key: text} — samme flow som DPMtF og ENO</td></tr>
+    <tr style="background:#1a3a1a"><td style="padding:8px"><strong>10_CHANGELOG.md</strong></td><td style="padding:8px">Indeholder v3's egen historik (3C-7 til 3C-14) — korrekt</td></tr>
+    <tr style="background:#1a3a1a"><td style="padding:8px"><strong>11_NEXT_CONTEXT.md</strong></td><td style="padding:8px">Opdateret til 3C-14 — afspejler faktisk status</td></tr>
+    <tr style="background:#1a3a1a"><td style="padding:8px"><strong>Dark theme CSS</strong></td><td style="padding:8px">Allerede aligned med DPMtF/ENO</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>⚠️ Mangler alignment (kandidater til prompts)</h3>
+  <table style="width:100%; border-collapse: collapse;">
+    <tr style="background:#3a2a1a"><td style="padding:8px"><strong>1. 02_SCOPE.md</strong></td><td style="padding:8px">Viser fase <strong>3C-3</strong> — faktisk fase er <strong>3C-14</strong>. Stale.</td></tr>
+    <tr style="background:#3a2a1a"><td style="padding:8px"><strong>2. 00_PROJECT.md</strong></td><td style="padding:8px">Current Commit: 934a578 (stale, HEAD er 2a23a34). Current Status: "Initial skeleton" (stale).</td></tr>
+    <tr style="background:#3a2a1a"><td style="padding:8px"><strong>3. lbl() helper</strong></td><td style="padding:8px">v3 bruger <code>labelMap["key"] || "fallback"</code> — ikke <code>lbl(key, fallback)</code> funktionen. Funktionelt ækvivalent men andet API.</td></tr>
+    <tr style="background:#3a2a1a"><td style="padding:8px"><strong>4. Panel groups</strong></td><td style="padding:8px">Ingen panel-group containers, collapse/expand, eller user_panel_groups tabel.</td></tr>
+    <tr style="background:#3a2a1a"><td style="padding:8px"><strong>5. Governance tabeller</strong></td><td style="padding:8px">Ingen DPMtF governance tabeller (prompt_runs, validation_*, git_*, etc.). Kan være bevidst — v3 er reference-projekt.</td></tr>
+    <tr style="background:#3a2a1a"><td style="padding:8px"><strong>6. README.md</strong></td><td style="padding:8px">Generisk governance template index — ikke v3-specifik.</td></tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>🎯 ENO-6: Prompt-generering til lokal model alignment-test</h3>
+  <p>Brugerens vision: Jeg (cloud model) genererer små, målrettede prompts. Disse sendes til lokal Ollama model (qwen36-27b-q4km) i en anden Claude Code session. v3 er test-projektet.</p>
+  <p><strong>Mål:</strong> (1) Erfaring til forbedring af governance templates. (2) Forstå lokal models kapabilitets-grænser.</p>
+</div>

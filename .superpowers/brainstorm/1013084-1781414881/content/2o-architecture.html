@@ -1,0 +1,57 @@
+<h2>2O Design — Arkitektur</h2>
+<p class="subtitle">Hybrid: Fase 2O-a (data nu) + Fase 2O-b (panel senere)</p>
+
+<div class="section">
+  <h3>Fase 2O-a: Parallel-kørsler (nu)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <p style="color:#e6edf3;"><strong>Workflow per comparison run:</strong></p>
+    <ol style="color:#e6edf3;">
+      <li>Cloud model (denne session) eksekverer prompt → resultat registreres i prompt_runs</li>
+      <li>Samme prompt sendes via tmux bridge til lokal model (review_claude)</li>
+      <li>Lokal model eksekverer → skriver result.md → cloud reviewer</li>
+      <li>Cloud model registrerer lokal models resultat i prompt_runs</li>
+      <li>Sammenligning: success, duration, tokens, cost, output quality → noter i prompt_runs</li>
+    </ol>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3 prompts (blandet)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3;">
+      <tr style="border-bottom:1px solid #30363d;"><th style="padding:8px;text-align:left;color:#8b949e;">#</th><th style="padding:8px;text-align:left;color:#8b949e;">Type</th><th style="padding:8px;text-align:left;color:#8b949e;">Opgave</th><th style="padding:8px;text-align:left;color:#8b949e;">Sværhed</th></tr>
+      <tr><td style="padding:8px;">1</td><td style="padding:8px;color:#d29922;">Genbrug</td><td style="padding:8px;">Prompt #4: README.md v3-specifik</td><td style="padding:8px;color:#3fb950;">Lav</td></tr>
+      <tr><td style="padding:8px;">2</td><td style="padding:8px;color:#3fb950;">Ny</td><td style="padding:8px;">Tilføj ny feature til v3 (f.eks. footer med build-info)</td><td style="padding:8px;color:#d29922;">Medium</td></tr>
+      <tr><td style="padding:8px;">3</td><td style="padding:8px;color:#3fb950;">Ny</td><td style="padding:8px;">Governance doc opdatering i v3 (f.eks. CHANGELOG)</td><td style="padding:8px;color:#d29922;">Medium-lav</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Sammenlignings-metrikker</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3;">
+      <tr style="border-bottom:1px solid #30363d;"><th style="padding:8px;text-align:left;color:#8b949e;">Metrik</th><th style="padding:8px;text-align:left;color:#8b949e;">Cloud</th><th style="padding:8px;text-align:left;color:#8b949e;">Lokal</th><th style="padding:8px;text-align:left;color:#8b949e;">Vinder</th></tr>
+      <tr><td style="padding:8px;">Success</td><td style="padding:8px;">?/3</td><td style="padding:8px;">?/3</td><td style="padding:8px;">?</td></tr>
+      <tr><td style="padding:8px;">Duration (est.)</td><td style="padding:8px;">? sek</td><td style="padding:8px;">? sek</td><td style="padding:8px;">?</td></tr>
+      <tr><td style="padding:8px;">Tokens (est.)</td><td style="padding:8px;">?</td><td style="padding:8px;">?</td><td style="padding:8px;">?</td></tr>
+      <tr><td style="padding:8px;">Cost (est.)</td><td style="padding:8px;">? EUR</td><td style="padding:8px;">0 EUR (lokal)</td><td style="padding:8px;">Lokal</td></tr>
+      <tr><td style="padding:8px;">Output quality</td><td style="padding:8px;">?/5</td><td style="padding:8px;">?/5</td><td style="padding:8px;">?</td></tr>
+      <tr><td style="padding:8px;">Governance compliance</td><td style="padding:8px;">?%</td><td style="padding:8px;">?%</td><td style="padding:8px;">?</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Fase 2O-b: Comparison panel (senere)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px; color:#8b949e;">
+    <p>Efter 2O-a data er indsamlet:</p>
+    <ul>
+      <li>Ny <code>comparison_runs</code> tabel — grupperer cloud+lokal runs</li>
+      <li>GET /api/comparison-runs endpoint</li>
+      <li>Frontend panel i System Setup — side-by-side visning</li>
+      <li>Opdatér model decision tree i superpowers.md med empirisk data</li>
+    </ul>
+    <p><em>Designes separat efter 2O-a.</em></p>
+  </div>
+</div>

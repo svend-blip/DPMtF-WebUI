@@ -1,0 +1,8 @@
+{"type":"server-started","port":58845,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58845","screen_dir":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content","state_dir":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/state"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content/2o-scope.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content/2o-prompts.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content/2o-architecture.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content/2o-data.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content/2o-prompts-detail.html"}
+{"type":"screen-added","file":"/home/svend/DPMtF-WebUI/.superpowers/brainstorm/1013084-1781414881/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

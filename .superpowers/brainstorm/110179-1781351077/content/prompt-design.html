@@ -1,0 +1,61 @@
+<h2>Prompt-struktur: Alignment-test for lokal model</h2>
+<p class="subtitle">Template der refererer governance-regler og giver lokal model præcis kontekst</p>
+
+<div class="mockup">
+  <div class="mockup-header">Prompt Template — Struktur</div>
+  <div class="mockup-body">
+    <pre style="font-size:13px;line-height:1.5;background:#0d1117;padding:16px;border-radius:6px;">
+&lt;role&gt;Du er Implementer i DPMtF governance rollen.&lt;/role&gt;
+
+&lt;project&gt;{target_project_path}&lt;/project&gt;
+
+&lt;governance&gt;
+Læs og anvend disse governance filer FØR du starter:
+- {governance_file_1}
+- {governance_file_2}
+Nøgleregler der SKAL overholdes:
+- {key_rule_1}
+- {key_rule_2}
+&lt;/governance&gt;
+
+&lt;task&gt;
+{concrete_task_description}
+&lt;/task&gt;
+
+&lt;scope&gt;
+Filer du MÅ modificere:
+- {allowed_file_1}
+- {allowed_file_2}
+Filer du IKKE må røre:
+- {forbidden_file_1}
+&lt;/scope&gt;
+
+&lt;validation&gt;
+Før du melder færdig, verificér:
+1. {validation_check_1}
+2. {validation_check_2}
+&lt;/validation&gt;
+
+&lt;constraint&gt;
+COMMIT IKKE. Stop efter implementation.
+Jeg reviewer diff'en før commit.
+&lt;/constraint&gt;</pre>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Første prompt: v3 Governance Doc Alignment</h3>
+  <p><strong>Opgave:</strong> Opdatér v3's 02_SCOPE.md (fase 3C-3 → 3C-14) og 00_PROJECT.md (Current Commit, Current Status).</p>
+  <p><strong>Størrelse:</strong> Medium-lav. 2 filer, dokumentation-only, veldefineret ændring.</p>
+  <p><strong>Governance filer der refereres:</strong> superpowers.md (Father-Child governance sync), alignmentstructure.md (Regel 5: audit)</p>
+  <p><strong>Risiko:</strong> Lav — kun .md filer, ingen kode.</p>
+</div>
+
+<div class="section">
+  <h3>Næste prompts i pipeline (efter baseline)</h3>
+  <table style="width:100%; border-collapse: collapse;">
+    <tr><td style="padding:8px"><strong>#2</strong></td><td style="padding:8px">Tilføj lbl() helper til v3</td><td style="padding:8px">Medium</td><td style="padding:8px">JS ændring</td></tr>
+    <tr><td style="padding:8px"><strong>#3</strong></td><td style="padding:8px">Panel groups til v3</td><td style="padding:8px">Medium-høj</td><td style="padding:8px">DB+JS+CSS+HTML</td></tr>
+    <tr><td style="padding:8px"><strong>#4</strong></td><td style="padding:8px">README.md v3-specifik</td><td style="padding:8px">Lav</td><td style="padding:8px">Kun .md</td></tr>
+  </table>
+</div>

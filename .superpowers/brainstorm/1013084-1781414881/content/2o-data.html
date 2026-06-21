@@ -1,0 +1,50 @@
+<h2>2O Design — Data-model & Recording</h2>
+<p class="subtitle">Hvordan parallel-kørsler registreres og sammenlignes</p>
+
+<div class="section">
+  <h3>Prompt_runs struktur per comparison</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <p style="color:#e6edf3;">Hver parallel-kørsel producerer <strong>2 prompt_runs records</strong> — én for cloud, én for lokal — med en fælles <code>comparison_id</code> i notes-feltet:</p>
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3; margin-top:12px;">
+      <tr style="border-bottom:1px solid #30363d;"><th style="padding:8px;text-align:left;color:#8b949e;">Felt</th><th style="padding:8px;text-align:left;color:#8b949e;">Cloud record</th><th style="padding:8px;text-align:left;color:#8b949e;">Lokal record</th></tr>
+      <tr><td style="padding:8px;">run_id</td><td style="padding:8px;">PRUN-2O-0001-CLOUD</td><td style="padding:8px;">PRUN-2O-0001-LOCAL</td></tr>
+      <tr><td style="padding:8px;">phase_key</td><td style="padding:8px;">2O</td><td style="padding:8px;">2O</td></tr>
+      <tr><td style="padding:8px;">model_used</td><td style="padding:8px;">deepseek-v4-pro:cloud</td><td style="padding:8px;">qwen36-27b-q4km:latest</td></tr>
+      <tr><td style="padding:8px;">model_type</td><td style="padding:8px;">cloud</td><td style="padding:8px;">local</td></tr>
+      <tr><td style="padding:8px;">template_key</td><td style="padding:8px;">(samme)</td><td style="padding:8px;">(samme)</td></tr>
+      <tr><td style="padding:8px;">execution_status</td><td style="padding:8px;">completed/partial/failed</td><td style="padding:8px;">completed/partial/failed</td></tr>
+      <tr><td style="padding:8px;">first_try_success</td><td style="padding:8px;">yes/no/partial</td><td style="padding:8px;">yes/no/partial</td></tr>
+      <tr><td style="padding:8px;">validation_passed</td><td style="padding:8px;">yes/no/partial</td><td style="padding:8px;">yes/no/partial</td></tr>
+      <tr><td style="padding:8px;">duration_seconds</td><td style="padding:8px;">(estimeret)</td><td style="padding:8px;">(estimeret)</td></tr>
+      <tr><td style="padding:8px;">notes</td><td style="padding:8px;color:#58a6ff;">comparison_id: CMP-0001<br>role: cloud<br>output_quality: 5/5<br>governance_compliance: 100%</td><td style="padding:8px;color:#58a6ff;">comparison_id: CMP-0001<br>role: local<br>output_quality: ?/5<br>governance_compliance: ?%</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Comparison summary (skrives til governance)</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px;">
+    <p style="color:#e6edf3;">Efter hver parallel-kørsel skrives en comparison-summary til:</p>
+    <p style="color:#58a6ff;">docs/superpowers/comparisons/2026-06-14-cmp-0001.md</p>
+    <table style="width:100%; border-collapse: collapse; color:#e6edf3; margin-top:12px;">
+      <tr style="border-bottom:1px solid #30363d;"><th style="padding:8px;text-align:left;color:#8b949e;">Metrik</th><th style="padding:8px;text-align:left;color:#8b949e;">Cloud</th><th style="padding:8px;text-align:left;color:#8b949e;">Lokal</th><th style="padding:8px;text-align:left;color:#8b949e;">Delta</th></tr>
+      <tr><td style="padding:8px;">Success</td><td style="padding:8px;">✅/❌</td><td style="padding:8px;">✅/❌</td><td style="padding:8px;">—</td></tr>
+      <tr><td style="padding:8px;">Duration</td><td style="padding:8px;">X sek</td><td style="padding:8px;">Y sek</td><td style="padding:8px;">±Z sek</td></tr>
+      <tr><td style="padding:8px;">Output quality</td><td style="padding:8px;">X/5</td><td style="padding:8px;">Y/5</td><td style="padding:8px;">±N</td></tr>
+      <tr><td style="padding:8px;">Gov compliance</td><td style="padding:8px;">X%</td><td style="padding:8px;">Y%</td><td style="padding:8px;">±N%</td></tr>
+      <tr><td style="padding:8px;">Cost</td><td style="padding:8px;">~X EUR</td><td style="padding:8px;">0 EUR</td><td style="padding:8px;">—</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Output: Model decision tree update</h3>
+  <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:16px; color:#e6edf3;">
+    <p>Efter alle 3 parallel-kørsler, opdatér <code>superpowers.md</code> Model Selection Decision Tree:</p>
+    <ul>
+      <li>Tilføj empirisk data: "Lokal model (qwen36-27b-q4km): X/Y first-try success på tværs af Z opgavetyper"</li>
+      <li>Tilføj anbefaling: "Ved opgaver ≤ medium-høj kompleksitet: lokal model sufficient. Ved kompleks arkitektur/design: cloud."</li>
+      <li>Opdatér template_model_hitrates for begge modeller</li>
+    </ul>
+  </div>
+</div>

@@ -1,0 +1,31 @@
+<h2>2O: Hvilke prompts til parallel-kørsel?</h2>
+<p class="subtitle">Vi har brug for opgaver begge modeller kan køre — så vi får sammenlignelige data</p>
+
+<div class="options">
+  <div class="option" data-choice="reuse" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Genbrug v3 alignment prompts</h3>
+      <p>Kør Prompt #1, #2, #4 (docs, lbl, README) på begge modeller. Lokal model har allerede kørt dem — vi har data. Cloud model kører samme prompts og vi sammenligner: success, duration, tokens, cost, kvalitet.</p>
+      <p><strong>Fordel:</strong> Direkte sammenlignelig — samme opgave, forskellig model.</p>
+      <p><strong>Ulempe:</strong> Cloud model har set prompts før (bias).</p>
+    </div>
+  </div>
+  <div class="option" data-choice="new" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Nye opgaver — friske for begge</h3>
+      <p>Design 3 nye prompts som ingen af modellerne har set. F.eks: tilføj en ny lille feature til v3, opdatér governance doc, fix en bug. Begge modeller kører samme prompt fra scratch.</p>
+      <p><strong>Fordel:</strong> Ren sammenligning — ingen bias.</p>
+      <p><strong>Ulempe:</strong> Kræver nye opgaver at designe.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="mixed" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Blandet — 1 genbrug + 2 nye</h3>
+      <p>1 prompt fra v3 alignment (f.eks. Prompt #4 README — den simpleste), 2 nye opgaver. Giver både direkte sammenligning og friske data.</p>
+      <p><strong>Fordel:</strong> Både bias-check og rene data.</p>
+    </div>
+  </div>
+</div>
