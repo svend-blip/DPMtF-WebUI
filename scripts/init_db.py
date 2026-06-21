@@ -3957,13 +3957,19 @@ cursor.executemany(
           "scripts/bridgeV002/dispatch.py",
           "both",
           "--from-role,--to-role,--id,--flow,--step,--deliverable"),
-        # -- No-Kill Phase 3: Post-Dispatch script --
-        ("archi01-imple01", "Architect -> Implementer Post-Dispatch",
-          "Validate deliverable file + stop architect Ollama model",
-          "scripts/bridgeV002/archi01-imple01.py",
+        # ── No-Kill Phase 4: Generic Post-Dispatch Script ──
+        ("post-dispatch-common", "Generic Post-Dispatch",
+          "Validate deliverable + stop from_role Ollama model (convention-agnostic)",
+          "scripts/bridgeV002/post-dispatch-common.py",
           "post",
           "--handoff-id,--step-key,--deliverable-dir,--deliverable-pattern,--from-role,--error-msg"),
     ],
+)
+
+# ── No-Kill Phase 4: Cleanup old script key ──
+cursor.execute(
+    "DELETE FROM bridge_scripts WHERE script_key = ?",
+    ("archi01-imple01",)
 )
 
 # ── Fase 3: Bridge Convention Rules ────────────────────
@@ -4025,10 +4031,22 @@ cursor.executemany(
     ],
 )
 
-# Update architect_to_implementer step with post-dispatch script reference (Phase 3)
+# Update all heavy flow steps with generic post-dispatch script (Phase 4)
 cursor.execute(
     "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
-    ("archi01-imple01", "architect_to_implementer", "heavy")
+    ("post-dispatch-common", "architect_to_implementer", "heavy")
+)
+cursor.execute(
+    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
+    ("post-dispatch-common", "implementer_to_review_heavy1", "heavy")
+)
+cursor.execute(
+    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
+    ("post-dispatch-common", "review_heavy1_to_heavy2", "heavy")
+)
+cursor.execute(
+    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
+    ("post-dispatch-common", "review_heavy2_to_human", "heavy")
 )
 
 # Add prompt_template column to bridge_convention_rules (idempotent)

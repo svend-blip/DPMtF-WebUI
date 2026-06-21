@@ -285,15 +285,16 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 112 — BridgeV002 No-Kill Phase 2: Architect Verdict-Feedback Loop med prompt_template Enrichment (COMPLETED pending commit)
-**Previous cycle:** Handoff 111 — BridgeV002 No-Kill Phase 1: Dispatch Control Flow Restructure (COMPLETED, committed `362fbb9`)
+**Last cycle:** Handoff 113 — archi01-imple01.py first post-dispatch script (COMPLETED, committed `d479eeb`)
+**Previous cycle:** Handoff 112 — BridgeV002 No-Kill Phase 2: prompt_template Enrichment (COMPLETED pending commit)
 
-**Next cycle pending:** No-Kill Phase 3 — Post-Dispatch Scripts (first: archi01-imple01.py)
+**Next cycle pending:** H114 — post-dispatch-common refactoring (reusable script for ALL heavy flow steps)
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
 - [x] H112: prompt_template enrichment in convention_rules + dispatch integration — COMPLETED
-- [ ] H113: First post-dispatch script (archi01-imple01.py) — IN PROGRESS
+- [x] H113: First post-dispatch script (archi01-imple01.py) — COMPLETED (`d479eeb`)
+- [ ] H114: Replace archi01-imple01.py with generic post-dispatch-common.py — IN PROGRESS
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -320,6 +321,12 @@ This is a process change, not a code change. The dispatch protocol already injec
 - Deliverable pattern resolveres fra DB ({ID} placeholder) — ændres i DB uden script-retur
 - Ollama stop er altid sidste handling post-dispatch; "already unloaded" er success (idempotent)
 - Script modtager --deliverable-pattern ikke --deliverable-dir med hardcoded filnavn
+
+**Key design decisions from H114:**
+- Alle post-dispatch scripts er identiske — convention rules påvirker kun fil-sti og prompt-injektion, IKKE post-dispatch logik
+- post-dispatch-common.py lookupker from_role's model dynamisk i bridge_roles ved runtime
+- Nye steps behøver kun DB seed-entry med post_dispatch_script = "post-dispatch-common" — ingen kodeændringer fremover
+- archi01-imple01.py slettes; post-dispatch-common.py genbruges af alle 4 heavy flow steps
 
 --- END CYCLE SNAPSHOT ---
 
