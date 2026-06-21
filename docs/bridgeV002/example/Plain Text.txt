@@ -1,0 +1,212 @@
+{
+  "roles": [
+    {
+      "role_key": "archi01",
+      "tmux_session": "archi01",
+      "start_cmd": "tmux send-keys -t archi01 'cd /home/svend/DPMtF-WebUI && CLAUDE_CODE_MAX_OUTPUT_TOKENS=131072 ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model qwen3.6:35b-a3b' Enter",
+      "model_type": "ollama",
+      "cloud_model": "",
+      "ollama_model": "qwen3.6:35b-a3b",
+      "setup_script": null,
+      "teardown_script": null,
+      "deliver_error_msg": null,
+      "is_active": 1,
+      "created_at": "2026-06-19 14:22:19",
+      "updated_at": "2026-06-21 15:59:27"
+    },
+    {
+      "role_key": "human",
+      "tmux_session": "human",
+      "start_cmd": null,
+      "model_type": "ollama",
+      "cloud_model": null,
+      "ollama_model": null,
+      "setup_script": null,
+      "teardown_script": null,
+      "deliver_error_msg": null,
+      "is_active": 1,
+      "created_at": "2026-06-21 10:11:26",
+      "updated_at": "2026-06-21 12:11:29"
+    },
+    {
+      "role_key": "imple01",
+      "tmux_session": "imple01",
+      "start_cmd": "tmux send-keys -t imple01 'cd /home/svend/DPMtF-WebUI && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/imple01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/imple01/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:27b-q4_K_M' Enter",
+      "model_type": "ollama",
+      "cloud_model": "",
+      "ollama_model": "qwen3.6:27b-q4_K_M",
+      "setup_script": null,
+      "teardown_script": null,
+      "deliver_error_msg": null,
+      "is_active": 1,
+      "created_at": "2026-06-21 09:00:09",
+      "updated_at": "2026-06-21 16:10:26"
+    },
+    {
+      "role_key": "review01",
+      "tmux_session": "review01",
+      "start_cmd": "tmux send-keys -t review01 'cd /home/svend/DPMtF-WebUI && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review01/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:35b-a3b' Enter",
+      "model_type": "ollama",
+      "cloud_model": "",
+      "ollama_model": "qwen3.6:35b-a3b",
+      "setup_script": null,
+      "teardown_script": null,
+      "deliver_error_msg": null,
+      "is_active": 1,
+      "created_at": "2026-06-21 09:01:46",
+      "updated_at": "2026-06-21 16:10:59"
+    },
+    {
+      "role_key": "review02",
+      "tmux_session": "review02",
+      "start_cmd": "tmux send-keys -t review02 'cd /home/svend/DPMtF-WebUI && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review02\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review02/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:27b-q4_K_M' Enter",
+      "model_type": "ollama",
+      "cloud_model": "",
+      "ollama_model": "qwen3.6:27b-q4_K_M",
+      "setup_script": null,
+      "teardown_script": null,
+      "deliver_error_msg": null,
+      "is_active": 1,
+      "created_at": "2026-06-21 09:02:32",
+      "updated_at": "2026-06-21 16:11:17"
+    }
+  ],
+  "flows": [
+    {
+      "flow": {
+        "flow_key": "strict_review",
+        "name": "Standard development flow",
+        "description": "human/archi01/imple01/review01/review02/human",
+        "step_order": null,
+        "is_default": 0,
+        "is_active": 1,
+        "created_at": "2026-06-19 14:09:11",
+        "updated_at": "2026-06-19 14:09:11"
+      },
+      "steps": [
+        {
+          "id": 135,
+          "flow_key": "strict_review",
+          "step_key": "archi01-imple01",
+          "from_role": "archi01",
+          "to_role": "imple01",
+          "deliverable_dir": "/home/svend/flows/strict_review/",
+          "deliverable_pattern": "{ID}-handoff.md",
+          "pre_dispatch_script": null,
+          "post_dispatch_script": "post-dispatch-common",
+          "error_msg": "Failed to deliver handoff to {to_role}.",
+          "sort_order": 1,
+          "is_active": 1,
+          "rule_key": "handoff"
+        },
+        {
+          "id": 136,
+          "flow_key": "strict_review",
+          "step_key": "imple01-review01",
+          "from_role": "imple01",
+          "to_role": "review01",
+          "deliverable_dir": "/home/svend/flows/strict_review/",
+          "deliverable_pattern": "{ID}-imple01.md",
+          "pre_dispatch_script": null,
+          "post_dispatch_script": "post-dispatch-common",
+          "error_msg": "Failed to deliver callback to {to_role}.",
+          "sort_order": 2,
+          "is_active": 1,
+          "rule_key": "callback"
+        },
+        {
+          "id": 137,
+          "flow_key": "strict_review",
+          "step_key": "review01-review02",
+          "from_role": "review01",
+          "to_role": "review02",
+          "deliverable_dir": "/home/svend/flows/strict_review/",
+          "deliverable_pattern": "{ID}-review01.md",
+          "pre_dispatch_script": null,
+          "post_dispatch_script": "post-dispatch-common",
+          "error_msg": "Failed to deliver callback to {to_role}.",
+          "sort_order": 3,
+          "is_active": 1,
+          "rule_key": "callback"
+        },
+        {
+          "id": 140,
+          "flow_key": "strict_review",
+          "step_key": "review02-human",
+          "from_role": "review02",
+          "to_role": "human",
+          "deliverable_dir": "/home/svend/flows/strict_review/",
+          "deliverable_pattern": "{ID}-verdict.md",
+          "pre_dispatch_script": null,
+          "post_dispatch_script": "post-dispatch-common",
+          "error_msg": "Failed to deliver verdict. Present to {to_role} manually.",
+          "sort_order": 4,
+          "is_active": 1,
+          "rule_key": "verdict"
+        }
+      ]
+    }
+  ],
+  "all_steps": [
+    {
+      "id": 135,
+      "flow_key": "strict_review",
+      "step_key": "archi01-imple01",
+      "from_role": "archi01",
+      "to_role": "imple01",
+      "deliverable_dir": "/home/svend/flows/strict_review/",
+      "deliverable_pattern": "{ID}-handoff.md",
+      "pre_dispatch_script": null,
+      "post_dispatch_script": "post-dispatch-common",
+      "error_msg": "Failed to deliver handoff to {to_role}.",
+      "sort_order": 1,
+      "is_active": 1,
+      "rule_key": "handoff"
+    },
+    {
+      "id": 136,
+      "flow_key": "strict_review",
+      "step_key": "imple01-review01",
+      "from_role": "imple01",
+      "to_role": "review01",
+      "deliverable_dir": "/home/svend/flows/strict_review/",
+      "deliverable_pattern": "{ID}-imple01.md",
+      "pre_dispatch_script": null,
+      "post_dispatch_script": "post-dispatch-common",
+      "error_msg": "Failed to deliver callback to {to_role}.",
+      "sort_order": 2,
+      "is_active": 1,
+      "rule_key": "callback"
+    },
+    {
+      "id": 137,
+      "flow_key": "strict_review",
+      "step_key": "review01-review02",
+      "from_role": "review01",
+      "to_role": "review02",
+      "deliverable_dir": "/home/svend/flows/strict_review/",
+      "deliverable_pattern": "{ID}-review01.md",
+      "pre_dispatch_script": null,
+      "post_dispatch_script": "post-dispatch-common",
+      "error_msg": "Failed to deliver callback to {to_role}.",
+      "sort_order": 3,
+      "is_active": 1,
+      "rule_key": "callback"
+    },
+    {
+      "id": 140,
+      "flow_key": "strict_review",
+      "step_key": "review02-human",
+      "from_role": "review02",
+      "to_role": "human",
+      "deliverable_dir": "/home/svend/flows/strict_review/",
+      "deliverable_pattern": "{ID}-verdict.md",
+      "pre_dispatch_script": null,
+      "post_dispatch_script": "post-dispatch-common",
+      "error_msg": "Failed to deliver verdict. Present to {to_role} manually.",
+      "sort_order": 4,
+      "is_active": 1,
+      "rule_key": "verdict"
+    }
+  ]
+}
