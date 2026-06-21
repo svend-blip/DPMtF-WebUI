@@ -4089,7 +4089,7 @@ async def bridge_v2_list_steps(flow_key: str):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         steps_rows = cursor.execute(
-            "SELECT * FROM bridge_flow_steps WHERE flow_key = ? AND is_active = 1 ORDER BY sort_order ASC",
+            "SELECT * FROM bridge_flow_steps WHERE flow_key = ? ORDER BY sort_order ASC",
             (flow_key,)
         ).fetchall()
         steps = [dict(r) for r in steps_rows]
@@ -4134,12 +4134,25 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT id FROM bridge_flow_steps WHERE flow_key = ? AND step_key = ? AND is_active = 1",
+        "SELECT id FROM bridge_flow_steps WHERE flow_key = ? AND step_key = ?",
         (flow_key, data["step_key"])
     )
     if cursor.fetchone():
         conn.close()
         raise HTTPException(status_code=409, detail=f"Step '{data['step_key']}' already exists in flow '{flow_key}'")
+
+    # Auto-reactivate from/to roles if soft-deleted
+    for role_field in ["from_role", "to_role"]:
+        cursor.execute(
+            "SELECT is_active FROM bridge_roles WHERE role_key = ?",
+            (data[role_field],)
+        )
+        existing_role = cursor.fetchone()
+        if existing_role and not existing_role["is_active"]:
+            cursor.execute(
+                "UPDATE bridge_roles SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE role_key = ?",
+                (data[role_field],)
+            )
 
     deliverable_dir = data.get("deliverable_dir", None)
     deliverable_pattern = data.get("deliverable_pattern", None)
@@ -4260,7 +4273,7 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
 
 @app.delete("/api/bridge-v2/steps/{flow_key}/{step_id}")
 async def bridge_v2_delete_step(flow_key: str, step_id: int):
-    """Soft-delete a step (set is_active = 0)."""
+    """Hard-delete a step."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
@@ -4275,9 +4288,13 @@ async def bridge_v2_delete_step(flow_key: str, step_id: int):
 
     deleted = dict(row)
     cursor.execute(
-        "UPDATE bridge_flow_steps SET is_active = 0 WHERE id = ? AND flow_key = ?",
+        "DELETE FROM bridge_flow_steps WHERE id = ? AND flow_key = ?",
         (step_id, flow_key)
     )
+    if cursor.rowcount == 0:
+        conn.commit()
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Step {step_id} not found")
     conn.commit()
     conn.close()
     return {"deleted": True, "step": deleted}
@@ -4607,28 +4624,30 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
 
 @app.delete("/api/bridge-v2/flows/{flow_key}")
 async def bridge_v2_delete_flow(flow_key: str):
-    """Soft-delete a BridgeV002 flow (set is_active=0 on flow and all steps)."""
+    """Hard-delete a BridgeV002 flow (only if it has no steps)."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT flow_key FROM bridge_flows WHERE flow_key = ?",
-        (flow_key,)
-    )
-    if not cursor.fetchone():
+    # Check flow exists
+    cursor.execute("SELECT * FROM bridge_flows WHERE flow_key = ?", (flow_key,))
+    flow = cursor.fetchone()
+    if not flow:
         conn.close()
         raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
 
-    cursor.execute(
-        "UPDATE bridge_flow_steps SET is_active = 0 WHERE flow_key = ? AND is_active = 1",
-        (flow_key,)
-    )
+    # Check step count — only allow deletion if 0 steps remain
+    cursor.execute("SELECT COUNT(*) as cnt FROM bridge_flow_steps WHERE flow_key = ?", (flow_key,))
+    step_count = cursor.fetchone()["cnt"]
 
-    cursor.execute(
-        "UPDATE bridge_flows SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE flow_key = ?",
-        (flow_key,)
-    )
+    if step_count > 0:
+        conn.close()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete flow '{flow_key}': {step_count} steps remain. Delete all steps first."
+        )
 
+    # Hard-delete the flow (no dependency cleanup needed — 0 steps)
+    cursor.execute("DELETE FROM bridge_flows WHERE flow_key = ?", (flow_key,))
     conn.commit()
     conn.close()
     return {"status": "deleted", "flow_key": flow_key}

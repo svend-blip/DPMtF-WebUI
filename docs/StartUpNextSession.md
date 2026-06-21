@@ -289,10 +289,10 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 114 — post-dispatch-common refactoring (COMPLETED)
-**Previous cycles completed:** H111 (no-kill dispatch control flow), H112 (prompt_template enrichment), H113 (archi01-imple01.py first post-dispatch script `d479eeb`)
+**Last cycle:** Handoff 116 — step delete JSON-parse fix + list inactive filter (COMPLETED)
+**Previous cycles completed:** H114 (post-dispatch-common refactoring), H115 (convention autofill guard + role reactivation upsert), H116 (GET is_active filter + DELETE row_factory)
 
-**Next cycle pending:** H116 — step delete fix: GET filter inactive steps + DELETE row_factory
+**Next cycle pending:** H117 — Step & Flow hard-delete: alle steps slettes permanent, GET fjerner is_active filter, CREATE auto-reaktiverer roles, DELETE flow hard-deletes
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
@@ -300,7 +300,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 - [x] H113: First post-dispatch script (archi01-imple01.py) — COMPLETED (`d479eeb`)
 - [x] H114: post-dispatch-common.py replacing archi01-imple01.py — COMPLETED (`ae4b1c0`)
 - [x] H115: Convention autofill condition guard + delete step JSON-parse fix — COMPLETED (`6549710`, `ae4b1c0`)
-- [ ] H116: Step delete fix — GET missing `is_active = 1` filter, DELETE missing `row_factory`
+- [x] H116: GET filter inactive steps + DELETE row_factory — COMPLETED (`7e94c25`)
+- [ ] H117: Step & Flow hard-delete consistency (3 changes + 1 check)
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -339,6 +340,14 @@ This is a process change, not a code change. The dispatch protocol already injec
 - Delete step JSON-parse fix: `if (!res.ok) throw new Error("HTTP " + res.status)` før `res.json()` — forhindrer "JSON.parse unexpected character" på failed HTTP responses
 - Role upsert: erstatter hard 409 med op-sert logic der reaktiverer soft-deleted roles
 - bridge_v2_update_step fikset med `conn.row_factory = sqlite3.Row` (manglede tidligere → dict access fejl)
+
+**Key design decisions from H117:**
+- Steps slettes permanent (hard-delete), ikke soft — ingen ghost-rows mere i tabellen
+- GET list_steps fjerner is_active=1 filter — ikke længere nødvendigt når DELETE er hard
+- POST create step auto-reaktiverer from_role/to_role hvis de er soft-deleted (ligesom H115's role upsert)
+- DELETE flow kan kun køre hvis flow har 0 steps tilbage — check COUNT *før* nogen opsætning
+- Flow slettes permanent (hard-delete), ikke soft — ingen is_active-blanding
+- Ingen DB schema ændringer — alle ændringer er app.py CRUD-endpoints alene
 
 --- END CYCLE SNAPSHOT ---
 
