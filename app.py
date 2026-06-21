@@ -4637,7 +4637,7 @@ async def bridge_v2_delete_flow(flow_key: str):
 
     # Check step count — only allow deletion if 0 steps remain
     cursor.execute("SELECT COUNT(*) as cnt FROM bridge_flow_steps WHERE flow_key = ?", (flow_key,))
-    step_count = cursor.fetchone()["cnt"]
+    step_count = cursor.fetchone()[0]
 
     if step_count > 0:
         conn.close()
@@ -4742,6 +4742,37 @@ async def bridge_v2_stop_tmux_for_flow(flow_key: str):
 
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="stop_tmuxflow timed out after 30s")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bridge-v2/flows/{flow_key}/attach-tmux")
+async def bridge_v2_attach_tmux_for_flow(flow_key: str):
+    """Attach to all tmux sessions for a BridgeV002 flow via attach_tmux.py."""
+    try:
+        import subprocess
+        import os
+
+        script_path = os.path.join(
+            os.environ.get("DPMTF_PROJECT_ROOT", config.get_project_root()),
+            "scripts", "bridgeV002", "attach_tmux.py"
+        )
+
+        result = subprocess.run(
+            ["python3", script_path, flow_key],
+            capture_output=True, text=True, timeout=30
+        )
+
+        if result.returncode == 0:
+            return {
+                "status": "ok",
+                "message": result.stdout.strip() or f"No sessions for '{flow_key}'",
+            }
+        else:
+            raise HTTPException(status_code=500, detail=result.stderr.strip())
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="attach_tmux timed out after 30s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

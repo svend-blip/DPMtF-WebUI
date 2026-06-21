@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 114 (completed — post-dispatch-common refactoring + convention autofill condition fix + delete step JSON-parse guard, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 118 (completed — start_tmuxflow.py script + tmux start endpoint + frontend "Start tmux" button, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -86,6 +86,9 @@ Read these files in order to reconstruct full project state:
 | **Hardening H112** | 112 | BridgeV002 No-Kill Phase 2 — prompt_template enrichment in convention_rules + dispatch integration: ALTER TABLE, verdict_feedback convention with StartUpNextSession.md reference |
 | **Hardening H113** | 113 | BridgeV002 Phase 3 — first post-dispatch script archi01-imple01.py in scripts/bridgeV002/ |
 | **Hardening H114** | 114 | Post-dispatch common refactoring: archi01-imple01.py → post-dispatch-common.py, convention-agnostic post-dispatch for all 4 heavy flow steps; role reactivation upsert logic replacing hard 409; convention autofill condition guard + delete step JSON-parse fix |
+| **Hardening H116** | 116 | GET list_steps filters inactive + DELETE row_factory — fixed `is_active=1` filter removal and sqlite3.Row on DELETE. Commit `7e94c25`. |
+| **Hardening H117** | 117 | Step & Flow hard-delete consistency — all steps delete permanently (hard), GET removes is_active filter, CREATE auto-reactivates roles, DELETE flow checks step count first + hard-deletes. Commit `e43f0d2`. |
+| **Hardening H118** | 118 | start_tmuxflow.py — script that creates missing tmux sessions per flow key; POST /api/bridge-v2/flows/{flow_key}/start-tmux endpoint; frontend "Start tmux" button on all flow cards; i18n labels lbl_bridge_start_tmux + lbl_bridge_starting. Commit `60b8b71`. |
 
 ### Human Final Verdict
 
@@ -142,6 +145,7 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 4** | Steps CRUD (backend + frontend) | API endpoints, Flow-card "Manage Steps", form dropdowns, auto-fill fra conventions | ✅ Komplet (`729b3a5`) |
 | **Fase 5** | Parameteriserede Script-kald | dispatch.py payload-samling, CLI invocation med argparse, example-scripts | ✅ Komplet (`bb27ab3`) |
 | **Fase 6** | Database-oprydning & Struktur | eno.db fjernet, H99-backups ryddet, .gitignore `databases/*.db`, dpmtf.db untracked, BACKUP-STRATEGY.md | ✅ Komplet (`abab50d`) |
+| **Fase 7** | No-Kill Dispatch + Hard-delete | Session persistence, post-dispatch offload, hard-delete for steps+flows, start_tmuxflow.py | ✅ Komplet (H111-H118) |
 
 #### Fase 1: Konfiguration & Infrastructure
 
@@ -289,10 +293,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 116 — step delete JSON-parse fix + list inactive filter (COMPLETED)
-**Previous cycles completed:** H114 (post-dispatch-common refactoring), H115 (convention autofill guard + role reactivation upsert), H116 (GET is_active filter + DELETE row_factory)
-
-**Next cycle pending:** H117 — Step & Flow hard-delete: alle steps slettes permanent, GET fjerner is_active filter, CREATE auto-reaktiverer roles, DELETE flow hard-deletes
+**Last cycle:** Handoff 118 — start_tmuxflow.py + POST /start-tmux endpoint + frontend "Start tmux" button (COMPLETED)
+**Previous cycles completed:** H114 (post-dispatch-common refactoring), H115 (convention autofill guard + role reactivation upsert), H116 (GET is_active filter + DELETE row_factory), H117 (Step & Flow hard-delete consistency), H118 (tmux session auto-creation)
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
@@ -301,7 +303,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 - [x] H114: post-dispatch-common.py replacing archi01-imple01.py — COMPLETED (`ae4b1c0`)
 - [x] H115: Convention autofill condition guard + delete step JSON-parse fix — COMPLETED (`6549710`, `ae4b1c0`)
 - [x] H116: GET filter inactive steps + DELETE row_factory — COMPLETED (`7e94c25`)
-- [ ] H117: Step & Flow hard-delete consistency (3 changes + 1 check)
+- [x] H117: Step & Flow hard-delete consistency — COMPLETED (`e43f0d2`)
+- [x] H118: start_tmuxflow.py + POST /start-tmux endpoint + frontend button — COMPLETED (`60b8b71`)
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -348,6 +351,15 @@ This is a process change, not a code change. The dispatch protocol already injec
 - DELETE flow kan kun køre hvis flow har 0 steps tilbage — check COUNT *før* nogen opsætning
 - Flow slettes permanent (hard-delete), ikke soft — ingen is_active-blanding
 - Ingen DB schema ændringer — alle ændringer er app.py CRUD-endpoints alene
+
+**Key design decisions from H118:**
+- start_tmuxflow.py itererer over alle active steps i en flow, lookupker from_role's tmux_session fra DB
+- Eksisterende tmux-sessioner tjekkes via `tmux list-sessions` — kun manglende oprettes med `tmux new-session -d -s`
+- Script importerer config.py via importlib.util fra projekt-roden (undgår ModuleNotFoundError når script køres fra /home/svend/)
+- POST /api/bridge-v2/flows/{flow_key}/start-tmux endpoint kører script som subprocess med 30 sek timeout
+- Frontend "Start tmux" button (dpmtf-btn-success) på alle flow cards, kaldes via fetch til above endpoint
+- i18n labels: lbl_bridge_start_tmux ("Start tmux") og lbl_bridge_starting ("Starting...") i alle 4 i18n-lag
+- Ingen DB schema ændringer — bruger eksisterende bridge_roles.tmux_session kolonne
 
 --- END CYCLE SNAPSHOT ---
 

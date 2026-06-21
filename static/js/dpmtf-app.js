@@ -1720,6 +1720,12 @@ function renderFlowCard(flow, steps) {
   stopTmuxBtn.onclick = function () { stopTmuxForFlow(flow.flow_key); };
   actions.appendChild(stopTmuxBtn);
 
+  // --- ATTACH TMUX button (new for BridgeV002) ---
+  var attachTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-info");
+  attachTmuxBtn.textContent = lbl("lbl_bridge_attach_tmux", "Attach tmux");
+  attachTmuxBtn.onclick = function () { attachTmuxForFlow(flow.flow_key); };
+  actions.appendChild(attachTmuxBtn);
+
   card.appendChild(actions);
   return card;
 }
@@ -1760,6 +1766,22 @@ function startCodingForFlow(flowKey) {
 function stopTmuxForFlow(flowKey) {
   if (!confirm("Stop all tmux sessions for '" + flowKey + "'?")) return;
   fetch("/api/bridge-v2/flows/" + flowKey + "/stop-tmux", { method: "POST" })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.status === "ok") {
+        alert("✅ " + data.message);
+      } else {
+        alert("❌ Error: " + (data.detail || "Unknown error"));
+      }
+    })
+    .catch(function(err) {
+      alert("Network error: " + err.message);
+    });
+}
+
+// ---- ATTACH TMUX FOR FLOW (BridgeV002) ----
+function attachTmuxForFlow(flowKey) {
+  fetch("/api/bridge-v2/flows/" + flowKey + "/attach-tmux", { method: "POST" })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.status === "ok") {
@@ -1956,7 +1978,10 @@ function deleteBridgeRole(roleKey) {
 function deleteBridgeFlow(flowKey) {
   if (!confirm(escapeHtml(flowKey) + "?")) return;
   fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), { method: "DELETE" })
-    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (!res.ok) return res.text().then(function (txt) { throw new Error(txt); });
+      return res.json();
+    })
     .then(function () {
       alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": " + flowKey);
       loadBridgeFlows();
