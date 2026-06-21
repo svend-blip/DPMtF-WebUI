@@ -4431,6 +4431,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
     updatable = [
         "tmux_session", "start_cmd", "model_type", "cloud_model", "ollama_model",
         "setup_script", "teardown_script", "deliver_error_msg", "is_active",
+        "governance_file",
     ]
     sets = []
     params = []
