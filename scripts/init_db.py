@@ -3953,10 +3953,16 @@ cursor.executemany(
          "post",
          "--role,--force"),
         ("dispatch", "Dispatcher",
-         "Universal role-to-role transition dispatcher",
-         "scripts/bridgeV002/dispatch.py",
-         "both",
-         "--from-role,--to-role,--id,--flow,--step,--deliverable"),
+          "Universal role-to-role transition dispatcher",
+          "scripts/bridgeV002/dispatch.py",
+          "both",
+          "--from-role,--to-role,--id,--flow,--step,--deliverable"),
+        # -- No-Kill Phase 3: Post-Dispatch script --
+        ("archi01-imple01", "Architect -> Implementer Post-Dispatch",
+          "Validate deliverable file + stop architect Ollama model",
+          "scripts/bridgeV002/archi01-imple01.py",
+          "post",
+          "--handoff-id,--step-key,--deliverable-dir,--deliverable-pattern,--from-role,--error-msg"),
     ],
 )
 
@@ -4017,6 +4023,12 @@ cursor.executemany(
         ("handoff", "review_to_architect", "escalation"),
         ("callback", "architect_to_review_response", "escalation"),
     ],
+)
+
+# Update architect_to_implementer step with post-dispatch script reference (Phase 3)
+cursor.execute(
+    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
+    ("archi01-imple01", "architect_to_implementer", "heavy")
 )
 
 # Add prompt_template column to bridge_convention_rules (idempotent)
