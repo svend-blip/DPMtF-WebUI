@@ -4019,6 +4019,29 @@ cursor.executemany(
     ],
 )
 
+# Add prompt_template column to bridge_convention_rules (idempotent)
+try:
+    cursor.execute("""
+    ALTER TABLE bridge_convention_rules ADD COLUMN prompt_template TEXT DEFAULT ''
+    """)
+except sqlite3.OperationalError:
+    pass  # Column already exists
+
+# Seed verdict_feedback convention with enriched prompt_template
+cursor.execute(
+    """INSERT OR IGNORE INTO bridge_convention_rules
+       (rule_key, step_type, dir_template, pattern_template, error_template, prompt_template)
+       VALUES (?, ?, ?, ?, ?, ?)""",
+    (
+        "verdict_feedback",
+        "VerdictFeedback",
+        "implementertoreview",
+        "{ID}-review-verdict.md",
+        "Failed to deliver verdict feedback. Present to Architect manually.",
+        "Read docs/StartUpNextSession.md first to restore design context. Then read {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md and evaluate whether the implementation matches the original design intent.",
+    ),
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
