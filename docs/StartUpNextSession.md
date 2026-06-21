@@ -285,14 +285,15 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 111 — BridgeV002 No-Kill Phase 1: Dispatch Control Flow Restructure (COMPLETED, committed `362fbb9`)
-**Previous cycle:** Handoff 110 — BridgeV002 UX Flow↔Steps Integration (APPROVED, `e0aa8f8`)
+**Last cycle:** Handoff 112 — BridgeV002 No-Kill Phase 2: Architect Verdict-Feedback Loop med prompt_template Enrichment (COMPLETED pending commit)
+**Previous cycle:** Handoff 111 — BridgeV002 No-Kill Phase 1: Dispatch Control Flow Restructure (COMPLETED, committed `362fbb9`)
 
-**Next cycle pending:** No-Kill Phase 2 — Architect verdict-feedback loop med prompt_template enrichment i convention_rules
+**Next cycle pending:** No-Kill Phase 3 — Post-Dispatch Scripts (first: archi01-imple01.py)
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
-- [x] H112: prompt_template enrichment in convention_rules + dispatch integration — APPROVED
+- [x] H112: prompt_template enrichment in convention_rules + dispatch integration — COMPLETED
+- [ ] H113: First post-dispatch script (archi01-imple01.py) — IN PROGRESS
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -312,6 +313,13 @@ This is a process change, not a code change. The dispatch protocol already injec
 - Ingen schema migration nødvendigt — ALTER TABLE er idempotent hvis kolomnen allerede eksisterer
 - build_step_payload() returnerer prompt_template fra convention; tom → fallback til "Read and execute {file}"
 - run_flow_step_db() enricher prompt via placeholder-replace ({bridge_dir}, {handoff_id}) før injection
+
+**Key design decisions from H113:**
+- archi01-imple01.py: first post-dispatch script in scripts/bridgeV002/
+- Ingen hardcoded stier — bridge_dir fra config.get_bridge_base_path(), db_path fra config.get_db_path()
+- Deliverable pattern resolveres fra DB ({ID} placeholder) — ændres i DB uden script-retur
+- Ollama stop er altid sidste handling post-dispatch; "already unloaded" er success (idempotent)
+- Script modtager --deliverable-pattern ikke --deliverable-dir med hardcoded filnavn
 
 --- END CYCLE SNAPSHOT ---
 
