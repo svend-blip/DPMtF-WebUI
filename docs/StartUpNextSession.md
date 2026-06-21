@@ -51,7 +51,7 @@ Read these files in order to reconstruct full project state:
 
 | Item | Value |
 |------|-------|
-| **Last handoff ID** | 134 (completed — H131 DB-driven callbacks + H132/H134 no-kill completion, branch `hardening/bridgev002-phase1-config`) |
+| **Last handoff ID** | 138 (completed — H138 signal-send, full legacy bridge.py independence achieved, branch `hardening/bridgev002-phase1-config`) |
 | **Implementer** | `claude_implementer` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Review** | `claude_review` running **OpenCode 1.17.7** (`ollama/qwen3.6:27b-q4_K_M`) |
 | **Architect** | `claude_architect` running **Claude Code** (`deepseek-v4-pro:cloud`) |
@@ -96,6 +96,9 @@ Read these files in order to reconstruct full project state:
 | **Hardening H131** | 131 | BridgeV002 DB-driven callbacks — 7 new columns across 4 tables (auto_complete_enabled, auto_chain_to_next, validation_required, restart_policy, content_template, validation_schema, rule_type), convention seeds for callback/handoff/verdict templates, resolve_content_template_from_db() + validate_deliverable_against_schema() in bridge_lib.py, PATCH /api/bridge-v2/conventions endpoint, Convention admin UI with textareas, auto_complete checkbox on Flow cards, auto_chain/validation checkboxes on Step forms. 7 DB columns, 6 files changed (~935 lines). Commit `916cfe1`. |
 | **Hardening H132** | 132 | BridgeV002 eliminate ALL tmux kill/start — remove kill-session from role_teardown.py, remove all tmux lifecycle from role_setup.py, delete kill_session()/start_session() functions and calls from dispatch.py, drop restart_policy column/labels/UI. Only ollama stop/pull remains. 5 files changed. |
 | **Hardening H134** | 134 | BridgeV002 eliminate remaining tmux kill/start from stop_tmuxflow.py + start_tmuxflow.py — replace stop_sessions() with session inspection + ollama unload, replace create_missing_sessions() with inspection + ollama preload. Zero tmux lifecycle calls remain in ALL bridgeV002 Python files. 2 files changed. |
+| **Hardening H136** | 136 | BridgeV002 signal-complete: replace legacy bridge.py cmd_complete() — callback dispatch via signal_complete(), DB-driven with convention content_template, tool-aware injection, VRAM cleanup, symlink update, trace logging. Commit `cad6295`. |
+| **Hardening H137** | 137 | BridgeV002 signal-escalation + signal-answer: replace legacy cmd_ask_architect()/cmd_answer_review() — DB-driven role-aware escalation supporting multiple review roles (review01, review02). Commit `955a256`. |
+| **Hardening H138** | 138 | BridgeV002 signal-send: replace legacy cmd_send() — initial handoff dispatch with 10-step sequential dispatch, XML section validation, model stop+reload for clean context, convention template resolution. Commit `60250bb`. |
 
 ### Human Final Verdict
 
@@ -109,6 +112,21 @@ local sessions run OpenCode.
 **Spor J (UI Integration):** Full-stack BridgeV002 CRUD UI delivered across 4 handoffs (H98-H101). Test-kørt af Human: alle CRUD-operationer PASS, da-DK sprog-skift fikset ved domain-migration (`bridge_setup` → `main`) i commit `4d3b1ed`.
 
 **No-Kill Decision (2026-06-20):** BridgeV002 dispatch protocol shifts from pre-dispatch kill+restart to post-dispatch ollama stop. Tmux sessions become persistent; server-side context cleared by model offload. 85-90% of existing code reused unchanged (~47 lines modified). Architect cross-cycle state preserved via this file's save-state mechanism (§5b.5). Analysis: `~/Dokumenter/Bridgeflowfuture/ReuseMostParts.md`.
+
+**Full Legacy Independence (2026-06-21):** BridgeV002 now replaces ALL 4 legacy bridge.py kernel functions (send, complete, ask-architect, answer-review) with DB-driven equivalents (`signal_send`, `signal_complete`, `signal_escalation`, `signal_answer`). Legacy `claude-bridge/bridge.py` is functionally superseded. BridgeV002 CLI:
+```bash
+# Initial handoff dispatch (replaces bridge.py send):
+python3 scripts/bridgeV002/dispatch.py --db-flow strict_review --signal-send --from-role review01 --to-role imple01
+
+# Signal completion (replaces bridge.py complete):
+python3 scripts/bridgeV002/dispatch.py --db-flow strict_review --signal-complete --from-role imple01
+
+# Escalation to architect (replaces bridge.py ask-architect):
+python3 scripts/bridgeV002/dispatch.py --db-flow strict_review --signal-escalation --from-role review01 --to-role archi01
+
+# Architect answer back to review (replaces bridge.py answer-review):
+python3 scripts/bridgeV002/dispatch.py --db-flow strict_review --signal-answer --from-role archi01 --to-role review01
+```
 
 ---
 
@@ -155,6 +173,7 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 7** | No-Kill Dispatch + Hard-delete | Session persistence, post-dispatch offload, hard-delete for steps+flows, start_tmuxflow.py | ✅ Komplet (H111-H118) |
 | **Fase 8** | Flow Management Suite | start-coding, stop-tmux, attach-tmux, i18n labels, H121 parsing fix. Commits `6a8b6a7`, `ae6d3db`, `6b4179c`, `a2745f9`. | ✅ Komplet |
 | **Fase 9** | No-Kill Complete + DB-driven Callbacks | Eliminate ALL tmux lifecycle (H132+H134), add DB content templates + validation schemas (H131), convention admin UI. Commits `916cfe1`. | ✅ Komplet |
+| **Fase 10** | Full Legacy Independence | Replace all 4 legacy bridge.py kernel functions with BridgeV002 equivalents: signal-send (H138), signal-complete (H136), signal-escalation + signal-answer (H137). Commits `cad6295`, `955a256`, `60250bb`. | ✅ Komplet |
 
 #### Fase 1: Konfiguration & Infrastructure
 
@@ -306,8 +325,19 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 134 — BridgeV002 eliminate remaining tmux kill/start from stop_tmuxflow.py + start_tmuxflow.py (COMPLETED)
-**Previous cycles completed:** H123 (attach-tmux), H131 (DB-driven callbacks), H132 (eliminate ALL tmux lifecycle), H134 (clean up flow scripts to zero tmux calls)
+**Last cycle:** Handoff 138 — BridgeV002 signal-send: replace legacy cmd_send() (COMPLETED)
+**Previous cycles completed:** H123 (attach-tmux), H131 (DB-driven callbacks), H132 (eliminate ALL tmux lifecycle), H134 (clean up flow scripts to zero tmux calls), H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send)
+
+**Migration Status — Legacy → BridgeV002:**
+| Legacy Function | BridgeV002 Replacement | Commit |
+|-----------------|----------------------|--------|
+| `cmd_send()` | `signal_send()` (H138) | `60250bb` |
+| `cmd_complete()` | `signal_complete()` (H136) | `cad6295` |
+| `cmd_ask_architect()` | `signal_escalation()` (H137) | `955a256` |
+| `cmd_answer_review()` | `signal_answer()` (H137) | `955a256` |
+
+All 4 legacy bridge.py kernel functions now replaced with DB-driven equivalents in BridgeV002.
+Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 
 **Open design decisions:**
 - [x] H111 implement: remove kill/start/reload fra run_flow_step_db(), tilføj session_alive() + post-dispatch offload (~47 lines) — COMPLETED
@@ -325,6 +355,9 @@ This is a process change, not a code change. The dispatch protocol already injec
 - [x] H131: DB-driven callback system — 7 columns across 4 tables, convention templates + validation_schema seeds, resolve_content_template_from_db(), PATCH endpoint, Convention admin UI — COMPLETED (`916cfe1`)
 - [x] H132: Eliminate ALL tmux kill/start from role_teardown.py, role_setup.py, dispatch.py — only ollama stop/pull remains — COMPLETED (`916cfe1`)
 - [x] H134: Fix stop_tmuxflow.py + start_tmuxflow.py to zero tmux lifecycle — replace stop_sessions with inspection+ollama unload, replace create_missing_sessions with inspection+ollama preload — COMPLETED (`916cfe1`)
+- [x] H136: signal_complete() replacing legacy cmd_complete() — callback dispatch via DB convention, tool-aware injection, VRAM cleanup — COMPLETED (`cad6295`)
+- [x] H137: signal_escalation() + signal_answer() replacing legacy cmd_ask_architect()/cmd_answer_review() — role-aware escalation supporting multiple review roles — COMPLETED (`955a256`)
+- [x] H138: signal_send() replacing legacy cmd_send() — initial handoff dispatch with XML validation, model stop+reload, convention templates — COMPLETED (`60250bb`)
 - [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
 
 **Key design decisions from H111:**
@@ -436,6 +469,29 @@ This is a process change, not a code change. The dispatch protocol already injec
 - Both scripts now return inspection-only output — report sessions needed, preload models only
 - Session creation/destruction delegated to /api/bridge-v2/start-tmux and stop-tmux endpoints
 - zero executable tmux lifecycle calls remain in ALL bridgeV002 Python files
+
+**Key design decisions from H136:**
+- signal_complete() follows same 9-step golden rule sequential dispatch as run_flow_step_db
+- Resolves both roles from bridge_roles DB table — no hardcoded session names
+- Deliverable existence check with convention pattern matching (fail fast)
+- Prompt built from callback convention content_template with placeholder replacement
+- Post-dispatch: unload_ollama_model() on from_role's model for VRAM cleanup
+- Escalation directory symlink updated for traceability
+
+**Key design decisions from H137:**
+- signal_escalation() + signal_answer() are symmetric — opposite directions, same structure
+- Role-aware design: both require explicit --from-role AND --to-role parameters
+- No role_type field in bridge_roles table — auto-detection of architect role impossible, must be explicit
+- Multiple review role support (review01, review02) — legacy only supported one hardcoded review session
+- Escalation question file validation: review must write question file before signaling escalation
+- New "escalation" convention in bridge_convention_rules with content_template + validation_schema
+
+**Key design decisions from H138:**
+- signal_send() follows 10-step golden rule sequential dispatch (pre-dispatch model stop+reload, not post)
+- XML section validation matches legacy cmd_send: requires <role>, <task>, <constraint> tags
+- Model stop→sleep(1)→pull→sleep(3) cycle ensures clean server-side context for initial dispatch
+- Prompt built from handoff convention content_template with {handoff_id}, {source_role}, {next_role}, {bridge_dir} placeholders
+- All 4 signal functions now cover the complete legacy bridge.py kernel: send → complete → escalation → answer
 
 --- END CYCLE SNAPSHOT ---
 
