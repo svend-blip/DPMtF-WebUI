@@ -1570,6 +1570,7 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_model_type", "Model Type"), role.model_type],
     [lbl("lbl_bridge_cloud_model", "Cloud Model"), role.cloud_model],
     [lbl("lbl_bridge_ollama_model", "Ollama Model"), role.ollama_model],
+    [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -2076,6 +2077,13 @@ function editBridgeRoleFull(roleKey) {
         var om = document.getElementById("bridge-edit-input-ollama_model");
         if (om) body.ollama_model = om.value.trim();
 
+        var gf = document.getElementById("bridge-edit-input-governance_file");
+        if (gf && gf.value) {
+          body.governance_file = gf.value;
+        } else if (gf && gf.value === "") {
+          body.governance_file = null;
+        }
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2165,6 +2173,21 @@ function editBridgeRoleFull(roleKey) {
       omInput.value = role.ollama_model || "";
       omDiv.appendChild(omInput);
       form.appendChild(omDiv);
+
+      // governance_file select
+      var gfDiv = el("div", "dpmtf-form-group");
+      gfDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_governance_file", "Governance File")));
+      var gfSelect = el("select", null);
+      gfSelect.id = "bridge-edit-input-governance_file";
+      [["", lbl("lbl_bridge_none_option", "(None)")], ["01_HUMAN.md", "01_HUMAN.md"], ["02_ARCHITECT.md", "02_ARCHITECT.md"], ["03_IMPLEMENTOR.md", "03_IMPLEMENTOR.md"], ["04_REVIEW.md", "04_REVIEW.md"]].forEach(function (pair) {
+        var opt = document.createElement("option");
+        opt.value = pair[0];
+        opt.textContent = pair[1];
+        if ((role.governance_file || "") === pair[0]) opt.selected = true;
+        gfSelect.appendChild(opt);
+      });
+      gfDiv.appendChild(gfSelect);
+      form.appendChild(gfDiv);
 
       var container = document.getElementById("bridge-roles-list-container");
       if (container) {
