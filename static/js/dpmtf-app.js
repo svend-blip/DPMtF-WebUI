@@ -2294,6 +2294,8 @@ function _showStepForm(initialData) {
   var form = el("div", "dpmtf-card");
   form.id = "bridge-step-form";
 
+  var isNewStep = !_bridgeEditingStepId;
+
   var cancelBtn = el("button", "dpmtf-btn");
   cancelBtn.textContent = lbl("lbl_bridge_cancel", "Cancel");
   cancelBtn.onclick = function () { form.remove(); _bridgeEditingStepId = null; };
@@ -2378,7 +2380,7 @@ function _showStepForm(initialData) {
   var rkDiv = el("div", "dpmtf-form-group");
   rkDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_rule_key", "Convention Rule")));
   var rkSelect = makeSelect("bridge-input-rule_key", meta.available_conventions, "rule_key", "step_type", data.rule_key);
-  rkSelect.onchange = function () { _autoFillFromConvention(this.value, form, meta.available_conventions); };
+  rkSelect.onchange = function () { _autoFillFromConvention(this.value, form, meta.available_conventions, isNewStep); };
   rkDiv.appendChild(rkSelect);
   form.appendChild(rkDiv);
 
@@ -2415,8 +2417,9 @@ function _showStepForm(initialData) {
   container.insertBefore(form, container.firstChild);
 }
 
-function _autoFillFromConvention(ruleKey, form, conventions) {
+function _autoFillFromConvention(ruleKey, form, conventions, isNewStep) {
   if (!ruleKey || !conventions) return;
+  if (!isNewStep) return;
   var conv = (conventions || []).filter(function (c) { return c.rule_key === ruleKey; })[0];
   if (!conv) return;
 
