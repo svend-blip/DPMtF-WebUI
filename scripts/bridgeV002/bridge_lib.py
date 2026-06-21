@@ -478,6 +478,97 @@ def resolve_convention_from_db(rule_key, db_path=None):
         return {}
 
 
+def resolve_content_template_from_db(rule_key, db_path=None):
+    """Resolve the content template for a convention rule.
+
+    Looks up the content_template column from bridge_convention_rules.
+    If the template contains placeholder tokens ({handoff_id}, {source_role},
+    {next_role}), they are returned as-is for caller-side interpolation.
+
+    Args:
+        rule_key: The convention key (e.g. 'callback', 'handoff', 'verdict')
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        str with the content template, or empty string if not set / column missing.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT content_template FROM bridge_convention_rules WHERE rule_key = ?",
+            (rule_key,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+        return ""
+    except sqlite3.OperationalError:
+        return ""
+
+
+def validate_deliverable_against_schema(file_path, rule_key, db_path=None):
+    """Validate that a deliverable file contains required XML sections.
+
+    Reads the convention rule's validation_schema JSON array and checks
+    that each listed XML tag (e.g. '<role>', '<task>') appears at least
+    once in the file content.
+
+    Args:
+        file_path: Absolute path to the deliverable .md file.
+        rule_key: The convention key whose schema should be used.
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        dict with keys:
+            'valid': bool — True if all required sections present
+            'missing': list[str] — tags found in schema but absent from file
+            'checked': list[str] — tags that were checked
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    result = {"valid": False, "missing": [], "checked": []}
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT validation_schema FROM bridge_convention_rules WHERE rule_key = ?",
+            (rule_key,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            result["valid"] = True
+            return result
+
+        import json
+        required_tags = json.loads(row[0])
+        result["checked"] = list(required_tags)
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        missing = []
+        for tag in required_tags:
+            if tag not in content:
+                missing.append(tag)
+
+        result["missing"] = missing
+        result["valid"] = len(missing) == 0
+        return result
+    except (sqlite3.OperationalError, FileNotFoundError, json.JSONDecodeError):
+        result["valid"] = False
+        result["missing"] = ["<validation-error>"]
+        return result
+
+
 if __name__ == "__main__":
     print("BridgeV002 core library")
     bridge_config = load_bridge_config()

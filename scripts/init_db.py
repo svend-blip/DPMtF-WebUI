@@ -4072,6 +4072,184 @@ cursor.execute(
     ),
 )
 
+# ── Handoff 131: DB-driven Callback, Escalation & Convention Content ───
+
+# 2.1 bridge_flows — auto_complete_enabled
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_flows ADD COLUMN auto_complete_enabled INTEGER DEFAULT 0
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# 2.2 bridge_flow_steps — auto_chain_to_next
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_flow_steps ADD COLUMN auto_chain_to_next INTEGER DEFAULT 0
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# 2.3 bridge_flow_steps — validation_required
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_flow_steps ADD COLUMN validation_required INTEGER DEFAULT 0
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# 2.4 removed (restart_policy dropped H132)
+
+# 2.5 bridge_convention_rules — content_template
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_convention_rules ADD COLUMN content_template TEXT
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# 2.6 bridge_convention_rules — validation_schema
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_convention_rules ADD COLUMN validation_schema TEXT
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# 3.1 bridge_convention_rules — rule_type
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_convention_rules ADD COLUMN rule_type TEXT DEFAULT 'generic'
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# 3.2 Update rule_type on existing convention rows (idempotent)
+cursor.executemany(
+    "UPDATE bridge_convention_rules SET rule_type = ? WHERE rule_key = ?",
+    [
+        ("callback_content", "callback"),
+        ("handoff_content", "handoff"),
+        ("verdict_content", "verdict"),
+        ("verdict_feedback_content", "verdict_feedback"),
+    ],
+)
+
+# 3.2 Seed content_template for existing rules (only when NULL)
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'callback' AND content_template IS NULL""",
+    (
+        "<handoff>\n"
+        "<role>{next_role}</role>\n"
+        "<task>The previous role has completed their deliverable. Please review and proceed with the next step in the flow.\n\n"
+        "## Previous Deliverable\n"
+        "Handoff ID: {handoff_id}\n"
+        "Source Role: {source_role}\n\n"
+        "## Required Sections\n"
+        "Your callback file must include these XML sections:\n"
+        "- <role>: The target role for this handoff\n"
+        "- <task>: What needs to be accomplished\n"
+        "- <notification>: Summary of what was completed</task>\n"
+        "<notification>The handoff from {source_role} (ID: {handoff_id}) has been completed.</notification>\n"
+        "</handoff>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'handoff' AND content_template IS NULL""",
+    (
+        "<handoff>\n"
+        "<role>{next_role}</role>\n"
+        "<task>The architect has prepared a handoff. Read and execute the referenced file.\n\n"
+        "## Previous Deliverable\n"
+        "Handoff ID: {handoff_id}\n"
+        "Source Role: {source_role}\n\n"
+        "## Required Sections\n"
+        "Your callback file must include these XML sections:\n"
+        "- <role>: The target role for this handoff\n"
+        "- <task>: What needs to be accomplished\n"
+        "- <constraint>: Any constraints that apply\n"
+        "- <deliverable>: What you will produce</task>\n"
+        "<notification>The handoff from {source_role} (ID: {handoff_id}) requires your implementation.</notification>\n"
+        "</handoff>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'verdict' AND content_template IS NULL""",
+    (
+        "<handoff>\n"
+        "<role>{next_role}</role>\n"
+        "<task>Produce a final verdict on the completed work.\n\n"
+        "## Previous Deliverable\n"
+        "Handoff ID: {handoff_id}\n"
+        "Source Role: {source_role}\n\n"
+        "## Required Sections\n"
+        "Your verdict file must include these XML sections:\n"
+        "- <role>: The target role for this handoff\n"
+        "- <task>: What was reviewed\n"
+        "- <verdict>: Pass or Fail with reasoning\n"
+        "- <feedback>: Detailed feedback</task>\n"
+        "<notification>The review from {source_role} (ID: {handoff_id}) requires a verdict.</notification>\n"
+        "</handoff>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'verdict_feedback' AND content_template IS NULL""",
+    (
+        "<handoff>\n"
+        "<role>{next_role}</role>\n"
+        "<task>Review verdict feedback has been generated. Evaluate whether the implementation matches design intent.\n\n"
+        "## Previous Deliverable\n"
+        "Handoff ID: {handoff_id}\n"
+        "Source Role: {source_route}\n\n"
+        "## Required Sections\n"
+        "- <role>: The target role for this handoff\n"
+        "- <task>: What was evaluated\n"
+        "- <feedback>: Verdict feedback details</task>\n"
+        "<notification>Verdict feedback from {source_role} (ID: {handoff_id}) requires evaluation.</notification>\n"
+        "</handoff>",
+    ),
+)
+
+# 3.3 Seed validation_schema for existing rules (only when NULL)
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'callback' AND validation_schema IS NULL""",
+    ('["<role>", "<task>", "<notification>"]',),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'handoff' AND validation_schema IS NULL""",
+    ('["<role>", "<task>", "<constraint>", "<deliverable>"]',),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'verdict' AND validation_schema IS NULL""",
+    ('["<role>", "<task>", "<verdict>", "<feedback>"]',),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'verdict_feedback' AND validation_schema IS NULL""",
+    ('["<role>", "<task>", "<feedback>"]',),
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
@@ -4134,6 +4312,12 @@ _bridge_setup_labels = [
     ("LBL-1000284", "lbl_bridge_rename_invalid", "main", "No change made", "Error: renamed role key is same as original"),
     ("LBL-1000285", "lbl_bridge_renamed", "main", "Successfully renamed", "Success message: renamed"),
     ("LBL-1000286", "lbl_bridge_edit_role", "main", "Edit Role", "Full edit role form heading"),
+    ("LBL-1000287", "lbl_bridge_flow_auto_complete", "main", "Auto-complete enabled", "Flow auto-complete checkbox label"),
+    ("LBL-1000288", "lbl_bridge_step_auto_chain", "main", "Auto-chain to next", "Step auto-chain checkbox label"),
+    ("LBL-1000289", "lbl_bridge_step_validation_required", "main", "Require validation", "Step validation required checkbox label"),
+    ("LBL-1000295", "lbl_bridge_content_template", "main", "Content Template", "Convention content template textarea label"),
+    ("LBL-1000296", "lbl_bridge_validation_schema", "main", "Validation Schema (JSON array)", "Convention validation schema textarea label"),
+    ("LBL-1000297", "lbl_bridge_conventions_title", "main", "Conventions", "Bridge conventions admin section title"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -4261,6 +4445,18 @@ _bridge_setup_translations = [
     ("LBL-1000285", "da-DK", "Omdøbet succesfuldt"),
     ("LBL-1000286", "en-US", "Edit Role"),
     ("LBL-1000286", "da-DK", "Rediger rolle"),
+    ("LBL-1000287", "en-US", "Auto-complete enabled"),
+    ("LBL-1000287", "da-DK", "Auto-fuldfør aktiveret"),
+    ("LBL-1000288", "en-US", "Auto-chain to next"),
+    ("LBL-1000288", "da-DK", "Auto-kæd videre"),
+    ("LBL-1000289", "en-US", "Require validation"),
+    ("LBL-1000289", "da-DK", "Kræv validering"),
+    ("LBL-1000295", "en-US", "Content Template"),
+    ("LBL-1000295", "da-DK", "Indholdsskabelon"),
+    ("LBL-1000296", "en-US", "Validation Schema (JSON array)"),
+    ("LBL-1000296", "da-DK", "Valideringsschema (JSON-array)"),
+    ("LBL-1000297", "en-US", "Conventions"),
+    ("LBL-1000297", "da-DK", "Konventioner"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""

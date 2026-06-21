@@ -78,41 +78,8 @@ def main():
     if ollama_model:
         print(f"  Ollama model: {ollama_model}")
 
-    subprocess.run(
-        ["tmux", "kill-session", "-t", tmux_session],
-        capture_output=True,
-    )
-
     if model_type == "ollama" and ollama_model:
-        print(f"  Unloading '{ollama_model}' for clean state...")
-        subprocess.run(
-            ["ollama", "stop", ollama_model],
-            capture_output=True,
-        )
-
-    if not start_cmd:
-        print(f"  WARNING: No start_cmd defined for role '{args.role}'")
-        return False
-
-    print(f"  Starting session '{tmux_session}'...")
-    subprocess.Popen(
-        ["bash", "-c", (
-            f"tmux kill-session -t '{tmux_session}' 2>/dev/null; "
-            f"sleep 0.3; "
-            f"tmux new-session -d -s {tmux_session} '{start_cmd}'"
-        )],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    ready = wait_session_ready(tmux_session)
-    if not ready:
-        print(f"  WARNING: Session '{tmux_session}' did not become ready in time")
-        return False
-
-    if model_type == "ollama" and ollama_model:
-        print(f"  Reloading '{ollama_model}' fresh...")
+        print(f"  Reloading '{ollama_model}' fresh via pull...")
         result = subprocess.run(
             ["ollama", "pull", ollama_model],
             capture_output=True, text=True,
