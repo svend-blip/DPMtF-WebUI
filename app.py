@@ -4089,7 +4089,7 @@ async def bridge_v2_list_steps(flow_key: str):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         steps_rows = cursor.execute(
-            "SELECT * FROM bridge_flow_steps WHERE flow_key = ? ORDER BY sort_order ASC",
+            "SELECT * FROM bridge_flow_steps WHERE flow_key = ? AND is_active = 1 ORDER BY sort_order ASC",
             (flow_key,)
         ).fetchall()
         steps = [dict(r) for r in steps_rows]
@@ -4262,6 +4262,7 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
 async def bridge_v2_delete_step(flow_key: str, step_id: int):
     """Soft-delete a step (set is_active = 0)."""
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
     row = cursor.execute(
