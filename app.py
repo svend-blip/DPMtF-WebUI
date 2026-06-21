@@ -4368,6 +4368,78 @@ async def bridge_v2_update_role(role_key: str, request: Request):
     return {"status": "updated", "role_key": role_key}
 
 
+@app.post("/api/bridge-v2/roles/{role_key}/rename")
+async def bridge_v2_rename_role(role_key: str, request: Request):
+    """Rename a bridge role (change role_key). Atomic operation."""
+    data = await request.json()
+    new_role_key = data.get("new_role_key", "").strip()
+
+    if not new_role_key or new_role_key == role_key:
+        raise HTTPException(status_code=400, detail="No change made — invalid new role key")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT * FROM bridge_roles WHERE role_key = ?", (role_key,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Role '{role_key}' not found")
+
+        cursor.execute(
+            "SELECT role_key FROM bridge_roles WHERE role_key = ?", (new_role_key,)
+        )
+        if cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=409, detail=f"Role '{new_role_key}' already exists")
+
+        dependents = 0
+        try:
+            from_count = cursor.execute(
+                "SELECT COUNT(*) FROM bridge_flow_steps WHERE from_role = ?", (role_key,)
+            ).fetchone()[0]
+            to_count = cursor.execute(
+                "SELECT COUNT(*) FROM bridge_flow_steps WHERE to_role = ?", (role_key,)
+            ).fetchone()[0]
+            dependents = from_count + to_count
+
+            if dependents:
+                cursor.execute(
+                    "UPDATE bridge_flow_steps SET from_role = ?, updated_at = CURRENT_TIMESTAMP WHERE from_role = ?",
+                    (new_role_key, role_key)
+                )
+                cursor.execute(
+                    "UPDATE bridge_flow_steps SET to_role = ?, updated_at = CURRENT_TIMESTAMP WHERE to_role = ?",
+                    (new_role_key, role_key)
+                )
+        except sqlite3.OperationalError:
+            pass
+
+        cursor.execute(
+            "UPDATE bridge_roles SET role_key = ?, updated_at = CURRENT_TIMESTAMP WHERE role_key = ?",
+            (new_role_key, role_key)
+        )
+        conn.commit()
+
+        return {
+            "status": "renamed",
+            "old_role_key": role_key,
+            "new_role_key": new_role_key,
+            "dependents": dependents,
+        }
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Rename failed: {str(e)}")
+    finally:
+        conn.close()
+
+
 @app.delete("/api/bridge-v2/roles/{role_key}")
 async def bridge_v2_delete_role(role_key: str):
     """Soft-delete a BridgeV002 role (set is_active=0)."""
