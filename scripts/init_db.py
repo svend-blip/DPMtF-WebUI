@@ -4382,6 +4382,7 @@ _bridge_setup_labels = [
     ("LBL-1000295", "lbl_bridge_content_template", "main", "Content Template", "Convention content template textarea label"),
     ("LBL-1000296", "lbl_bridge_validation_schema", "main", "Validation Schema (JSON array)", "Convention validation schema textarea label"),
     ("LBL-1000297", "lbl_bridge_conventions_title", "main", "Conventions", "Bridge conventions admin section title"),
+    ("LBL-1000298", "lbl_bridge_governance_file", "main", "Governance File", "Governance file reference field label"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -4521,6 +4522,8 @@ _bridge_setup_translations = [
     ("LBL-1000296", "da-DK", "Valideringsschema (JSON-array)"),
     ("LBL-1000297", "en-US", "Conventions"),
     ("LBL-1000297", "da-DK", "Konventioner"),
+    ("LBL-1000298", "en-US", "Governance File"),
+    ("LBL-1000298", "da-DK", "Styrefil"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""
@@ -4585,6 +4588,7 @@ _bridge_setup_slots = [
     ("lbl_bridge_edit_role", "Full edit role form heading"),
     ("lbl_bridge_start_tmux", "Start tmux button for flow"),
     ("lbl_bridge_starting", "Label shown while starting tmux"),
+    ("lbl_bridge_governance_file", "Governance file reference field label"),
 ]
 for slot_key, description in _bridge_setup_slots:
     cursor.execute("""
@@ -4654,6 +4658,7 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_edit_role", "lbl_bridge_edit_role"),
     ("lbl_bridge_start_tmux", "lbl_bridge_start_tmux"),
     ("lbl_bridge_starting", "lbl_bridge_starting"),
+    ("lbl_bridge_governance_file", "lbl_bridge_governance_file"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""
