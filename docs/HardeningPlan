@@ -1,0 +1,107 @@
+BridgeV002 Hardening Plan (opdateret)
+
+Fase 1: Konfiguration & Infrastructure
+
+┌─────┬──────────────────┬────────────────────────────────────────────────┐
+│  #  │       Task       │                    Detaljer                    │
+├─────┼──────────────────┼────────────────────────────────────────────────┤
+│ 1.1 │ dpmtf.ini        │ [bridge] med base_path =                       │
+│     │ bridge-sektion   │ /home/svend/claude-bridge                      │
+├─────┼──────────────────┼────────────────────────────────────────────────┤
+│     │                  │ get_bridge_base_path() → returnerer base_path  │
+│ 1.2 │ config.py getter │ fra ini med fallback til                       │
+│     │                  │ {PROJECT_ROOT}/claude-bridge                   │
+├─────┼──────────────────┼────────────────────────────────────────────────┤
+│ 1.3 │ .gitignore       │ Tilføj __pycache__/ (root) og eventuelt        │
+│     │ opdatering       │ bridge-runtime-artefakter                      │
+├─────┼──────────────────┼────────────────────────────────────────────────┤
+│     │ bridge_lib.py    │ Alle hardcoded /home/svend/... erstattes med   │
+│ 1.4 │ path-resolve     │ config.get_bridge_base_path() + relative dir   │
+│     │                  │ fra steps                                      │
+└─────┴──────────────────┴────────────────────────────────────────────────┘
+
+Fase 2: Script Registry (ny tabel)
+
+┌─────┬─────────────┬─────────────────────────────────────────────────────┐
+│  #  │    Task     │                      Detaljer                       │
+├─────┼─────────────┼─────────────────────────────────────────────────────┤
+│ 2.1 │ Schema      │ bridge_scripts tabel i init_db.py                   │
+├─────┼─────────────┼─────────────────────────────────────────────────────┤
+│ 2.2 │ Seed data   │ Eksempel-scripts med script_key, path, stage,       │
+│     │             │ params_required                                     │
+├─────┼─────────────┼─────────────────────────────────────────────────────┤
+│ 2.3 │ API         │ GET /api/bridge-v2/scripts → dropdown-data til      │
+│     │ endpoints   │ frontend                                            │
+└─────┴─────────────┴─────────────────────────────────────────────────────┘
+
+Fase 3: Convention Rules (ny tabel)
+
+┌─────┬────────────────────┬──────────────────────────────────────────────┐
+│  #  │        Task        │                   Detaljer                   │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│     │                    │ bridge_convention_rules med rule_key,        │
+│ 3.1 │ Schema             │ step_type, dir_template, pattern_template,   │
+│     │                    │ error_template                               │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 3.2 │ Seed data          │ "handoff", "callback", "verdict" templates   │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 3.3 │ API endpoints      │ GET/POST/PUT/DELETE                          │
+│     │                    │ /api/bridge-v2/conventions                   │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 3.4 │ bridge_flow_steps  │ Erstat rå-strings med FK-reference: rule_key │
+│     │ ALTER              │  istedet for individuelle strings            │
+└─────┴────────────────────┴──────────────────────────────────────────────┘
+
+Fase 4: Steps CRUD (backend + frontend)
+
+┌─────┬─────────────────┬─────────────────────────────────────────────────┐
+│  #  │      Task       │                    Detaljer                     │
+├─────┼─────────────────┼─────────────────────────────────────────────────┤
+│ 4.1 │ API endpoints   │ GET/POST/PUT/DELETE                             │
+│     │                 │ /api/bridge-v2/steps/{flow_key}                 │
+├─────┼─────────────────┼─────────────────────────────────────────────────┤
+│     │ Frontend:       │                                                 │
+│ 4.2 │ Flow-card       │ Modal med step-tabel + inline-form              │
+│     │ "Manage Steps"  │                                                 │
+│     │ knap            │                                                 │
+├─────┼─────────────────┼─────────────────────────────────────────────────┤
+│     │                 │ from_role, to_role (fra bridge_roles), rule_key │
+│ 4.3 │ Form dropdowns  │  (fra conventions), script_keys (fra scripts    │
+│     │                 │ registry)                                       │
+├─────┼─────────────────┼─────────────────────────────────────────────────┤
+│ 4.4 │ Auto-fill logic │ Ved valg af rule_key auto-fyldes                │
+│     │                 │ dir/pattern/error fra template                  │
+└─────┴─────────────────┴─────────────────────────────────────────────────┘
+
+Fase 5: Parameteriserede Script-kald
+
+┌─────┬─────────────────────┬─────────────────────────────────────────────┐
+│  #  │        Task         │                  Detaljer                   │
+├─────┼─────────────────────┼─────────────────────────────────────────────┤
+│     │ dispatch.py         │ Saml flow_key, step_key, from_role,         │
+│ 5.1 │ parameter-samling   │ to_role, deliverable_dir,                   │
+│     │                     │ deliverable_pattern ved runtime             │
+├─────┼─────────────────────┼─────────────────────────────────────────────┤
+│ 5.2 │ CLI invocation      │ Kør scripts med argparse-parametre fra      │
+│     │                     │ payload                                     │
+├─────┼─────────────────────┼─────────────────────────────────────────────┤
+│ 5.3 │ Eksempel-scripts    │ Opdater role_setup.py/role_teardown.py til  │
+│     │                     │ at acceptere nye parametre                  │
+└─────┴─────────────────────┴─────────────────────────────────────────────┘
+
+
+Fase 6: Database-oprydning & Struktur
+
+┌─────┬────────────────────┬──────────────────────────────────────────────┐
+│  #  │        Task        │                   Detaljer                   │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 6.1 │ Identificér eno.db │ Hvad er den? Brug den? Kan slettes?          │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 6.2 │ Ryd H99-backups    │ Slet .bak.h99, .bak.h99v2, .preh99.review    │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 6.3 │ .gitignore         │ Sørg for dpmtf.db ikke er i git-history (det │
+│     │ databases/         │  er runtime-state)                           │
+├─────┼────────────────────┼──────────────────────────────────────────────┤
+│ 6.4 │ Backup-strategi    │ Definér: automatisk backup før init_db.py?   │
+│     │                    │ Navngivningskonvention?                      │
+└─────┴────────────────────┴──────────────────────────────────────────────┘
