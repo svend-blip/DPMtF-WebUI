@@ -636,32 +636,25 @@ def validate_deliverable_against_schema(file_path, rule_key, db_path=None):
 
 
 if __name__ == "__main__":
-    print("BridgeV002 core library")
-    bridge_config = load_bridge_config()
-    print(f"Loaded config sections: {list(bridge_config.keys())}")
-    for role in ["architect", "implementer"]:
-        rc = load_role_config(role)
-        print(f"Role '{role}': session={rc.get('tmux_session')}")
-    nid = get_next_id()
-    print(f"Next handoff ID: {nid}")
+    print("BridgeV002 core library — database-backed lookup only")
 
-    # Database-backed functions (Spor I)
+    # Database-backed functions
     if _bridgev002_tables_exist():
         print("\nDatabase-backed lookup:")
-        for role in ["architect", "implementer"]:
+        for role in ["archi01", "imple01"]:
             try:
                 rc = load_role_from_db(role)
-                print(f"  DB role '{role}': session={rc.get('tmux_session')}, model_type={rc.get('model_type')}")
+                print(f"  Role '{role}': session={rc.get('tmux_session')}, model_type={rc.get('model_type')}")
             except ValueError as e:
-                print(f"  DB role '{role}': NOT FOUND ({e})")
+                print(f"  Role '{role}': NOT FOUND ({e})")
 
         try:
-            fl = load_flow_from_db("heavy")
-            print(f"  DB flow 'heavy': {len(fl['steps'])} steps")
+            fl = load_flow_from_db("strict_review")
+            print(f"  Flow 'strict_review': {len(fl['steps'])} steps")
             for s in fl["steps"]:
                 print(f"    {s['step_key']}: {s['from_role']} -> {s['to_role']}")
         except ValueError as e:
-            print(f"  DB flow 'heavy': NOT FOUND ({e})")
+            print(f"  Flow 'strict_review': NOT FOUND ({e})")
 
         roles = list_roles_from_db()
         flows = list_flows_from_db()

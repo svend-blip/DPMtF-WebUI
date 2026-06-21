@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Role setup script — restart a session with fresh context.
-Reads role configuration dynamically via bridge_lib. No hardcoded paths or model names.
+Role setup script — preload an Ollama model for a role session.
+Reads role configuration from the database (bridge_roles table).
+No hardcoded paths or model names.
 """
 import argparse
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 PROJECT_ROOT = os.environ.get(
@@ -15,27 +15,14 @@ PROJECT_ROOT = os.environ.get(
 )
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bridge_lib import load_role_config
-
-
-def wait_session_ready(session_name, timeout=5):
-    """Wait until tmux session is actually running."""
-    for _ in range(timeout * 10):
-        result = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
-            capture_output=True,
-        )
-        if result.returncode == 0:
-            return True
-        time.sleep(0.1)
-    return False
+from bridge_lib import load_role_from_db
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="BridgeV002 role setup — start a role session with fresh context"
     )
-    parser.add_argument("--role", required=True, help="Role name matching [role:NAME] in config")
+    parser.add_argument("--role", required=True, help="Role key (matches bridge_roles.role_key)")
     parser.add_argument("--flow-key", default=None,
                         help="Flow key (e.g. 'heavy', 'simplified')")
     parser.add_argument("--step-key", default=None,
@@ -65,7 +52,7 @@ def main():
     if args.handoff_id:
         print(f"  Handoff ID: {args.handoff_id}")
 
-    role_config = load_role_config(args.role)
+    role_config = load_role_from_db(args.role)
     tmux_session = role_config["tmux_session"]
     start_cmd = role_config.get("start_cmd", "")
     model_type = role_config.get("model_type", "")
