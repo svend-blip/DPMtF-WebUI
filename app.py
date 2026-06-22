@@ -2810,8 +2810,12 @@ async def compile_prompt(request: Request):
                     break
 
         # ── Build deliverable path and signal command from DB ─────
-        deliverable_dir_val = bridge_step_data.get("deliverable_dir", "implementertoreview")
-        result_path = f"{config.get_bridge_dir()}/{deliverable_dir_val}/{{ID}}-result.md"
+        deliverable_dir_val = bridge_step_data.get("deliverable_dir", "")
+
+        # Result path: bridge_dir/results/{ID}-result.md
+        result_dir = os.path.join(config.get_bridge_dir(), "results")
+        result_path = f"{result_dir}/{{ID}}-result.md"
+
         signal_cmd_template = (
             f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "
             f"--db-flow {flow_key} --signal-complete --from-role {to_role_key}"
