@@ -16,9 +16,9 @@ projects (including itself).
 | **Repository** | `/home/svend/DPMtF-WebUI` |
 | **Remote** | `https://github.com/svend-blip/DPMtF-WebUI.git` |
 | **Branch** | `master` |
-| **Runtime** | `.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |
+| **Runtime** | `/home/svend/.local/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |
 | **Database** | `databases/dpmtf.db` (SQLite) |
-| **Current commit** | `3ccd57b` — Spor C complete (2026-06-16) |
+| **Current commit** | `7ef7622` — BridgeV002 hardening (2026-06-22) |
 
 ## 2. Language Policy
 
@@ -39,7 +39,13 @@ DPMtF-WebUI/
 ├── requirements.txt        # Python dependencies
 ├── scripts/
 │   ├── init_db.py          # Database initialization + seed data (~3300 lines)
-│   └── initialize_new_webui.py  # Accelerated WebUI Factory (Spor C)
+│   ├── initialize_new_webui.py  # Accelerated WebUI Factory (Spor C)
+│   └── bridgeV002/         # BridgeV002 dispatch system (replaces claude-bridge)
+│       ├── dispatch.py     # Universal dispatcher — 4 signals (send/complete/escalation/answer)
+│       ├── bridge_lib.py   # Database lookup, convention resolution, validation
+│       ├── post-dispatch-common.py  # Convention-agnostic post-dispatch
+│       ├── role_setup.py   # Ollama model pull for role preparation
+│       └── role_teardown.py # Ollama model stop + VRAM cleanup
 ├── templates/
 │   └── index.html          # Main HTML template (SPA)
 ├── static/
@@ -47,6 +53,8 @@ DPMtF-WebUI/
 │   └── css/theme.css       # Dark theme (GitHub-dark palette)
 ├── docs/
 │   ├── governance-templates-v2/  # Authoritative governance (all projects reference this)
+│   │   ├── 01-04 + 10-27 + 99-300  # General governance files
+│   │   ├── 401-405_STRICT_REVIEW_*.md  # Flow-specific role templates (BridgeV002)
 │   │   └── knowledge-fragments/  # Curated .md fragments for Prompt Compiler
 │   └── superpowers/              # Design specs and implementation plans
 └── databases/
@@ -77,8 +85,8 @@ Visibility controlled by `is_visible` in `user_panel_groups` / `panel_subgroups`
 
 | Lives In | What |
 |----------|------|
-| **Database** | UI text slots, labels, translations, user preferences, panel visibility, prompt templates, prompt runs, endpoint registry |
-| **Governance files** | Project identity, scope, coding standards, validation rules, architecture, decisions, changelog |
+| **Database** | UI text slots, labels, translations, user preferences, panel visibility, prompt templates, prompt runs, endpoint registry, bridge_roles, bridge_flows, bridge_flow_steps, bridge_convention_rules, bridge_scripts |
+| **Governance files** | Project identity, scope, coding standards, validation rules, architecture, decisions, changelog, role definitions (general + flow-specific) |
 | **Git** | All code, all governance files, migration scripts |
 
 ## 4. Coding Standards (Condensed)
@@ -142,7 +150,10 @@ Hardcoded `/home/svend/...` strings anywhere are an **auto-fail** in validation.
 **Correct:**
 ```python
 import config
-handoff_path = f"{config.get_bridge_dir()}/reviewtoimplementor/{hid}-handoff.md"
+# BridgeV002 flow-based deliverable path:
+handoff_path = f"{config.get_bridge_dir()}/handoffs/{hid}-handoff.md"
+# Or use dispatch.py which resolves paths from the database:
+# python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py --db-flow strict_review --signal-send ...
 ```
 
 **Wrong (auto-fail):**
@@ -184,14 +195,14 @@ Full rules: `docs/governance-templates-v2/16_FILE_ACCESS.md`
 - `config.py` — central configuration
 - `scripts/init_db.py` — database schema and seed data
 - `dpmtf.ini` — app-config defaults
-- Role definition files (01-04) — governance-critical
+- Role definition files (01-04, 401-405) — governance-critical
 
 ### Forbidden (all roles)
 - `.git/` internals
 - `__pycache__/`, `.pytest_cache/`
 - `.env` files, credentials, API keys
 - Other projects: `/home/svend/ENO/`, `/home/svend/ai-pc-resource-webui-v3/`
-- Bridge infrastructure: `/home/svend/claude-bridge/` (read-only reference)
+- Legacy bridge: `/home/svend/claude-bridge/` (read-only reference, superseded by BridgeV002)
 
 ### Append-Only Files
 - `docs/governance-templates-v2/25_DECISIONS.md` — decision log
@@ -224,6 +235,8 @@ Before considering any change complete, run these 8 checks:
 The authoritative governance files live in `docs/governance-templates-v2/`.
 This CLAUDE.md summarizes key rules; for full detail, read the source files.
 
+### General Governance Files
+
 | # | File | Purpose |
 |---|------|---------|
 | 01 | 01_HUMAN.md | Human role — scope authority, commit gate |
@@ -249,9 +262,22 @@ This CLAUDE.md summarizes key rules; for full detail, read the source files.
 | 26 | 26_CHANGELOG.md | Append-only change history |
 | 27 | 27_NEXT_CONTEXT.md | Session handoff artifact |
 | 99 | 99_ROLEINTERACTION.md | Role loop and escalation structure |
-| 100 | 100_BRIDGE.md | Bridge protocol and handoff formats |
+| 100 | 100_BRIDGE.md | BridgeV002 protocol and handoff formats |
 | 200 | 200_HARDENING_V2.md | Design rationale for governance-templates-v2 |
 | 300 | 300_SETUPINSTRUCTION.md | PC migration and fresh install guide |
+
+### Flow-Specific Governance Files (BridgeV002)
+
+| # | File | Role | Flow |
+|---|------|------|------|
+| 401 | 401_STRICT_REVIEW_HUMAN.md | Human | strict_review |
+| 402 | 402_STRICT_REVIEW_ARCHI01.md | archi01 (Architect) | strict_review |
+| 403 | 403_STRICT_REVIEW_IMPLE01.md | imple01 (Implementer) | strict_review |
+| 404 | 404_STRICT_REVIEW_REVIEW01.md | review01 (Technical Review) | strict_review |
+| 405 | 405_STRICT_REVIEW_REVIEW02.md | review02 (Governance Review) | strict_review |
+
+> **Precedence:** When operating within a BridgeV002 flow, the flow-specific
+> 400-series file takes precedence over the general 01-04 file for that role.
 
 ## 10. Knowledge Fragments
 
@@ -275,11 +301,55 @@ fragments used by the Prompt Compiler to assemble handoff prompts:
 
 | Project | Port | Path | Role |
 |---------|------|------|------|
-| **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Father — governance engine |
+| **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Father — governance engine + BridgeV002 |
 | **ENO** | 9131 | `/home/svend/ENO` | First Child project |
 | **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Reference project |
-| **claude-bridge** | — | `/home/svend/claude-bridge/` | Bridge infrastructure |
+| **claude-bridge** (legacy) | — | `/home/svend/claude-bridge/` | Legacy bridge — superseded by BridgeV002 |
 
 **Rule:** Never modify files in other projects unless explicitly authorized.
 DPMtF-WebUI's `docs/governance-templates-v2/` is the authoritative source for
 all governance rules — other projects reference it, not the other way around.
+
+## 12. BridgeV002 — Quick Reference
+
+BridgeV002 is the **database-driven dispatch system** integrated into DPMtF-WebUI.
+It replaces the legacy `claude-bridge/bridge.py` entirely.
+
+### Signals (replace legacy bridge.py commands)
+
+```bash
+# Send handoff to target role:
+python3 scripts/bridgeV002/dispatch.py --db-flow {flow} --signal-send --from-role {from} --to-role {to}
+
+# Signal completion:
+python3 scripts/bridgeV002/dispatch.py --db-flow {flow} --signal-complete --from-role {from}
+
+# Escalate to architect:
+python3 scripts/bridgeV002/dispatch.py --db-flow {flow} --signal-escalation --from-role {from} --to-role {to}
+
+# Answer escalation:
+python3 scripts/bridgeV002/dispatch.py --db-flow {flow} --signal-answer --from-role {from} --to-role {to}
+```
+
+### Key Principles
+
+1. **Fully database-driven** — zero INI dependencies, zero hardcoded paths
+2. **No-kill mode** — post-dispatch `ollama stop`, no tmux kill/new-session
+3. **Flow-based** — `strict_review` is the primary flow; more can be added
+4. **Convention-driven** — content templates govern injected prompts per step type
+5. **Human skip** — `role_type=human` → dispatch skips tmux injection
+
+### API Endpoints
+
+```
+GET  /api/bridge-v2/status, /roles, /roles/{key}, /flows, /flows/{key}
+GET  /api/bridge-v2/steps/{flow_key}, /scripts, /conventions, /governance-files
+POST /api/bridge-v2/roles, /flows, /steps/{flow_key}
+POST /api/bridge-v2/roles/{key}/rename
+POST /api/bridge-v2/flows/{key}/start-tmux, /start-coding, /stop-tmux, /attach-tmux
+PUT  /api/bridge-v2/roles/{key}, /flows/{key}, /steps/{flow_key}/{id}
+PATCH /api/bridge-v2/conventions/{rule_key}
+DELETE /api/bridge-v2/roles/{key}, /flows/{key}, /steps/{flow_key}/{id}
+```
+
+See [[100_BRIDGE]] for the full protocol.

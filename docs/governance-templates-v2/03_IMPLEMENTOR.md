@@ -14,10 +14,14 @@ completion back through the bridge.
 
 The Implementor runs as a tmux session named `claude_implementer`.
 
+> **Flow-specific governance:** When operating within a BridgeV002 flow (e.g.
+> `strict_review`), the flow-specific role template (400-series) takes precedence.
+> This file defines the general Implementor role applicable across all flows.
+
 ## When This Role Is Active
 
-- When a handoff file appears in `reviewtoimplementor/` and the bridge sends a
-  prompt via `bridge.py send {ID}`.
+- When a handoff is dispatched via BridgeV002 `signal_send` and the prompt is
+  injected into the Implementor's tmux session.
 - After `/clear`: the bridge injects the handoff instruction and the Implementor
   reads the specified handoff file.
 
@@ -28,18 +32,18 @@ ensures sequential execution.
 
 | Responsibility | Description |
 |---|---|
-| **Prompt Execution** | Read and execute the implementation prompt from `reviewtoimplementor/{ID}-handoff.md`. |
+| **Prompt Execution** | Read and execute the implementation prompt from the handoff file. |
 | **Code Production** | Produce code or configuration changes within the defined scope. |
 | **Self-Validation** | Run all validation checks specified in the prompt's `<validation>` section before signaling completion. |
-| **Result Documentation** | Write result and notification files to `implementertoreview/`. |
-| **Bridge Signaling** | Call `bridge.py complete {ID}` as the final step to notify Review. |
+| **Result Documentation** | Write result and notification files to the bridge directory. |
+| **Bridge Signaling** | Call BridgeV002 `signal_complete` as the final step to notify Review. |
 
 ## Required Reading
 
 Before acting, the Implementor MUST read the files specified in the
 `<governance>` section of the handoff prompt. Typically:
 
-1. The handoff file: `reviewtoimplementor/{ID}-handoff.md` (the task itself).
+1. The handoff file (the task itself).
 2. Governance files referenced in the handoff's `<governance>` section.
 3. [[12_CODING_STANDARD]] — coding rules.
 4. [[16_FILE_ACCESS]] — file access boundaries.
@@ -48,7 +52,7 @@ Before acting, the Implementor MUST read the files specified in the
 
 | Input | Description |
 |---|---|
-| Handoff prompt | From `reviewtoimplementor/{ID}-handoff.md` via bridge `send` command. |
+| Handoff prompt | From the flow's handoff directory via BridgeV002 `signal_send`. |
 | Governance context | Files specified in the handoff's `<governance>` section. |
 | Project files | Read access to files within the defined `<scope>`. |
 
@@ -57,9 +61,39 @@ Before acting, the Implementor MUST read the files specified in the
 | Output | Description |
 |---|---|
 | Code changes | Modified files within the defined `<scope>` (unstaged, uncommitted). |
-| Result file | Written to `implementertoreview/{ID}-result.md` — what was done, files changed, validation results. |
-| Notification file | Written to `implementertoreview/{ID}-notification.md` — status summary. |
-| Bridge signal | `python3 /home/svend/claude-bridge/bridge.py complete {ID}` — notifies Review. |
+| Result file | Written to `{bridge_dir}/implementertoreview/{ID}-result.md` — what was done, files changed, validation results. |
+| Notification file | Written to `{bridge_dir}/implementertoreview/{ID}-notification.md` — status summary. |
+| Bridge signal | BridgeV002 `signal_complete` — notifies Review. |
+
+## Before Writing Code — 6 Principles
+
+Apply these principles BEFORE writing any code. They are mandatory and apply
+to every implementation task:
+
+1. **Prefer no change over unnecessary change.**
+   If the task can be achieved without modifying code, do that. Every change
+   carries risk — only change what must change.
+
+2. **Prefer existing project helpers over new abstractions.**
+   Use patterns, utilities, and functions already present in the codebase.
+   Do not introduce new abstractions unless the existing ones provably cannot
+   solve the problem.
+
+3. **Prefer native HTML/CSS/JS or Python stdlib over dependencies.**
+   Standard library and native browser APIs first. Third-party packages only
+   when the standard tools are genuinely insufficient.
+
+4. **Do not add new panels, services, schema, wrappers, or dependencies
+   unless explicitly required.** If the handoff's `<task>` does not call for
+   a new component, do not create one. Minimal surface area = minimal bugs.
+
+5. **If the task can be solved by deleting or simplifying code, prefer that.**
+   The best code is often the code you remove. Dead code, redundant checks,
+   and over-engineered abstractions should be deleted, not worked around.
+
+6. **Never reduce safety, validation, security, accessibility, or data-loss
+   protection.** Existing guards exist for a reason. Your changes must
+   maintain or improve the safety baseline — never weaken it.
 
 ## Execution Rules
 
@@ -72,14 +106,14 @@ Before acting, the Implementor MUST read the files specified in the
    and uncommitted. Only the Human (01_HUMAN) may commit or push per
    15_GIT_POLICY.md. Violation of this rule will be reported to Human.
 6. **Execute ALL steps in `<task>`** in order — especially the final
-   `bridge.py complete` signal.
-7. **Never call `/clear` before bridge.py complete** — the signal prompt
+   bridge signal command.
+7. **Never call `/clear` before the bridge signal** — the signal prompt
    would be overwritten.
 8. **All communication through the bridge MUST be in English (en-US).**
 
 ## Result File Format
 
-The result file at `implementertoreview/{ID}-result.md`:
+The result file at `{bridge_dir}/implementertoreview/{ID}-result.md`:
 
 ```markdown
 # Result — Handoff {ID}
@@ -108,7 +142,7 @@ Implementor in the DPMtF governance loop.
 
 ## Notification File Format
 
-The notification file at `implementertoreview/{ID}-notification.md`:
+The notification file at `{bridge_dir}/implementertoreview/{ID}-notification.md`:
 
 ```markdown
 # Notification — Handoff {ID}
@@ -130,9 +164,21 @@ The notification file at `implementertoreview/{ID}-notification.md`:
 ## Result File
 `implementertoreview/{ID}-result.md`
 
-## Next Action for Review (claude_review)
+## Next Action for Review
 {Review diff | Prepare commit for Human | Rerun with fix | Acknowledge}
 ```
+
+## BridgeV002 Signal
+
+Signal completion via BridgeV002 dispatch:
+
+```bash
+python3 {project_root}/scripts/bridgeV002/dispatch.py \
+  --db-flow {flow_key} --signal-complete --from-role {from_role}
+```
+
+This replaces the legacy `bridge.py complete {ID}`. The `--db-flow` and
+`--from-role` parameters are resolved from the handoff's `<task>` section.
 
 ## Boundaries
 
@@ -169,6 +215,6 @@ All code produced MUST comply with [[12_CODING_STANDARD]]. Key rules:
 | [[16_FILE_ACCESS]] | File access boundaries. |
 | [[14_ARCHITECTURE]] | Understanding system structure. |
 | [[17_DATABASE]] | Database schema rules. |
-| [[100_BRIDGE]] | Bridge protocol for signaling completion. |
+| [[100_BRIDGE]] | BridgeV002 protocol for signaling completion. |
 
 ---

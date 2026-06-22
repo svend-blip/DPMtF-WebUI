@@ -3846,31 +3846,31 @@ cursor.executemany(
        (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
         setup_script, teardown_script, deliver_error_msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
     [
-        ("architect", "claude_architect",
-         "cd {PROJECT_ROOT} && claude",
-         "cloud", "deepseek-v4-pro:cloud", None,
+        ("archi01", "archi01",
+         "tmux send-keys -t archi01 'cd {PROJECT_ROOT} && CLAUDE_CODE_MAX_OUTPUT_TOKENS=131072 ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model qwen3.6:35b-a3b' Enter",
+         "ollama", "", "qwen3.6:35b-a3b",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "Architect session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("implementer", "claude_implementer",
-         "OPENCODE_CONFIG_DIR={PROJECT_ROOT}/.config/opencode-roles/implementer OPENCODE_CONFIG={PROJECT_ROOT}/.config/opencode-roles/implementer/opencode.json opencode",
-         "ollama", None, "qwen3.6:27b-q4_K_M",
+         "archi01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
+        ("imple01", "imple01",
+         "tmux send-keys -t imple01 'cd {PROJECT_ROOT} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/imple01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/imple01/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:27b-q4_K_M' Enter",
+         "ollama", "", "qwen3.6:27b-q4_K_M",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "Implementer session stopped unexpectedly. Start manually in tmux."),
-        ("review_heavy1", "claude_review",
-         "cd {PROJECT_ROOT} && claude",
-         "cloud", "deepseek-v4-flash:cloud", None,
+         "imple01 session stopped unexpectedly. Start manually in tmux."),
+        ("review01", "review01",
+         "tmux send-keys -t review01 'cd {PROJECT_ROOT} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review01/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:35b-a3b' Enter",
+         "ollama", "", "qwen3.6:35b-a3b",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "Review session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("review_heavy2", "claude_review_2",
-         "cd {PROJECT_ROOT} && claude",
-         "cloud", "deepseek-v4-flash:cloud", None,
+         "review01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
+        ("review02", "review02",
+         "tmux send-keys -t review02 'cd {PROJECT_ROOT} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review02\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review02/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:27b-q4_K_M' Enter",
+         "ollama", "", "qwen3.6:27b-q4_K_M",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "Review2 session stopped unexpectedly. Start manually."),
-        ("reviewer_lite", "claude_review_lite",
-         "OPENCODE_CONFIG_DIR={PROJECT_ROOT}/.config/opencode-roles/review OPENCODE_CONFIG={PROJECT_ROOT}/.config/opencode-roles/review/opencode.json opencode",
-         "ollama", None, "qwen3.6:27b-q4_K_M",
-         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "Lite review session stopped unexpectedly. Start manually in tmux."),
+         "review02 session stopped unexpectedly. Start manually."),
+        ("human", "human",
+         None,
+         "ollama", None, None,
+         None, None,
+         None),
     ],
 )
 
@@ -3878,18 +3878,10 @@ cursor.executemany(
     """INSERT OR IGNORE INTO bridge_flows
        (flow_key, name, description, step_order, is_default) VALUES (?, ?, ?, ?, ?)""",
     [
-        ("heavy", "Heavy",
-         "Full chain: Architect -> Implementer -> Review1 -> Review2 -> Human",
-         "architect_to_implementer,implementer_to_review_heavy1,review_heavy1_to_heavy2,review_heavy2_to_human",
+        ("strict_review", "Standard development flow",
+         "human/archi01/imple01/review01/review02/human — full governance chain",
+         None,
          1),
-        ("simplified", "Simplified",
-         "Direct: Implementer -> Review (no architect)",
-         "architect_to_implementer,implementer_to_reviewer_lite,reviewer_lite_to_human",
-         0),
-        ("escalation", "Escalation",
-         "Review escalates to Architect for architectural questions",
-         "review_to_architect,architect_to_review_response",
-         0),
     ],
 )
 
@@ -3898,36 +3890,18 @@ cursor.executemany(
        (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
         pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
     [
-        ("heavy", "architect_to_implementer", "architect", "implementer",
-         "reviewtoimplementor", "{ID}-handoff.md", None, None,
-         "Failed to deliver handoff to implementer.", 1),
-        ("heavy", "implementer_to_review_heavy1", "implementer", "review_heavy1",
-         "implementertoreview", "{ID}-callback.md", None, None,
-         "Failed to deliver completion signal to review.", 2),
-        ("heavy", "review_heavy1_to_heavy2", "review_heavy1", "review_heavy2",
-         "architecttoreview", "{ID}-callback.md", None, None,
-         "Failed to deliver response to review2.", 3),
-        ("heavy", "review_heavy2_to_human", "review_heavy2", "human",
-         "implementertoreview", "{ID}-review-verdict.md", None, None,
-         "Failed to deliver verdict. Present to Human manually.", 4),
-        ("heavy", "review_to_architect_escalation", "review_heavy1", "architect",
-         "reviewtoarchitect", "{ID}-handoff.md", None, None,
-         "Escalation failed. Present question to Architect manually.", 5),
-        ("simplified", "architect_to_implementer", "architect", "implementer",
-         "reviewtoimplementor", "{ID}-handoff.md", None, None,
-         "Failed to deliver handoff to implementer.", 1),
-        ("simplified", "implementer_to_reviewer_lite", "implementer", "reviewer_lite",
-         "implementertoreview", "{ID}-callback.md", None, None,
-         "Failed to deliver completion signal to lite review.", 2),
-        ("simplified", "reviewer_lite_to_human", "reviewer_lite", "human",
-         "implementertoreview", "{ID}-review-verdict.md", None, None,
-         "Failed to deliver verdict. Present to Human manually.", 3),
-        ("escalation", "review_to_architect", "review_heavy1", "architect",
-         "reviewtoarchitect", "{ID}-handoff.md", None, None,
-         "Escalation failed. Present question to Architect manually.", 1),
-        ("escalation", "architect_to_review_response", "architect", "review_heavy1",
-          "architecttoreview", "{ID}-callback.md", None, None,
-          "Failed to deliver architect answer back to review.", 2),
+        ("strict_review", "archi01-imple01", "archi01", "imple01",
+         "/home/svend/flows/strict_review/handoffs", "{ID}-handoff.md", None, "post-dispatch-common",
+         "Failed to deliver handoff to {to_role}.", 1),
+        ("strict_review", "imple01-review01", "imple01", "review01",
+         "/home/svend/flows/strict_review/results", "{ID}-imple01.md", None, "post-dispatch-common",
+         "Failed to deliver callback to {to_role}.", 2),
+        ("strict_review", "review01-review02", "review01", "review02",
+         "/home/svend/flows/strict_review/reviews", "{ID}-review01.md", None, "post-dispatch-common",
+         "Failed to deliver callback to {to_role}.", 3),
+        ("strict_review", "review02-human", "review02", "human",
+         "/home/svend/flows/strict_review/verdicts", "{ID}-verdict.md", None, "post-dispatch-common",
+         "Failed to deliver verdict. Present to {to_role} manually.", 4),
     ],
 )
 
@@ -4001,17 +3975,20 @@ cursor.executemany(
        VALUES (?, ?, ?, ?, ?)""",
     [
         ("handoff", "Handoff",
-         "reviewtoimplementor", "{ID}-handoff.md",
+         "handoffs", "{ID}-handoff.md",
          "Failed to deliver handoff to {to_role}."),
-        ("callback", "Callback",
-         "implementertoreview", "{ID}-callback.md",
-         "Failed to deliver callback to {to_role}."),
+        ("technical_review", "TechnicalReview",
+         "reviews", "{ID}-review01.md",
+         "Failed to deliver technical review to {to_role}."),
+        ("verdict", "Verdict",
+         "verdicts", "{ID}-verdict.md",
+         "Failed to deliver verdict to {to_role}."),
+        ("human_delivery", "HumanDelivery",
+         "verdicts", "{ID}-verdict.md",
+         "Failed to deliver verdict to Human. Present manually."),
         ("escalation", "Escalation",
          "escalations", "{ID}-{from_role}-question.md",
          "Failed to escalate question to architect."),
-        ("verdict", "Verdict",
-         "implementertoreview", "{ID}-review-verdict.md",
-         "Failed to deliver verdict. Present to Human manually."),
     ],
 )
 
@@ -4023,42 +4000,26 @@ try:
 except sqlite3.OperationalError:
     pass  # Column already exists
 
-# Map existing steps to convention rules
+# Map strict_review steps to convention rules
 cursor.executemany(
     """UPDATE bridge_flow_steps SET rule_key = ? WHERE step_key = ? AND flow_key = ?""",
     [
-        # Heavy flow
-        ("handoff", "architect_to_implementer", "heavy"),
-        ("callback", "implementer_to_review_heavy1", "heavy"),
-        ("callback", "review_heavy1_to_heavy2", "heavy"),
-        ("verdict", "review_heavy2_to_human", "heavy"),
-        ("callback", "review_to_architect_escalation", "heavy"),
-        # Simplified flow
-        ("handoff", "architect_to_implementer", "simplified"),
-        ("callback", "implementer_to_reviewer_lite", "simplified"),
-        ("verdict", "reviewer_lite_to_human", "simplified"),
-        # Escalation flow
-        ("handoff", "review_to_architect", "escalation"),
-        ("callback", "architect_to_review_response", "escalation"),
+        ("handoff", "archi01-imple01", "strict_review"),
+        ("technical_review", "imple01-review01", "strict_review"),
+        ("verdict", "review01-review02", "strict_review"),
+        ("human_delivery", "review02-human", "strict_review"),
     ],
 )
 
-# Update all heavy flow steps with generic post-dispatch script (Phase 4)
-cursor.execute(
+# Set post-dispatch-common on all strict_review steps
+cursor.executemany(
     "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
-    ("post-dispatch-common", "architect_to_implementer", "heavy")
-)
-cursor.execute(
-    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
-    ("post-dispatch-common", "implementer_to_review_heavy1", "heavy")
-)
-cursor.execute(
-    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
-    ("post-dispatch-common", "review_heavy1_to_heavy2", "heavy")
-)
-cursor.execute(
-    "UPDATE bridge_flow_steps SET post_dispatch_script = ? WHERE step_key = ? AND flow_key = ?",
-    ("post-dispatch-common", "review_heavy2_to_human", "heavy")
+    [
+        ("post-dispatch-common", "archi01-imple01", "strict_review"),
+        ("post-dispatch-common", "imple01-review01", "strict_review"),
+        ("post-dispatch-common", "review01-review02", "strict_review"),
+        ("post-dispatch-common", "review02-human", "strict_review"),
+    ],
 )
 
 # Add prompt_template column to bridge_convention_rules (idempotent)
@@ -4140,9 +4101,10 @@ except sqlite3.OperationalError:
 cursor.executemany(
     "UPDATE bridge_convention_rules SET rule_type = ? WHERE rule_key = ?",
     [
-        ("callback_content", "callback"),
         ("handoff_content", "handoff"),
+        ("technical_review_content", "technical_review"),
         ("verdict_content", "verdict"),
+        ("human_delivery_content", "human_delivery"),
         ("verdict_feedback_content", "verdict_feedback"),
     ],
 )
@@ -4152,7 +4114,7 @@ cursor.executemany(
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
-       WHERE rule_key = 'callback' AND content_template IS NULL""",
+       WHERE rule_key = 'technical_review' AND content_template IS NULL""",
     (
         "<handoff_id>{handoff_id}</handoff_id>\n"
         "\n"
@@ -4164,8 +4126,7 @@ cursor.execute(
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "  technical_review: {bridge_dir}/implementertoreview/{handoff_id}-review01.md\n"
         "</deliverable_output>\n"
         "\n"
         "<dispatch_command>\n"
@@ -4206,13 +4167,36 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-review01.md\n"
         "</deliverable_input>\n"
         "\n"
-        "<deliverable_output>\\n"
-        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\\n"
+        "<deliverable_output>\n"
+        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>\n"
+        "\n"
+        "<dispatch_command>\n"
+        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
+        "</dispatch_command>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'human_delivery' AND content_template IS NULL""",
+    (
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-verdict.md\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  (none — Human is the endpoint, no further automated dispatch)\n"
         "</deliverable_output>",
     ),
 )
@@ -4241,7 +4225,7 @@ cursor.execute(
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET validation_schema = ?
-       WHERE rule_key = 'callback' AND validation_schema IS NULL""",
+       WHERE rule_key = 'technical_review' AND validation_schema IS NULL""",
     ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
 )
 
@@ -4257,6 +4241,13 @@ cursor.execute(
        SET validation_schema = ?
        WHERE rule_key = 'verdict' AND validation_schema IS NULL""",
     ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'human_delivery' AND validation_schema IS NULL""",
+    ('["<handoff_id>", "<source_role>", "<deliverable_input>"]',),
 )
 
 cursor.execute(
@@ -4379,22 +4370,26 @@ try:
 except sqlite3.OperationalError:
     pass
 
-# Seed governance_file for strict_review roles
+# Seed governance_file for strict_review roles (400-series flow-specific templates)
 cursor.execute(
     "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("02_ARCHITECT.md", "archi01"),
+    ("401_STRICT_REVIEW_HUMAN.md", "human"),
 )
 cursor.execute(
     "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("03_IMPLEMENTOR.md", "imple01"),
+    ("402_STRICT_REVIEW_ARCHI01.md", "archi01"),
 )
 cursor.execute(
     "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("04_REVIEW.md", "review01"),
+    ("403_STRICT_REVIEW_IMPLE01.md", "imple01"),
 )
 cursor.execute(
     "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("04_REVIEW.md", "review02"),
+    ("404_STRICT_REVIEW_REVIEW01.md", "review01"),
+)
+cursor.execute(
+    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
+    ("405_STRICT_REVIEW_REVIEW02.md", "review02"),
 )
 
 # G1: role_type column on bridge_roles — distinguish human from agent recipients

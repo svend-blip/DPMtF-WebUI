@@ -14,10 +14,14 @@ workflow, and escalates architectural decisions to the Architect.
 
 The Review runs as a tmux session named `claude_review`.
 
+> **Flow-specific governance:** When operating within a BridgeV002 flow (e.g.
+> `strict_review`), the flow-specific role template (400-series) takes precedence.
+> This file defines the general Review role applicable across all flows.
+
 ## When This Role Is Active
 
-- After receiving a bridge signal from Implementor (`bridge.py complete {ID}`).
-- When the Architect responds to an escalation (`bridge.py answer-review {ID}`).
+- After receiving a bridge signal from Implementor (BridgeV002 `signal_complete`).
+- When the Architect responds to an escalation (BridgeV002 `signal_answer`).
 - At session start: reads [[27_NEXT_CONTEXT]] to reconstruct state.
 - After `/clear`: reconstructs context from governance files.
 
@@ -29,8 +33,8 @@ Review is the workflow coordinator — it ensures only one role is active at a t
 |---|---|
 | **Validation** | Run all pre-commit checks from [[13_VALIDATION]] on the Implementor's diff. |
 | **Diff Review** | Review `git diff` for scope compliance, code quality, and unintended changes. |
-| **Handoff Dispatch** | Forward Architect's prompts to Implementor via `bridge.py send {ID}`. |
-| **Escalation** | Escalate architectural questions to Architect via `bridge.py ask-architect {ID}`. |
+| **Handoff Dispatch** | Forward Architect's prompts to Implementor via BridgeV002 `signal_send`. |
+| **Escalation** | Escalate architectural questions to Architect via BridgeV002 `signal_escalation`. |
 | **Commit Preparation** | Prepare validated changes for Human approval (stage, write commit message). |
 | **Session Handoff** | Update [[27_NEXT_CONTEXT]] with session state before `/clear`. |
 | **Workflow Coordination** | Ensure sequential role execution — no parallel work. |
@@ -57,9 +61,9 @@ Additionally, the Review reads as needed:
 
 | Input | Description |
 |---|---|
-| Implementor result | From `implementertoreview/{ID}-result.md` and `{ID}-notification.md`. |
+| Implementor result | From `{bridge_dir}/implementertoreview/{ID}-result.md` and `{ID}-notification.md`. |
 | Git diff | `git diff` of the Implementor's changes. |
-| Architect response | From `architecttoreview/{ID}-response.md` (escalation answer). |
+| Architect response | From `{bridge_dir}/architecttoreview/{ID}-response.md` (escalation answer). |
 | NEXT_CONTEXT | After `/clear`: session state from [[27_NEXT_CONTEXT]]. |
 
 ## Outputs
@@ -68,8 +72,8 @@ Additionally, the Review reads as needed:
 |---|---|
 | Validation verdict | Pass/fail with specific findings. |
 | Commit proposal | Staged changes + commit message for Human approval. |
-| Return to Implementor | New handoff via `bridge.py send {ID}` (if rework needed). |
-| Escalation to Architect | Handoff via `bridge.py ask-architect {ID}` (if architectural decision needed). |
+| Return to Implementor | New handoff via BridgeV002 `signal_send` (if rework needed). |
+| Escalation to Architect | Via BridgeV002 `signal_escalation` (if architectural decision needed). |
 | Updated NEXT_CONTEXT | Session state written to [[27_NEXT_CONTEXT]]. |
 | Validation report | Written to [[29_VALIDATION_REPORT]]. |
 
@@ -93,11 +97,11 @@ model deselection per 02_ARCHITECT.md Post-Handoff Stop Rule.
 
 ```
 1. RECEIVE bridge signal:
-   "Read and execute ... implementertoreview/{ID}-callback.md"
+   BridgeV002 injects callback prompt into Review's tmux session.
 
 2. READ result and notification:
-   - implementertoreview/{ID}-result.md
-   - implementertoreview/{ID}-notification.md
+   - {bridge_dir}/implementertoreview/{ID}-result.md
+   - {bridge_dir}/implementertoreview/{ID}-notification.md
 
 3. RUN validation checks (see [[13_VALIDATION]]):
    - Backend syntax: python3 -m py_compile app.py
@@ -116,7 +120,7 @@ model deselection per 02_ARCHITECT.md Post-Handoff Stop Rule.
 
 5. DECIDE verdict:
    ├─ APPROVED → prepare commit for Human approval (stage files, write
-   │             commit message to implementertoreview/{ID}-commit-message.md,
+   │             commit message to {bridge_dir}/implementertoreview/{ID}-commit-message.md,
    │             escalate to Human — DO NOT commit/push)
    ├─ APPROVED with notes → prepare commit, document notes, escalate to Human
    └─ REJECTED → return to Implementor with specific fix instructions
@@ -126,7 +130,7 @@ model deselection per 02_ARCHITECT.md Post-Handoff Stop Rule.
 
 ### When to escalate to Architect (Lag 2)
 
-Escalate to Architect via `bridge.py ask-architect {ID}` when:
+Escalate to Architect via BridgeV002 `signal_escalation` when:
 
 - **Architectural ambiguity:** The implementation prompt was unclear about
   architecture, and the decision affects multiple components.
@@ -148,12 +152,12 @@ Escalate to Human when:
 
 ### Escalation Handoff Format
 
-For escalation to Architect, write to `reviewtoarchitect/{ID}-handoff.md`:
+For escalation to Architect, write to `{bridge_dir}/escalations/{ID}-{from_role}-question.md`:
 
 ```markdown
 <role>You are Architect in the DPMtF governance loop.</role>
 <handoff_id>{ID}</handoff_id>
-<escalation_from>claude_review</escalation_from>
+<escalation_from>{from_role}</escalation_from>
 
 <context>
 {What Review was working on — project, phase, task}
@@ -171,19 +175,20 @@ For escalation to Architect, write to `reviewtoarchitect/{ID}-handoff.md`:
 
 <governance>
 Read and apply:
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/02_ARCHITECT.md
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/21_ALIGNMENT.md
+- {project_root}/docs/governance-templates-v2/02_ARCHITECT.md
+- {project_root}/docs/governance-templates-v2/21_ALIGNMENT.md
 </governance>
 
 <task>
 1. Read <context> and <question>.
 2. Consult relevant governance files.
 3. Make a decision and write response to:
-   /home/svend/claude-bridge/architecttoreview/{ID}-response.md
+   {bridge_dir}/architecttoreview/{ID}-response.md
 4. Write NOTIFICATION to:
-   /home/svend/claude-bridge/architecttoreview/{ID}-notification.md
-5. SIGNAL completion:
-   python3 /home/svend/claude-bridge/bridge.py answer-review {ID}
+   {bridge_dir}/architecttoreview/{ID}-notification.md
+5. SIGNAL completion via BridgeV002:
+   python3 {project_root}/scripts/bridgeV002/dispatch.py \
+     --db-flow {flow_key} --signal-answer --from-role {from_role} --to-role {to_role}
 </task>
 
 <constraint>
@@ -191,6 +196,22 @@ ONLY answer the question. Do not start new implementations.
 Execute ALL steps in <task> — especially step 5.
 </constraint>
 ```
+
+## BridgeV002 Dispatch
+
+Review dispatches handoffs and escalations via BridgeV002:
+
+```bash
+# Dispatch handoff to Implementor:
+python3 {project_root}/scripts/bridgeV002/dispatch.py \
+  --db-flow {flow_key} --signal-send --from-role {from_role} --to-role {to_role}
+
+# Escalate to Architect:
+python3 {project_root}/scripts/bridgeV002/dispatch.py \
+  --db-flow {flow_key} --signal-escalation --from-role {from_role} --to-role {to_role}
+```
+
+See [[100_BRIDGE]] for the full BridgeV002 protocol.
 
 ## Boundaries
 
@@ -225,6 +246,6 @@ Execute ALL steps in <task> — especially step 5.
 | [[28_IMPLEMENTATION_REPORT]] | Implementation report consolidation. |
 | [[29_VALIDATION_REPORT]] | Validation report template. |
 | [[99_ROLEINTERACTION]] | Role loop and handoff rules. |
-| [[100_BRIDGE]] | Bridge protocol for dispatch and escalation. |
+| [[100_BRIDGE]] | BridgeV002 protocol for dispatch and escalation. |
 
 ---
