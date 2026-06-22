@@ -105,14 +105,18 @@ def inject_via_send_keys(session_name, text):
 
 
 def inject_via_paste_buffer(session_name, text):
-    """Write to temp file, load-buffer, paste-buffer. Used for OpenCode sessions."""
+    """Write to temp file, load-buffer, paste-buffer, send Enter. Used for OpenCode sessions."""
+    # Note: send-keys Enter after paste-buffer is REQUIRED — OpenCode won't
+    # auto-execute pasted text without a trailing Enter keypress.
     fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="bridge-prompt-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         subprocess.run(["tmux", "load-buffer", tmp_path], check=True)
         subprocess.run(["tmux", "paste-buffer", "-t", session_name], check=True)
-        time.sleep(0.5)
+        time.sleep(0.3)
+        subprocess.run(["tmux", "send-keys", "-t", session_name, "Enter"], check=True)
+        time.sleep(0.3)
     finally:
         try:
             os.unlink(tmp_path)
@@ -143,53 +147,29 @@ def inject_prompt(session_name, text):
 def unload_ollama_model(model_name):
     """Stop an Ollama model to free VRAM and clear context.
 
-    Returns True on success or if model was already unloaded, False otherwise.
+    Returns True on success or if model was already unloaded.
+    Returns False on actual failure (model name invalid, ollama not running, etc.).
     """
     if not model_name:
-        return False
+        return True  # nothing to unload — not an error
 
     result = subprocess.run(
         ["ollama", "stop", model_name],
         capture_output=True, text=True,
     )
     if result.returncode == 0:
+        print(f"  Stopped Ollama model '{model_name}'")
         return True
-    else:
+
+    # Check for 'already unloaded' — not a failure
+    stderr_lower = (result.stderr or "").lower()
+    if "not loaded" in stderr_lower or "not found" in stderr_lower:
+        print(f"  Model '{model_name}' not currently loaded — VRAM already free")
         return True
 
-
-def reload_ollama_model(model_name):
-    """Reload an Ollama model with fresh context via direct load.
-
-    Returns True on success, False on error.
-    """
-    if not model_name:
-        return False
-
-    result = subprocess.run(
-        ["ollama", "pull", model_name],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        return True
-    else:
-        return False
-
-
-def execute_script(script_path):
-    """Execute a pre/post dispatch script if configured in flow step INI."""
-    if not script_path:
-        return True
-    if not os.path.exists(script_path):
-        return True
-    result = subprocess.run(
-        ["python3", script_path],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"  Script failed: {result.stderr[:200]}")
-        return False
-    return True
+    # Actual failure
+    print(f"  WARNING: Failed to stop '{model_name}': {result.stderr.strip()}")
+    return False
 
 
 def update_symlink(bridge_dir, subdir, target):
@@ -1283,14 +1263,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Step 4: Stop target role's Ollama model — clear VRAM and context
     if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
         unload_ollama_model(to_role_data["ollama_model"])
-        time.sleep(1)
 
-    # Step 5: Reload target role's Ollama model with fresh context
-    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
-        reload_ollama_model(to_role_data["ollama_model"])
-        time.sleep(3)
-
-    # Step 5.5: Prepend governance file reference if target role has one
+    # Step 5: Prepend governance file reference if target role has one
     gov_file = to_role_data.get("governance_file")
     project_root = os.path.dirname(_db_path())
     if gov_file:

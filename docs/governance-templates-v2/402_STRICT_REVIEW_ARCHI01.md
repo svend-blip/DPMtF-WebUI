@@ -43,11 +43,11 @@ Key rules for this task:
 {Step-by-step instructions. Each step concrete and verifiable.}
 
 When ALL steps are complete:
-1. Write result to: {bridge_dir}/implementertoreview/{ID}-result.md
-2. Write notification to: {bridge_dir}/implementertoreview/{ID}-notification.md
+1. Write result to: {bridge_dir}/strict_review/results/{ID}-result.md
+2. Write notification to: {bridge_dir}/strict_review/results/{ID}-notification.md
 3. SIGNAL completion:
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
-     --db-flow strict_review --signal-complete --from-role imple01
+     --db-flow strict_review --signal-complete --from-role imple01 --id {ID}
 </task>
 
 <scope>
@@ -80,7 +80,7 @@ Stop after 2 failed patching attempts — document, do not guess.
 Write the handoff to the deliverable directory for step 1:
 
 ```
-{bridge_dir}/handoffs/{ID}-handoff.md
+{bridge_dir}/strict_review/handoffs/{ID}-handoff.md
 ```
 
 ### Dispatching the Handoff
@@ -89,7 +89,7 @@ After writing the handoff file, signal dispatch:
 
 ```bash
 python3 {project_root}/scripts/bridgeV002/dispatch.py \
-  --db-flow strict_review --signal-send --from-role archi01 --to-role imple01
+  --db-flow strict_review --signal-send --from-role archi01 --to-role imple01 --id {ID}
 ```
 
 ## Post-Handoff Stop Rule — CRITICAL
@@ -108,9 +108,9 @@ Any activity by you violates sequential execution.
 
 When review01 or review02 escalates to you:
 
-1. Read the escalation file: `{bridge_dir}/escalations/{ID}-{from_role}-question.md`
+1. Read the escalation file: `{bridge_dir}/strict_review/escalations/{ID}-{from_role}-question.md`
 2. Make a decision and write response to:
-   `{bridge_dir}/architecttoreview/{ID}-response.md`
+   `{bridge_dir}/strict_review/escalations/{ID}-response.md`
    Format:
    ```
    ## Decision

@@ -18,13 +18,13 @@ final verdict and commit message for Human approval.
 From review01, via the bridge directory:
 
 ```
-{bridge_dir}/implementertoreview/{ID}-review01.md   ← technical review from review01
+{bridge_dir}/strict_review/reviews/{ID}-review01.md   ← technical review from review01
 ```
 
 Also review the original implementation artifacts:
 ```
-{bridge_dir}/implementertoreview/{ID}-result.md       ← imple01's result
-{bridge_dir}/implementertoreview/{ID}-notification.md ← imple01's notification
+{bridge_dir}/strict_review/results/{ID}-result.md       ← imple01's result
+{bridge_dir}/strict_review/results/{ID}-notification.md ← imple01's notification
 ```
 
 ## Governance Validation Checklist
@@ -90,9 +90,27 @@ grep -rn "lbl(" static/js/ | wc -l         # verify i18n coverage
 
 ## Writing the Final Verdict
 
-Write to: `{bridge_dir}/implementertoreview/{ID}-verdict.md`
+Write to: `{bridge_dir}/strict_review/verdicts/{ID}-verdict.md`
 
-Format:
+**CRITICAL: The file MUST start with these XML sections (dispatch validation rejects files without them):**
+
+```
+<handoff_id>{ID}</handoff_id>
+
+<source_role>review02</source_role>
+
+<deliverable_input>
+  {bridge_dir}/strict_review/reviews/{ID}-review01.md
+</deliverable_input>
+
+<deliverable_output>
+  verdict: {bridge_dir}/strict_review/verdicts/{ID}-verdict.md
+  commit_msg (if APPROVED): {bridge_dir}/strict_review/verdicts/{ID}-commit-message.md
+</deliverable_output>
+```
+
+Then the verdict body:
+
 ```
 ## Final Verdict — Handoff {ID}
 
@@ -128,7 +146,7 @@ Format:
 
 ## Writing the Commit Message
 
-If APPROVED, write to: `{bridge_dir}/implementertoreview/{ID}-commit-message.md`
+If APPROVED, write to: `{bridge_dir}/strict_review/verdicts/{ID}-commit-message.md`
 
 Format:
 ```
@@ -139,18 +157,25 @@ Format:
 Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
-## Escalating to Human
+## Signaling Completion to Human
 
-After writing verdict and commit message, present to Human:
-
-1. **Tell Human** where the files are:
-   - `{bridge_dir}/implementertoreview/{ID}-verdict.md`
-   - `{bridge_dir}/implementertoreview/{ID}-commit-message.md`
-
-2. **Human decides:** APPROVE → commit, or REJECT → back to archi01.
+```bash
+python3 {project_root}/scripts/bridgeV002/dispatch.py \
+  --db-flow strict_review --signal-complete --from-role review02 --id {ID}
+```
 
 Note: The `review02-human` step has `role_type=human` on the target — dispatch
-skips tmux injection. You must communicate the verdict to Human directly.
+skips tmux injection. The verdict files are written to disk for Human review.
+
+## Escalating to Human
+
+After writing verdict and commit message, signal completion (see above).
+Human finds the files at:
+
+- `{bridge_dir}/strict_review/verdicts/{ID}-verdict.md`
+- `{bridge_dir}/strict_review/verdicts/{ID}-commit-message.md`
+
+**Human decides:** APPROVE → commit, or REJECT → back to archi01.
 
 ## Escalation to Architect
 
@@ -160,7 +185,7 @@ If you encounter architectural ambiguity or need design clarification:
 2. Signal escalation:
    ```bash
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
-     --db-flow strict_review --signal-escalation --from-role review02 --to-role archi01
+     --db-flow strict_review --signal-escalation --from-role review02 --to-role archi01 --id {ID}
    ```
 
 ## Constraints
