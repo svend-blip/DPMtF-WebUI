@@ -3119,7 +3119,8 @@ async def assign_handoff_id(request: Request):
     dispatch_command: str = (
         f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "
         f"--db-flow {flow_key} --signal-send "
-        f"--from-role {from_role_for_send} --to-role {to_role_for_send}"
+        f"--from-role {from_role_for_send} --to-role {to_role_for_send} "
+        f"--id {handoff_id}"
     )
 
     return {
