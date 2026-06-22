@@ -28,6 +28,7 @@ from bridge_lib import (
     get_next_id_for_flow,
     ensure_subdir,
     resolve_placeholders,
+    list_scripts_from_db,
 )
 
 # ── Constants ──────────────────────────────────────────────
@@ -371,11 +372,43 @@ def step_to_cli_args(payload):
     return args
 
 
+def resolve_script_key(script_key, bridge_dir=None):
+    """Resolve a script key (from bridge_flow_steps) to an absolute file path.
+
+    Looks up the script key in bridge_scripts table, resolves placeholders
+    in the stored path, and returns the absolute path.
+
+    Args:
+        script_key: Script key string (e.g. 'post-dispatch-common')
+        bridge_dir: Optional bridge directory for placeholder resolution
+
+    Returns:
+        Absolute path to the script file, or None if not found.
+    """
+    if not script_key:
+        return None
+
+    scripts = list_scripts_from_db(db_path=_db_path())
+    script_path = None
+    for s in scripts:
+        if s.get("script_key") == script_key:
+            script_path = s.get("path", "")
+            break
+
+    if not script_path:
+        print(f"  WARNING: Script key '{script_key}' not found in bridge_scripts")
+        return None
+
+    # Resolve placeholders in the stored path
+    resolved = resolve_placeholders(script_path, bridge_dir=bridge_dir)
+    return resolved
+
+
 def execute_script_with_params(script_path, payload):
     """Execute a pre/post dispatch script with flow-context parameters.
 
     Args:
-        script_path: Path to the Python script to execute.
+        script_path: Absolute path to the Python script to execute.
         payload: dict with flow context (flow_key, step_key, from_role, etc.)
 
     Returns:
@@ -384,6 +417,7 @@ def execute_script_with_params(script_path, payload):
     if not script_path:
         return True
     if not os.path.exists(script_path):
+        print(f"  WARNING: Script not found: {script_path}")
         return True
 
     cli_args = step_to_cli_args(payload)
@@ -530,11 +564,12 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     pre_script = target_step.get("pre_dispatch_script")
     if pre_script:
-        resolved_path = resolve_placeholders(pre_script, bridge_dir=bridge_dir)
-        print(f"  Running pre-dispatch script: {resolved_path}")
-        if not execute_script_with_params(resolved_path, payload):
-            print(f"  Pre-dispatch script failed -- aborting")
-            return False
+        resolved_path = resolve_script_key(pre_script, bridge_dir=bridge_dir)
+        if resolved_path:
+            print(f"  Running pre-dispatch script: {resolved_path}")
+            if not execute_script_with_params(resolved_path, payload):
+                print(f"  Pre-dispatch script failed -- aborting")
+                return False
 
     # Validate deliverable if step requires validation and rule_key is set
     step_validation_required = target_step.get("validation_required", 0)
@@ -577,9 +612,10 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     post_script = target_step.get("post_dispatch_script")
     if post_script:
-        resolved_path = resolve_placeholders(post_script, bridge_dir=bridge_dir)
-        print(f"  Running post-dispatch script: {resolved_path}")
-        execute_script_with_params(resolved_path, payload)
+        resolved_path = resolve_script_key(post_script, bridge_dir=bridge_dir)
+        if resolved_path:
+            print(f"  Running post-dispatch script: {resolved_path}")
+            execute_script_with_params(resolved_path, payload)
 
     update_symlink(bridge_dir, deliverable_dir, payload["deliverable_file"])
 
