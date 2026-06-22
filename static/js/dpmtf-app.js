@@ -343,7 +343,7 @@ function initDrawer() {
   clear(content);
 
   var closeBtn = el("button", "drawer-close-btn");
-  closeBtn.innerHTML = "&times;";
+  closeBtn.textContent = "×";
   closeBtn.onclick = function () { drawer.classList.remove("open"); };
   content.appendChild(closeBtn);
 }

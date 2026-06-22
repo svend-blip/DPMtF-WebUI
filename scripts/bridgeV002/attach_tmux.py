@@ -1,95 +1,110 @@
 #!/usr/bin/env python3
-"""attach_tmuxflow.py — Attach to all tmux sessions for a BridgeV002 flow.
+"""attach_tmux.py — Create a viewer tmux session grouping all flow sessions.
+
+Power script: builds a single tmux session with one window per flow role.
+No GUI terminal needed — works from server context.
+The user attaches manually: tmux attach -t flow-<flow_key>
 
 Usage:
     python3 scripts/bridgeV002/attach_tmux.py <flow_key>
 
-Iterates through all active steps in the given flow, looks up each
-FROM-ROLE's tmux_session, and opens each existing session in a new
-terminal tab or window.
-
-Requires a terminal emulator (xfce4-terminal, gnome-terminal, or x-terminal-emulator).
-
 Example:
     python3 scripts/bridgeV002/attach_tmux.py strict_review
+    # Then in your terminal: tmux attach -t flow-strict_review
 """
 
 import argparse
 import os
-import shutil
 import sqlite3
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+
+VIEWER_SESSION_PREFIX = "flow-"
 
 
-def get_active_flow_roles(db_path, flow_key):
-    """Fetch all unique FROM-ROLE tmux sessions for active steps in a flow.
-
-    Returns a sorted list of session name strings.
-    """
+def get_flow_tmux_sessions(db_path, flow_key):
+    """Fetch all tmux session names for active steps in a flow, in step order."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    sessions = set()
     rows = conn.execute(
         """
-        SELECT DISTINCT r.tmux_session
+        SELECT DISTINCT r.tmux_session, s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+          AND r.tmux_session IS NOT NULL
+        ORDER BY s.sort_order
         """,
         (flow_key,),
     ).fetchall()
 
-    for row in rows:
-        ts = row["tmux_session"]
-        if ts:
-            sessions.add(ts)
-
     conn.close()
-    return sorted(sessions)
+    return [row["tmux_session"] for row in rows]
 
 
-def find_terminal():
-    """Find an available terminal emulator."""
-    for name in ("xfce4-terminal", "gnome-terminal", "x-terminal-emulator"):
-        path = shutil.which(name)
-        if path:
-            return name, path
-    return None, None
+def session_exists(session_name):
+    """Check if a tmux session is running."""
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", session_name],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
 
 
-def attach_in_new_tab(terminal_name, session_name):
-    """Open a tmux attach command in a new tab/window of the terminal."""
-    if "xfce4-terminal" in terminal_name:
-        cmd = [
-            "xfce4-terminal",
-            "--title", f"tmux:{session_name}",
-            "--command", f"tmux attach -t {session_name}"
-        ]
-    elif "gnome-terminal" in terminal_name:
-        cmd = [
-            "gnome-terminal",
-            "--title", f"tmux:{session_name}",
-            "--", "tmux", "attach", "-t", session_name
-        ]
-    else:
-        # Generic x-terminal-emulator — try --command first, fall back to -e
-        cmd = [shutil.which("x-terminal-emulator"), "-e", f"tmux attach -t {session_name}"]
+def build_viewer_session(viewer_name, flow_sessions):
+    """Create a viewer tmux session with one window per flow session.
 
-    subprocess.Popen(cmd)
+    Each window is linked from the corresponding flow session, so the
+    user sees exactly what each role sees.
+    """
+    # Kill existing viewer session if present (from a previous run)
+    if session_exists(viewer_name):
+        subprocess.run(
+            ["tmux", "kill-session", "-t", viewer_name],
+            capture_output=True, text=True,
+        )
+
+    # Create fresh viewer session (detached, one empty window)
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", viewer_name, "-n", "dummy"],
+        capture_output=True, text=True,
+    )
+
+    linked = []
+    for i, session in enumerate(flow_sessions):
+        if not session_exists(session):
+            print(f"  Skipping '{session}' — not running")
+            continue
+
+        # Link flow session's window 0 into viewer at index i
+        # -k kills the target window first if it exists (e.g. the dummy window at index 0)
+        result = subprocess.run(
+            ["tmux", "link-window", "-k", "-s", f"{session}:0", "-t", f"{viewer_name}:{i}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            # Rename window to show which session it belongs to
+            subprocess.run(
+                ["tmux", "rename-window", "-t", f"{viewer_name}:{i}", session],
+                capture_output=True, text=True,
+            )
+            linked.append(session)
+            print(f"  Linked '{session}' → window {i}")
+        else:
+            print(f"  WARNING: Failed to link '{session}': {result.stderr.strip()}")
+
+    return linked
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Attach to all tmux sessions for a BridgeV002 flow."
+        description="Build viewer tmux session for a BridgeV002 flow."
     )
     parser.add_argument("flow_key", help="Flow key (e.g. strict_review)")
     args = parser.parse_args()
 
-    # Resolve database path — config.py lives TWO levels up from this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
 
@@ -105,42 +120,26 @@ def main():
         print(f"ERROR: Database not found at {db_path}")
         sys.exit(1)
 
-    # 1. Get all tmux session names from flow
-    sessions = get_active_flow_roles(db_path, args.flow_key)
-    if not sessions:
-        print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
-        return
-
-    # 2. Find a terminal emulator
-    term_name, term_path = find_terminal()
-    if not term_path:
-        print("ERROR: No supported terminal found (xfce4-terminal, gnome-terminal, or x-terminal-emulator)")
-        sys.exit(1)
-
-    if not shutil.which("tmux"):
+    if not subprocess.run(["which", "tmux"], capture_output=True).returncode == 0:
         print("ERROR: tmux not found")
         sys.exit(1)
 
-    # 3. Attach to each session in a new tab/window
-    attached = []
-    for session_name in sessions:
-        # Check session exists before trying to attach
-        result = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if result.returncode == 0:
-            print(f"  Attaching to tmux session: {session_name}")
-            attach_in_new_tab(term_name, session_name)
-            attached.append(session_name)
-        else:
-            print(f"  Skipped (not running): {session_name}")
+    flow_sessions = get_flow_tmux_sessions(db_path, args.flow_key)
 
-    if attached:
-        print(f"\nDone: {len(attached)} session(s) attached.")
+    if not flow_sessions:
+        print(f"No tmux sessions found for flow '{args.flow_key}'. Nothing to do.")
+        return
+
+    viewer_name = f"{VIEWER_SESSION_PREFIX}{args.flow_key}"
+
+    print(f"Building viewer session '{viewer_name}' for flow '{args.flow_key}':")
+    linked = build_viewer_session(viewer_name, flow_sessions)
+
+    if linked:
+        print(f"\nDone: {len(linked)} session(s) linked into '{viewer_name}'.")
+        print(f"Attach from your terminal: tmux attach -t {viewer_name}")
     else:
-        print(f"\nNo running sessions to attach for '{args.flow_key}'.")
+        print(f"\nNo running sessions to link for '{args.flow_key}'.")
 
 
 if __name__ == "__main__":

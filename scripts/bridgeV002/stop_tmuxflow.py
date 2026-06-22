@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""stop_tmuxflow.py — Inspect and unload Ollama models for a BridgeV002 flow.
+"""stop_tmuxflow.py — Stop all tmux sessions for a BridgeV002 flow.
 
-BridgeV002 no-kill policy: This script does NOT kill tmux sessions.
-Session management is handled exclusively by the start-tmux endpoint (H118).
+Power script: kills tmux sessions without hesitation.
+No Ollama checks, no model unloading, no inspection — just kill.
 
 Usage:
     python3 scripts/bridgeV002/stop_tmuxflow.py <flow_key>
@@ -17,75 +17,59 @@ import sqlite3
 import subprocess
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-
-def get_active_flow_roles(db_path, flow_key):
-    """Fetch all unique FROM-ROLE tmux sessions for active steps in a flow.
-
-    Returns two sets: (session_names, ollama_models).
-    """
+def get_flow_tmux_sessions(db_path, flow_key):
+    """Fetch all tmux session names for active steps in a flow."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    roles = set()
-    models = set()
     rows = conn.execute(
         """
-        SELECT DISTINCT r.tmux_session, r.ollama_model, r.model_type
+        SELECT DISTINCT r.tmux_session
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+          AND r.tmux_session IS NOT NULL
         """,
         (flow_key,),
     ).fetchall()
 
-    for row in rows:
-        ts = row["tmux_session"]
-        if ts:
-            roles.add(ts)
-        model = row["ollama_model"]
-        if model and row["model_type"] == "ollama":
-            models.add(model)
-
     conn.close()
-    return roles, models
+    return {row["tmux_session"] for row in rows}
 
 
-def unload_ollama_models(models):
-    """Unload all Ollama models for a flow.
-
-    This is the ONLY lifecycle operation permitted in BridgeV002.
-    Session management belongs to start-tmux endpoint (H118).
-    """
-    unloaded = []
-    for model in sorted(models):
-        print(f"  Unloading Ollama model '{model}'...")
+def kill_tmux_sessions(sessions):
+    """Kill all given tmux sessions. No questions asked."""
+    killed = []
+    for session in sorted(sessions):
+        print(f"  Killing tmux session '{session}'...")
         result = subprocess.run(
-            ["ollama", "stop", model],
+            ["tmux", "kill-session", "-t", session],
             capture_output=True, text=True,
         )
         if result.returncode == 0:
-            unloaded.append(model)
-            print(f"    Model '{model}' unloaded")
+            killed.append(session)
+            print(f"    Killed.")
         else:
-            msg = result.stdout.strip() or result.stderr.strip()
-            print(f"    WARNING: Failed to unload '{model}': {msg}")
-    return unloaded
+            msg = result.stderr.strip()
+            if "can't find session" in msg.lower():
+                print(f"    Already dead.")
+                killed.append(session)  # not an error — session already gone
+            else:
+                print(f"    WARNING: {msg}")
+    return killed
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Inspect and manage Ollama models for a BridgeV002 flow (no tmux kill)."
+        description="Stop all tmux sessions for a BridgeV002 flow."
     )
     parser.add_argument("flow_key", help="Flow key (e.g. strict_review)")
     args = parser.parse_args()
 
-    # Resolve database path — config.py lives TWO levels up from this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
 
-    # Directly import config from absolute path to avoid sys.path conflicts
     spec = __import__('importlib.util').util.spec_from_file_location(
         'config', os.path.join(project_root, 'config.py')
     )
@@ -98,23 +82,15 @@ def main():
         print(f"ERROR: Database not found at {db_path}")
         sys.exit(1)
 
-    # 1. Get all required tmux session names from flow
-    sessions_to_stop, ollama_models = get_active_flow_roles(db_path, args.flow_key)
-    if not sessions_to_stop:
-        print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
+    sessions = get_flow_tmux_sessions(db_path, args.flow_key)
+
+    if not sessions:
+        print(f"No tmux sessions found for flow '{args.flow_key}'. Nothing to do.")
         return
 
-    # 2. Report sessions (inspection only — no kill)
-    print(f"Sessions in flow '{args.flow_key}':")
-    for s in sorted(sessions_to_stop):
-        print(f"  - {s} (managed by /api/bridge-v2/start-tmux)")
-
-    # 3. Unload Ollama models only
-    if ollama_models:
-        unloaded = unload_ollama_models(ollama_models)
-        print(f"\nDone: {len(unloaded)} model(s) unloaded (no tmux kill).")
-    else:
-        print("\nNo Ollama models to unload.")
+    print(f"Stopping {len(sessions)} tmux session(s) for flow '{args.flow_key}':")
+    killed = kill_tmux_sessions(sessions)
+    print(f"\nDone: {len(killed)} session(s) killed.")
 
 
 if __name__ == "__main__":
