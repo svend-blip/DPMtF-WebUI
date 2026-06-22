@@ -422,6 +422,22 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     print(f"  Deliverable: {payload['deliverable_file']}")
 
     tmux_session = to_role["tmux_session"]
+    role_type = to_role.get("role_type", "agent")
+
+    # G1: Human recipients skip tmux dispatch (no session, no injection)
+    if role_type == "human":
+        full_deliverable_path = os.path.join(bridge_dir,
+                                             payload["deliverable_dir"],
+                                             payload["deliverable_file"])
+        print(f"  INFO: Delivering to human recipient — {full_deliverable_path}")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "dispatched_to_human",
+            f"Deliverable written to {full_deliverable_path} for human review",
+        )
+        return True
+
     from_ollama_model = ""
     model_type = to_role.get("model_type", "")
     ollama_model = to_role.get("ollama_model", "")
@@ -593,6 +609,21 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     print(f"  Deliverable: {payload['deliverable_file']}")
 
     tmux_session = to_role["tmux_session"]
+    role_type = to_role.get("role_type", "agent")
+
+    # G1: Human recipients skip tmux dispatch (no session, no injection)
+    if role_type == "human":
+        full_deliverable_path = os.path.join(bridge_dir,
+                                             payload["deliverable_dir"],
+                                             payload["deliverable_file"])
+        print(f"  INFO: Completion delivered to human recipient — {full_deliverable_path}")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "signal_complete_to_human",
+            f"Completion deliverable at {full_deliverable_path} for human review",
+        )
+        return True
 
     # Step 5: Check target session is alive
     if not session_alive(tmux_session):
@@ -768,9 +799,24 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         return False
 
     tmux_session = to_role_data["tmux_session"]
+    role_type = to_role_data.get("role_type", "agent")
 
     print(f"\nSignal Escalation: {from_role_key} -> {to_role_key}")
     print(f"  Flow: {flow_key}")
+
+    # G1: Human recipients skip tmux dispatch (no session, no injection)
+    if role_type == "human":
+        esc_dir = os.path.join(bridge_dir, "escalations")
+        question_file = f"{handoff_id}-{from_role_key}-question.md"
+        full_question_path = os.path.join(esc_dir, question_file)
+        print(f"  INFO: Escalation delivered to human recipient — {full_question_path}")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "escalation_to_human",
+            f"Escalation question at {full_question_path} for human review",
+        )
+        return True
 
     # Step 2: Check target session is alive
     if not session_alive(tmux_session):
@@ -906,9 +952,24 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         return False
 
     tmux_session = to_role_data["tmux_session"]
+    role_type = to_role_data.get("role_type", "agent")
 
     print(f"\nSignal Answer: {from_role_key} -> {to_role_key}")
     print(f"  Flow: {flow_key}")
+
+    # G1: Human recipients skip tmux dispatch (no session, no injection)
+    if role_type == "human":
+        ans_dir = os.path.join(bridge_dir, "escalations")
+        response_file = f"{handoff_id}-{from_role_key}-response.md"
+        full_response_path = os.path.join(ans_dir, response_file)
+        print(f"  INFO: Answer delivered to human recipient — {full_response_path}")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "answer_to_human",
+            f"Escalation response at {full_response_path} for human review",
+        )
+        return True
 
     # Step 2: Check target session is alive
     if not session_alive(tmux_session):
@@ -1054,6 +1115,20 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     print(f"\nSignal Send: {from_role_key} -> {to_role_key}")
     print(f"  Flow: {flow_key}, Step: {payload['step_key']}")
     print(f"  Deliverable: {payload['deliverable_file']}")
+
+    # G1: Human recipients skip tmux dispatch (no session, no injection)
+    role_type = to_role_data.get("role_type", "agent")
+    if role_type == "human":
+        deliverable_dir = payload.get("deliverable_dir", "")
+        handoff_path = os.path.join(bridge_dir, deliverable_dir, payload["deliverable_file"])
+        print(f"  INFO: Handoff delivered to human recipient — {handoff_path}")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "send_to_human",
+            f"Handoff file at {handoff_path} for human review",
+        )
+        return True
 
     # Step 2: Check target session is alive
     if not session_alive(tmux_session):

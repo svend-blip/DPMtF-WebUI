@@ -4323,6 +4323,20 @@ cursor.execute(
     ("04_REVIEW.md", "review02"),
 )
 
+# G1: role_type column on bridge_roles — distinguish human from agent recipients
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN role_type TEXT DEFAULT 'agent'
+    """)
+except sqlite3.OperationalError:
+    pass
+
+# Seed human role as type 'human' (all other roles default to 'agent')
+cursor.execute(
+    "UPDATE bridge_roles SET role_type = ? WHERE role_key = ?",
+    ("human", "human"),
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
@@ -4337,6 +4351,7 @@ _bridge_setup_labels = [
     ("LBL-1000235", "lbl_bridge_model_type", "main", "Model Type", "Model type field label"),
     ("LBL-1000236", "lbl_bridge_cloud_model", "main", "Cloud Model", "Cloud model field label"),
     ("LBL-1000237", "lbl_bridge_ollama_model", "main", "Ollama Model", "Ollama model field label"),
+    ("LBL-1000290", "lbl_bridge_role_type", "main", "Role Type", "Role type: agent (tmux session) or human (no session)"),
     ("LBL-1000238", "lbl_bridge_setup_script", "main", "Setup Script", "Setup script field label"),
     ("LBL-1000239", "lbl_bridge_teardown_script", "main", "Teardown Script", "Teardown script field label"),
     ("LBL-1000240", "lbl_bridge_deliver_error_msg", "main", "Error Message", "Error message field label"),
@@ -4422,6 +4437,9 @@ _bridge_setup_translations = [
     ("LBL-1000236", "da-DK", "Cloud Model"),
     ("LBL-1000237", "en-US", "Ollama Model"),
     ("LBL-1000237", "da-DK", "Ollama Model"),
+    # ── G1: role_type translations ──
+    ("LBL-1000290", "en-US", "Role Type"),
+    ("LBL-1000290", "da-DK", "Rolle-type"),
     ("LBL-1000238", "en-US", "Setup Script"),
     ("LBL-1000238", "da-DK", "Opsætningscript"),
     ("LBL-1000239", "en-US", "Teardown Script"),
@@ -4553,6 +4571,7 @@ _bridge_setup_slots = [
     ("lbl_bridge_model_type", "Model type field label"),
     ("lbl_bridge_cloud_model", "Cloud model field label"),
     ("lbl_bridge_ollama_model", "Ollama model field label"),
+    ("lbl_bridge_role_type", "Role type field label (G1: agent/human)"),
     ("lbl_bridge_setup_script", "Setup script field label"),
     ("lbl_bridge_teardown_script", "Teardown script field label"),
     ("lbl_bridge_deliver_error_msg", "Error message field label"),
@@ -4668,6 +4687,8 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_start_tmux", "lbl_bridge_start_tmux"),
     ("lbl_bridge_starting", "lbl_bridge_starting"),
     ("lbl_bridge_governance_file", "lbl_bridge_governance_file"),
+    # ── G1: role_type slot label ──
+    ("lbl_bridge_role_type", "lbl_bridge_role_type"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""
