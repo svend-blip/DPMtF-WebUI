@@ -4148,24 +4148,29 @@ cursor.executemany(
 )
 
 # 3.2 Seed content_template for existing rules (only when NULL)
+# G2/G4: Minimal file references — workflow instructions live in governance files, not templates
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
        WHERE rule_key = 'callback' AND content_template IS NULL""",
     (
-        "<handoff>\n"
-        "<role>{next_role}</role>\n"
-        "<task>The previous role has completed their deliverable. Please review and proceed with the next step in the flow.\n\n"
-        "## Previous Deliverable\n"
-        "Handoff ID: {handoff_id}\n"
-        "Source Role: {source_role}\n\n"
-        "## Required Sections\n"
-        "Your callback file must include these XML sections:\n"
-        "- <role>: The target role for this handoff\n"
-        "- <task>: What needs to be accomplished\n"
-        "- <notification>: Summary of what was completed</task>\n"
-        "<notification>The handoff from {source_role} (ID: {handoff_id}) has been completed.</notification>\n"
-        "</handoff>",
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>\n"
+        "\n"
+        "<dispatch_command>\n"
+        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
+        "</dispatch_command>",
     ),
 )
 
@@ -4196,20 +4201,19 @@ cursor.execute(
        SET content_template = ?
        WHERE rule_key = 'verdict' AND content_template IS NULL""",
     (
-        "<handoff>\n"
-        "<role>{next_role}</role>\n"
-        "<task>Produce a final verdict on the completed work.\n\n"
-        "## Previous Deliverable\n"
-        "Handoff ID: {handoff_id}\n"
-        "Source Role: {source_role}\n\n"
-        "## Required Sections\n"
-        "Your verdict file must include these XML sections:\n"
-        "- <role>: The target role for this handoff\n"
-        "- <task>: What was reviewed\n"
-        "- <verdict>: Pass or Fail with reasoning\n"
-        "- <feedback>: Detailed feedback</task>\n"
-        "<notification>The review from {source_role} (ID: {handoff_id}) requires a verdict.</notification>\n"
-        "</handoff>",
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\\n"
+        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\\n"
+        "</deliverable_output>",
     ),
 )
 
@@ -4223,7 +4227,7 @@ cursor.execute(
         "<task>Review verdict feedback has been generated. Evaluate whether the implementation matches design intent.\n\n"
         "## Previous Deliverable\n"
         "Handoff ID: {handoff_id}\n"
-        "Source Role: {source_route}\n\n"
+        "Source Role: {source_role}\n\n"
         "## Required Sections\n"
         "- <role>: The target role for this handoff\n"
         "- <task>: What was evaluated\n"
@@ -4238,7 +4242,7 @@ cursor.execute(
     """UPDATE bridge_convention_rules
        SET validation_schema = ?
        WHERE rule_key = 'callback' AND validation_schema IS NULL""",
-    ('["<role>", "<task>", "<notification>"]',),
+    ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
 )
 
 cursor.execute(
@@ -4252,7 +4256,7 @@ cursor.execute(
     """UPDATE bridge_convention_rules
        SET validation_schema = ?
        WHERE rule_key = 'verdict' AND validation_schema IS NULL""",
-    ('["<role>", "<task>", "<verdict>", "<feedback>"]',),
+    ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
 )
 
 cursor.execute(
@@ -4295,6 +4299,76 @@ cursor.execute(
 cursor.execute(
     "UPDATE bridge_convention_rules SET rule_type = ? WHERE rule_key = ?",
     ("escalation_content", "escalation"),
+)
+
+# G2/G4: Migrate existing callback + verdict content_templates to minimal file refs
+# Unlike IS NULL seed above, these unconditionally update live databases.
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'callback'""",
+    (
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>\n"
+        "\n"
+        "<dispatch_command>\n"
+        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
+        "</dispatch_command>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'verdict'""",
+    (
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
+        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>",
+    ),
+)
+
+# G2/G4: Migrate validation_schemas to match minimal templates
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'callback'""",
+    ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET validation_schema = ?
+       WHERE rule_key = 'verdict'""",
+    ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
+)
+
+# G2/G4: Fix verdict_feedback content_template {source_route} typo -> {source_role}
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = REPLACE(content_template, '{source_route}', '{source_role}')
+       WHERE rule_key = 'verdict_feedback'""",
 )
 
 # H140: governance_file column on bridge_roles — role-specific governance reference
