@@ -56,7 +56,7 @@ When all task steps are complete:
 
 ### 1. Result file
 
-Write to: `{bridge_dir}/implementertoreview/{ID}-result.md`
+Write to: `{bridge_dir}/strict_review/results/{ID}-result.md`
 
 Format:
 ```
@@ -79,7 +79,7 @@ Format:
 
 ### 2. Notification file
 
-Write to: `{bridge_dir}/implementertoreview/{ID}-notification.md`
+Write to: `{bridge_dir}/strict_review/results/{ID}-notification.md`
 
 Format:
 ```
@@ -93,7 +93,7 @@ Next Action: review01 validates
 
 ```bash
 python3 {project_root}/scripts/bridgeV002/dispatch.py \
-  --db-flow strict_review --signal-complete --from-role imple01
+  --db-flow strict_review --signal-complete --from-role imple01 --id {ID}
 ```
 
 **Do NOT use `/clear` before this command.** The signal injects the callback

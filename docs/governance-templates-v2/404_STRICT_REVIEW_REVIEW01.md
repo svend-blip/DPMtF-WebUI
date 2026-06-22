@@ -18,8 +18,8 @@ a technical review report for review02.
 From imple01, via the bridge directory:
 
 ```
-{bridge_dir}/implementertoreview/{ID}-result.md         ← implementation summary
-{bridge_dir}/implementertoreview/{ID}-notification.md   ← completion notification
+{bridge_dir}/strict_review/results/{ID}-result.md         ← implementation summary
+{bridge_dir}/strict_review/results/{ID}-notification.md   ← completion notification
 ```
 
 ## Technical Validation Checklist
@@ -79,9 +79,26 @@ git diff | grep -E "ALTER TABLE|CREATE TABLE"
 
 ## Writing the Technical Review
 
-Write to: `{bridge_dir}/implementertoreview/{ID}-review01.md`
+Write to: `{bridge_dir}/strict_review/reviews/{ID}-review01.md`
 
-Format:
+**CRITICAL: The file MUST start with these XML sections (dispatch validation rejects files without them):**
+
+```
+<handoff_id>{ID}</handoff_id>
+
+<source_role>review01</source_role>
+
+<deliverable_input>
+  {bridge_dir}/strict_review/results/{ID}-result.md
+</deliverable_input>
+
+<deliverable_output>
+  technical_review: {bridge_dir}/strict_review/reviews/{ID}-review01.md
+</deliverable_output>
+```
+
+Then the review body:
+
 ```
 ## Technical Review — Handoff {ID}
 
@@ -117,7 +134,7 @@ If FAIL: specific reasons and what imple01 must fix.
 
 ```bash
 python3 {project_root}/scripts/bridgeV002/dispatch.py \
-  --db-flow strict_review --signal-complete --from-role review01
+  --db-flow strict_review --signal-complete --from-role review01 --id {ID}
 ```
 
 ## Escalation
@@ -130,7 +147,7 @@ cross-project impact, design pattern conflict), escalate to archi01:
 2. Signal escalation:
    ```bash
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
-     --db-flow strict_review --signal-escalation --from-role review01 --to-role archi01
+     --db-flow strict_review --signal-escalation --from-role review01 --to-role archi01 --id {ID}
    ```
 
 ## Constraints
