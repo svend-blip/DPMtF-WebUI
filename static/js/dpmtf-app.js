@@ -1653,6 +1653,8 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_cloud_model", "Cloud Model"), role.cloud_model],
     [lbl("lbl_bridge_ollama_model", "Ollama Model"), role.ollama_model],
     [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
+    // G1: Role type (agent/human) — show non-default values
+    [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -2166,6 +2168,12 @@ function editBridgeRoleFull(roleKey) {
           body.governance_file = null;
         }
 
+        // G1: role_type select — agent (default) or human
+        var rt = document.getElementById("bridge-edit-input-role_type");
+        if (rt && rt.value) {
+          body.role_type = rt.value;
+        }
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2287,6 +2295,21 @@ function editBridgeRoleFull(roleKey) {
 
       gfDiv.appendChild(gfSelect);
       form.appendChild(gfDiv);
+
+      // G1: role_type select — agent (default) or human
+      var rtDiv = el("div", "dpmtf-form-group");
+      rtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_role_type", "Role Type")));
+      var rtSelect = el("select", null);
+      rtSelect.id = "bridge-edit-input-role_type";
+      ["agent", "human"].forEach(function (val) {
+        var opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = val.charAt(0).toUpperCase() + val.slice(1);
+        if ((role.role_type || "agent") === val) opt.selected = true;
+        rtSelect.appendChild(opt);
+      });
+      rtDiv.appendChild(rtSelect);
+      form.appendChild(rtDiv);
 
       var container = document.getElementById("bridge-roles-list-container");
       if (container) {
