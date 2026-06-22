@@ -2812,8 +2812,12 @@ async def compile_prompt(request: Request):
         # ── Build deliverable path and signal command from DB ─────
         deliverable_dir_val = bridge_step_data.get("deliverable_dir", "")
 
-        # Result path: bridge_dir/results/{ID}-result.md
-        result_dir = os.path.join(config.get_bridge_dir(), "results")
+        # Result path: use step's deliverable_dir (absolute path to results/)
+        # For step archi01→imple01, deliverable_dir is .../handoffs, but result goes to .../results
+        if deliverable_dir_val:
+            result_dir = os.path.join(os.path.dirname(deliverable_dir_val), "results")
+        else:
+            result_dir = os.path.join(config.get_bridge_dir(), "results")
         result_path = f"{result_dir}/{{ID}}-result.md"
 
         signal_cmd_template = (
