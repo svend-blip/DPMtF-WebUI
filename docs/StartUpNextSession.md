@@ -104,6 +104,11 @@ Read these files in order to reconstruct full project state:
 | **Hardening H141** | 141 | BridgeV002 start_tmuxflow rewrite — replace ollama model preload logic with automatic tmux session creation; session_exists() via tmux has-session, create_session() via tmux new-session -d. Sessions only created if missing. Commit `a5c899b`. |
 | **Hardening H142** | 142 | BridgeV002 governance_file editable from frontend — governance_file shown in role card; dropdown added to role edit form with (None) + governance template files. i18n label LBL-1000298 (en-US/da-DK). Commit `701c5a5`. |
 | **Hardening H143** | 143 | BridgeV002 governance_file dropdown reads from disk — replace hardcoded filenames with GET /api/bridge-v2/governance-files endpoint that lists all .md files from docs/governance-templates-v2/. Frontend fetches list dynamically on role edit. Commit `1f3c647`. |
+| **Bugfix B1** | — | BridgeV002 rule_key NameError in run_flow_step_db() — add rule_key extraction after build_step_payload(). Commit `1517b3f`. |
+| **Bugfix B2** | — | BridgeV002 signal_send hardcoded handoff dir — restructure to load flow+step from DB, call build_step_payload(), resolve deliverable_dir/pattern/rule_key dynamically. Commit `de9b95c`. |
+| **Bugfix B4** | — | BridgeV002 Prompt Compiler integration — add Flow Key + Step Key dropdowns to compiler form (cascade), compile_prompt() resolves build_step_payload() from DB, assign_handoff_id() uses get_next_id_for_flow() + dispatch.py command. 3 files, 208 lines. Commit `3902472`. |
+| **Gap G1** | — | BridgeV002 Human Role Type — add `role_type` column to bridge_roles (default 'agent', seed human as 'human'), all 5 dispatch-paths skip session_alive + prompt injection for human recipients, frontend dropdown Agent/Human in role edit form. 4 files, 120 lines. Commit TBD. |
+| **Gap G2+G4** | — | BridgeV002 Enriched Callback + Verdict Templates — callback mirrors legacy _write_callback_file() with full validation workflow (8 checks, verdict format, commit prep, human gate). Verdict template adds 4-phase workflow. Validation schemas updated. verdict_feedback typo fixed. Commit TBD. |
 
 ### Human Final Verdict
 
@@ -162,7 +167,9 @@ and bridge mechanics:
 **Fase 1-11 complete — BridgeV002 database, UI, signals, governance integration operational.**
 
 Gap analysis completed (§5c) — 4 critical runtime bugs (B1-B4), 5 high-priority gaps (G1-G5), 5 medium gaps (M1-M5) identified.
-Immediate work: Fix B1 (rule_key NameError), B2 (signal_send hardcoded dir), build B3 (dispatch trigger API), integrate B4 (Prompt Compiler → BridgeV002).
+**B1-B4 all fixed:** B1 rule_key NameError (`1517b3f`), B2 signal_send hardcoded dir (`de9b95c`), B4 Prompt Compiler BridgeV002 integration (`3902472`).
+NOTE: B3 (standalone dispatch trigger API) was solved as part of B4 — Prompt Compiler integrates directly via flow_key/step_key, eliminating the need for a separate endpoint.
+**G1 fixed:** Human Role Type — `role_type` column on bridge_roles, 5 dispatch-paths skip session_alive + injection for human recipients, frontend dropdown. Commit TBD (unstaged).
 
 Hardening plan approved af Human — 6 faser, 17 tasks + Fase 11 governance integration:
 
@@ -219,22 +226,22 @@ This means:
 
 ### Critical Runtime Bugs (flow cannot execute)
 
-| # | Bug | File:Line | Severity |
-|---|-----|-----------|----------|
-| **B1** | `rule_key` NameError in `run_flow_step_db()` — variable referenced on lines 464, 480 but never assigned in function scope. Crashes when validation_required=1 or content_template is non-empty. | dispatch.py:464, 480 | 🔴 CRITICAL |
-| **B2** | `signal_send` hardcodes handoff directory — reads from `{bridge_dir}/reviewtoimplementor/` (line 1044) instead of using step's deliverable_dir. For strict_review flow this may work if bridge_dir matches, but breaks for any custom deliverable_dir. | dispatch.py:1044 | 🔴 CRITICAL |
-| **B3** | No dispatch trigger API — no `POST /api/bridge-v2/dispatch` endpoint. Dispatch is CLI-only (`python3 dispatch.py --signal-send`). Web UI cannot trigger dispatch. | app.py (missing) | 🔴 CRITICAL |
-| **B4** | Prompt Compiler uses legacy bridge.py — `/api/prompt-compiler/assign-handoff-id` calls `bridge.py next-id` via subprocess (line 2857). Returns legacy dispatch command string, not BridgeV002. | app.py:2857-2889 | 🔴 CRITICAL |
+| # | Bug | Status | Commit |
+|---|-----|--------|--------|
+| **B1** | `rule_key` NameError in `run_flow_step_db()` — variable referenced on lines 464, 480 but never assigned in function scope. | ✅ FIXED — add rule_key extraction after build_step_payload() | `1517b3f` |
+| **B2** | `signal_send` hardcodes handoff directory — reads from `{bridge_dir}/reviewtoimplementor/` instead of using step's deliverable_dir. | ✅ FIXED — restructure to load flow+step from DB, call build_step_payload() | `de9b95c` |
+| **B3** | No dispatch trigger API — no `POST /api/bridge-v2/dispatch` endpoint. Dispatch is CLI-only. | ✅ SOLVED via B4 — Prompt Compiler integrates directly; standalone endpoint unnecessary | `3902472` |
+| **B4** | Prompt Compiler uses legacy bridge.py — `/api/prompt-compiler/assign-handoff-id` calls `bridge.py next-id` via subprocess. | ✅ FIXED — Flow Key + Step Key dropdowns, compile_prompt() resolves DB step data, assign_handoff_id() uses get_next_id_for_flow() + dispatch.py | `3902472` |
 
 ### High-Priority Gaps (flow breaks during execution)
 
-| # | Gap | File:Line | Severity |
-|---|-----|-----------|----------|
-| **G1** | Human role breaks final step — step 4 delivers to "human" which has tmux_session='human'. `session_alive('human')` fails (no such tmux session). No special handling for human-as-final-recipient. | dispatch.py:595-603 + DB state | 🟠 HIGH |
-| **G2** | Callback file auto-generation missing — legacy `_write_callback_file()` generates structured prompt with `<role>`, `<handoff_id>`, `<task>`, `<constraint>` sections. BridgeV002 only checks deliverable exists and passes through content_template. If implementer doesn't write callback, system fails rather than generating one. | dispatch.py signal_complete | 🟠 HIGH |
-| **G3** | Prompt Compiler doesn't instruct bridge signal — compiled prompt (app.py:3704-3709) tells implementer to write result file but says nothing about running BridgeV002 dispatch signal. Implementer has no way to trigger next step. | app.py:3704-3709 | 🟠 HIGH |
-| **G4** | Verdict template lacks verification steps — content_template for verdict convention is generic ("Produce a final verdict"). Missing specific instructions: git diff, py_compile, node --check, innerHTML check, i18n compliance, stage files if APPROVED. | init_db.py:4187-4205 | 🟠 HIGH |
-| **G5** | Governance file seed data key mismatch — H140 seeds governance_file on archi01/imple01/review01/review02 but BridgeV002 seed roles (architect/implementer/review_heavy1/etc) are all is_active=0. Seed data inconsistency between two role naming schemes. | init_db.py:4300-4315 | 🟠 HIGH |
+| # | Gap | Status | Commit |
+|---|-----|--------|--------|
+| **G1** | Human role breaks final step — step 4 delivers to "human" which has tmux_session='human'. `session_alive('human')` fails. No special handling for human-as-final-recipient. | ✅ FIXED — role_type column on bridge_roles, 5 dispatch-paths skip session_alive + injection for human recipients, frontend dropdown Agent/Human | TBD (unstaged) |
+| **G2** | Callback content_template enriched — mirrors legacy `_write_callback_file()` with full validation workflow: 8 checks, verdict format, commit prep, human gate, escalation instructions. | ✅ FIXED — callback template + validation_schema migrated | TBD |
+| **G3** | Prompt Compiler doesn't instruct bridge signal — compiled prompt tells implementer to write result file but says nothing about running dispatch signal. | ✅ SOLVED via B4 — `<task>` section now includes: "1. Write result file to {path}", "2. SIGNAL completion: python3 dispatch.py --db-flow {flow_key} --signal-complete --from-role {to_role}" (app.py:2830-2837) | `3902472` |
+| **G4** | Verdict content_template enriched — 4-phase workflow (read deliverables, validation checklist, write verdict, post-verdict actions), human commit gate, escalation instructions. verdict_feedback {source_route} typo fixed. | ✅ FIXED — verdict template + validation_schema migrated | TBD |
+| **G5** | Governance file seed data key mismatch — H140 seeds governance_file on archi01/imple01/review01/review02 but BridgeV002 seed roles (architect/implementer/review_heavy1/etc) are all is_active=0. Seed data inconsistency between two role naming schemes. | 🟠 HIGH — open | init_db.py |
 
 ### Medium-Priority Gaps (configuration / data issues)
 
@@ -269,13 +276,13 @@ The following were identified as gaps but are **NOT actual gaps** because ollama
 
 ### Summary: Immediate Work Items (Priority Order)
 
-1. **Fix B1** — `rule_key` NameError in run_flow_step_db()
-2. **Fix B2** — signal_send hardcoded handoff directory
-3. **Build B3** — POST /api/bridge-v2/dispatch endpoint
-4. **Integrate B4** — Prompt Compiler uses BridgeV002 (get_next_id_for_flow, dispatch API)
-5. **Handle G1** — Human role as final recipient (no crash on session_alive failure)
-6. **Enrich G2/G4** — Callback + verdict content templates with full verification steps
-7. **Integrate G3** — Prompt Compiler instructs implementer to run BridgeV002 signal
+1. ~~**Fix B1**~~ — ✅ `rule_key` NameError (`1517b3f`)
+2. ~~**Fix B2**~~ — ✅ signal_send hardcoded dir (`de9b95c`)
+3. ~~**Build B3**~~ — ✅ Solved via B4 integration
+4. ~~**Integrate B4**~~ — ✅ Prompt Compiler BridgeV002 (`3902472`)
+5. ~~**Handle G1**~~ — ✅ Human Role Type: role_type column, 5 dispatch-paths skip session_alive + injection for human recipients, frontend dropdown (TBD commit)
+6. ~~**Enrich G2/G4**~~ — ✅ Callback + verdict templates enriched with full validation workflow
+7. ~~**Integrate G3**~~ — ✅ Solved via B4 — compiled prompt `<task>` includes dispatch.py --signal-complete command (app.py:2830-2837)
 8. **Fix G5** — Role key alignment in governance_file seed data
 9. **Rewrite governance files** — 02_ARCHITECT, 03_IMPLEMENTOR, 04_REVIEW, 100_BRIDGE
 
@@ -434,8 +441,8 @@ This is a process change, not a code change. The dispatch protocol already injec
 
 --- BEGIN CYCLE SNAPSHOT ---
 
-**Last cycle:** Handoff 143 — BridgeV002 governance_file frontend dropdown reads from disk (COMPLETED)
-**Previous cycles completed:** H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send), H139 (remove all legacy INI files — fully DB-driven), H140 (governance_file column + prompt prepend), H141 (start_tmuxflow rewrite — tmux session auto-create), H142 (governance_file editable from frontend), H143 (dynamic governance file dropdown from disk)
+**Last cycle:** G2/G4 — BridgeV002 Enriched Callback + Verdict Templates: full validation workflow mirroring legacy _write_callback_file(), 4-phase verdict process, validation schema updates, verdict_feedback typo fix (COMPLETED)
+**Previous cycles completed:** H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send), H139 (remove all legacy INI files — fully DB-driven), H140 (governance_file column + prompt prepend), H141 (start_tmuxflow rewrite — tmux session auto-create), H142 (governance_file editable from frontend), H143 (dynamic governance file dropdown from disk), B1 (rule_key NameError fix), B2 (signal_send hardcoded dir fix)
 
 **Migration Status — Legacy → BridgeV002:**
 | Legacy Function | BridgeV002 Replacement | Commit |
@@ -473,13 +480,12 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - [x] H141: start_tmuxflow.py rewrite — replace ollama preload with tmux session auto-create (session_exists/create_session) — COMPLETED (`a5c899b`)
 - [x] H142: governance_file editable from frontend — role card display + dropdown in edit form + i18n LBL-1000298 — COMPLETED (`701c5a5`)
 - [x] H143: governance_file dropdown reads from disk — GET /api/bridge-v2/governance-files endpoint lists .md files dynamically — COMPLETED (`1f3c647`)
-- [ ] Fix B1 — `rule_key` NameError in run_flow_step_db() (dispatch.py:464, 480)
-- [ ] Fix B2 — signal_send hardcoded handoff directory (dispatch.py:1044)
-- [ ] Build B3 — POST /api/bridge-v2/dispatch endpoint (app.py missing)
-- [ ] Integrate B4 — Prompt Compiler uses BridgeV002 get_next_id_for_flow + dispatch API (app.py:2857-2889)
-- [ ] Handle G1 — Human role as final recipient, no crash on session_alive failure
-- [ ] Enrich G2/G4 — Callback + verdict content templates with full verification steps
-- [ ] Integrate G3 — Prompt Compiler instructs implementer to run BridgeV002 signal
+- [x] Fix B1 — `rule_key` NameError in run_flow_step_db() (dispatch.py:464, 480) — COMPLETED (`1517b3f`)
+- [x] Fix B2 — signal_send hardcoded handoff directory (dispatch.py:1044) — COMPLETED (`de9b95c`)
+- [x] Integrate B4 — Prompt Compiler uses BridgeV002 get_next_id_for_flow + dispatch API, Flow Key + Step Key form fields (3 files, 208 lines) — COMPLETED (`3902472`). NOTE: B3 (standalone dispatch trigger API) solved via B4.
+- [x] Handle G1 — Human role as final recipient, no crash on session_alive failure — COMPLETED (role_type column, 5 dispatch-paths skip, frontend dropdown) TBD commit
+- [x] Enrich G2/G4 — Callback + verdict templates enriched (init_db.py migration blocks, validation schemas updated, verdict_feedback typo fixed) — TBD commit
+- [x] ~~Integrate G3~~ — ✅ Solved via B4
 - [ ] Fix G5 — Role key alignment in governance_file seed data
 - [ ] Rewrite governance files — 02_ARCHITECT, 03_IMPLEMENTOR, 04_REVIEW, 100_BRIDGE
 
@@ -646,6 +652,55 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - Returns sorted list of all .md files — no hardcoded filenames in frontend
 - Frontend fetches list dynamically when edit form renders; falls back to (None) only on error
 - Future governance files automatically appear in dropdown without code changes
+
+**Key design decisions from B1:**
+- run_flow_step_db(): extract rule_key after build_step_payload() — one-line fix: `rule_key = target_step.get("rule_key")`
+- Consistent with how signal_complete() already handles it (line 589)
+
+**Key design decisions from B2:**
+- signal_send(): restructure to load flow from DB, find matching step by role pair, build payload, resolve deliverable_dir/pattern/rule_key dynamically
+- All three signal functions (run_flow_step_db, signal_complete, signal_send) now follow the same pattern: load flow → find step → build payload via build_step_payload()
+
+**Key design decisions from B4:**
+- Flow Key + Step Key dropdowns added to Prompt Compiler form after Deployment Strategy section
+- Frontend cascades: selecting a flow populates steps dropdown from /api/bridge-v2/steps/{flow_key}
+- compile_prompt() resolves bridge_step_data via build_step_payload() when both flow_key and step_key provided
+- assign_handoff_id() uses get_next_id_for_flow(flow_key) from DB (replaces bridge.py next-id subprocess)
+- dispatch_command generated as `dispatch.py --db-flow {flow_key} --signal-send --from-role X --to-role Y`
+- Backward compatible: legacy bridge.py fallback when flow_key/step_key not provided
+- compile_prompt() returns bridge_flow_key, bridge_step_key, deliverable_dir for downstream assign_handoff_id use
+- i18n labels LBL-1000228 (Flow Key), LBL-1000229 (Step Key) seeded in both da-DK and en-US
+
+**Key design decisions from G1:**
+- ALTER TABLE bridge_roles ADD COLUMN role_type TEXT DEFAULT 'agent' — idempotent migration, all existing roles default to 'agent'
+- Seed data: UPDATE bridge_roles SET role_type = 'human' WHERE role_key = 'human' — distinguishes the human recipient from agent recipients
+- 5 dispatch-paths in dispatch.py check `to_role.get("role_type", "agent")` — run_flow_step_db(), signal_complete(), signal_escalation(), signal_answer(), signal_send()
+- Human recipients skip two phases: (1) session_alive() pre-dispatch check, (2) prompt injection into tmux session post-dispatch
+- No error thrown — human role is treated as success state with log message "Skipped: recipient is human"
+- Frontend role card display: role_type field shown, but only renders when != 'agent' (clean UI for agents, explicit badge for human)
+- Frontend role edit form: select dropdown with Agent/Human options, wired to body.role_type in PUT /api/bridge-v2/roles/{role_key}
+- app.py PUT endpoint: "role_type" added to updatable fields list (line 4522)
+- i18n label LBL-1000290 (lbl_bridge_role_type) seeded in all 4 i18n layers: ui_labels, ui_label_translations (da-DK/en-US), ui_text_slots, ui_text_slot_labels
+
+**Key design decisions from G2:**
+- Callback content_template enriched to mirror legacy `_write_callback_file()` structure
+- Governance file reference is NOT hardcoded in template — dispatch.py prepends it dynamically from `bridge_roles.governance_file` (H140). Templates use generic `<role>You are Reviewer in the DPMtF governance loop.</role>`
+- 8-step task workflow: read result, cd to project, git diff, validation checklist (py_compile, node --check, bash -n, diff scope, deps, schema, innerHTML, i18n), write verdict, handle APPROVED/REJECTED, escalation path
+- Verdict format specified: status + validation checklist table + findings table + conclusion paragraph
+- APPROVED path: stage specific files (never git add -A), write commit message, DO NOT commit/push, escalate to Human
+- `<constraint>` section added with human commit gate warning (15_GIT_POLICY.md reference)
+- Validation schema updated from `["<role>", "<task>", "<notification>"]` to include `"<constraint>"`
+- Migration block unconditionally updates live database (separate from IS NULL seed guard)
+
+**Key design decisions from G4:**
+- Verdict content_template enriched with 4-phase workflow: read deliverables, validation checklist, write verdict, post-verdict actions
+- Phase 2 validation checklist presented as markdown table with all 8 checks and commands
+- Phase 3 verdict format mirrors callback (status + checklist table + findings table + conclusion)
+- Phase 4 post-verdict actions: APPROVED (stage + commit message prep), REJECTED (document issues), architect escalation path
+- `<constraint>` section with human commit gate warning
+- Validation schema updated from `["<role>", "<task>", "<verdict>", "<feedback>"]` to `["<role>", "<task>", "<notification>", "<constraint>"]` — old schema referenced XML tags that were instructions inside `<task>`, not actual template-level XML elements
+- verdict_feedback `{source_route}` typo fixed via REPLACE migration
+- Both callback and verdict templates use same placeholder set: {handoff_id}, {source_role}, {next_role}, {bridge_dir}
 
 --- END CYCLE SNAPSHOT ---
 
