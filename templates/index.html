@@ -75,57 +75,49 @@
                     <div id="drawer-content"></div>
                 </div>
 
-                <!-- Bridge Setup -->
-                <section id="bridge-setup-section">
-                    <h2 data-slot="lbl_bridge_panel_title">Bridge Setup</h2>
-                    <div id="bridge-status-content"></div>
+                <!-- Sections below are wrapped into subgroups by buildSubgroups()
+                     based on panel_subgroups + panel_subgroup_mappings in the database -->
 
-                    <!-- Flows -->
-                    <section id="bridge-flows-section">
-                        <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
-                        <div class="bridge-btn-row">
-                            <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
-                            <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">View Flows</button>
-                        </div>
-                        <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
-                    </section>
+                <section id="bridge-flows-section">
+                  <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
+                  <div class="bridge-btn-row">
+                    <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
+                    <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">View Flows</button>
+                  </div>
+                  <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
+                </section>
 
-                    <!-- Steps -->
-                    <section id="bridge-steps-section">
-                        <h3 data-slot="lbl_bridge_steps_title">Steps</h3>
-                        <div class="bridge-btn-row">
-                            <select id="bridge-steps-flow-select" data-slot="lbl_bridge_select_flow">Select Flow</select>
-                            <button id="bridge-add-step-btn" type="button" data-slot="lbl_bridge_step_add">Add Step</button>
-                        </div>
-                        <div id="bridge-steps-list-container" class="dpmtf-card-grid"></div>
-                    </section>
+                <section id="bridge-steps-section">
+                  <h3 data-slot="lbl_bridge_steps_title">Steps</h3>
+                  <div class="bridge-btn-row">
+                    <select id="bridge-steps-flow-select" data-slot="lbl_bridge_select_flow">Select Flow</select>
+                    <button id="bridge-add-step-btn" type="button" data-slot="lbl_bridge_step_add">Add Step</button>
+                  </div>
+                  <div id="bridge-steps-list-container" class="dpmtf-card-grid"></div>
+                </section>
 
-                    <!-- Roles -->
-                    <section id="bridge-roles-section">
-                        <h3 data-slot="lbl_bridge_roles_title">Roles</h3>
-                        <div class="bridge-btn-row">
-                            <button id="bridge-add-role-btn" type="button" data-slot="lbl_bridge_role_add">Add Role</button>
-                            <button id="bridge-export-roles-btn" type="button" data-slot="lbl_bridge_export_roles">View Roles</button>
-                        </div>
-                        <div id="bridge-roles-list-container" class="dpmtf-card-grid"></div>
-                    </section>
+                <section id="bridge-roles-section">
+                  <h3 data-slot="lbl_bridge_roles_title">Roles</h3>
+                  <div class="bridge-btn-row">
+                    <button id="bridge-add-role-btn" type="button" data-slot="lbl_bridge_role_add">Add Role</button>
+                    <button id="bridge-export-roles-btn" type="button" data-slot="lbl_bridge_export_roles">View Roles</button>
+                  </div>
+                  <div id="bridge-roles-list-container" class="dpmtf-card-grid"></div>
+                </section>
 
-                    <!-- Conventions -->
-                    <section id="bridge-conventions-section">
-                        <h3 data-slot="lbl_bridge_conventions_title">Conventions</h3>
-                        <div id="bridge-conventions-container" class="dpmtf-card-grid"></div>
-                    </section>
+                <section id="bridge-conventions-section">
+                  <h3 data-slot="lbl_bridge_conventions_title">Conventions</h3>
+                  <div id="bridge-conventions-container" class="dpmtf-card-grid"></div>
+                </section>
 
-                    <!-- Export -->
-                    <section id="bridge-export-section">
-                        <h3 data-slot="lbl_bridge_export">Export</h3>
-                        <div id="bridge-export-content"></div>
-                    </section>
+                <section id="bridge-export-section">
+                  <h3 data-slot="lbl_bridge_export">Export</h3>
+                  <div id="bridge-export-content"></div>
                 </section>
 
                 <section id="db-status-section">
-                    <h2 data-slot="lbl_panel_db_status">Database Status</h2>
-                    <div id="db-status-content"></div>
+                  <h2 data-slot="lbl_panel_db_status">Database Status</h2>
+                  <div id="db-status-content"></div>
                 </section>
             </div>
         </section>
