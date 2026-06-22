@@ -1029,8 +1029,31 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     tmux_session = to_role_data["tmux_session"]
 
+    # Step 1.5: Load flow and find matching step from DB
+    try:
+        flow_data = load_flow_from_db(flow_key, db_path=dpmtf_config.get_db_path())
+    except ValueError as e:
+        print(f"Error loading flow '{flow_key}' from database: {e}")
+        return False
+
+    steps = flow_data["steps"]
+    target_step = None
+    for s in steps:
+        if s.get("from_role") == from_role_key and s.get("to_role") == to_role_key:
+            target_step = s
+            break
+
+    if not target_step:
+        print(f"Error: No step matching {from_role_key}->{to_role_key} in flow '{flow_key}'")
+        return False
+
+    # Build payload from step + convention (resolves deliverable_dir, pattern, rule_key)
+    payload = build_step_payload(target_step, flow_key, handoff_id, bridge_dir)
+    rule_key = target_step.get("rule_key")
+
     print(f"\nSignal Send: {from_role_key} -> {to_role_key}")
-    print(f"  Flow: {flow_key}")
+    print(f"  Flow: {flow_key}, Step: {payload['step_key']}")
+    print(f"  Deliverable: {payload['deliverable_file']}")
 
     # Step 2: Check target session is alive
     if not session_alive(tmux_session):
@@ -1044,9 +1067,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         return False
 
     # Step 3: Verify handoff file exists with required XML sections
-    handoff_dir = os.path.join(bridge_dir, "reviewtoimplementor")
-    handoff_file = f"{handoff_id}-handoff.md"
-    handoff_path = os.path.join(handoff_dir, handoff_file)
+    deliverable_dir = payload.get("deliverable_dir", "")
+    handoff_path = os.path.join(bridge_dir, deliverable_dir, payload["deliverable_file"])
 
     if not os.path.exists(handoff_path):
         print(f"  ERROR: Handoff file missing: {handoff_path}")
@@ -1076,9 +1098,10 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         return False
 
     handoff_abs = os.path.abspath(handoff_path)
+    handoff_file = payload["deliverable_file"]
 
-    # Ensure handoff subdirectory exists (for symlink)
-    ensure_subdir(bridge_dir, "reviewtoimplementor")
+    # Ensure deliverable subdirectory exists (for symlink)
+    ensure_subdir(bridge_dir, deliverable_dir)
 
     # Step 4: Stop target role's Ollama model — clear VRAM and context
     if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
@@ -1097,10 +1120,10 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         gov_path = os.path.join(project_root, "docs", "governance-templates-v2", gov_file)
         print(f"  Governance: {gov_file}")
 
-    # Step 6: Resolve handoff convention content_template
+    # Step 6: Resolve convention content_template from step's rule_key
     ctemplate = resolve_content_template_from_db(
-        "handoff", db_path=dpmtf_config.get_db_path()
-    ) or ""
+        rule_key, db_path=dpmtf_config.get_db_path()
+    ) if rule_key else ""
 
     # Step 7: Build prompt with placeholder replacement
     if ctemplate:
@@ -1133,8 +1156,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     print(f"  Handoff dispatch prompt injected into '{tmux_session}'")
 
-    # Step 9: Update symlink in handoff directory
-    link_path = os.path.join(handoff_dir, "current.md")
+    # Step 9: Update symlink in deliverable directory
+    link_path = os.path.join(bridge_dir, deliverable_dir, "current.md")
     try:
         if os.path.islink(link_path) or os.path.exists(link_path):
             os.unlink(link_path)
