@@ -1,4 +1,4 @@
-# 100 — BRIDGE PROTOCOL
+# 100 — BRIDGE PROTOCOL (BridgeV002)
 
 > **en-US is the standard language for all governance-templates-v2 files.**
 > All prompts, handoff files, bridge messages, and inter-role communication
@@ -8,10 +8,10 @@
 
 ## Purpose
 
-Defines the tmux-based bridge protocol for communication between the three
-non-Human roles (Architect, Implementor, Review). Describes the required
-content of handoff prompts, the escalation structure, and improvements
-over the legacy bridge protocol to ensure reliable sequential execution.
+Defines the BridgeV002 protocol for communication between the non-Human roles
+(Architect, Implementor, Review). BridgeV002 is a **fully database-driven**
+dispatch system integrated into DPMtF-WebUI. It replaces the legacy
+`claude-bridge/bridge.py` with flow-based, convention-driven role transitions.
 
 ## When to Use
 
@@ -21,144 +21,153 @@ over the legacy bridge protocol to ensure reliable sequential execution.
 
 ---
 
-## Bridge Infrastructure
+## BridgeV002 Architecture
+
+BridgeV002 is part of the DPMtF-WebUI repository — not a separate project.
+All configuration lives in the database; there are zero INI dependencies.
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| `bridge.py` | `/home/svend/claude-bridge/bridge.py` | Core: tmux injection with correct Enter key handling. Four commands: `send`, `complete`, `ask-architect`, `answer-review`. |
-| `reviewtoimplementor/` | `/home/svend/claude-bridge/reviewtoimplementor/` | Review → Implementor: handoff files with unique ID. |
-| `implementertoreview/` | `/home/svend/claude-bridge/implementertoreview/` | Implementor → Review: result + notification + callback files. |
-| `reviewtoarchitect/` | `/home/svend/claude-bridge/reviewtoarchitect/` | Review → Architect: escalation questions. |
-| `architecttoreview/` | `/home/svend/claude-bridge/architecttoreview/` | Architect → Review: escalation responses. |
-| `trace.log` | `/home/svend/claude-bridge/trace.log` | Append-only log of all bridge activity. |
-| `claude_architect` | tmux session | Architect role. |
-| `claude_implementer` | tmux session | Implementor role. |
-| `claude_review` | tmux session | Review role. |
+| `dispatch.py` | `scripts/bridgeV002/dispatch.py` | Universal dispatcher — four signals: `send`, `complete`, `escalation`, `answer`. |
+| `bridge_lib.py` | `scripts/bridgeV002/bridge_lib.py` | Database lookup functions, convention resolution, deliverable validation. |
+| `post-dispatch-common.py` | `scripts/bridgeV002/post-dispatch-common.py` | Convention-agnostic post-dispatch: validate deliverable + stop from_role model. |
+| `role_setup.py` | `scripts/bridgeV002/role_setup.py` | Ollama model pull for role session preparation. |
+| `role_teardown.py` | `scripts/bridgeV002/role_teardown.py` | Ollama model stop + VRAM cleanup. |
+| `bridge_roles` | Database table | Role definitions: tmux session, model, governance file, role type. |
+| `bridge_flows` | Database table | Flow definitions: step sequence, auto-complete, default flow. |
+| `bridge_flow_steps` | Database table | Step definitions: from_role → to_role, deliverable dir/pattern, convention rule. |
+| `bridge_convention_rules` | Database table | Convention templates: content template, validation schema, dir/pattern defaults. |
+| `bridge_scripts` | Database table | Script registry: path, stage (pre/post/both), required parameters. |
+
+### Deliverable Directories (per flow)
+
+Each flow defines its own deliverable directories via step configuration.
+Example for `strict_review`:
+
+```
+{bridge_dir}/
+├── handoffs/         ← archi01 writes handoff files
+├── results/          ← imple01 writes implementation results
+├── reviews/          ← review01 writes technical reviews
+├── verdicts/         ← review02 writes final verdicts + commit messages
+├── escalations/      ← review01/review02 write escalation questions
+├── architecttoreview/ ← archi01 writes escalation responses
+└── trace.log         ← append-only dispatch log
+```
 
 ---
 
-## Bridge Commands
+## BridgeV002 Signals
 
-| Command | From | To | Action |
-|---------|------|----|--------|
-| `bridge.py send {ID}` | Review | Implementor | `/clear` + inject handoff instruction. |
-| `bridge.py complete {ID}` | Implementor | Review | Inject result callback prompt. |
-| `bridge.py ask-architect {ID}` | Review | Architect | `/clear` + inject escalation question. |
-| `bridge.py answer-review {ID}` | Architect | Review | Inject answer callback prompt. |
-| `bridge.py next-id` | Any | — | Find next available handoff ID across all directories. |
+Four signals replace the legacy `bridge.py` commands:
 
----
+| Signal | CLI | From → To | Action |
+|--------|-----|-----------|--------|
+| **signal_send** | `dispatch.py --db-flow {flow} --signal-send --from-role {from} --to-role {to}` | Review → Implementor | Stop+reload target model, inject handoff prompt. |
+| **signal_complete** | `dispatch.py --db-flow {flow} --signal-complete --from-role {from}` | Implementor → Review | Validate deliverable, inject callback prompt, stop from_role model. |
+| **signal_escalation** | `dispatch.py --db-flow {flow} --signal-escalation --from-role {from} --to-role {to}` | Review → Architect | Inject escalation question. |
+| **signal_answer** | `dispatch.py --db-flow {flow} --signal-answer --from-role {from} --to-role {to}` | Architect → Review | Inject answer callback. |
 
-## Layer 1: Implementation Loop (Review ↔ Implementor)
-
-### Step 1: Review Dispatches to Implementor
-
-Review writes the handoff file and dispatches:
-
-```bash
-python3 /home/svend/claude-bridge/bridge.py send {ID}
-```
-
-This does:
-1. Checks that `claude_implementer` session is running.
-2. Verifies handoff file exists at `reviewtoimplementor/{ID}-handoff.md`.
-3. Sends `/clear` to `claude_implementer` via tmux.
-4. Injects: `"Read and execute /home/svend/claude-bridge/reviewtoimplementor/{ID}-handoff.md"` + Enter.
-5. Updates `current.md` symlink.
-6. Logs `R→I` in `trace.log`.
-
-### Step 2: Implementor Executes
-
-Implementor:
-1. Reads the handoff file.
-2. Reads all governance files referenced in `<governance>`.
-3. Executes `<task>` steps in order.
-4. Runs `<validation>` self-checks.
-5. Writes `implementertoreview/{ID}-result.md`.
-6. Writes `implementertoreview/{ID}-notification.md`.
-
-### Step 3: Implementor Signals Completion
-
-```bash
-python3 /home/svend/claude-bridge/bridge.py complete {ID}
-```
-
-This does:
-1. Checks that `claude_review` session is running.
-2. Writes `implementertoreview/{ID}-callback.md` (if it does not exist).
-3. Injects: `"Read and execute /home/svend/claude-bridge/implementertoreview/{ID}-callback.md"` + Enter.
-4. Logs `I→R` in `trace.log`.
-5. Updates `implementertoreview/current.md` symlink.
-
-**CRITICAL: `bridge.py complete` is called WITHOUT `/clear` first.**
-A `/clear` would overwrite the injected prompt before the receiver sees it.
+All signals require `--db-flow` (the flow key). Handoff ID is auto-generated
+via `get_next_id_for_flow()` if not provided explicitly.
 
 ---
 
-## Layer 2: Escalation Loop (Review ↔ Architect)
+## No-Kill Dispatch Protocol
 
-### When Review Escalates
+BridgeV002 uses **no-kill mode** — tmux sessions are persistent. Context is
+cleared by stopping the Ollama model, not by killing tmux sessions.
 
-Review escalates to Architect when it encounters a decision it cannot make alone:
-- Architectural ambiguity.
-- Cross-project impact (see [[21_ALIGNMENT]]).
-- Design pattern conflict with [[14_ARCHITECTURE]].
-- Complex rework requiring redesign.
+### Golden Rule Sequence (signal_complete)
 
-### Step 1: Review Escalates to Architect
-
-```bash
-python3 /home/svend/claude-bridge/bridge.py ask-architect {ID}
+```
+1. Load flow + steps from DB
+2. Find current step (by step_key or from_role)
+3. Build payload from step + convention rule
+4. Load to_role from DB → get tmux_session
+5. Check session_alive(to_role) — fail if not running
+6. Verify deliverable file exists (written by completing role)
+7. Validate deliverable against convention schema (if validation_required)
+8. Resolve content_template placeholders ({handoff_id}, {source_role}, ...)
+9. Prepend governance_file reference for target role
+10. Inject callback prompt into to_role's tmux session (tool-aware)
+11. Post-dispatch: stop from_role's Ollama model (VRAM cleanup)
+12. Update current.md symlink + log to trace.log
+13. If auto_complete_enabled: chain to next step
 ```
 
-This does:
-1. Checks that `claude_architect` session is running.
-2. Verifies handoff file exists at `reviewtoarchitect/{ID}-handoff.md`.
-3. Sends `/clear` to `claude_architect` via tmux.
-4. Injects: `"Read and execute /home/svend/claude-bridge/reviewtoarchitect/{ID}-handoff.md"` + Enter.
-5. Updates `reviewtoarchitect/current.md` symlink.
-6. Logs `R→A` in `trace.log`.
+### Human Recipients (G1)
 
-### Step 2: Architect Responds
+When `to_role` has `role_type = "human"`, dispatch skips tmux injection
+entirely. The deliverable file is written to disk for Human to read manually.
 
-Architect:
-1. Reads the escalation handoff file.
-2. Analyzes context and cross-project overview.
-3. Makes a decision.
-4. Writes `architecttoreview/{ID}-response.md`.
-5. Writes `architecttoreview/{ID}-notification.md`.
+### Tool-Aware Injection
 
-### Step 3: Architect Signals Response
-
-```bash
-python3 /home/svend/claude-bridge/bridge.py answer-review {ID}
-```
-
-This does:
-1. Checks that `claude_review` session is running.
-2. Writes `architecttoreview/{ID}-callback.md` (if it does not exist).
-3. Injects: `"Read and execute /home/svend/claude-bridge/architecttoreview/{ID}-callback.md"` + Enter.
-4. Logs `A→R` in `trace.log`.
-5. Updates `architecttoreview/current.md` symlink.
+| Tool | Detection | Injection Method |
+|------|-----------|-----------------|
+| **OpenCode** | `pane_current_command` contains "opencode" | `tmux load-buffer` + `paste-buffer` with soft-clear preamble |
+| **Claude Code** | `pane_current_command` contains "node" or "claude" | `tmux load-buffer` + `send-keys Enter` |
 
 ---
 
-## Handoff Prompt Format (Improved)
+## Flow-Based Role Transition
 
-### Review → Implementor Handoff
+### Layer 1: Implementation Loop (example: strict_review)
+
+```
+Step 1: archi01 → imple01   [handoff]
+  Architect writes handoff → dispatch injects prompt → Implementer executes
+
+Step 2: imple01 → review01  [technical_review]
+  Implementer writes result → dispatch injects callback → Review01 validates
+
+Step 3: review01 → review02 [verdict]
+  Review01 writes technical review → dispatch injects callback → Review02 validates
+
+Step 4: review02 → human    [human_delivery]
+  Review02 writes verdict → Human reads manually (no tmux injection)
+```
+
+Each step is configured in `bridge_flow_steps` with:
+- `from_role` / `to_role` — which roles transition
+- `rule_key` — which convention rule governs the content template
+- `deliverable_dir` / `deliverable_pattern` — where files are written
+- `validation_required` — whether the deliverable is schema-validated before dispatch
+
+### Layer 2: Escalation Loop
+
+```
+Review01 or Review02                  Architect
+    │                                     │
+    │ signal_escalation                   │
+    │ (writes question file first)        │
+    ├────────────────────────────────────→│
+    │                                     │ reads question, makes decision
+    │                                     │ writes response
+    │          signal_answer              │
+    │←────────────────────────────────────┤
+    │                                     │
+    │ continues validation                │
+```
+
+---
+
+## Handoff Prompt Format
 
 This is the CRITICAL artifact. The handoff prompt MUST contain all information
 the Implementor needs to execute the task without ambiguity. All text MUST be
 in English (en-US).
 
+### Required XML Sections
+
 ```markdown
 <role>You are Implementor in the DPMtF governance loop. Your role is defined
-in /home/svend/DPMtF-WebUI/docs/governance-templates-v2/03_IMPLEMENTOR.md.
+in {project_root}/docs/governance-templates-v2/03_IMPLEMENTOR.md.
 Read it now before proceeding.</role>
 
 <handoff_id>{ID}</handoff_id>
 
-<project>/home/svend/{project-name}</project>
+<project>{project_path}</project>
 
 <context>
 {WHY this task exists — what problem it solves, what phase it belongs to.
@@ -167,8 +176,8 @@ This gives the Implementor understanding of purpose, not just steps.}
 
 <governance>
 Read and apply these governance files BEFORE starting:
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/12_CODING_STANDARD.md
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/16_FILE_ACCESS.md
+- {project_root}/docs/governance-templates-v2/12_CODING_STANDARD.md
+- {project_root}/docs/governance-templates-v2/16_FILE_ACCESS.md
 
 Key rules extracted:
 1. NO innerHTML for dynamic content — use createElement()/textContent.
@@ -188,17 +197,18 @@ Step 2: {Second action}
 When ALL steps are complete, execute the bridge signal:
 
 1. Write result file to:
-   /home/svend/claude-bridge/implementertoreview/{ID}-result.md
+   {bridge_dir}/implementertoreview/{ID}-result.md
    Format per 03_IMPLEMENTOR.md — include Summary, Files Changed,
    Validation Results table.
 
 2. Write notification file to:
-   /home/svend/claude-bridge/implementertoreview/{ID}-notification.md
+   {bridge_dir}/implementertoreview/{ID}-notification.md
    Format per 03_IMPLEMENTOR.md — Status, Task Summary, Files Changed,
    Next Action.
 
 3. SIGNAL completion (NO /clear before this):
-   python3 /home/svend/claude-bridge/bridge.py complete {ID}
+   python3 {project_root}/scripts/bridgeV002/dispatch.py \
+     --db-flow {flow_key} --signal-complete --from-role {from_role}
 </task>
 
 <scope>
@@ -208,14 +218,14 @@ Files you MAY modify:
 
 Files you MUST NOT touch:
 - {/full/path/to/forbidden/file1}
-- /home/svend/DPMtF-WebUI/ (Father project)
+- {project_root}/ (Father project)
 - /home/svend/ENO/ (other Child project)
 </scope>
 
 <validation>
 Before signaling completion, run these checks yourself:
-1. {python3 -m py_compile <file>} — must pass
-2. {node --check <file>} — must pass
+1. python3 -m py_compile {file} — must pass
+2. node --check {file} — must pass
 3. git diff --stat — verify only allowed files changed
 4. grep -RIn "innerHTML" static templates — must be empty
 5. {Other phase-specific checks}
@@ -223,7 +233,7 @@ Before signaling completion, run these checks yourself:
 
 <constraint>
 DO NOT COMMIT. Leave all changes unstaged.
-Execute ALL steps in <task> — especially step 3 (bridge.py complete).
+Execute ALL steps in <task> — especially step 3 (bridge signal).
 If you encounter an ambiguity, document it in the result file — do NOT guess.
 Stop after 2 failed patching attempts.
 </constraint>
@@ -240,21 +250,25 @@ Before dispatching a handoff, Review MUST verify the handoff contains:
 | 3 | `<project>` | Full path to the target project. |
 | 4 | `<context>` | WHY this task exists — purpose and phase context. |
 | 5 | `<governance>` | Governance files to read + extracted key rules (2-4 rules). |
-| 6 | `<task>` | Step-by-step instructions INCLUDING bridge complete as final step. |
+| 6 | `<task>` | Step-by-step instructions INCLUDING bridge signal as final step. |
 | 7 | `<scope>` | Allowed files (full paths) and forbidden files (full paths). |
 | 8 | `<validation>` | Concrete self-validation checks with commands. |
 | 9 | `<constraint>` | "DO NOT COMMIT" + "Execute ALL steps" + ambiguity/escalation rules. |
 
-### Review → Architect Escalation Handoff
+---
+
+## Escalation Handoff Format
+
+### Review → Architect Escalation
 
 ```markdown
 <role>You are Architect in the DPMtF governance loop. Your role is defined
-in /home/svend/DPMtF-WebUI/docs/governance-templates-v2/02_ARCHITECT.md.
+in {project_root}/docs/governance-templates-v2/02_ARCHITECT.md.
 Read it now before proceeding.</role>
 
 <handoff_id>{ID}</handoff_id>
 
-<escalation_from>claude_review</escalation_from>
+<escalation_from>{from_role}</escalation_from>
 
 <context>
 {What Review was working on — project, phase, task, current state.}
@@ -272,16 +286,16 @@ Read it now before proceeding.</role>
 
 <governance>
 Read and apply:
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/02_ARCHITECT.md
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/21_ALIGNMENT.md
-- /home/svend/DPMtF-WebUI/docs/governance-templates-v2/14_ARCHITECTURE.md
+- {project_root}/docs/governance-templates-v2/02_ARCHITECT.md
+- {project_root}/docs/governance-templates-v2/21_ALIGNMENT.md
+- {project_root}/docs/governance-templates-v2/14_ARCHITECTURE.md
 </governance>
 
 <task>
 1. Read <context> and <question> — understand what Review needs.
 2. Consult relevant governance files for overview.
 3. Make a decision and write response to:
-   /home/svend/claude-bridge/architecttoreview/{ID}-response.md
+   {bridge_dir}/architecttoreview/{ID}-response.md
    Format:
    ## Decision
    {Clear, unambiguous decision}
@@ -292,76 +306,17 @@ Read and apply:
    ## Affected Projects/Files
    {List if relevant}
 4. Write NOTIFICATION to:
-   /home/svend/claude-bridge/architecttoreview/{ID}-notification.md
+   {bridge_dir}/architecttoreview/{ID}-notification.md
 5. SIGNAL completion:
-   python3 /home/svend/claude-bridge/bridge.py answer-review {ID}
+   python3 {project_root}/scripts/bridgeV002/dispatch.py \
+     --db-flow {flow_key} --signal-answer --from-role {from_role} --to-role {to_role}
 </task>
 
 <constraint>
 ONLY answer the question. Do not start new implementations.
-Execute ALL steps in <task> — especially step 5 (bridge.py answer-review).
+Execute ALL steps in <task> — especially step 5 (bridge signal).
 All response text MUST be in English (en-US).
 </constraint>
-```
-
----
-
-## Input Prompt Content Requirements
-
-### For Implementor
-
-The handoff prompt to Implementor MUST enable the Implementor to work
-autonomously without asking questions. The prompt must contain:
-
-1. **Identity:** Which project, which phase, which handoff ID.
-2. **Context:** WHY this task is needed — purpose understanding prevents
-   mechanical errors.
-3. **Exact steps:** What to do, in what order, with what files.
-4. **Boundaries:** What NOT to do, what NOT to touch.
-5. **Self-checks:** How to verify correctness before signaling.
-6. **Completion protocol:** Exactly how to signal completion (bridge.py complete).
-
-### For Architect
-
-The escalation prompt to Architect MUST enable a fast, focused decision:
-
-1. **Context:** What Review was doing and why.
-2. **The blocker:** What specific decision Review cannot make.
-3. **Options:** Proposed options with implications — reduces Architect's
-   analysis time.
-4. **Response format:** Exactly how to structure the response.
-5. **Completion protocol:** bridge.py answer-review.
-
-### For Review (Callback from Implementor)
-
-The callback prompt injected by `bridge.py complete`:
-
-```markdown
-Handoff {ID} is complete.
-
-Read the result and notification:
-- /home/svend/claude-bridge/implementertoreview/{ID}-result.md
-- /home/svend/claude-bridge/implementertoreview/{ID}-notification.md
-
-Review the implementation per:
-/home/svend/DPMtF-WebUI/docs/governance-templates-v2/04_REVIEW.md
-
-Run validation checks, review the diff, and decide: pass, pass with notes,
-or return to Implementor.
-```
-
-### For Review (Callback from Architect)
-
-The callback prompt injected by `bridge.py answer-review`:
-
-```markdown
-Architect has answered escalation {ID}.
-
-Read the response:
-- /home/svend/claude-bridge/architecttoreview/{ID}-response.md
-- /home/svend/claude-bridge/architecttoreview/{ID}-notification.md
-
-Apply the Architect's decision and continue with the task.
 ```
 
 ---
@@ -371,88 +326,47 @@ Apply the Architect's decision and continue with the task.
 The bridge guarantees that roles do not run in parallel:
 
 1. **One active role at a time:** When Review dispatches to Implementor via
-   `bridge.py send`, Review WAITS. Implementor is the only active role.
+   `signal_send`, Review WAITS. Implementor is the only active role.
 2. **Signal-based activation:** Roles are activated by bridge-injected prompts,
    not by polling. A role does nothing until it receives a signal.
 3. **No background work:** When Implementor signals completion via
-   `bridge.py complete`, Implementor stops. Review resumes.
+   `signal_complete`, Implementor stops. Review resumes.
 4. **Escalation is synchronous:** When Review escalates to Architect,
    Review WAITS. Architect answers, then Review resumes.
+5. **No-kill enforcement:** Post-dispatch `ollama stop` clears the predecessor's
+   model from VRAM, ensuring the predecessor cannot continue work.
 
 ### Violation Prevention
 
 | Violation | Prevention |
 |-----------|------------|
-| Implementor continues after signaling | `bridge.py complete` injects into claude_review — claude_implementer receives no further prompts until next `send`. |
-| Review starts new work while Implementor runs | Review's session receives no prompt until `complete` injects one. |
-| Architect and Review both active | Architect is only activated by `ask-architect` and deactivates after `answer-review`. |
+| Implementor continues after signaling | `signal_complete` injects into Review's session — Implementor receives no further prompts until next `signal_send`. |
+| Review starts new work while Implementor runs | Review's session receives no prompt until `signal_complete` injects one. |
+| Architect and Review both active | Architect is only activated by `signal_escalation` and deactivates after `signal_answer`. |
 | Implementor commits code | Constraint in every handoff: "DO NOT COMMIT". Enforced by Review validation. |
 
 ---
 
-## Bridge Improvements Over Legacy
+## Convention Rules
 
-This section documents improvements to the bridge protocol compared to the
-legacy `superpowertemplates/bridge-protocol.md` (v1).
+Convention rules govern the content template injected at each step transition.
+They are stored in `bridge_convention_rules` and resolved at runtime.
 
-### Improvement 1: Mandatory Context Section
+| Rule Key | Step Type | Used For |
+|----------|-----------|----------|
+| `handoff` | Handoff | Architect → Implementer: initial task dispatch |
+| `technical_review` | TechnicalReview | Implementer → Review Layer 1: technical validation |
+| `verdict` | Verdict | Review Layer 1 → Review Layer 2: governance validation |
+| `human_delivery` | HumanDelivery | Review Layer 2 → Human: final verdict delivery |
+| `callback` | Callback | Generic callback (used by non-strict_review flows) |
+| `escalation` | Escalation | Review → Architect: architectural question |
+| `verdict_feedback` | VerdictFeedback | Architect feedback on verdict |
 
-**Legacy:** Handoff files had `<role>`, `<project>`, `<governance>`, `<task>`,
-`<scope>`, `<validation>`, `<constraint>` — but no explanation of WHY.
-
-**Improved:** Added mandatory `<context>` section that explains the purpose
-and phase context. This prevents the Implementor from executing mechanically
-without understanding intent.
-
-### Improvement 2: Handoff Completeness Checklist
-
-**Legacy:** No formal check that handoff prompts contain all required elements
-before dispatch.
-
-**Improved:** Review MUST verify the 9-element checklist before dispatching.
-Missing elements = return to Architect.
-
-### Improvement 3: Explicit Escalation Criteria
-
-**Legacy:** "Review rammer en beslutning den ikke kan tage alene" — vague.
-
-**Improved:** Four explicit escalation triggers with examples:
-- Architectural ambiguity
-- Cross-project impact
-- Design pattern conflict
-- Complex rework needed
-
-### Improvement 4: English-Only Inter-Role Communication
-
-**Legacy:** No language policy for bridge communication.
-
-**Improved:** All prompts, handoffs, and bridge messages MUST be in English
-(en-US). This ensures model consistency (models perform better in English)
-and prevents translation errors.
-
-### Improvement 5: Structured Response Formats
-
-**Legacy:** Response format loosely defined — Architect could respond in
-varying formats.
-
-**Improved:** Architect escalation response MUST follow a fixed structure:
-Decision, Rationale, Next Steps for Review, Affected Projects/Files.
-This ensures Review can parse and apply the response immediately.
-
-### Improvement 6: Callback Prompt Standardization
-
-**Legacy:** Callback prompts were ad-hoc.
-
-**Improved:** Standardized callback prompts for both `complete` and
-`answer-review` callbacks — each tells Review exactly which files to read
-and what to do next.
-
-### Improvement 7: Sequential Execution Guarantee Documentation
-
-**Legacy:** Sequential execution was implied but not formally documented.
-
-**Improved:** Explicit documentation of HOW the bridge prevents parallel
-execution, with violation scenarios and prevention mechanisms.
+Each convention defines:
+- `dir_template` / `pattern_template` — default deliverable location
+- `content_template` — the prompt injected into the next role's tmux session
+- `validation_schema` — required XML sections in the deliverable
+- `error_template` — error message if dispatch fails
 
 ---
 
@@ -462,16 +376,22 @@ execution, with violation scenarios and prevention mechanisms.
 2. **Review ALWAYS validates before commit proposal** — no automatic commit.
 3. **Human ALWAYS authorizes commit** — Human Approval Gate.
 4. **Rollback always possible** — `git reset --hard <baseline>` if result rejected.
-5. **`/clear` between role transitions** — handled by `bridge.py send` and
-   `bridge.py ask-architect`.
-6. **Handoff IDs are unique and sequential** — use `bridge.py next-id`.
+5. **No-kill mode** — `ollama stop` clears context between role transitions.
+   No tmux sessions are killed or created during dispatch.
+6. **Handoff IDs are unique and sequential per flow** — auto-generated via
+   `get_next_id_for_flow()`.
 7. **trace.log is append-only** — never edit existing entries.
-8. **`bridge.py complete` and `answer-review` called WITHOUT `/clear`** —
+8. **`signal_complete` and `signal_answer` called WITHOUT `/clear`** —
    otherwise the prompt is overwritten before the receiver sees it.
 9. **Architect escalation is read-only** — Architect only makes decisions,
    never implements. Implementation always goes through the
    Implementor → Review loop.
 10. **No direct Architect → Implementor communication** — all communication
     goes through the Review layer.
+11. **Human recipients skip tmux injection** — `role_type = "human"` means
+    the dispatch returns success after writing the deliverable file.
+12. **All database-driven** — zero hardcoded paths, zero INI dependencies.
+    Role config, flow steps, and convention templates are resolved from
+    the database at runtime.
 
 ---

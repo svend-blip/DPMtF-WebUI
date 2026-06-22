@@ -20,8 +20,8 @@ from bridge_lib import (
     list_flows_from_db,
     _bridgev002_tables_exist,
     get_next_id_for_flow,
-    build_step_payload,
 )
+from dispatch import build_step_payload
 
 app = FastAPI(title="DPMtF WebUI")
 

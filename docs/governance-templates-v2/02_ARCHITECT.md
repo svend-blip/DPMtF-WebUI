@@ -13,6 +13,10 @@ prompts, and makes architectural decisions.
 
 The Architect runs as a tmux session named `claude_architect`.
 
+> **Flow-specific governance:** When operating within a BridgeV002 flow (e.g.
+> `strict_review`), the flow-specific role template (400-series) takes precedence.
+> This file defines the general Architect role applicable across all flows.
+
 ## When This Role Is Active
 
 - At the start of every new feature cycle: analyzes scope and designs approach.
@@ -54,7 +58,7 @@ Additionally, the Architect reads these as needed:
 | Input | Description |
 |---|---|
 | Human scope definition | Approved scope from [[11_SCOPE]] or direct Human instruction. |
-| Review escalation | From Review via `reviewtoarchitect/{ID}-handoff.md` in the bridge. |
+| Review escalation | From Review via `{bridge_dir}/escalations/{ID}-{from_role}-question.md`. |
 | Previous implementation result | From Review: validated diff, test results, review verdict. |
 | NEXT_CONTEXT | After `/clear`: session state from [[27_NEXT_CONTEXT]]. |
 
@@ -63,8 +67,8 @@ Additionally, the Architect reads these as needed:
 | Output | Description |
 |---|---|
 | Architecture design | Technical approach document (may be inline in the implementation prompt). |
-| Implementation prompt | Structured prompt for Implementor, written to `reviewtoimplementor/{ID}-handoff.md`. |
-| Escalation response | Architect's decision written to `architecttoreview/{ID}-response.md`. Signal completion via `python3 /home/svend/claude-bridge/bridge.py answer-review {ID}`. |
+| Implementation prompt | Structured prompt for Implementor, written to the flow's handoff directory (e.g. `{bridge_dir}/handoffs/{ID}-handoff.md`). |
+| Escalation response | Architect's decision written to `{bridge_dir}/architecttoreview/{ID}-response.md`. Signal completion via BridgeV002 dispatch. |
 | Scope analysis | Analysis of requirements, risks, and dependencies. |
 
 ## Prompt Generation Rules
@@ -75,10 +79,10 @@ When generating an implementation prompt for the Implementor:
    ```xml
    <role>You are Implementor in the DPMtF governance loop.</role>
    <handoff_id>{ID}</handoff_id>
-   <project>/home/svend/{project-name}</project>
+   <project>{project_path}</project>
    <governance>List governance files to read and key rules to apply.</governance>
    <task>Specific, step-by-step instructions. Include ALL steps including
-   the bridge.py complete call as the final step.</task>
+   the bridge signal command as the final step.</task>
    <scope>Files allowed to modify. Files forbidden to touch.</scope>
    <validation>Concrete self-validation checks to run.</validation>
    <constraint>DO NOT COMMIT. Execute ALL steps.</constraint>
@@ -87,9 +91,10 @@ When generating an implementation prompt for the Implementor:
 2. **Bridge communication steps MUST be inside `<task>`** — the Implementor
    skips sections outside `<task>`.
 
-3. **Always include the bridge signal as the LAST step:**
+3. **Always include the bridge signal as the LAST step.** For BridgeV002 flows:
    ```
-   python3 /home/svend/claude-bridge/bridge.py complete {ID}
+   python3 {project_root}/scripts/bridgeV002/dispatch.py \
+     --db-flow {flow_key} --signal-complete --from-role {from_role}
    ```
 
 4. **Reference governance files with full paths** — the Implementor needs
@@ -103,6 +108,7 @@ When generating an implementation prompt for the Implementor:
 7. **Always end with "DO NOT COMMIT"** — this is the critical safety mechanism.
 
 8. **All prompt text MUST be in English (en-US).**
+
 9. **Use config getters in generated prompts** — paths in `<role>`, `<governance>`,
    `<task>`, and `<scope>` sections MUST use `config.get_project_root()`,
    `config.get_bridge_dir()`, and `config.get_governance_dir()` instead of
@@ -117,7 +123,7 @@ When generating an implementation prompt for the Implementor:
 - The Architect does NOT communicate directly with the Implementor — all
   communication goes through the Review layer via the bridge.
 - **CRITICAL: The Architect does NOT run parallel tasks after dispatch.**
-  After bridge.py send, the Architect stops ALL activity — no Monitor,
+  After dispatching a handoff, the Architect stops ALL activity — no Monitor,
   no Bash commands, no background tasks, no file writes. The Architect
   waits passively for the next prompt. Violation of sequential execution
   will be reported to Human per 99_ROLEINTERACTION.md.
@@ -166,8 +172,7 @@ execution guarantee and wastes tokens.
 
 **What to do instead:** Wait. The next prompt will arrive via one of:
 - Human direct communication (for scope, gates, or strategic decisions).
-- Bridge callback from Review (`bridge.py answer-review {ID}` — escalation
-  response needed).
+- Bridge callback from Review (escalation response needed).
 - Session restart after `/clear` (reconstruct from [[27_NEXT_CONTEXT]]).
 - **If you accidentally started a Monitor or background task after dispatch:**
   stop it immediately with TaskStop. Report the violation in the next
@@ -183,6 +188,22 @@ model running the Architect role via human logic if this rule is not followed.
 - Proposed change exceeds [[11_SCOPE]].
 - New dependency, schema change, or visual change required.
 - Cross-project alignment conflict (see [[21_ALIGNMENT]]).
+
+## BridgeV002 Dispatch
+
+The Architect dispatches handoffs and escalation responses via BridgeV002:
+
+```bash
+# Dispatch a handoff to Implementor:
+python3 {project_root}/scripts/bridgeV002/dispatch.py \
+  --db-flow {flow_key} --signal-send --from-role {from_role} --to-role {to_role}
+
+# Answer an escalation from Review:
+python3 {project_root}/scripts/bridgeV002/dispatch.py \
+  --db-flow {flow_key} --signal-answer --from-role {from_role} --to-role {to_role}
+```
+
+See [[100_BRIDGE]] for the full BridgeV002 protocol.
 
 ## Related Reference Files
 
@@ -205,6 +226,6 @@ model running the Architect role via human logic if this rule is not followed.
 | [[24_TESTPLAN]] | Test criteria for prompt generation. |
 | [[27_NEXT_CONTEXT]] | Session reconstruction after `/clear`. |
 | [[99_ROLEINTERACTION]] | Role loop and handoff flow. |
-| [[100_BRIDGE]] | Bridge protocol for prompt dispatch. |
+| [[100_BRIDGE]] | BridgeV002 protocol for prompt dispatch. |
 
 ---

@@ -4,6 +4,7 @@ BridgeV002 dispatcher — universal script for ALL role-to-role transitions.
 Reads config dynamically from bridge_lib. No hardcoded roles, sessions, or paths.
 """
 import argparse
+import json
 import os
 import sqlite3
 import subprocess
@@ -201,6 +202,54 @@ def log(direction, handoff_id, status, message, source="manual"):
     os.makedirs(bridge_dir, exist_ok=True)
     with open(trace_log, "a", encoding="utf-8") as f:
         f.write(entry)
+
+
+def _update_cycle_state(handoff_id, flow_key, active_role, title=None,
+                        design_notes=None, verification_checklist=None):
+    """Update docs/bridgeV002/current-cycle.json after a successful dispatch.
+
+    Called by every signal function to keep the Architect's cold-start state
+    current. The JSON file is the single source of truth for cycle state —
+    StartUpNextSession.md holds only durable reference information.
+    """
+    project_root = os.environ.get(
+        "DPMTF_PROJECT_ROOT",
+        str(Path(__file__).resolve().parent.parent)
+    )
+    cycle_file = os.path.join(project_root, "docs", "bridgeV002", "current-cycle.json")
+
+    # Read existing state (preserve fields not being updated)
+    current = {}
+    if os.path.exists(cycle_file):
+        try:
+            with open(cycle_file, "r", encoding="utf-8") as f:
+                current = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Update fields
+    current["last_handoff"] = handoff_id
+    current["flow"] = flow_key
+    current["active_role"] = active_role
+    if title is not None:
+        current["title"] = title
+    if design_notes is not None:
+        current["design_notes"] = design_notes
+    if verification_checklist is not None:
+        current["verification_checklist"] = verification_checklist
+    current["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Write atomically via temp file
+    os.makedirs(os.path.dirname(cycle_file), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(suffix=".json", prefix="cycle-",
+                               dir=os.path.dirname(cycle_file))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, cycle_file)
+    except OSError:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def build_step_payload(step, flow_key, handoff_id, bridge_dir):
@@ -740,6 +789,9 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     print(f"  Symlink updated in {link_dir}")
     print(f"  Logged signal_complete for handoff #{handoff_id}")
 
+    # Update cycle state for Architect cold-start
+    _update_cycle_state(handoff_id, flow_key, payload["to_role"])
+
     # Step 12: Auto-chain to next step if enabled
     if auto_complete_enabled:
         current_sort = current_step.get("sort_order", 0)
@@ -911,6 +963,9 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
     print(f"  Symlink updated in {esc_dir}")
     print(f"  Logged escalation_asked for handoff #{handoff_id}")
 
+    # Update cycle state for Architect cold-start
+    _update_cycle_state(handoff_id, flow_key, to_role_key)
+
     return True
 
 
@@ -1042,6 +1097,9 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
 
     print(f"  Answer prompt injected into '{tmux_session}'")
     print(f"  Logged escalation_answered for handoff #{handoff_id}")
+
+    # Update cycle state for Architect cold-start
+    _update_cycle_state(handoff_id, flow_key, to_role_key)
 
     return True
 
@@ -1252,6 +1310,9 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     print(f"✅ Handoff {handoff_id} sent to {tmux_session}")
     print(f"   File: {handoff_path}")
     print(f"   Waiting for work from target role...")
+
+    # Update cycle state for Architect cold-start
+    _update_cycle_state(handoff_id, flow_key, to_role_key)
 
     return True
 
