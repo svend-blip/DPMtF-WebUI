@@ -2699,11 +2699,18 @@ async def compile_prompt(request: Request):
     field_rows = cursor.fetchall()
     conn.close()
 
-    # ── Validate required fields (simplified — Spor G) ─────
+    # ── Validate required fields ─────
     errors = []
+    deployment_strategy = data.get("deployment_strategy", "standard")
+    flow_key = data.get("flow_key", "")
 
-    # Only 3 fields are strictly required
-    required_fields = ["target_project", "phase_key", "goal"]
+    # Standard + flow: only target_project and goal are required
+    # (phase_key, target_session, allowed_files, forbidden_files auto-resolved)
+    if deployment_strategy == "standard" and flow_key:
+        required_fields = ["target_project", "goal"]
+    else:
+        required_fields = ["target_project", "phase_key", "goal"]
+
     for field_key in required_fields:
         value = data.get(field_key, "")
         if not value or value == "":
@@ -2754,7 +2761,149 @@ async def compile_prompt(request: Request):
                     target_step, flow_key, "???", config.get_bridge_dir()
                 )
 
-    # ── Generate simplified prompt (Spor G) ─────
+    # ── Generate prompt ─────
+    handoff_id = data.get("handoff_id", "???")
+    target_project = data.get("target_project", "")
+    phase_key = data.get("phase_key", "")
+    goal = data.get("goal", "")
+    deployment_strategy = data.get("deployment_strategy", "standard")
+    allowed_files = data.get("allowed_files", "")
+    forbidden_files = data.get("forbidden_files", "")
+
+    # ── Standard + BridgeV002: auto-resolve from governance ─────
+    if deployment_strategy == "standard" and bridge_step_data:
+        from_role_key = bridge_step_data.get("from_role", "")
+        to_role_key = bridge_step_data.get("to_role", "")
+
+        # Load to_role from DB → get governance_file, tmux_session
+        # (to_role is the one who executes the prompt)
+        try:
+            to_role_data = load_role_from_db(to_role_key, db_path=DB_PATH)
+        except ValueError:
+            to_role_data = None
+
+        # Auto-resolve target_session from to_role's tmux_session
+        if to_role_data:
+            target_session = to_role_data.get("tmux_session", "")
+            governance_file = to_role_data.get("governance_file", "")
+        else:
+            target_session = "claude_implementer"
+            governance_file = "03_IMPLEMENTOR.md"
+
+        # Read governance file content from disk
+        gov_path = os.path.join(
+            config.get_project_root(),
+            config.get_governance_dir(),
+            governance_file,
+        )
+        gov_content = ""
+        if os.path.isfile(gov_path):
+            with open(gov_path, "r", encoding="utf-8") as gf:
+                gov_content = gf.read()
+
+        # Extract role name from governance file (first # heading)
+        role_name = to_role_key
+        if gov_content:
+            for line in gov_content.split("\n"):
+                if line.startswith("# ") and "STRICT_REVIEW" in line:
+                    role_name = line.replace("# ", "").strip()
+                    break
+
+        # ── Build deliverable path and signal command from DB ─────
+        deliverable_dir_val = bridge_step_data.get("deliverable_dir", "implementertoreview")
+        result_path = f"{config.get_bridge_dir()}/{deliverable_dir_val}/{{ID}}-result.md"
+        signal_cmd_template = (
+            f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "
+            f"--db-flow {flow_key} --signal-complete --from-role {to_role_key}"
+        )
+
+        # ── Assemble prompt from governance + DB ─────
+        lines = []
+        # <role> — from governance file reference
+        lines.append(f"<role>You are {to_role_key} in the DPMtF strict_review flow.")
+        lines.append(f"Your role is defined in {gov_path}.")
+        lines.append("Read it now before proceeding.</role>")
+        lines.append("")
+        lines.append(f"<handoff_id>{handoff_id}</handoff_id>")
+        lines.append("")
+        lines.append(f"<project>{target_project}</project>")
+        lines.append("")
+        lines.append("<context>")
+        lines.append(f"Human has approved scope for phase {phase_key}.")
+        lines.append(f"Scope is defined in {target_project}/docs/dpmtf/11_SCOPE.md.")
+        lines.append(f"Father project: {config.get_father_project()}.")
+        lines.append(f"Flow: {flow_key}, Step: {step_key} ({from_role_key} → {to_role_key}).")
+        lines.append("</context>")
+        lines.append("")
+        # <governance> — reference the flow-specific file only
+        lines.append("<governance>")
+        lines.append("Read and apply your role definition BEFORE starting:")
+        lines.append(f"- {gov_path}")
+        lines.append("")
+        lines.append("Key rules from your governance file apply in full.")
+        lines.append("</governance>")
+        lines.append("")
+        # <task> — goal + auto-generated bridge signal
+        lines.append("<task>")
+        lines.append(goal)
+        lines.append("")
+        lines.append("When ALL steps are complete, execute the bridge signal:")
+        lines.append("")
+        lines.append(f"1. Write result file to {result_path.replace('{ID}', handoff_id)}")
+        lines.append(f"2. SIGNAL completion: {signal_cmd_template.replace('{ID}', handoff_id)}")
+        lines.append("</task>")
+        lines.append("")
+        # <scope> — from user input + Father project protection
+        lines.append("<scope>")
+        lines.append("Files you MAY modify:")
+        if allowed_files:
+            for f in allowed_files.strip().split("\n"):
+                f = f.strip()
+                if f:
+                    lines.append(f"- {f}")
+        else:
+            lines.append("- (per governance file — Review will verify)")
+        lines.append("")
+        lines.append("Files you MUST NOT touch:")
+        if forbidden_files:
+            for f in forbidden_files.strip().split("\n"):
+                f = f.strip()
+                if f:
+                    lines.append(f"- {f}")
+        lines.append(f"- {config.get_project_root()}/ (Father project)")
+        lines.append("</scope>")
+        lines.append("")
+        # <validation> — reference governance file
+        lines.append("<validation>")
+        lines.append(f"Run all validation checks defined in your governance file: {gov_path}")
+        lines.append("Key checks include: py_compile, node --check, innerHTML, diff scope, i18n.")
+        lines.append("</validation>")
+        lines.append("")
+        # <constraint> — from governance
+        lines.append("<constraint>")
+        lines.append("DO NOT COMMIT. Leave all changes unstaged.")
+        lines.append(f"Target session: {target_session} (role: {from_role_key}).")
+        lines.append("Execute ALL steps in <task> — especially the signal completion command.")
+        lines.append("Stop after 2 failed patching attempts — document, do not guess.")
+        lines.append("</constraint>")
+
+        prompt = "\n".join(lines)
+
+        result_response = {
+            "prompt": prompt,
+            "params_used": list(data.keys()),
+            "format": "governance-v2-xml",
+            "target_session": target_session,
+            "target_role": to_role_key,
+            "bridge_flow_key": flow_key,
+            "bridge_step_key": step_key,
+            "deliverable_dir": deliverable_dir_val,
+            "governance_file": governance_file,
+            "auto_resolved": True,
+        }
+        return result_response
+
+    # ── Legacy / accelerated / no-flow: existing behavior ─────
     target_session = data.get("target_session", "claude_implementer")
 
     # Map session to governance role
@@ -2771,28 +2920,16 @@ async def compile_prompt(request: Request):
         governance_role_file = "03_IMPLEMENTOR.md"
         role_name = "Implementor"
 
-    handoff_id = data.get("handoff_id", "???")
-    target_project = data.get("target_project", "")
-    phase_key = data.get("phase_key", "")
-    goal = data.get("goal", "")
-    deployment_strategy = data.get("deployment_strategy", "standard")
-    allowed_files = data.get("allowed_files", "")
-    forbidden_files = data.get("forbidden_files", "")
-
     # ── Determine deliverable path and signal command ─────
     if bridge_step_data:
-        # BridgeV002 path — resolved from DB
         deliverable_dir_val = bridge_step_data.get("deliverable_dir", "implementertoreview")
         result_path = f"{config.get_bridge_dir()}/{deliverable_dir_val}/{{ID}}-result.md"
-
-        # Resolve from_role's tmux_session for signal instruction
         to_role_key = bridge_step_data.get("to_role", "")
         signal_cmd_template = (
             f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "
             f"--db-flow {flow_key} --signal-complete --from-role {to_role_key}"
         )
     else:
-        # Legacy fallback (backward compatible)
         deliverable_dir_val = "implementertoreview"
         result_path = f"{config.get_bridge_dir()}/implementertoreview/{{ID}}-result.md"
         signal_cmd_template = f"python3 {config.get_bridge_dir()}/bridge.py complete {{ID}}"
@@ -2878,7 +3015,6 @@ async def compile_prompt(request: Request):
         "target_role": role_name,
     }
 
-    # Include bridge step data if resolved (so assign-handoff-id can use it)
     if bridge_step_data:
         result_response["bridge_flow_key"] = flow_key
         result_response["bridge_step_key"] = step_key
@@ -2928,26 +3064,36 @@ async def assign_handoff_id(request: Request):
     # Replace ??? placeholders with real ID
     finalized_prompt: str = prompt_text.replace("???", handoff_id)
 
-    # Resolve deliverable directory
+    # Resolve deliverable directory and pattern from step
     # Priority: 1) pre-resolved from compile, 2) resolve from DB via step_key, 3) default
     deliverable_dir_val = data.get("deliverable_dir", "")
+    deliverable_pattern = "{ID}-handoff.md"  # default
 
-    if not deliverable_dir_val and flow_key and step_key:
+    if flow_key and step_key:
         try:
             flow_data = load_flow_from_db(flow_key, db_path=DB_PATH)
             for s in flow_data["steps"]:
                 if s.get("step_key") == step_key:
-                    deliverable_dir_val = s.get("deliverable_dir", "reviewtoimplementor")
+                    if not deliverable_dir_val:
+                        deliverable_dir_val = s.get("deliverable_dir", "")
+                    deliverable_pattern = s.get("deliverable_pattern", deliverable_pattern)
                     break
         except ValueError:
             pass
 
     if not deliverable_dir_val:
-        deliverable_dir_val = "reviewtoimplementor"  # default fallback
+        deliverable_dir_val = "handoffs"  # default fallback
 
-    # Write handoff file to correct directory
-    handoff_path: str = f"{config.get_bridge_dir()}/{deliverable_dir_val}/{handoff_id}-handoff.md"
-    os.makedirs(f"{config.get_bridge_dir()}/{deliverable_dir_val}", exist_ok=True)
+    # Build deliverable filename from pattern
+    deliverable_file = deliverable_pattern.replace("{ID}", handoff_id)
+
+    # Build handoff path — handle absolute vs relative deliverable_dir
+    if os.path.isabs(deliverable_dir_val):
+        handoff_dir = deliverable_dir_val
+    else:
+        handoff_dir = os.path.join(config.get_bridge_dir(), deliverable_dir_val)
+    handoff_path = os.path.join(handoff_dir, deliverable_file)
+    os.makedirs(handoff_dir, exist_ok=True)
     try:
         with open(handoff_path, "w") as f:
             f.write(finalized_prompt)
@@ -2956,16 +3102,16 @@ async def assign_handoff_id(request: Request):
             status_code=500, detail=f"Failed to write handoff file: {e}"
         )
 
-    # Build BridgeV002 dispatch command (replaces legacy bridge.py send)
-    from_role_for_send = "review01"  # default sender in strict_review flow
-    to_role_for_send = "imple01"     # default target
-    if step_key:
+    # Build BridgeV002 dispatch command from step (replaces legacy bridge.py send)
+    from_role_for_send = "archi01"  # default sender
+    to_role_for_send = "imple01"    # default target
+    if flow_key and step_key:
         try:
             flow_data = load_flow_from_db(flow_key, db_path=DB_PATH)
             for s in flow_data["steps"]:
                 if s.get("step_key") == step_key:
-                    from_role_for_send = s.get("from_role", "review01")
-                    to_role_for_send = s.get("to_role", "imple01")
+                    from_role_for_send = s.get("from_role", from_role_for_send)
+                    to_role_for_send = s.get("to_role", to_role_for_send)
                     break
         except ValueError:
             pass
