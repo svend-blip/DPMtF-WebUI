@@ -99,6 +99,7 @@ Read these files in order to reconstruct full project state:
 | **Hardening H136** | 136 | BridgeV002 signal-complete: replace legacy bridge.py cmd_complete() — callback dispatch via signal_complete(), DB-driven with convention content_template, tool-aware injection, VRAM cleanup, symlink update, trace logging. Commit `cad6295`. |
 | **Hardening H137** | 137 | BridgeV002 signal-escalation + signal-answer: replace legacy cmd_ask_architect()/cmd_answer_review() — DB-driven role-aware escalation supporting multiple review roles (review01, review02). Commit `955a256`. |
 | **Hardening H138** | 138 | BridgeV002 signal-send: replace legacy cmd_send() — initial handoff dispatch with 10-step sequential dispatch, XML section validation, model stop+reload for clean context, convention template resolution. Commit `60250bb`. |
+| **Hardening H139** | 139 | BridgeV002 Remove all legacy INI files — delete 6 INI files (bridgeV002.ini, default.ini, heavy.ini, simplified.ini, escalation.ini), convert all scripts to DB-only lookup: dispatch.py removes load_bridge_config/load_role_config/load_flow_config imports and dead code (run_flow_step, manual_dispatch), --db-flow becomes mandatory; role_setup.py/role_teardown.py switch to load_role_from_db. -356 lines net. Commit `98dc226`. |
 | **Hardening H140** | 140 | BridgeV002 governance_file column + prompt prepend — ALTER TABLE bridge_roles ADD COLUMN governance_file TEXT; seed data for archi01 (02_ARCHITECT.md), imple01 (03_IMPLEMENTOR.md), review01+review02 (04_REVIEW.md); prepend governance file reference in signal_complete, signal_escalation, signal_send prompts. Commit `aefcd6a`. |
 | **Hardening H141** | 141 | BridgeV002 start_tmuxflow rewrite — replace ollama model preload logic with automatic tmux session creation; session_exists() via tmux has-session, create_session() via tmux new-session -d. Sessions only created if missing. Commit `a5c899b`. |
 | **Hardening H142** | 142 | BridgeV002 governance_file editable from frontend — governance_file shown in role card; dropdown added to role edit form with (None) + governance template files. i18n label LBL-1000298 (en-US/da-DK). Commit `701c5a5`. |
@@ -180,7 +181,7 @@ Hardening plan approved af Human — 6 faser, 17 tasks + Fase 11 governance inte
 | **Fase 7** | No-Kill Dispatch + Hard-delete | Session persistence, post-dispatch offload, hard-delete for steps+flows, start_tmuxflow.py | ✅ Komplet (H111-H118) |
 | **Fase 8** | Flow Management Suite | start-coding, stop-tmux, attach-tmux, i18n labels, H121 parsing fix. Commits `6a8b6a7`, `ae6d3db`, `6b4179c`, `a2745f9`. | ✅ Komplet |
 | **Fase 9** | No-Kill Complete + DB-driven Callbacks | Eliminate ALL tmux lifecycle (H132+H134), add DB content templates + validation schemas (H131), convention admin UI. Commits `916cfe1`. | ✅ Komplet |
-| **Fase 10** | Full Legacy Independence | Replace all 4 legacy bridge.py kernel functions with BridgeV002 equivalents: signal-send (H138), signal-complete (H136), signal-escalation + signal-answer (H137). Commits `cad6295`, `955a256`, `60250bb`. | ✅ Komplet |
+| **Fase 10** | Full Legacy Independence | Replace all 4 legacy bridge.py kernel functions with BridgeV002 equivalents: signal-send (H138), signal-complete (H136), signal-escalation + signal-answer (H137), remove all legacy INI files (H139). Commits `cad6295`, `955a256`, `60250bb`, `98dc226`. | ✅ Komplet |
 | **Fase 11** | Governance Integration | governance_file column on bridge_roles + prompt prepend (H140), start_tmuxflow rewrite for tmux auto-create (H141), governance_file frontend editable (H142), dynamic dropdown from disk (H143). Commits `aefcd6a`, `a5c899b`, `701c5a5`, `1f3c647`. | ✅ Komplet |
 
 ---
@@ -336,8 +337,9 @@ The following were identified as gaps but are **NOT actual gaps** because ollama
 ### BridgeV002 Development Rules — Session Protection
 
 **CRITICAL:** During development of BridgeV002, handoffs MUST NOT instruct the
-implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
+implementer to run dispatch code (`dispatch.py --db-flow`,
 `role_teardown.py --role X --force`) that would disrupt active sessions.
+NOTE: Since H139, `--flow` (INI-based) was removed; only `--db-flow` is supported.
 
 - **No-kill mode (Rule 12):** The new dispatch protocol does not kill tmux
   sessions. It injects prompts into running sessions and offloads models post-dispatch.
@@ -358,6 +360,7 @@ implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
 | `base_bridge_path` | Ingen konfiguration — implicit `/home/svend/claude-bridge/` | `[bridge] base_path` i dpmtf.ini + config.py getter ✅ H131 |
 | **Template content** | Hardcoded XML i legacy bridge.py (lines 424-470) | DB-driven via `content_template` column ✅ H131 |
 | **Validation schema** | None — deliverables unvalidated | JSON schema in DB via `validation_schema` column ✅ H131 |
+| **INI config files** | 6 INI-filer (bridgeV002.ini, roles/default.ini, flows/*.ini) | Fjernet entirely — BridgeV002 er fuldt DB-drevet ✅ H139 |
 
 ### Key Principles (of Human)
 
@@ -366,6 +369,7 @@ implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
 3. **Scripts receive parameters** — all 6 params (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern) sent to script at call time
 4. **Conventions first** — templates governed via `bridge_convention_rules`, not manually
 5. **No tmux lifecycle in scripts** — session creation/destruction only via REST endpoints ✅ H132+H134
+6. **Fully database-driven** — zero INI dependencies since H139; all config lives in `bridge_roles`, `bridge_flows`, `bridge_flow_steps`, `bridge_convention_rules` tables ✅ H139
 
 ---
 
@@ -431,7 +435,7 @@ This is a process change, not a code change. The dispatch protocol already injec
 --- BEGIN CYCLE SNAPSHOT ---
 
 **Last cycle:** Handoff 143 — BridgeV002 governance_file frontend dropdown reads from disk (COMPLETED)
-**Previous cycles completed:** H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send), H140 (governance_file column + prompt prepend), H141 (start_tmuxflow rewrite — tmux session auto-create), H142 (governance_file editable from frontend), H143 (dynamic governance file dropdown from disk)
+**Previous cycles completed:** H136 (signal-complete), H137 (signal-escalation + signal-answer), H138 (signal-send), H139 (remove all legacy INI files — fully DB-driven), H140 (governance_file column + prompt prepend), H141 (start_tmuxflow rewrite — tmux session auto-create), H142 (governance_file editable from frontend), H143 (dynamic governance file dropdown from disk)
 
 **Migration Status — Legacy → BridgeV002:**
 | Legacy Function | BridgeV002 Replacement | Commit |
@@ -442,6 +446,7 @@ This is a process change, not a code change. The dispatch protocol already injec
 | `cmd_answer_review()` | `signal_answer()` (H137) | `955a256` |
 
 All 4 legacy bridge.py kernel functions now replaced with DB-driven equivalents in BridgeV002.
+All 6 legacy INI files deleted — BridgeV002 is fully database-driven with zero INI dependencies (H139).
 Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 
 **Open design decisions:**
@@ -463,6 +468,7 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - [x] H136: signal_complete() replacing legacy cmd_complete() — callback dispatch via DB convention, tool-aware injection, VRAM cleanup — COMPLETED (`cad6295`)
 - [x] H137: signal_escalation() + signal_answer() replacing legacy cmd_ask_architect()/cmd_answer_review() — role-aware escalation supporting multiple review roles — COMPLETED (`955a256`)
 - [x] H138: signal_send() replacing legacy cmd_send() — initial handoff dispatch with XML validation, model stop+reload, convention templates — COMPLETED (`60250bb`)
+- [x] H139: Remove all legacy INI files — delete 6 INI configs, convert all scripts to DB-only lookup, --db-flow mandatory, dead code (run_flow_step, manual_dispatch) purged, -356 lines net — COMPLETED (`98dc226`)
 - [x] H140: governance_file column on bridge_roles + prompt prepend in signal_complete/signal_escalation/signal_send — seed data for archi01, imple01, review01, review02 — COMPLETED (`aefcd6a`)
 - [x] H141: start_tmuxflow.py rewrite — replace ollama preload with tmux session auto-create (session_exists/create_session) — COMPLETED (`a5c899b`)
 - [x] H142: governance_file editable from frontend — role card display + dropdown in edit form + i18n LBL-1000298 — COMPLETED (`701c5a5`)
@@ -610,6 +616,13 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - Prompt built from handoff convention content_template with {handoff_id}, {source_role}, {next_role}, {bridge_dir} placeholders
 - All 4 signal functions now cover the complete legacy bridge.py kernel: send → complete → escalation → answer
 
+**Key design decisions from H139:**
+- Delete all 6 legacy INI files: bridgeV002.ini, roles/default.ini, flows/heavy.ini, flows/simplified.ini, flows/escalation.ini
+- dispatch.py: remove load_bridge_config/load_role_config/load_flow_config imports entirely; delete dead code (run_flow_step, manual_dispatch functions); --db-flow becomes mandatory, legacy --flow/--deliverable paths removed; replace --db-step with --step-key argument
+- role_setup.py, role_teardown.py: switch from load_role_config to load_role_from_db; remove unused wait_session_ready() and time import
+- bridge_lib.py: update __main__ debug block to reference strict_review flow and archi01/imple01 role keys
+- Net result: -356 lines (393 deleted, 37 added). BridgeV002 is now fully database-driven with zero INI dependencies.
+
 **Key design decisions from H140:**
 - ALTER TABLE bridge_roles ADD COLUMN governance_file TEXT DEFAULT NULL — role-specific governance file reference
 - Seed data: archi01 → 02_ARCHITECT.md, imple01 → 03_IMPLEMENTOR.md, review01+review02 → 04_REVIEW.md
@@ -676,30 +689,37 @@ Human gennemførte manuel test af alle CRUD-operationer:
 | **J** | HTML | 100 | — | +27 linjer index.html: panel skeleton med knapper og containere |
 | **J** | Frontend JS | 101 | `a2fa53b` | +537 linjer dpmtf-app.js: 14 funktioner (render, create, update, delete, export) |
 
-### Arkitektur (as-built after Spor J)
+### Arkitektur (as-built after Hardening H143)
 
 ```
 DPMtF-WebUI/
-├── app.py                          ← /api/bridge-v2/ endpoints (5 read + 7 CRUD = 12 total)
-├── static/js/dpmtf-app.js          ← 14 BridgeV002 funktioner (~537 linjer)
+├── app.py                          ← /api/bridge-v2/ endpoints (5 read + 7 CRUD = 12 total) + governance-files endpoint
+├── static/js/dpmtf-app.js          ← BridgeV002 funktioner (render, create, update, delete, export, governance-file dropdown)
 ├── templates/index.html            ← Bridge Setup panel med Roles/Flows sektioner
 ├── scripts/bridgeV002/
-│   ├── bridge_lib.py               ← INI + DB lookup functions, content template resolver, deliverable validator
-│   ├── dispatch.py                 ← DB-driven dispatch (run_flow_step_db), legacy INI paths preserved as dead code
-│   ├── role_setup.py               ← Preload Ollama model (no tmux)
-│   └── role_teardown.py            ← Unload Ollama model + fri VRAM (no tmux kill)
+│   ├── bridge_lib.py               ← DB lookup functions only (zero INI since H139), content template resolver, deliverable validator
+│   ├── dispatch.py                 ← DB-driven dispatch only (--db-flow mandatory since H139), signal_send/complete/escalation/answer
+│   ├── post-dispatch-common.py     ← Convention-agnostic post-dispatch for all heavy flow steps (H114)
+│   ├── role_setup.py               ← Ollama pull only (no tmux lifecycle, H132)
+│   └── role_teardown.py            ← Ollama stop + fri VRAM only (no tmux kill, H132)
 ├── scripts/init_db.py              ← Schema + seed data + i18n labels
 └── databases/
-    └── dpmtf.db                    ← bridge_roles, bridge_flows, bridge_flow_steps
+    └── dpmtf.db                    ← bridge_roles, bridge_flows, bridge_flow_steps, bridge_convention_rules, bridge_scripts
 ```
 
-### Database Schema (3 tabeller)
+> **H139:** All 6 legacy INI files deleted. BridgeV002 is fully database-driven with zero INI dependencies.
+
+### Database Schema (5 tabeller)
 
 **bridge_roles** (14 cols): `role_key`, `tmux_session`, `start_cmd`, `model_type`, `cloud_model`, `ollama_model`, `setup_script`, `teardown_script`, `deliver_error_msg`, `is_active`, `governance_file`, `created_at`, `updated_at`, `restart_policy`
 
 **bridge_flows** (9 cols): `flow_key`, `name`, `description`, `step_order`, `is_default`, `is_active`, `created_at`, `updated_at`, `auto_complete_enabled`
 
 **bridge_flow_steps** (16 cols): `id`, `flow_key`, `step_key`, `from_role`, `to_role`, `deliverable_dir`, `deliverable_pattern`, `pre_dispatch_script`, `post_dispatch_script`, `error_msg`, `sort_order`, `is_active`, `auto_chain_to_next`, `validation_required`, `rule_key`
+
+**bridge_convention_rules** (with H131 columns): `rule_key`, `step_type`, `dir_template`, `pattern_template`, `error_template`, `prompt_template`, `content_template`, `validation_schema`, `rule_type`
+
+**bridge_scripts**: `script_key`, `path`, `stage`, `params_required`
 
 ### Problemer Identificeret under Test — Hardening Krav
 
@@ -760,11 +780,18 @@ tmux list-sessions
 tmux ls
 ```
 
-Expected output (all three must exist):
+Expected output (legacy sessions + BridgeV002 sessions):
 ```
-claude_architect: 1 windows (created ...)
-claude_implementer: 1 windows (created ...)
-claude_review: 1 windows (created ...)
+archi01: 1 windows                          ← BridgeV002 architect
+claude_architect: 1 windows                 ← Legacy architect (Claude Code)
+claude_implementer: 1 windows               ← Legacy implementer (OpenCode)
+claude_review: 1 windows                    ← Legacy review (OpenCode)
+imple01: 1 windows                          ← BridgeV002 implementer
+review01: 1 windows                         ← BridgeV002 review primary
+review02: 1 windows                         ← BridgeV002 review secondary
+view_architectagent: 1 windows              ← Observer session
+view_implementeragent: 1 windows            ← Observer session
+view_reviewagent: 1 windows                 ← Observer session
 ```
 
 ### 7.2 Create missing sessions
@@ -787,12 +814,21 @@ Verify with `tmux ls` that all three now exist.
 | `claude_implementer` | Implementor (03) | **OpenCode** (`ollama/qwen3.6:27b-q4_K_M`) | Code execution — receives handoffs, writes code |
 | `claude_review` | Review (04) | OpenCode 1.17.7 (`ollama/qwen3.6:27b-q4_K_M`) | Validation & dispatch — reviews diffs, prepares commits for Human |
 | `claude_architect` | Architect (02) | Claude Code (`deepseek-v4-pro:cloud`) | Design & escalation — designs handoffs |
+| `archi01` | BridgeV002 Architect | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) | BridgeV002 architect role (strict_review flow) |
+| `imple01` | BridgeV002 Implementer | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) | BridgeV002 implementer role (strict_review flow) |
+| `review01` | BridgeV002 Review Primary | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) | BridgeV002 review role 1 (strict_review flow) |
+| `review02` | BridgeV002 Review Secondary | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) | BridgeV002 review role 2 (strict_review flow) |
 
 ---
 
 ## 8. Bridge Communication Workflow
 
-### 8.1 The 3-Layer Loop
+> **NOTE:** This section documents the **legacy bridge** (`claude-bridge/bridge.py`).
+> For BridgeV002 dispatch, see §3 "Full Legacy Independence" CLI examples above
+> and Rule 12 (BridgeV002 no-kill dispatch). The legacy bridge is functionally
+> superseded but still used for current Architect→Review→Implementer development.
+
+### 8.1 The 3-Layer Loop (Legacy Bridge)
 
 ```
 claude_architect (design)
