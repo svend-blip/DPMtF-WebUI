@@ -19,6 +19,8 @@ from bridge_lib import (
     list_roles_from_db,
     list_flows_from_db,
     _bridgev002_tables_exist,
+    get_next_id_for_flow,
+    build_step_payload,
 )
 
 app = FastAPI(title="DPMtF WebUI")
@@ -2678,6 +2680,9 @@ async def compile_prompt(request: Request):
 
     Accepts 8 fields. Auto-generates governance, constraint, validation
     from target_session role mapping. Returns governance-v2 XML handoff format.
+
+    If flow_key + step_key are provided, resolves deliverable path and
+    BridgeV002 signal instruction from DB (replaces legacy bridge.py).
     """
     data = await request.json()
 
@@ -2724,6 +2729,31 @@ async def compile_prompt(request: Request):
             status_code=400, content={"errors": errors, "status": "incomplete"}
         )
 
+    # ── Resolve BridgeV002 step data (if flow_key + step_key provided) ─────
+    flow_key = data.get("flow_key", "")
+    step_key = data.get("step_key", "")
+    bridge_step_data = None  # payload dict from build_step_payload, or None
+
+    if flow_key and step_key:
+        try:
+            flow_data = load_flow_from_db(flow_key, db_path=DB_PATH)
+        except ValueError:
+            flow_data = None
+
+        if flow_data:
+            steps = flow_data["steps"]
+            target_step = None
+            for s in steps:
+                if s.get("step_key") == step_key:
+                    target_step = s
+                    break
+
+            if target_step:
+                # Use placeholder "???" for ID — will be replaced at assign-handoff-id time
+                bridge_step_data = build_step_payload(
+                    target_step, flow_key, "???", config.get_bridge_dir()
+                )
+
     # ── Generate simplified prompt (Spor G) ─────
     target_session = data.get("target_session", "claude_implementer")
 
@@ -2748,6 +2778,24 @@ async def compile_prompt(request: Request):
     deployment_strategy = data.get("deployment_strategy", "standard")
     allowed_files = data.get("allowed_files", "")
     forbidden_files = data.get("forbidden_files", "")
+
+    # ── Determine deliverable path and signal command ─────
+    if bridge_step_data:
+        # BridgeV002 path — resolved from DB
+        deliverable_dir_val = bridge_step_data.get("deliverable_dir", "implementertoreview")
+        result_path = f"{config.get_bridge_dir()}/{deliverable_dir_val}/{{ID}}-result.md"
+
+        # Resolve from_role's tmux_session for signal instruction
+        to_role_key = bridge_step_data.get("to_role", "")
+        signal_cmd_template = (
+            f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "
+            f"--db-flow {flow_key} --signal-complete --from-role {to_role_key}"
+        )
+    else:
+        # Legacy fallback (backward compatible)
+        deliverable_dir_val = "implementertoreview"
+        result_path = f"{config.get_bridge_dir()}/implementertoreview/{{ID}}-result.md"
+        signal_cmd_template = f"python3 {config.get_bridge_dir()}/bridge.py complete {{ID}}"
 
     lines = []
     lines.append(f"<role>You are {role_name} in the DPMtF governance loop. Your role is defined")
@@ -2784,9 +2832,8 @@ async def compile_prompt(request: Request):
     lines.append("")
     lines.append("When ALL steps are complete, execute the bridge signal:")
     lines.append("")
-    lines.append(f"1. Write result file to {config.get_bridge_dir()}/implementertoreview/{handoff_id}-result.md")
-    lines.append(f"2. Write notification file to {config.get_bridge_dir()}/implementertoreview/{handoff_id}-notification.md")
-    lines.append(f"3. SIGNAL completion: python3 {config.get_bridge_dir()}/bridge.py complete {handoff_id}")
+    lines.append(f"1. Write result file to {result_path.replace('{ID}', handoff_id)}")
+    lines.append(f"2. SIGNAL completion: {signal_cmd_template.replace('{ID}', handoff_id)}")
     lines.append("</task>")
     lines.append("")
     lines.append("<scope>")
@@ -2818,18 +2865,26 @@ async def compile_prompt(request: Request):
     lines.append("<constraint>")
     lines.append("DO NOT COMMIT. Leave all changes unstaged.")
     lines.append(f"Target session: {target_session} (role: {role_name}).")
-    lines.append("Execute ALL steps in <task> — especially the bridge.py complete signal.")
+    lines.append(f"Execute ALL steps in <task> — especially the signal completion command.")
     lines.append("</constraint>")
 
     prompt = "\n".join(lines)
 
-    return {
+    result_response = {
         "prompt": prompt,
         "params_used": list(data.keys()),
         "format": "governance-v2-xml",
         "target_session": target_session,
         "target_role": role_name,
     }
+
+    # Include bridge step data if resolved (so assign-handoff-id can use it)
+    if bridge_step_data:
+        result_response["bridge_flow_key"] = flow_key
+        result_response["bridge_step_key"] = step_key
+        result_response["deliverable_dir"] = bridge_step_data.get("deliverable_dir", "")
+
+    return result_response
 
 
 # ── Prompt Compiler Hardening: Assign Handoff ID (handoff 017) ────────
@@ -2839,13 +2894,16 @@ async def compile_prompt(request: Request):
 async def assign_handoff_id(request: Request):
     """Assign a real handoff ID to a compiled prompt and write the handoff file.
 
-    Replaces ??? placeholders with the next available bridge handoff ID,
-    writes the finalized prompt to reviewtoimplementor/{ID}-handoff.md,
-    and returns the dispatch command.
+    Replaces ??? placeholders with the next available BridgeV002 handoff ID,
+    writes the finalized prompt to the correct deliverable directory resolved
+    from DB, and returns a BridgeV002 dispatch command.
 
     Body (JSON):
-      prompt_text    — the compiled prompt text (may contain ??? placeholders)
-      target_project — target project path (for logging context)
+      prompt_text     — the compiled prompt text (may contain ??? placeholders)
+      target_project  — target project path (for logging context)
+      flow_key        — BridgeV002 flow key (e.g. 'strict_review')
+      step_key        — BridgeV002 step key within the flow (optional)
+      deliverable_dir — pre-resolved from compile_prompt (if available)
     """
     data = await request.json()
     prompt_text: str = data.get("prompt_text", "")
@@ -2853,29 +2911,43 @@ async def assign_handoff_id(request: Request):
     if not prompt_text:
         raise HTTPException(status_code=400, detail="Missing prompt_text")
 
-    # Get next handoff ID from bridge
-    result = subprocess.run(
-        ["python3", f"{config.get_bridge_dir()}/bridge.py", "next-id"],
-        capture_output=True, text=True, timeout=10,
-    )
-    if result.returncode != 0:
+    flow_key = data.get("flow_key", "strict_review")
+    step_key = data.get("step_key", "")
+
+    # Get next handoff ID from BridgeV002 DB (replaces bridge.py next-id subprocess)
+    try:
+        handoff_id_raw = get_next_id_for_flow(flow_key, db_path=DB_PATH)
+    except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail="bridge.py next-id failed: " + result.stderr,
+            detail=f"Failed to get next ID for flow '{flow_key}': {e}",
         )
 
-    handoff_id: str = result.stdout.strip()
-    if not handoff_id:
-        raise HTTPException(
-            status_code=500, detail="bridge.py next-id returned empty ID"
-        )
+    handoff_id: str = str(handoff_id_raw)
 
     # Replace ??? placeholders with real ID
     finalized_prompt: str = prompt_text.replace("???", handoff_id)
 
-    # Write handoff file
-    handoff_dir: str = f"{config.get_bridge_dir()}/reviewtoimplementor"
-    handoff_path: str = f"{handoff_dir}/{handoff_id}-handoff.md"
+    # Resolve deliverable directory
+    # Priority: 1) pre-resolved from compile, 2) resolve from DB via step_key, 3) default
+    deliverable_dir_val = data.get("deliverable_dir", "")
+
+    if not deliverable_dir_val and flow_key and step_key:
+        try:
+            flow_data = load_flow_from_db(flow_key, db_path=DB_PATH)
+            for s in flow_data["steps"]:
+                if s.get("step_key") == step_key:
+                    deliverable_dir_val = s.get("deliverable_dir", "reviewtoimplementor")
+                    break
+        except ValueError:
+            pass
+
+    if not deliverable_dir_val:
+        deliverable_dir_val = "reviewtoimplementor"  # default fallback
+
+    # Write handoff file to correct directory
+    handoff_path: str = f"{config.get_bridge_dir()}/{deliverable_dir_val}/{handoff_id}-handoff.md"
+    os.makedirs(f"{config.get_bridge_dir()}/{deliverable_dir_val}", exist_ok=True)
     try:
         with open(handoff_path, "w") as f:
             f.write(finalized_prompt)
@@ -2884,10 +2956,24 @@ async def assign_handoff_id(request: Request):
             status_code=500, detail=f"Failed to write handoff file: {e}"
         )
 
-    target_session: str = data.get("target_session", "claude_implementer")
+    # Build BridgeV002 dispatch command (replaces legacy bridge.py send)
+    from_role_for_send = "review01"  # default sender in strict_review flow
+    to_role_for_send = "imple01"     # default target
+    if step_key:
+        try:
+            flow_data = load_flow_from_db(flow_key, db_path=DB_PATH)
+            for s in flow_data["steps"]:
+                if s.get("step_key") == step_key:
+                    from_role_for_send = s.get("from_role", "review01")
+                    to_role_for_send = s.get("to_role", "imple01")
+                    break
+        except ValueError:
+            pass
+
     dispatch_command: str = (
-        f"python3 {config.get_bridge_dir()}/bridge.py send {handoff_id}"
-        f" --session {target_session}"
+        f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "
+        f"--db-flow {flow_key} --signal-send "
+        f"--from-role {from_role_for_send} --to-role {to_role_for_send}"
     )
 
     return {
@@ -2895,7 +2981,8 @@ async def assign_handoff_id(request: Request):
         "handoff_path": handoff_path,
         "prompt": finalized_prompt,
         "dispatch_command": dispatch_command,
-        "target_session": target_session,
+        "flow_key": flow_key,
+        "deliverable_dir": deliverable_dir_val,
         "status": "ready_for_dispatch",
     }
 
