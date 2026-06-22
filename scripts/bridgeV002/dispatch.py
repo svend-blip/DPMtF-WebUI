@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT_ROOT = os.environ.get(
-    "DPMTF_PROJECT_ROOT", str(Path(__file__).resolve().parent.parent)
+    "DPMTF_PROJECT_ROOT", str(Path(__file__).resolve().parent.parent.parent)
 )
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -39,6 +39,15 @@ def _bridge_dir():
     return os.environ.get(
         "DPMTF_BRIDGE_DIR", os.path.expanduser("~/.bridge")
     )
+
+
+def _db_path():
+    """Return the absolute database path, resolving relative paths against PROJECT_ROOT."""
+    import config as _cfg
+    p = _cfg.get_db_path()
+    if not os.path.isabs(p):
+        p = os.path.join(PROJECT_ROOT, p)
+    return p
 
 
 def wait_session_ready(session_name, timeout=5):
@@ -431,7 +440,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     # Step 1: Load flow + step from DB
     try:
-        flow_data = load_flow_from_db(flow_key, db_path=dpmtf_config.get_db_path())
+        flow_data = load_flow_from_db(flow_key, db_path=_db_path())
     except ValueError as e:
         print(f"Error loading flow '{flow_key}' from database: {e}")
         return False
@@ -461,7 +470,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     # Step 3: Load to_role from DB
     try:
         to_role = load_role_from_db(payload["to_role"],
-                                    db_path=dpmtf_config.get_db_path())
+                                    db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{payload['to_role']}' from database: {e}")
         return False
@@ -531,7 +540,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     step_validation_required = target_step.get("validation_required", 0)
     if step_validation_required and rule_key:
         vresult = validate_deliverable_against_schema(full_deliverable_path, rule_key,
-                                                      db_path=dpmtf_config.get_db_path())
+                                                      db_path=_db_path())
         if not vresult["valid"]:
             print(f"  ERROR: Deliverable validation failed, missing sections: {vresult['missing']}")
             log(
@@ -545,7 +554,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     # Compose final injection text: use convention prompt_template or content_template from DB
     prompt_text = payload.get("prompt_template", "")
     if not prompt_text:
-        ctemplate = resolve_content_template_from_db(rule_key, db_path=dpmtf_config.get_db_path())
+        ctemplate = resolve_content_template_from_db(rule_key, db_path=_db_path())
         if ctemplate:
             prompt_text = ctemplate.replace("{handoff_id}", payload["handoff_id"])
             prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
@@ -562,7 +571,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     # Post-dispatch: offload predecessor's model to free VRAM
     from_role = load_role_from_db(payload["from_role"],
-                                  db_path=dpmtf_config.get_db_path())
+                                  db_path=_db_path())
     if from_role.get("model_type") == "ollama" and from_role.get("ollama_model"):
         unload_ollama_model(from_role["ollama_model"])
 
@@ -614,7 +623,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     # Step 1: Load flow + steps from DB
     try:
-        flow_data = load_flow_from_db(flow_key, db_path=dpmtf_config.get_db_path())
+        flow_data = load_flow_from_db(flow_key, db_path=_db_path())
     except ValueError as e:
         print(f"Error loading flow '{flow_key}' from database: {e}")
         return False
@@ -646,7 +655,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # Step 4: Load to_role from DB
     try:
         to_role = load_role_from_db(payload["to_role"],
-                                    db_path=dpmtf_config.get_db_path())
+                                    db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{payload['to_role']}' from database: {e}")
         return False
@@ -707,7 +716,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     if step_validation_required and rule_key:
         vresult = validate_deliverable_against_schema(
             full_deliverable_path, rule_key,
-            db_path=dpmtf_config.get_db_path(),
+            db_path=_db_path(),
         )
         if not vresult["valid"]:
             print(f"  ERROR: Deliverable validation failed, missing sections: {vresult['missing']}")
@@ -721,7 +730,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     # Compose prompt: use content_template with placeholder replacement
     ctemplate = resolve_content_template_from_db(
-        rule_key, db_path=dpmtf_config.get_db_path()
+        rule_key, db_path=_db_path()
     ) if rule_key else ""
 
     if ctemplate:
@@ -740,7 +749,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     # Prepend governance file reference for target role
     gov_file = to_role.get("governance_file")
-    project_root_sc = os.path.dirname(dpmtf_config.get_db_path())
+    project_root_sc = os.path.dirname(_db_path())
     if gov_file:
         gov_path = os.path.join(project_root_sc, "docs", "governance-templates-v2", gov_file)
         prompt_text = (
@@ -755,7 +764,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # Step 9: Post-dispatch - stop from_role's Ollama model (VRAM cleanup)
     try:
         from_role_data = load_role_from_db(payload["from_role"],
-                                           db_path=dpmtf_config.get_db_path())
+                                           db_path=_db_path())
         if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
             unload_ollama_model(from_role_data["ollama_model"])
     except ValueError:
@@ -803,8 +812,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         if next_step:
             print(f"\n  Auto-chain enabled - dispatching next step: {next_step['step_key']}")
             # Generate new ID for next step
-            import config as _config
-            next_id = f"{get_next_id_for_flow(flow_key, db_path=_config.get_db_path()):03d}"
+            next_id = f"{get_next_id_for_flow(flow_key, db_path=_db_path()):03d}"
             run_flow_step_db(flow_key, next_step["step_key"], next_id, bridge_dir)
 
     return True
@@ -838,14 +846,14 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
     # Step 1: Load both roles from DB
     try:
         from_role_data = load_role_from_db(from_role_key,
-                                           db_path=dpmtf_config.get_db_path())
+                                           db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{from_role_key}' from database: {e}")
         return False
 
     try:
         to_role_data = load_role_from_db(to_role_key,
-                                         db_path=dpmtf_config.get_db_path())
+                                         db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{to_role_key}' from database: {e}")
         return False
@@ -903,7 +911,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
 
     # Step 4: Resolve escalation convention content_template
     ctemplate = resolve_content_template_from_db(
-        "escalation", db_path=dpmtf_config.get_db_path()
+        "escalation", db_path=_db_path()
     ) or ""
 
     # Step 5: Build prompt with placeholder replacement
@@ -924,7 +932,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
     # Prepend governance file reference for target role
     gov_file = to_role_data.get("governance_file")
     if gov_file:
-        gov_path_e = os.path.join(os.path.dirname(dpmtf_config.get_db_path()),
+        gov_path_e = os.path.join(os.path.dirname(_db_path()),
                                   "docs", "governance-templates-v2", gov_file)
         prompt_text = (
             f"Your role is defined in {gov_path_e}. Read it now before proceeding.\n\n"
@@ -994,14 +1002,14 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
     # Step 1: Load both roles from DB
     try:
         from_role_data = load_role_from_db(from_role_key,
-                                           db_path=dpmtf_config.get_db_path())
+                                           db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{from_role_key}' from database: {e}")
         return False
 
     try:
         to_role_data = load_role_from_db(to_role_key,
-                                         db_path=dpmtf_config.get_db_path())
+                                         db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{to_role_key}' from database: {e}")
         return False
@@ -1040,7 +1048,7 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
     # Step 3: Build prompt from escalation convention content_template
     # (same convention as signal_escalation — architect answer uses same structure)
     ctemplate = resolve_content_template_from_db(
-        "escalation", db_path=dpmtf_config.get_db_path()
+        "escalation", db_path=_db_path()
     ) or ""
 
     # Check for optional architect response file
@@ -1134,14 +1142,14 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Step 1: Load both roles from DB
     try:
         from_role_data = load_role_from_db(from_role_key,
-                                           db_path=dpmtf_config.get_db_path())
+                                           db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{from_role_key}' from database: {e}")
         return False
 
     try:
         to_role_data = load_role_from_db(to_role_key,
-                                         db_path=dpmtf_config.get_db_path())
+                                         db_path=_db_path())
     except ValueError as e:
         print(f"Error loading role '{to_role_key}' from database: {e}")
         return False
@@ -1150,7 +1158,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     # Step 1.5: Load flow and find matching step from DB
     try:
-        flow_data = load_flow_from_db(flow_key, db_path=dpmtf_config.get_db_path())
+        flow_data = load_flow_from_db(flow_key, db_path=_db_path())
     except ValueError as e:
         print(f"Error loading flow '{flow_key}' from database: {e}")
         return False
@@ -1248,14 +1256,14 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     # Step 5.5: Prepend governance file reference if target role has one
     gov_file = to_role_data.get("governance_file")
-    project_root = os.path.dirname(dpmtf_config.get_db_path())
+    project_root = os.path.dirname(_db_path())
     if gov_file:
         gov_path = os.path.join(project_root, "docs", "governance-templates-v2", gov_file)
         print(f"  Governance: {gov_file}")
 
     # Step 6: Resolve convention content_template from step's rule_key
     ctemplate = resolve_content_template_from_db(
-        rule_key, db_path=dpmtf_config.get_db_path()
+        rule_key, db_path=_db_path()
     ) if rule_key else ""
 
     # Step 7: Build prompt with placeholder replacement
@@ -1350,8 +1358,7 @@ def main():
     if args.id:
         handoff_id = args.id
     else:
-        import config as _config
-        handoff_id = f"{get_next_id_for_flow(args.db_flow, db_path=_config.get_db_path()):03d}"
+        handoff_id = f"{get_next_id_for_flow(args.db_flow, db_path=_db_path()):03d}"
 
     if args.signal_send:
         # Signal-send path: initial handoff dispatch from review to target role
