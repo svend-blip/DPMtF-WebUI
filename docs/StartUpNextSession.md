@@ -141,8 +141,8 @@ and bridge mechanics:
 
 | # | Rule | Source |
 |---|------|--------|
-| 1 | **NO parallel work** — one role active at a time. Bridge enforces with `/clear`. | 99_ROLEINTERACTION.md, 02_ARCHITECT.md |
-| 2 | **STOP after handoff** — Architect stops ALL activity after `bridge.py send`. No Monitor, no Bash, no background tasks, no file writes. | 02_ARCHITECT.md §Post-Handoff Stop Rule |
+| 1 | **NO parallel work** — one role active at a time. Bridge enforces via ollama stop (clears server-side context). | 99_ROLEINTERACTION.md, 02_ARCHITECT.md |
+| 2 | **STOP after handoff** — Architect stops ALL activity after dispatch signal (`dispatch.py --signal-send` or API endpoint). No Monitor, no Bash, no background tasks, no file writes. | 02_ARCHITECT.md §Post-Handoff Stop Rule |
 | 3 | **NO split-brain exception** — batch dispatch prohibited. Pre-writing multiple handoff files prohibited. One handoff at a time. | 02_ARCHITECT.md (H3) |
 | 4 | **HUMAN COMMIT GATE** — only Human may commit/push. Review prepares, Human authorizes. | 15_GIT_POLICY.md, 04_REVIEW.md (H2) |
 | 5 | **Tool-independent governance** — DPMtF governance files are primary authority. OpenCode/Claude Code are runtime adapters. Governance comes from DPMtF prompts and files, not from tool permissions. | OpenCode PoC runbook §0 |
@@ -152,15 +152,18 @@ and bridge mechanics:
 | 9 | **Tool-independent bridge** — bridge.py auto-detects OpenCode vs Claude Code and uses correct injection method (paste-buffer for OpenCode, send-keys for Claude Code). No tool-specific code paths in governance. | bridge.py (F5a) |
 | 10 | **Auto-restart after handoff** — implementer session is killed and restarted with fresh context after each `bridge.py complete`. Configured via `DPMTF_IMPLEMENTER_START_CMD` env var. Prevents context token accumulation. Uses detached subprocess (start_new_session=True) to survive own death. NOTE: This applies to the legacy bridge only; BridgeV002 no-kill mode (Rule 12) does not kill sessions. | bridge.py (F5b, F5e, F5f) |
 | 11 | **Ollama reload before dispatch** — ollama model is stopped and restarted before each handoff dispatch to ensure fresh server-side context. Configured via DPMTF_OLLAMA_MODEL and DPMTF_OLLAMA_START_SCRIPT in .env. NOTE: This applies to the legacy bridge only; BridgeV002 no-kill mode uses post-dispatch offload instead. | bridge.py (F5c, F5d) |
-| 12 | **BridgeV002 no-kill dispatch** — BridgeV002 `run_flow_step_db()` must NOT call `kill_session()`, `start_session()`, or `reload_ollama_model()` in the dispatch path. ZERO tmux kill/new-session calls exist in ANY bridgeV002 Python file (H132+H134). Sessions are persistent; server-side context is cleared by post-dispatch `ollama stop` of the predecessor's model. Client-side state is cleared by `/clear` (Claude Code) or soft-clear preamble (OpenCode). Architect restores cross-cycle state via StartUpNextSession.md save-state mechanism (§5b.4). | ReuseMostParts.md §3, BridgeV002NoTmuxKill.md §2, H132+H134 commit `916cfe1` |
+| 12 | **BridgeV002 no-kill dispatch** — BridgeV002 `run_flow_step_db()` must NOT call `kill_session()`, `start_session()`, or `reload_ollama_model()` in the dispatch path. ZERO tmux kill/new-session calls exist in ANY bridgeV002 Python file (H132+H134). Sessions are persistent; context is cleared by post-dispatch `ollama stop` of the role's own model. NO `/clear`, NO soft-clear preamble — ollama stop alone wipes server-side context (0 tokens). Architect restores cross-cycle state via StartUpNextSession.md save-state mechanism (§5b.4). | ReuseMostParts.md §3, BridgeV002NoTmuxKill.md §2, H132+H134 commit `916cfe1` |
 
 ---
 
 ## 5. Current Next Task
 
-**Spor I + J complete — BridgeV002 database + UI integration operational.**
+**Fase 1-11 complete — BridgeV002 database, UI, signals, governance integration operational.**
 
-Hardening plan approved af Human — 6 faser, 17 tasks:
+Gap analysis completed (§5c) — 4 critical runtime bugs (B1-B4), 5 high-priority gaps (G1-G5), 5 medium gaps (M1-M5) identified.
+Immediate work: Fix B1 (rule_key NameError), B2 (signal_send hardcoded dir), build B3 (dispatch trigger API), integrate B4 (Prompt Compiler → BridgeV002).
+
+Hardening plan approved af Human — 6 faser, 17 tasks + Fase 11 governance integration:
 
 ### Hardening Plan Oversigt
 
@@ -179,6 +182,103 @@ Hardening plan approved af Human — 6 faser, 17 tasks:
 | **Fase 9** | No-Kill Complete + DB-driven Callbacks | Eliminate ALL tmux lifecycle (H132+H134), add DB content templates + validation schemas (H131), convention admin UI. Commits `916cfe1`. | ✅ Komplet |
 | **Fase 10** | Full Legacy Independence | Replace all 4 legacy bridge.py kernel functions with BridgeV002 equivalents: signal-send (H138), signal-complete (H136), signal-escalation + signal-answer (H137). Commits `cad6295`, `955a256`, `60250bb`. | ✅ Komplet |
 | **Fase 11** | Governance Integration | governance_file column on bridge_roles + prompt prepend (H140), start_tmuxflow rewrite for tmux auto-create (H141), governance_file frontend editable (H142), dynamic dropdown from disk (H143). Commits `aefcd6a`, `a5c899b`, `701c5a5`, `1f3c647`. | ✅ Komplet |
+
+---
+
+## 5c. BridgeV002 Legacy Independence Gap Analysis
+
+> **Date:** 2026-06-22
+> **Scope:** strict_review flow end-to-end audit — what must be fixed before BridgeV002 fully replaces legacy claude-bridge/bridge.py
+> **Context:** All 4 kernel functions are written (send, complete, escalation, answer) but full-cycle testing reveals critical runtime bugs and missing integration points.
+
+### Context Clearing Clarification (ollama stop only)
+
+BridgeV002 uses **ollama stop** as the sole mechanism for clearing LLM context between dispatches.
+There is NO `/clear` prefix, NO soft-clear preamble, NO tmux kill/restart.
+When ollama stop runs post-dispatch, the server-side context is wiped (0 tokens).
+The next time the role sends a request to the model, it starts with a blank slate.
+Client-side chat history in OpenCode/Claude Code is irrelevant — it never gets sent to the model if server context is empty.
+
+This means:
+- ~~Auto-restart of implementer session~~ — NOT needed; ollama stop already clears context
+- ~~`/clear` for Claude Code sessions~~ — NOT needed; ollama stop already clears context
+- ~~Soft-clear preamble for OpenCode~~ — NOT needed; ollama stop already clears context
+
+### strict_review Flow Definition
+
+| sort_order | step_key | from_role | to_role | deliverable_dir | pattern | convention |
+|---|---|---|---|---|---|---|
+| 1 | archi01-imple01 | archi01 | imple01 | reviewtoimplementor | {ID}-handoff.md | handoff |
+| 2 | imple01-review01 | imple01 | review01 | implementertoreview | {ID}-imple01.md | callback |
+| 3 | review01-review02 | review01 | review02 | implementertoreview | {ID}-review01.md | verdict |
+| 4 | review02-human | review02 | human | implementertoreview | {ID}-verdict.md | verdict |
+
+**Roles:** All legacy keys (archi01, imple01, review01, review02, human). All `is_active=1`.
+**Flow config:** `auto_complete_enabled = 0` (no auto-chaining).
+
+### Critical Runtime Bugs (flow cannot execute)
+
+| # | Bug | File:Line | Severity |
+|---|-----|-----------|----------|
+| **B1** | `rule_key` NameError in `run_flow_step_db()` — variable referenced on lines 464, 480 but never assigned in function scope. Crashes when validation_required=1 or content_template is non-empty. | dispatch.py:464, 480 | 🔴 CRITICAL |
+| **B2** | `signal_send` hardcodes handoff directory — reads from `{bridge_dir}/reviewtoimplementor/` (line 1044) instead of using step's deliverable_dir. For strict_review flow this may work if bridge_dir matches, but breaks for any custom deliverable_dir. | dispatch.py:1044 | 🔴 CRITICAL |
+| **B3** | No dispatch trigger API — no `POST /api/bridge-v2/dispatch` endpoint. Dispatch is CLI-only (`python3 dispatch.py --signal-send`). Web UI cannot trigger dispatch. | app.py (missing) | 🔴 CRITICAL |
+| **B4** | Prompt Compiler uses legacy bridge.py — `/api/prompt-compiler/assign-handoff-id` calls `bridge.py next-id` via subprocess (line 2857). Returns legacy dispatch command string, not BridgeV002. | app.py:2857-2889 | 🔴 CRITICAL |
+
+### High-Priority Gaps (flow breaks during execution)
+
+| # | Gap | File:Line | Severity |
+|---|-----|-----------|----------|
+| **G1** | Human role breaks final step — step 4 delivers to "human" which has tmux_session='human'. `session_alive('human')` fails (no such tmux session). No special handling for human-as-final-recipient. | dispatch.py:595-603 + DB state | 🟠 HIGH |
+| **G2** | Callback file auto-generation missing — legacy `_write_callback_file()` generates structured prompt with `<role>`, `<handoff_id>`, `<task>`, `<constraint>` sections. BridgeV002 only checks deliverable exists and passes through content_template. If implementer doesn't write callback, system fails rather than generating one. | dispatch.py signal_complete | 🟠 HIGH |
+| **G3** | Prompt Compiler doesn't instruct bridge signal — compiled prompt (app.py:3704-3709) tells implementer to write result file but says nothing about running BridgeV002 dispatch signal. Implementer has no way to trigger next step. | app.py:3704-3709 | 🟠 HIGH |
+| **G4** | Verdict template lacks verification steps — content_template for verdict convention is generic ("Produce a final verdict"). Missing specific instructions: git diff, py_compile, node --check, innerHTML check, i18n compliance, stage files if APPROVED. | init_db.py:4187-4205 | 🟠 HIGH |
+| **G5** | Governance file seed data key mismatch — H140 seeds governance_file on archi01/imple01/review01/review02 but BridgeV002 seed roles (architect/implementer/review_heavy1/etc) are all is_active=0. Seed data inconsistency between two role naming schemes. | init_db.py:4300-4315 | 🟠 HIGH |
+
+### Medium-Priority Gaps (configuration / data issues)
+
+| # | Gap | Detail |
+|---|-----|--------|
+| **M1** | `auto_complete_enabled = 0` on all flows — no auto-chaining between steps. Steps must be dispatched individually via CLI. |
+| **M2** | Hardcoded `/home/svend/flows/strict_review/` in some deliverable_dir values — violates CLAUDE.md auto-fail rule. Should use bridge_dir-relative paths. |
+| **M3** | ID counters missing for heavy/simplified/escalation flows — only strict_review has counter at next_id=142. Others auto-create at 1 on first use. |
+| **M4** | Simplified flow has 0 steps in live DB — seed data existed but was deleted at runtime. |
+| **M5** | Verdict template needs full review instructions — should include all validation commands and approval workflow steps. |
+
+### Governance Files Need Rewrite
+
+All governance-v2 role files still describe legacy claude-bridge protocol. Must be rewritten to describe BridgeV002:
+
+| File | Current State | Target State |
+|------|---------------|--------------|
+| **02_ARCHITECT.md** | References `bridge.py send` and legacy dispatch | Reference `dispatch.py --signal-send` / API endpoint |
+| **03_IMPLEMENTOR.md** | References writing result + legacy complete | Reference BridgeV002 signal_complete workflow |
+| **04_REVIEW.md** | References legacy bridge commands | Reference BridgeV002 signal_complete with verification steps |
+| **100_BRIDGE.md** | Documents claude-bridge protocol in detail | Document BridgeV002 dispatch protocol + API endpoints |
+
+### What DOESN'T need to be done (ollama stop handles it)
+
+The following were identified as gaps but are **NOT actual gaps** because ollama stop clears context:
+
+| ~~Original Gap~~ | Why It's Resolved |
+|-------------------|-------------------|
+| ~~Auto-restart of implementer session after complete~~ | Ollama stop already wipes server-side context. Next model request starts fresh (0 tokens). |
+| ~~`/clear` for Claude Code sessions before injection~~ | Ollama stop makes client-side `/clear` redundant. Model has no memory regardless of what's in the chat buffer. |
+| ~~Soft-clear preamble for OpenCode sessions~~ | Same — server-side context is what matters, and ollama stop clears that completely. |
+
+### Summary: Immediate Work Items (Priority Order)
+
+1. **Fix B1** — `rule_key` NameError in run_flow_step_db()
+2. **Fix B2** — signal_send hardcoded handoff directory
+3. **Build B3** — POST /api/bridge-v2/dispatch endpoint
+4. **Integrate B4** — Prompt Compiler uses BridgeV002 (get_next_id_for_flow, dispatch API)
+5. **Handle G1** — Human role as final recipient (no crash on session_alive failure)
+6. **Enrich G2/G4** — Callback + verdict content templates with full verification steps
+7. **Integrate G3** — Prompt Compiler instructs implementer to run BridgeV002 signal
+8. **Fix G5** — Role key alignment in governance_file seed data
+9. **Rewrite governance files** — 02_ARCHITECT, 03_IMPLEMENTOR, 04_REVIEW, 100_BRIDGE
+
+---
 
 #### Fase 1: Konfiguration & Infrastructure
 
@@ -286,7 +386,7 @@ implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
 | 15-step dispatch sequence | 9-step dispatch sequence |
 | ~5600ms per dispatch | ~1600ms per dispatch (71% faster) |
 
-**Rationale:** Tmux sessions are persistent. Server-side context is cleared by `ollama stop` + lazy reload. Client-side state is cleared by `/clear` (Claude Code) or soft-clear preamble (OpenCode). 85-90% of existing BridgeV002 code is reused unchanged.
+**Rationale:** Tmux sessions are persistent. Context is cleared by `ollama stop` which wipes server-side state entirely (0 tokens on next request). NO `/clear`, NO soft-clear preamble needed — ollama stop alone is sufficient for clean context. 85-90% of existing BridgeV002 code is reused unchanged.
 
 ### 5b.2 What Changes in dispatch.py
 
@@ -294,8 +394,8 @@ implementer to run dispatch code (`dispatch.py --flow`, `dispatch.py --db-flow`,
 |---------------------------|----------------------|
 | `kill_session(tmux)` before injection | `session_alive()` check — single call, no poll loop |
 | `unload_ollama_model()` pre-dispatch | Deliverable existence verification |
-| `start_session()` + `wait_session_ready()` | `/clear` prefix for Claude Code sessions |
-| `reload_ollama_model()` + sleep(3) | Post-dispatch offload of predecessor's model |
+| `start_session()` + `wait_session_ready()` | (nothing — sessions are persistent) |
+| `reload_ollama_model()` + sleep(3) | Post-dispatch ollama stop of role's own model |
 
 Total: ~47 lines changed out of ~5000 BridgeV002 lines (0.94%).
 
@@ -367,7 +467,15 @@ Legacy bridge (`claude-bridge/bridge.py`) is functionally superseded.
 - [x] H141: start_tmuxflow.py rewrite — replace ollama preload with tmux session auto-create (session_exists/create_session) — COMPLETED (`a5c899b`)
 - [x] H142: governance_file editable from frontend — role card display + dropdown in edit form + i18n LBL-1000298 — COMPLETED (`701c5a5`)
 - [x] H143: governance_file dropdown reads from disk — GET /api/bridge-v2/governance-files endpoint lists .md files dynamically — COMPLETED (`1f3c647`)
-- [ ] Implement periodic hard-reset gate for OpenCode sessions (Phase 3, long-term)
+- [ ] Fix B1 — `rule_key` NameError in run_flow_step_db() (dispatch.py:464, 480)
+- [ ] Fix B2 — signal_send hardcoded handoff directory (dispatch.py:1044)
+- [ ] Build B3 — POST /api/bridge-v2/dispatch endpoint (app.py missing)
+- [ ] Integrate B4 — Prompt Compiler uses BridgeV002 get_next_id_for_flow + dispatch API (app.py:2857-2889)
+- [ ] Handle G1 — Human role as final recipient, no crash on session_alive failure
+- [ ] Enrich G2/G4 — Callback + verdict content templates with full verification steps
+- [ ] Integrate G3 — Prompt Compiler instructs implementer to run BridgeV002 signal
+- [ ] Fix G5 — Role key alignment in governance_file seed data
+- [ ] Rewrite governance files — 02_ARCHITECT, 03_IMPLEMENTOR, 04_REVIEW, 100_BRIDGE
 
 **Key design decisions from H111:**
 - Kun kontrol-flow i dispatch.py — ingen nye filer, ingen schema ændringer
@@ -539,7 +647,7 @@ Do NOT start hardening or no-kill work without explicit Human instruction per ph
 
 ---
 
-## 5b. BridgeV002 — Full Stack Complete (Spor I + J)
+## 5d. BridgeV002 — Full Stack Complete (Spor I + J)
 
 **Status:** Spor I COMPLETE (handoffs 092-097, commits `52a621c`, `e568fff`, `4d92586`).
 Spor J COMPLETE (handoffs 098-101, commits `a2fa53b`, `4d3b1ed`).
@@ -628,8 +736,8 @@ Architect → Review → Implementer → Human godkendelse.
 
 Stop ALL activity and wait for Human (Svend) after:
 
-- Dispatching a handoff via `bridge.py send {ID}`
-- Completing an escalation response via `bridge.py answer-review {ID}`
+- Dispatching a handoff via `dispatch.py --signal-send` or BridgeV002 API endpoint
+- Completing an escalation response via `dispatch.py --signal-answer` or BridgeV002 API endpoint
 - Hitting an ambiguity that requires Human decision (scope, architecture, gates)
 - Human explicitly says "stop" or "wait"
 - Encountering a governance violation (report to Human, do not continue)
@@ -754,8 +862,8 @@ python3 /home/svend/claude-bridge/bridge.py next-id
 
 ### 8.4 Bridge rules
 
-1. **Sequential only** — one role active at a time. Bridge enforces this with `/clear`.
-2. **All 4 functions send `/clear` first** — fixed in handoff 029.
+1. **Sequential only** — one role active at a time. Legacy bridge enforces with `/clear`; BridgeV002 enforces via ollama stop (server-side context cleared to 0 tokens).
+2. **All 4 legacy functions send `/clear` first** — fixed in handoff 029. BridgeV002 signals don't need this — ollama stop is sufficient.
 3. **DPMTF_BRIDGE_DIR must be set** — otherwise bridge falls back to `~/.dpmtf/bridge/`.
 4. **Bridge is a git repo** — `git log` shows change history. Remote: `github.com:svend-blip/claude-bridge`.
 
@@ -803,9 +911,9 @@ Current dispatch (15 steps):          New dispatch (9 steps):
 ────────────────────                  ────────────────────
 kill_session(target)                  [check] session_alive(target) — one-shot boolean
 unload_ollama_model()                 [check] deliverable file exists → fail fast
-time.sleep(1)                         [inject] /clear + prompt (Claude Code)
-start_session(target)                       or soft-clear + paste-buffer (OpenCode)
-wait_session_ready(target)             [offload] ollama stop predecessor_model
+time.sleep(1)                         [inject] prompt into tmux session (no /clear needed)
+start_session(target)                       ollama stop clears context — server-side is 0 tokens
+wait_session_ready(target)             [offload] ollama stop of from_role's model
 reload_ollama_model()                 [update] symlink + trace.log
 time.sleep(3)
 execute_pre_dispatch_script()        (same as before, but no kill/start/reload)
@@ -815,7 +923,7 @@ update_symlink()
 log_dispatch()
 ```
 
-**Key behavioral change:** Tmux sessions are never killed by BridgeV002 dispatch. Sessions persist across multiple dispatch cycles. Server-side LLM context is cleared by `ollama stop` of the predecessor's model after each injection, not by process termination.
+**Key behavioral change:** Tmux sessions are never killed by BridgeV002 dispatch. Sessions persist across multiple dispatch cycles. Context is cleared by `ollama stop` of the from_role's own model after injection — NO `/clear`, NO soft-clear preamble needed. Ollama stop alone wipes server-side context to 0 tokens.
 
 **Architect save-state cycle:**
 ```
