@@ -861,6 +861,76 @@ function buildCompilerForm() {
   depDiv.appendChild(depSelect);
   container.appendChild(depDiv);
 
+  // ── 1.5. Flow Key (BridgeV002 — always visible for standard) ──
+  var flowDiv = el("div", "dpmtf-form-group");
+  flowDiv.id = "compile-group-flowkey";
+  flowDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_flow_key", "Flow Key")));
+  var flowSelect = el("select", null);
+  flowSelect.id = "compile-flow_key";
+  var flowEmptyOpt = document.createElement("option");
+  flowEmptyOpt.value = "";
+  flowEmptyOpt.textContent = lbl("lbl_compiler_no_flow", "(optional — select for BridgeV002 dispatch)");
+  flowSelect.appendChild(flowEmptyOpt);
+  // Populate from /api/bridge-v2/flows
+  fetch("/api/bridge-v2/flows")
+    .then(function (res) { return res.json(); })
+    .then(function (flows) {
+      flows.forEach(function (f) {
+        var opt = document.createElement("option");
+        opt.value = f.flow_key;
+        opt.textContent = f.display_name || f.flow_key;
+        flowSelect.appendChild(opt);
+      });
+      // Cascade: populate steps when flow changes
+      flowSelect.onchange = function () {
+        var fk = flowSelect.value;
+        populateStepDropdown(fk);
+      };
+    })
+    .catch(function (err) {
+      console.error("Failed to load bridge flows for compiler:", err);
+    });
+  flowDiv.appendChild(flowSelect);
+  container.appendChild(flowDiv);
+
+  // ── 1.6. Step Key (BridgeV002 — populated from selected flow) ──
+  var stepDiv = el("div", "dpmtf-form-group");
+  stepDiv.id = "compile-group-stepkey";
+  stepDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_step_key", "Step Key")));
+  var stepSelect = el("select", null);
+  stepSelect.id = "compile-step_key";
+  var stepEmptyOpt = document.createElement("option");
+  stepEmptyOpt.value = "";
+  stepEmptyOpt.textContent = lbl("lbl_compiler_no_step", "(select a flow first)");
+  stepSelect.appendChild(stepEmptyOpt);
+  stepDiv.appendChild(stepSelect);
+  container.appendChild(stepDiv);
+
+  // Helper: populate step dropdown from a given flow key
+  function populateStepDropdown(flowKey) {
+    var current = document.getElementById("compile-step_key");
+    if (!current) return;
+    clear(current);
+    var emptyOpt2 = document.createElement("option");
+    emptyOpt2.value = "";
+    emptyOpt2.textContent = "(optional — select for BridgeV002 dispatch)";
+    current.appendChild(emptyOpt2);
+    if (!flowKey) return;
+    fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey))
+      .then(function (res) { return res.json(); })
+      .then(function (steps) {
+        steps.forEach(function (s) {
+          var opt2 = document.createElement("option");
+          opt2.value = s.step_key;
+          opt2.textContent = s.step_key + " (" + (s.from_role || "?") + " -> " + (s.to_role || "?") + ")";
+          current.appendChild(opt2);
+        });
+      })
+      .catch(function (err) {
+        console.error("Failed to load steps for flow:", flowKey, err);
+      });
+  }
+
   // ── 2. Target Session (hidden when accelerated) ──
   var sessionDiv = el("div", "dpmtf-form-group");
   sessionDiv.id = "compile-group-session";
@@ -1115,7 +1185,7 @@ function compilePromptV2() {
     msgEl.remove();
   });
 
-  // Collect only the 8 simplified fields
+  // Collect the 10 simplified fields (8 original + flow_key + step_key)
   var body = {};
   var el_target_session = document.getElementById("compile-target_session");
   if (el_target_session) body.target_session = el_target_session.value;
@@ -1140,6 +1210,13 @@ function compilePromptV2() {
 
   var el_forbidden = document.getElementById("compile-forbidden_files");
   if (el_forbidden) body.forbidden_files = el_forbidden.value;
+
+  // BridgeV002: collect flow_key + step_key for DB-driven dispatch (B4)
+  var el_flow_key = document.getElementById("compile-flow_key");
+  if (el_flow_key) body.flow_key = el_flow_key.value;
+
+  var el_step_key = document.getElementById("compile-step_key");
+  if (el_step_key) body.step_key = el_step_key.value;
 
   fetch("/api/prompt-compiler/compile", {
     method: "POST",
@@ -1239,6 +1316,11 @@ function assignHandoffId(promptText, compileData) {
   if (targetInput) {
     body.target_project = targetInput.value;
   }
+
+  // BridgeV002: pass resolved flow_key, step_key, deliverable_dir from compile response (B4)
+  if (compileData.bridge_flow_key) body.flow_key = compileData.bridge_flow_key;
+  if (compileData.bridge_step_key) body.step_key = compileData.bridge_step_key;
+  if (compileData.deliverable_dir) body.deliverable_dir = compileData.deliverable_dir;
 
   fetch("/api/prompt-compiler/assign-handoff-id", {
     method: "POST",

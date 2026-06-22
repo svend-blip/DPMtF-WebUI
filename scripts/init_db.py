@@ -553,6 +553,9 @@ ui_labels_data = [
     ("LBL-1000225", "lbl_compiler_open_webui", "template_manager", "Open WebUI", "Accelerated: open webui link text"),
     ("LBL-1000226", "lbl_compiler_script_error", "template_manager", "Script error", "Accelerated: script error heading"),
     ("LBL-1000227", "lbl_compiler_field_required", "template_manager", "This field is required", "Accelerated: field required message"),
+    # ── BridgeV002 Compiler Integration (B4, 2026-06-22) ──
+    ("LBL-1000228", "lbl_compiler_flow_key", "template_manager", "Flow Key", "BridgeV002: select flow for dispatch"),
+    ("LBL-1000229", "lbl_compiler_step_key", "template_manager", "Step Key", "BridgeV002: select step for dispatch"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -1135,6 +1138,9 @@ ui_label_translations_data = [
     ("LBL-1000225", "en-US", "Open WebUI"),
     ("LBL-1000226", "en-US", "Script error"),
     ("LBL-1000227", "en-US", "This field is required"),
+    # ── BridgeV002 Compiler Integration (en-US) ──
+    ("LBL-1000228", "en-US", "Flow Key"),
+    ("LBL-1000229", "en-US", "Step Key"),
     # ── Accelerated WebUI Factory (da-DK) ──
     ("LBL-1000218", "da-DK", "Nyt webui"),
     ("LBL-1000219", "da-DK", "Port"),
@@ -1146,6 +1152,9 @@ ui_label_translations_data = [
     ("LBL-1000225", "da-DK", "Åbn WebUI"),
     ("LBL-1000226", "da-DK", "Script fejl"),
     ("LBL-1000227", "da-DK", "Dette felt er påkrævet"),
+    # ── BridgeV002 Compiler Integration (en-US) ──
+    ("LBL-1000228", "da-DK", "Flow-nøgle"),
+    ("LBL-1000229", "da-DK", "Trin-nøgle"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
