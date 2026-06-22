@@ -858,10 +858,12 @@ function buildCompilerForm() {
     opt.textContent = val;
     depSelect.appendChild(opt);
   });
+  // Default to "standard" so flow/step dropdowns are visible on page load
+  depSelect.value = "standard";
   depDiv.appendChild(depSelect);
   container.appendChild(depDiv);
 
-  // ── 1.5. Flow Key (BridgeV002 — always visible for standard) ──
+  // ── 1.5. Flow Key (BridgeV002 — visible for standard) ──
   var flowDiv = el("div", "dpmtf-form-group");
   flowDiv.id = "compile-group-flowkey";
   flowDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_flow_key", "Flow Key")));
@@ -871,16 +873,22 @@ function buildCompilerForm() {
   flowEmptyOpt.value = "";
   flowEmptyOpt.textContent = lbl("lbl_compiler_no_flow", "(optional — select for BridgeV002 dispatch)");
   flowSelect.appendChild(flowEmptyOpt);
-  // Populate from /api/bridge-v2/flows
+  // Populate from /api/bridge-v2/flows (only active flows)
   fetch("/api/bridge-v2/flows")
     .then(function (res) { return res.json(); })
-    .then(function (flows) {
+    .then(function (data) {
+      var flows = data.flows || [];
       flows.forEach(function (f) {
         var opt = document.createElement("option");
         opt.value = f.flow_key;
-        opt.textContent = f.display_name || f.flow_key;
+        opt.textContent = f.name || f.flow_key;
         flowSelect.appendChild(opt);
       });
+      // Auto-select first flow if available
+      if (flows.length > 0) {
+        flowSelect.value = flows[0].flow_key;
+        populateStepDropdown(flows[0].flow_key);
+      }
       // Cascade: populate steps when flow changes
       flowSelect.onchange = function () {
         var fk = flowSelect.value;
@@ -915,42 +923,70 @@ function buildCompilerForm() {
     emptyOpt2.value = "";
     emptyOpt2.textContent = "(optional — select for BridgeV002 dispatch)";
     current.appendChild(emptyOpt2);
-    if (!flowKey) return;
+    if (!flowKey) {
+      _updateAutoSession(null, null);
+      return;
+    }
     fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey))
       .then(function (res) { return res.json(); })
-      .then(function (steps) {
+      .then(function (data) {
+        var steps = data.steps || [];
         steps.forEach(function (s) {
           var opt2 = document.createElement("option");
           opt2.value = s.step_key;
           opt2.textContent = s.step_key + " (" + (s.from_role || "?") + " -> " + (s.to_role || "?") + ")";
           current.appendChild(opt2);
         });
+        // Cascade: when step changes, update auto-resolved session
+        current.onchange = function () {
+          var sk = current.value;
+          var step = null;
+          steps.forEach(function (s) { if (s.step_key === sk) step = s; });
+          _updateAutoSession(flowKey, step);
+        };
       })
       .catch(function (err) {
         console.error("Failed to load steps for flow:", flowKey, err);
       });
   }
 
-  // ── 2. Target Session (hidden when accelerated) ──
-  var sessionDiv = el("div", "dpmtf-form-group");
-  sessionDiv.id = "compile-group-session";
-  sessionDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_session", "Target Session")));
-  var sessionSelect = el("select", null);
-  sessionSelect.id = "compile-target_session";
-  [
-    ["claude_implementer", lbl("lbl_session_implementer", "Implementer")],
-    ["claude_review", lbl("lbl_session_review", "Review")],
-    ["claude_architect", lbl("lbl_session_architect", "Architect")]
-  ].forEach(function (pair) {
-    var opt = document.createElement("option");
-    opt.value = pair[0];
-    opt.textContent = pair[1];
-    sessionSelect.appendChild(opt);
-  });
-  sessionDiv.appendChild(sessionSelect);
-  container.appendChild(sessionDiv);
+  // Update the auto-resolved target session display
+  function _updateAutoSession(flowKey, step) {
+    var div = document.getElementById("compile-group-auto-session");
+    var info = document.getElementById("compile-auto-session-info");
+    if (!div || !info) return;
+    if (flowKey && step && step.to_role) {
+      // Fetch the to_role to get its tmux_session
+      fetch("/api/bridge-v2/roles/" + encodeURIComponent(step.to_role))
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var role = data.role;
+          if (role) {
+            info.textContent = role.tmux_session + " (" + step.to_role + " — " + (role.governance_file || "no gov file") + ")";
+            div.style.display = "";
+          }
+        })
+        .catch(function () {
+          info.textContent = step.to_role + " (session info unavailable)";
+          div.style.display = "";
+        });
+    } else {
+      div.style.display = "none";
+    }
+  }
 
-  // ── 3. Target Project (auto-set when accelerated) ──
+  // ── 1.7. Auto-resolved Target Session (read-only, shown when flow+step selected) ──
+  var autoSessionDiv = el("div", "dpmtf-form-group");
+  autoSessionDiv.id = "compile-group-auto-session";
+  autoSessionDiv.style.display = "none";
+  autoSessionDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_session", "Target Session")));
+  var autoSessionInfo = el("span", "dpmtf-small");
+  autoSessionInfo.id = "compile-auto-session-info";
+  autoSessionInfo.textContent = "(auto-resolved from flow step)";
+  autoSessionDiv.appendChild(autoSessionInfo);
+  container.appendChild(autoSessionDiv);
+
+  // ── 2. Target Project ──
   var projDiv = el("div", "dpmtf-form-group");
   projDiv.id = "compile-group-project";
   projDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_project", "Target Project")));
@@ -1094,16 +1130,33 @@ function buildCompilerForm() {
   // ── Deployment Strategy onchange handler ──
   depSelect.onchange = function () {
     var isAccelerated = depSelect.value === "accelerated";
+    var isStandard = depSelect.value === "standard";
 
-    // Standard fields: hide when accelerated
+    // Standard fields: hide when accelerated, some also hidden in standard (auto-resolved)
     var standardIds = [
-      "compile-group-session", "compile-group-phase", "compile-group-goal",
-      "compile-group-scope", "compile-group-allowed", "compile-group-forbidden"
+      "compile-group-phase",
+      "compile-group-allowed", "compile-group-forbidden"
     ];
     standardIds.forEach(function (id) {
       var stEl = document.getElementById(id);
-      if (stEl) stEl.style.display = isAccelerated ? "none" : "";
+      if (stEl) stEl.style.display = (isAccelerated || isStandard) ? "none" : "";
     });
+
+    // Goal and scope gate: always visible in standard, hidden in accelerated
+    var goalEl = document.getElementById("compile-group-goal");
+    if (goalEl) goalEl.style.display = isAccelerated ? "none" : "";
+    var scopeEl = document.getElementById("compile-group-scope");
+    if (scopeEl) scopeEl.style.display = isAccelerated ? "none" : "";
+
+    // Flow/Step: visible in standard, hidden in accelerated
+    var flowEl = document.getElementById("compile-group-flowkey");
+    if (flowEl) flowEl.style.display = isStandard ? "" : "none";
+    var stepEl = document.getElementById("compile-group-stepkey");
+    if (stepEl) stepEl.style.display = isStandard ? "" : "none";
+
+    // Auto-resolved session: visible in standard, hidden otherwise
+    var autoSessEl = document.getElementById("compile-group-auto-session");
+    if (autoSessEl) autoSessEl.style.display = isStandard ? "" : "none";
 
     // Accelerated fields: show only when accelerated
     var accelIds = [
@@ -1120,7 +1173,7 @@ function buildCompilerForm() {
     var startBtnEl = document.getElementById("compile-btn-start-server");
     if (compileBtnEl) compileBtnEl.style.display = isAccelerated ? "none" : "";
     if (createBtnEl) createBtnEl.style.display = isAccelerated ? "" : "none";
-    if (startBtnEl) startBtnEl.style.display = "none"; // always hide on switch
+    if (startBtnEl) startBtnEl.style.display = "none";
 
     // Target Project: auto-set to Father project when accelerated
     var projEl = document.getElementById("compile-target_project");
@@ -1133,21 +1186,21 @@ function buildCompilerForm() {
 
     // Reset hidden fields
     if (isAccelerated) {
-      // Reset standard fields
-      var sessionEl = document.getElementById("compile-target_session");
-      if (sessionEl) sessionEl.value = "claude_implementer";
       var phaseEl = document.getElementById("compile-phase_key");
       if (phaseEl) phaseEl.value = "";
-      var goalEl = document.getElementById("compile-goal");
-      if (goalEl) goalEl.value = "";
-      var scopeEl = document.getElementById("compile-scope_gate_confirmed");
-      if (scopeEl) scopeEl.checked = false;
+      var goalEl2 = document.getElementById("compile-goal");
+      if (goalEl2) goalEl2.value = "";
+      var scopeGateEl = document.getElementById("compile-scope_gate_confirmed");
+      if (scopeGateEl) scopeGateEl.checked = false;
       var allowedEl = document.getElementById("compile-allowed_files");
       if (allowedEl) allowedEl.value = "";
       var forbiddenEl = document.getElementById("compile-forbidden_files");
       if (forbiddenEl) forbiddenEl.value = "";
-    } else {
-      // Reset accelerated fields
+      var flowSel = document.getElementById("compile-flow_key");
+      if (flowSel) flowSel.value = "";
+      var stepSel = document.getElementById("compile-step_key");
+      if (stepSel) { clear(stepSel); stepSel.appendChild(document.createElement("option")); }
+    } else if (isStandard) {
       var nameEl = document.getElementById("compile-accel-name");
       if (nameEl) nameEl.value = "";
       var portEl = document.getElementById("compile-accel-port");
@@ -1162,6 +1215,9 @@ function buildCompilerForm() {
     var warnEl = document.getElementById("compile-warning");
     if (warnEl) { warnEl.style.display = "none"; clear(warnEl); }
   };
+
+  // Fire onchange on page load to set initial field visibility (default: standard)
+  depSelect.onchange();
 }
 
 function compilePromptV2() {
@@ -1185,10 +1241,8 @@ function compilePromptV2() {
     msgEl.remove();
   });
 
-  // Collect the 10 simplified fields (8 original + flow_key + step_key)
+  // Collect fields (target_session auto-resolved by backend when flow_key set)
   var body = {};
-  var el_target_session = document.getElementById("compile-target_session");
-  if (el_target_session) body.target_session = el_target_session.value;
 
   var el_target_project = document.getElementById("compile-target_project");
   if (el_target_project) body.target_project = el_target_project.value;
