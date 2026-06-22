@@ -406,6 +406,9 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     # Step 2: Build payload from step + convention
     payload = build_step_payload(target_step, flow_key, handoff_id, bridge_dir)
 
+    # Extract rule_key for validation and content template resolution (Step 6-7)
+    rule_key = target_step.get("rule_key")
+
     # Step 3: Load to_role from DB
     try:
         to_role = load_role_from_db(payload["to_role"],
