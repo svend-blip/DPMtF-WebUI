@@ -1,12 +1,16 @@
 {
-  "last_handoff": null,
-  "title": null,
+  "last_handoff": 160,
+  "title": "Fix innerHTML auto-fail in dpmtf-app.js:346",
   "flow": "strict_review",
   "active_role": "archi01",
-  "design_notes": null,
-  "verification_checklist": null,
+  "design_notes": "closeBtn uses innerHTML='&times;' — only one innerHTML in frontend. Simple replacement with textContent = '×' is sufficient.",
+  "verification_checklist": [
+    "No innerHTML anywhere in static/ or templates/",
+    "node --check static/js/dpmtf-app.js passes",
+    "Close button still renders and functions correctly"
+  ],
   "open_gaps": [],
   "branch": "hardening/bridgev002-phase1-config",
   "commit": "7ef7622",
-  "updated": "2026-06-22T15:30:00Z"
+  "updated": "2026-06-22T16:58:00Z"
 }

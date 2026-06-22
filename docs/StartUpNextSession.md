@@ -97,6 +97,6 @@ curl -s http://localhost:9130/api/bridge-v2/status
 | Username | svend |
 | Home | /home/svend |
 | Project root | /home/svend/DPMtF-WebUI |
-| Bridge directory | /home/svend/claude-bridge |
+| Bridge deliverable_dir | **BridgeV002 uses database-driven `deliverable_dir`** from `bridge_flow_steps.deliverable_dir` — *not* legacy `/home/svend/claude-bridge`. Current values: `/home/svend/flows/strict_review/{handoffs,results,reviews,verdicts}` |
 | Ollama endpoint | http://127.0.0.1:11434 |
 | Runtime | `/home/svend/.local/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |
