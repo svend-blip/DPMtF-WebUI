@@ -1112,14 +1112,9 @@ function buildCompilerForm() {
   compileBtn.onclick = compilePromptV2;
   container.appendChild(compileBtn);
 
-  // ── Deliver to Bridge button (right of Compile Prompt, hidden until Assign Handoff ID succeeds) ──
-  var deliverBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  deliverBtn.id = "compile-btn-deliver-to-bridge";
-  deliverBtn.style.display = "none";
-  deliverBtn.style.marginLeft = "8px";
-  deliverBtn.textContent = lbl("lbl_btn_deliver_to_bridge", "Deliver to Bridge");
-  deliverBtn.onclick = deliverToBridge;
-  container.appendChild(deliverBtn);
+  // ── Deliver to Bridge button (moved to dispatch-info next to Copy Command) ──
+  // Created here but appended to dispatch-info after assign-handoff-id succeeds.
+  // See assignHandoffId() where it's moved into the dispatch area.
 
   // ── Create New WebUI button (visible only when accelerated) ──
   var createBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
@@ -1445,6 +1440,14 @@ function assignHandoffId(promptText, compileData) {
       };
       dispatchDiv.appendChild(copyCmdBtn);
 
+      // Deliver to Bridge button — right next to Copy Command
+      var deliverBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      deliverBtn.id = "compile-btn-deliver-to-bridge";
+      deliverBtn.style.marginLeft = "8px";
+      deliverBtn.textContent = lbl("lbl_btn_deliver_to_bridge", "Deliver to Bridge");
+      deliverBtn.onclick = deliverToBridge;
+      dispatchDiv.appendChild(deliverBtn);
+
       // Update the displayed prompt with the real ID
       var outputDiv = document.getElementById("compile-output");
       var preElement = outputDiv ? outputDiv.querySelector("pre") : null;
@@ -1452,15 +1455,13 @@ function assignHandoffId(promptText, compileData) {
         preElement.textContent = result.prompt;
       }
 
-      // Store context for Deliver to Bridge button (handoff 178)
+      // Store context for Deliver to Bridge button
       _lastAssignedHandoff = {
         handoff_id: result.handoff_id,
         flow_key: result.flow_key,
         from_role: result.from_role,
         to_role: result.to_role,
       };
-      var showDeliverBtn = document.getElementById("compile-btn-deliver-to-bridge");
-      if (showDeliverBtn) showDeliverBtn.style.display = "";
     })
     .catch(function (err) {
       clear(dispatchDiv);
