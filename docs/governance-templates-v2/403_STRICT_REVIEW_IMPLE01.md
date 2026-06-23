@@ -115,6 +115,8 @@ After `signal_complete`, your active phase ends. **Stop all activity immediately
 - Do NOT poll for results or pre-write files for future steps.
 - Your only output after signaling is the result and notification files you
   already wrote. Nothing else.
+- Produce no chat/TUI commentary after `signal_complete` unless the bridge
+  explicitly requires a final one-line status message.
 
 ## Constraints
 
