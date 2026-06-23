@@ -1112,6 +1112,15 @@ function buildCompilerForm() {
   compileBtn.onclick = compilePromptV2;
   container.appendChild(compileBtn);
 
+  // ── Deliver to Bridge button (right of Compile Prompt, hidden until Assign Handoff ID succeeds) ──
+  var deliverBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  deliverBtn.id = "compile-btn-deliver-to-bridge";
+  deliverBtn.style.display = "none";
+  deliverBtn.style.marginLeft = "8px";
+  deliverBtn.textContent = lbl("lbl_btn_deliver_to_bridge", "Deliver to Bridge");
+  deliverBtn.onclick = deliverToBridge;
+  container.appendChild(deliverBtn);
+
   // ── Create New WebUI button (visible only when accelerated) ──
   var createBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
   createBtn.id = "compile-btn-create-webui";
@@ -1171,9 +1180,11 @@ function buildCompilerForm() {
     var compileBtnEl = document.getElementById("compile-btn-submit");
     var createBtnEl = document.getElementById("compile-btn-create-webui");
     var startBtnEl = document.getElementById("compile-btn-start-server");
+    var deliverBtnEl = document.getElementById("compile-btn-deliver-to-bridge");
     if (compileBtnEl) compileBtnEl.style.display = isAccelerated ? "none" : "";
     if (createBtnEl) createBtnEl.style.display = isAccelerated ? "" : "none";
     if (startBtnEl) startBtnEl.style.display = "none";
+    if (deliverBtnEl) deliverBtnEl.style.display = "none";
 
     // Target Project: auto-set to Father project when accelerated
     var projEl = document.getElementById("compile-target_project");
@@ -1228,6 +1239,11 @@ function compilePromptV2() {
   outputDiv.appendChild(
     el("p", "dpmtf-muted", lbl("lbl_status_compiling", "Compiling..."))
   );
+
+  // Reset Deliver to Bridge state for new compile
+  _lastAssignedHandoff = null;
+  var resetDeliverBtn = document.getElementById("compile-btn-deliver-to-bridge");
+  if (resetDeliverBtn) resetDeliverBtn.style.display = "none";
 
   var warningDiv = document.getElementById("compile-warning");
   if (warningDiv) { warningDiv.style.display = "none"; clear(warningDiv); }
@@ -1435,11 +1451,101 @@ function assignHandoffId(promptText, compileData) {
       if (preElement && result.prompt) {
         preElement.textContent = result.prompt;
       }
+
+      // Store context for Deliver to Bridge button (handoff 178)
+      _lastAssignedHandoff = {
+        handoff_id: result.handoff_id,
+        flow_key: result.flow_key,
+        from_role: result.from_role,
+        to_role: result.to_role,
+      };
+      var showDeliverBtn = document.getElementById("compile-btn-deliver-to-bridge");
+      if (showDeliverBtn) showDeliverBtn.style.display = "";
     })
     .catch(function (err) {
       clear(dispatchDiv);
       dispatchDiv.appendChild(el("p", "dpmtf-error",
         lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.detail || err.message || "Failed to assign handoff ID")));
+    });
+}
+
+/* ── Prompt Compiler: Deliver to Bridge (handoff 178) ── */
+function deliverToBridge() {
+  var dispatchDiv = document.getElementById("dispatch-info");
+  var deliverBtn = document.getElementById("compile-btn-deliver-to-bridge");
+  if (!_lastAssignedHandoff) {
+    if (dispatchDiv) {
+      dispatchDiv.style.display = "block";
+      clear(dispatchDiv);
+      dispatchDiv.appendChild(el("p", "dpmtf-error",
+        lbl("lbl_status_error_prefix", "Error: ") + lbl("lbl_deliver_no_handoff", "No handoff ready. Assign a handoff ID first.")));
+    }
+    return;
+  }
+
+  var origLabel = deliverBtn ? deliverBtn.textContent : "";
+  if (deliverBtn) {
+    deliverBtn.disabled = true;
+    deliverBtn.textContent = lbl("lbl_deliver_in_progress", "Delivering...");
+  }
+
+  fetch("/api/prompt-compiler/dispatch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      flow_key: _lastAssignedHandoff.flow_key,
+      from_role: _lastAssignedHandoff.from_role,
+      to_role: _lastAssignedHandoff.to_role,
+      handoff_id: _lastAssignedHandoff.handoff_id,
+    })
+  })
+    .then(function (res) {
+      return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+    })
+    .then(function (resp) {
+      if (dispatchDiv) {
+        dispatchDiv.style.display = "block";
+        clear(dispatchDiv);
+      }
+      var data = resp.data || {};
+      if (resp.ok && data.success) {
+        var successP = el("p", null);
+        var successBadge = el("span", "dpmtf-badge dpmtf-badge-success");
+        successBadge.textContent = "✅ " + lbl("lbl_deliver_success", "Handoff {ID} delivered to {TO}").replace("{ID}", data.handoff_id).replace("{TO}", data.to_role);
+        successP.appendChild(successBadge);
+        if (dispatchDiv) dispatchDiv.appendChild(successP);
+        if (data.output) {
+          var outPre = el("pre", null);
+          outPre.style.whiteSpace = "pre-wrap";
+          outPre.style.fontSize = "0.8em";
+          outPre.style.background = "#0d1117";
+          outPre.style.padding = "8px";
+          outPre.style.borderRadius = "4px";
+          outPre.style.maxHeight = "300px";
+          outPre.style.overflowY = "auto";
+          outPre.textContent = data.output;
+          if (dispatchDiv) dispatchDiv.appendChild(outPre);
+        }
+      } else {
+        if (dispatchDiv) {
+          dispatchDiv.appendChild(el("p", "dpmtf-error",
+            lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(data.error || data.detail || data.output || "Dispatch failed")));
+        }
+      }
+    })
+    .catch(function (err) {
+      if (dispatchDiv) {
+        dispatchDiv.style.display = "block";
+        clear(dispatchDiv);
+        dispatchDiv.appendChild(el("p", "dpmtf-error",
+          lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message || "Dispatch request failed")));
+      }
+    })
+    .then(function () {
+      if (deliverBtn) {
+        deliverBtn.disabled = false;
+        deliverBtn.textContent = origLabel || lbl("lbl_btn_deliver_to_bridge", "Deliver to Bridge");
+      }
     });
 }
 
@@ -2466,6 +2572,7 @@ function exportBridge(type) {
 var _bridgeStepsFlowKey = null;
 var _bridgeStepsMetadata = null;
 var _bridgeEditingStepId = null;
+var _lastAssignedHandoff = null;  // result of /api/prompt-compiler/assign-handoff-id
 
 function renderStepCard(step, meta) {
   var card = el("div", "dpmtf-card");
@@ -2957,6 +3064,35 @@ function loadBridgeSetup() {
   if (addStepBtn) addStepBtn.onclick = function () { _showStepForm({ data: {}, _meta: _bridgeStepsMetadata }); };
 }
 
+/* ── User Preferences (database-driven compiler defaults) ── */
+function loadUserPreferences() {
+  fetch("/api/user-preferences")
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var prefs = data.preferences || {};
+      // Restore target_project
+      if (prefs.target_project) {
+        var projInput = document.getElementById("compile-target_project");
+        if (projInput) projInput.value = prefs.target_project;
+      }
+    })
+    .catch(function () { /* silent — defaults stay */ });
+
+  // Save target_project on change (debounced via blur)
+  var projInput = document.getElementById("compile-target_project");
+  if (projInput) {
+    projInput.addEventListener("blur", function () {
+      var val = this.value.trim();
+      if (!val) return;
+      fetch("/api/user-preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pref_key: "target_project", pref_value: val }),
+      }).catch(function () { /* silent */ });
+    });
+  }
+}
+
 /* ── 10. Init ──────────────────────────────────────── */
 function onReady() {
   loadLabels();
@@ -2971,6 +3107,7 @@ function onReady() {
   initPanelGroupToggles();
   loadDbStatus();
   buildCompilerForm();
+  loadUserPreferences();
   initDrawer();
   loadBridgeSetup();
 }

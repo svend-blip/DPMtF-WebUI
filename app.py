@@ -986,6 +986,65 @@ async def set_user_panel_group(request: Request):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to store panel group state: {exc}")
 
+
+@app.get("/api/user-preferences")
+async def get_user_preferences():
+    """Return all preferences for the current user."""
+    try:
+        user_id = os.getlogin()
+    except Exception:
+        user_id = "default"
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT pref_key, pref_value FROM user_preferences WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
+        conn.close()
+        prefs = {row["pref_key"]: row["pref_value"] for row in rows}
+        return {"user_id": user_id, "preferences": prefs}
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {"user_id": user_id, "preferences": {}}
+
+
+@app.post("/api/user-preferences")
+async def set_user_preference(request: Request):
+    """Store a single user preference.
+
+    Body (JSON): {"pref_key": "target_project", "pref_value": "/home/svend/..."}
+    """
+    data = await request.json()
+    pref_key = data.get("pref_key", "").strip()
+    pref_value = data.get("pref_value", "").strip()
+
+    if not pref_key:
+        raise HTTPException(status_code=400, detail="Missing required field: pref_key")
+
+    try:
+        user_id = os.getlogin()
+    except Exception:
+        user_id = "default"
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute(
+            """INSERT OR REPLACE INTO user_preferences (user_id, pref_key, pref_value, updated_at)
+               VALUES (?, ?, ?, datetime('now'))""",
+            (user_id, pref_key, pref_value),
+        )
+        conn.commit()
+        conn.close()
+        return {"user_id": user_id, "pref_key": pref_key, "pref_value": pref_value, "status": "stored"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to store preference: {exc}")
+
+
 @app.get("/api/phase-status")
 async def get_phase_status():
     conn = sqlite3.connect(DB_PATH)
@@ -3093,11 +3152,9 @@ async def assign_handoff_id(request: Request):
         deliverable_dir_val = data.get("deliverable_dir", "")
 
     if not deliverable_dir_val:
-        # Last-resort fallback — use bridge_dir from DB flow config, not config.get_bridge_dir()
-        deliverable_dir_val = os.path.join(
-            os.path.dirname(DB_PATH), "..", "flows", flow_key, "handoffs"
-        )
-        deliverable_dir_val = os.path.abspath(deliverable_dir_val)
+        # Last-resort fallback — use DPMTF_BRIDGE_DIR from environment
+        bridge_base = os.environ.get("DPMTF_BRIDGE_DIR", os.path.expanduser("~/flows"))
+        deliverable_dir_val = f"{bridge_base}/{flow_key}/handoffs"
 
     # Build deliverable filename from pattern
     deliverable_file = deliverable_pattern.replace("{ID}", handoff_id)
