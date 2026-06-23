@@ -69,6 +69,11 @@ python3 -m py_compile app.py && echo "app.py OK"
 curl -s http://localhost:9130/api/health
 curl -s http://localhost:9130/api/bridge-v2/status
 curl -s http://localhost:9130/api/bridge-v2/flows
+
+# Verify all 4 strict_review tmux sessions are running
+for s in archi01 imple01 review01 review02; do
+  tmux has-session -t "$s" 2>/dev/null && echo "  $s: running" || echo "  $s: NOT RUNNING"
+done
 ```
 
 ### Step 6: Determine Next Action

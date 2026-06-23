@@ -67,20 +67,20 @@ Stop ALL activity and wait for Human (Svend) after:
 - Hitting an ambiguity that requires Human decision
 - Human explicitly says "stop" or "wait"
 
-## 6. Tmux Sessions (BridgeV002)
+## 6. Tmux Sessions (strict_review flow)
 
-Legacy sessions (`claude_architect`, `claude_implementer`, `claude_review`) are
-deprecated — replaced by BridgeV002 flow-specific sessions below.
+Only these 4 sessions matter for the strict_review flow. Models and tools are
+configured in the database (`bridge_roles.start_cmd`) — not hardcoded here.
 
-| Session | Role | Tool/Model |
+| Session | Role | Governance |
 |---------|------|------------|
-| `archi01` | Architect (402) | Claude Code (`qwen3.6:35b-a3b-64k`) |
-| `imple01` | Implementer (403) | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) |
-| `review01` | Technical Review (404) | OpenCode (`ollama/qwen3.6:35b-a3b`) |
-| `review02` | Governance Review (405) | OpenCode (`ollama/qwen3.6:35b-a3b`) |
+| `archi01` | Architect | 402_STRICT_REVIEW_ARCHI01.md |
+| `imple01` | Implementer | 403_STRICT_REVIEW_IMPLE01.md |
+| `review01` | Technical Review | 404_STRICT_REVIEW_REVIEW01.md |
+| `review02` | Governance Review | 405_STRICT_REVIEW_REVIEW02.md |
 
-All 4 sessions are managed via BridgeV002 UI (start/stop/attach tmux buttons).
-View them together: `tmux attach -t flow-strict_review` (after clicking Attach tmux).
+Start/stop/attach via BridgeV002 UI buttons.
+View all 4: `tmux attach -t flow-strict_review` (after clicking Attach tmux).
 
 ## 7. Quick Verification
 
