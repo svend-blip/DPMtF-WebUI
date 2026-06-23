@@ -14,7 +14,7 @@ handoffs from archi01, execute the implementation, and deliver results to review
 
 ## Receiving a Handoff
 
-When a handoff arrives in your tmux session:
+When a handoff is delivered to your role:
 
 1. **Read the handoff file** referenced in the injected prompt.
 2. **Read the `<role>` section** — it tells you which governance file to read.
