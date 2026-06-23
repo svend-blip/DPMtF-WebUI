@@ -35,14 +35,12 @@ Read `docs/bridgeV002/current-cycle.json`. Extract:
 - `open_gaps` — any unresolved issues
 - `branch` and `commit` — current git state
 
-Cross-check with the database and trace log for the actual latest handoff:
+Confirm the current counter value (next handoff will use this number):
 ```bash
-# Latest handoff ID from database counter (next_id - 1)
-python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(conn.execute(\"SELECT next_id FROM bridge_id_counters WHERE flow_key='strict_review'\").fetchone()[0] - 1); conn.close()"
-
-# Latest dispatch events
-tail -5 {bridge_dir}/trace.log
+python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(conn.execute(\"SELECT next_id FROM bridge_id_counters WHERE flow_key='strict_review'\").fetchone()[0]); conn.close()"
 ```
+The counter is authoritative — gaps from incomplete handoffs are normal.
+Do not investigate gaps or compare against files on disk.
 
 ### Step 3: Read Durable Reference
 
@@ -90,12 +88,18 @@ Based on `active_role` in current-cycle.json:
 
 ### Step 7: Report to Human
 
-Summarize your findings in 3-5 lines:
-- Current flow and active role
-- Last handoff (ID and title, if any)
-- Open gaps (if any)
-- Your assessment: ready to work, waiting for verdict, or waiting for Human
+Summarize in a compact table:
 
+| Field | Value |
+|-------|-------|
+| Flow | strict_review |
+| Active role | {from current-cycle.json} |
+| Last handoff | {ID + title from current-cycle.json} |
+| Next handoff ID | {from database counter} |
+| tmux sessions | all 4 running / NOT RUNNING: {list} |
+| Assessment | ready / waiting for verdict / waiting for Human |
+
+Do NOT list gaps, missing files, or discrepancies — the counter is authoritative.
 Then wait for Human to give the next instruction.
 
 ## Rules
