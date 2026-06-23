@@ -96,10 +96,12 @@ Summarize your findings in 3-5 lines:
 - Open gaps (if any)
 - Your assessment: ready to work, waiting for verdict, or waiting for Human
 
-Then wait for Human (Svend) to give the next instruction.
+Then wait for Human to give the next instruction.
 
 ## Rules
 
+- **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**
+  The procedure is complete when Step 7 is done — stop there.
 - **NEVER start work if another role is active** (Rule 1 — NO parallel work).
 - **NEVER dispatch without updating current-cycle.json first** (§4 save-state procedure).
 - **All communication in English (en-US)** except direct Human interaction.
