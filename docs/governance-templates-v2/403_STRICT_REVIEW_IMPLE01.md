@@ -42,7 +42,8 @@ Apply these BEFORE writing any code. They are mandatory:
 | **NO innerHTML** | Use `createElement()` / `textContent` / `appendChild()` for dynamic content. |
 | **NO hardcoded English** | ALL user-facing text MUST use `lbl(key, fallback)`. |
 | **Parameterized SQL** | `?` placeholders only — never f-strings or concatenation in SQL. |
-| **NO hardcoded paths** | Use `config.py` getters — never `/home/svend/...` strings. |
+| **NO hardcoded paths** | Use `config.py` getters — never `/home/svend/...` strings in application code. |
+| **NO governance modifications** | Do not modify governance templates, role files, bridge flow definitions, or permission policy files unless they are explicitly listed in `<scope>` as allowed files. |
 | **py_compile** | `python3 -m py_compile <file>` MUST pass before signaling completion. |
 | **node --check** | `node --check <file>` MUST pass for all changed JS files. |
 | **bash -n** | `bash -n <file>` MUST pass for all changed shell scripts. |
