@@ -67,17 +67,20 @@ Stop ALL activity and wait for Human (Svend) after:
 - Hitting an ambiguity that requires Human decision
 - Human explicitly says "stop" or "wait"
 
-## 6. Tmux Sessions
+## 6. Tmux Sessions (BridgeV002)
+
+Legacy sessions (`claude_architect`, `claude_implementer`, `claude_review`) are
+deprecated — replaced by BridgeV002 flow-specific sessions below.
 
 | Session | Role | Tool/Model |
 |---------|------|------------|
-| `claude_architect` | Architect (02) | Claude Code (`deepseek-v4-pro:cloud`) |
-| `claude_implementer` | Implementor (03) | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) |
-| `claude_review` | Review (04) | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) |
-| `archi01` | BridgeV002 Architect | OpenCode |
-| `imple01` | BridgeV002 Implementer | OpenCode |
-| `review01` | BridgeV002 Review Primary | OpenCode |
-| `review02` | BridgeV002 Review Secondary | OpenCode |
+| `archi01` | Architect (402) | Claude Code (`qwen3.6:35b-a3b-64k`) |
+| `imple01` | Implementer (403) | OpenCode (`ollama/qwen3.6:27b-q4_K_M`) |
+| `review01` | Technical Review (404) | OpenCode (`ollama/qwen3.6:35b-a3b`) |
+| `review02` | Governance Review (405) | OpenCode (`ollama/qwen3.6:35b-a3b`) |
+
+All 4 sessions are managed via BridgeV002 UI (start/stop/attach tmux buttons).
+View them together: `tmux attach -t flow-strict_review` (after clicking Attach tmux).
 
 ## 7. Quick Verification
 
