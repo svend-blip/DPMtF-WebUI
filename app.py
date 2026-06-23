@@ -3073,8 +3073,8 @@ async def assign_handoff_id(request: Request):
     finalized_prompt: str = prompt_text.replace("???", handoff_id)
 
     # Resolve deliverable directory and pattern from step
-    # Priority: 1) pre-resolved from compile, 2) resolve from DB via step_key, 3) default
-    deliverable_dir_val = data.get("deliverable_dir", "")
+    # Priority: 1) DB step deliverable_dir (absolute path), 2) pre-resolved from compile, 3) default
+    deliverable_dir_val = ""
     deliverable_pattern = "{ID}-handoff.md"  # default
 
     if flow_key and step_key:
@@ -3082,15 +3082,22 @@ async def assign_handoff_id(request: Request):
             flow_data = load_flow_from_db(flow_key, db_path=DB_PATH)
             for s in flow_data["steps"]:
                 if s.get("step_key") == step_key:
-                    if not deliverable_dir_val:
-                        deliverable_dir_val = s.get("deliverable_dir", "")
+                    deliverable_dir_val = s.get("deliverable_dir", "")
                     deliverable_pattern = s.get("deliverable_pattern", deliverable_pattern)
                     break
         except ValueError:
             pass
 
+    # Fall back to pre-resolved from compile if DB lookup didn't yield a dir
     if not deliverable_dir_val:
-        deliverable_dir_val = "handoffs"  # default fallback
+        deliverable_dir_val = data.get("deliverable_dir", "")
+
+    if not deliverable_dir_val:
+        # Last-resort fallback — use bridge_dir from DB flow config, not config.get_bridge_dir()
+        deliverable_dir_val = os.path.join(
+            os.path.dirname(DB_PATH), "..", "flows", flow_key, "handoffs"
+        )
+        deliverable_dir_val = os.path.abspath(deliverable_dir_val)
 
     # Build deliverable filename from pattern
     deliverable_file = deliverable_pattern.replace("{ID}", handoff_id)
@@ -3137,8 +3144,105 @@ async def assign_handoff_id(request: Request):
         "prompt": finalized_prompt,
         "dispatch_command": dispatch_command,
         "flow_key": flow_key,
+        "from_role": from_role_for_send,
+        "to_role": to_role_for_send,
         "deliverable_dir": deliverable_dir_val,
         "status": "ready_for_dispatch",
+    }
+
+
+@app.post("/api/prompt-compiler/dispatch")
+async def dispatch_handoff(request: Request):
+    """Run the BridgeV002 dispatcher to deliver a handoff to its target role.
+
+    Frontend wrapper around dispatch.py signal-send. Called from the UI after
+    assign-handoff-id has produced a ready dispatch command, eliminating the
+    need to copy/paste the command into a terminal.
+
+    Body (JSON):
+      flow_key   — BridgeV002 flow key (e.g. 'strict_review')
+      from_role  — source role key (e.g. 'archi01')
+      to_role    — target role key (e.g. 'imple01')
+      handoff_id — assigned handoff ID (e.g. '178')
+    """
+    data = await request.json()
+
+    required_fields = ["flow_key", "from_role", "to_role", "handoff_id"]
+    for field in required_fields:
+        if field not in data or not str(data[field]).strip():
+            raise HTTPException(
+                status_code=400, detail=f"Missing required field: {field}"
+            )
+
+    flow_key = str(data["flow_key"]).strip()
+    from_role = str(data["from_role"]).strip()
+    to_role = str(data["to_role"]).strip()
+    handoff_id = str(data["handoff_id"]).strip()
+
+    script_path = (
+        Path(config.get_project_root())
+        / "scripts"
+        / "bridgeV002"
+        / "dispatch.py"
+    )
+    if not script_path.exists():
+        raise HTTPException(
+            status_code=500, detail=f"dispatch.py not found at {script_path}"
+        )
+
+    cmd = [
+        "python3",
+        str(script_path),
+        "--db-flow", flow_key,
+        "--signal-send",
+        "--from-role", from_role,
+        "--to-role", to_role,
+        "--id", handoff_id,
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=config.get_project_root(),
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        return JSONResponse(
+            status_code=504,
+            content={
+                "success": False,
+                "error": "dispatch.py timed out after 120 seconds",
+                "handoff_id": handoff_id,
+            },
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Failed to execute dispatch.py: {e}",
+                "handoff_id": handoff_id,
+            },
+        )
+
+    output = (result.stdout or "") + (result.stderr or "")
+    success = (
+        result.returncode == 0
+        and "ERROR" not in output
+        and "send_failed" not in output
+        and "✅" in output
+    )
+
+    return {
+        "success": success,
+        "returncode": result.returncode,
+        "output": output,
+        "handoff_id": handoff_id,
+        "from_role": from_role,
+        "to_role": to_role,
+        "flow_key": flow_key,
     }
 
 
