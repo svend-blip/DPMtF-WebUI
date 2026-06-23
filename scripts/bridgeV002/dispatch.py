@@ -115,6 +115,7 @@ def inject_via_paste_buffer(session_name, text):
         subprocess.run(["tmux", "load-buffer", tmp_path], check=True)
         subprocess.run(["tmux", "paste-buffer", "-t", session_name], check=True)
         time.sleep(0.3)
+        # Enter keypress is mandatory — OpenCode does not auto-execute pasted input.
         subprocess.run(["tmux", "send-keys", "-t", session_name, "Enter"], check=True)
         time.sleep(0.3)
     finally:
