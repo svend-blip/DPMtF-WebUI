@@ -48,7 +48,10 @@ Apply these BEFORE writing any code. They are mandatory:
 | **bash -n** | `bash -n <file>` MUST pass for all changed shell scripts. |
 | **Stop after 2 failures** | If a patch fails twice, document and escalate — do NOT guess. |
 | **NO new dependencies** | Do not add imports or packages without Human approval. |
+| **NO subagents or self-review** | Do not start subagents, reviewers, self-review passes, or parallel review workflows unless the handoff explicitly allows it. |
 | **DO NOT COMMIT** | Leave all changes unstaged. Only Human may commit. |
+
+**Path rule clarification:** The "NO hardcoded paths" rule means no `/home/svend/...` strings in **application code** (app.py, config.py, init_db.py, bridge scripts). Absolute paths are permitted in handoff files, result files, notification files, and bridge-control instructions — these are operational artifacts, not application source.
 
 ## Writing Results
 
@@ -101,8 +104,14 @@ into review01's session.
 
 ## After Signaling — Stop
 
-After `signal_complete`, your active phase ends. Stop all activity.
-Do not start new work, do not poll for results, do not pre-write files.
+After `signal_complete`, your active phase ends. **Stop all activity immediately.**
+
+- Do NOT suggest or start follow-up work.
+- Do NOT run reviewer agents or self-review passes.
+- Do NOT continue with planning, analysis, or exploration.
+- Do NOT poll for results or pre-write files for future steps.
+- Your only output after signaling is the result and notification files you
+  already wrote. Nothing else.
 
 ## Constraints
 
