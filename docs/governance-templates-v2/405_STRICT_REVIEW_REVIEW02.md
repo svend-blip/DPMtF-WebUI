@@ -44,8 +44,8 @@ Forbidden files touched → FAIL.
 Verify the proposed commit message follows the format:
 ```
 [phase] description
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
+No `Co-Authored-By` trailers — commit messages describe the change, not the tool.
 
 ### 4. Cross-Project Alignment
 - Does this change affect other projects (ENO, ai-pc-resource-webui-v3)?
@@ -153,8 +153,6 @@ Format:
 [phase] {description}
 
 {Optional: brief summary of changes}
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ## Signaling Completion to Human

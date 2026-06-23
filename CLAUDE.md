@@ -168,7 +168,7 @@ Full rules: `docs/governance-templates-v2/15_GIT_POLICY.md`
 - **Only the Human may commit or push.** All changes remain unstaged until
   Human approval.
 - Commit messages in English, format: `[phase] description`.
-- Include `Co-Authored-By: Claude <noreply@anthropic.com>` when AI-assisted.
+- No `Co-Authored-By` trailers — commit messages describe the change, not the tool.
 - One logical change per commit. Stage selectively (`git add <files>`), not `git add -A`.
 - Never commit: `__pycache__/`, `.env`, secrets, generated artifacts.
 - Never amend published commits or force-push to `master`.

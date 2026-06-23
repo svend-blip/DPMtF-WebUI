@@ -36,7 +36,7 @@ connectivity. Only the Human may commit or push.
 1. **One logical change per commit** — do not mix unrelated fixes.
 2. **Commit messages describe what changed and why** — include phase key:
    `[3A] Add panel subgroup expand/collapse`.
-3. **Include `Co-Authored-By: Claude <noreply@anthropic.com>`** when AI-assisted.
+3. **No Co-Authored-By trailers** — commit messages describe the change, not the tool.
 4. **Do not commit hidden files or generated artifacts** (`__pycache__/`, `.env`, secrets).
 5. **Stage related changes together** — use `git add` selectively, not `git add -A`.
 6. **All commit messages MUST be in English (en-US).**
