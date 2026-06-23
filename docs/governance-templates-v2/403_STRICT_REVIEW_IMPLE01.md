@@ -50,6 +50,7 @@ Apply these BEFORE writing any code. They are mandatory:
 | **NO new dependencies** | Do not add imports or packages without Human approval. |
 | **NO subagents or self-review** | Do not start reviewer agents, self-review passes, planning agents, or parallel review workflows unless the handoff explicitly allows it. |
 | **Tools only for handoff tasks** | Shell and file tools may only be used when required by the handoff for implementation, validation, result-file writing, or bridge signaling. Do not explore, investigate, or analyze beyond the handoff scope. |
+| **No internal reasoning in output** | Do not include `<think>` blocks, hidden reasoning blocks, or internal analysis in result files, notification files, bridge signals, or final status messages. |
 | **DO NOT COMMIT** | Leave all changes unstaged. Only Human may commit. |
 
 **Path rule clarification:** The "NO hardcoded paths" rule means no `/home/svend/...` strings in **application code** (app.py, config.py, init_db.py, bridge scripts). Absolute paths are permitted in handoff files, result files, notification files, and bridge-control instructions — these are operational artifacts, not application source.
