@@ -842,6 +842,28 @@ function buildCompilerForm() {
   if (!container) return;
   clear(container);
 
+  // ── Prompt Templates buttonrow (handoff 193, moved to top by handoff 204) ──
+  // Holds: Compile Prompt (always), Assign Handoff ID + Copy Prompt (after compile success).
+  var compileButtonsRow = el("div", null);
+  compileButtonsRow.id = "compile-buttons-row";
+  compileButtonsRow.style.marginTop = "8px";
+  container.appendChild(compileButtonsRow);
+
+  // ── Compile Prompt button (hidden when accelerated) ──
+  var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  compileBtn.id = "compile-btn-submit";
+  compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
+  compileBtn.onclick = compilePromptV2;
+  compileButtonsRow.appendChild(compileBtn);
+
+  // ── Dispatch buttons row (handoff 204) ──
+  // Under the compile-buttons-row. Holds: Copy Command, Deliver to Bridge
+  // (populated by assignHandoffId after a successful assign).
+  var dispatchButtonsRow = el("div", null);
+  dispatchButtonsRow.id = "dispatch-buttons-row";
+  dispatchButtonsRow.style.marginTop = "8px";
+  container.appendChild(dispatchButtonsRow);
+
   // ── 1. Deployment Strategy (first — controls visibility) ──
   var depDiv = el("div", "dpmtf-form-group");
   depDiv.id = "compile-group-deployment";
@@ -1105,16 +1127,7 @@ function buildCompilerForm() {
   warningDiv.style.display = "none";
   container.appendChild(warningDiv);
 
-  // ── Compile Prompt button (hidden when accelerated) ──
-  var compileBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  compileBtn.id = "compile-btn-submit";
-  compileBtn.textContent = lbl("lbl_tpl_compile_prompt", "Compile Prompt");
-  compileBtn.onclick = compilePromptV2;
-  container.appendChild(compileBtn);
-
-  // ── Deliver to Bridge button (moved to dispatch-info next to Copy Command) ──
-  // Created here but appended to dispatch-info after assign-handoff-id succeeds.
-  // See assignHandoffId() where it's moved into the dispatch area.
+  // (compile-buttons-row and compileBtn moved to TOP of form by handoff 204)
 
   // ── Create New WebUI button (visible only when accelerated) ──
   var createBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
@@ -1240,6 +1253,27 @@ function compilePromptV2() {
   var resetDeliverBtn = document.getElementById("compile-btn-deliver-to-bridge");
   if (resetDeliverBtn) resetDeliverBtn.style.display = "none";
 
+  // Reset Prompt Templates buttonrow: remove stale Assign/Copy from previous compile
+  if (_assignBtnInRow && _assignBtnInRow.parentNode) {
+    _assignBtnInRow.parentNode.removeChild(_assignBtnInRow);
+  }
+  _assignBtnInRow = null;
+  if (_copyBtnInRow && _copyBtnInRow.parentNode) {
+    _copyBtnInRow.parentNode.removeChild(_copyBtnInRow);
+  }
+  _copyBtnInRow = null;
+
+  // Reset dispatch buttons row: remove stale Copy Command / Deliver to Bridge
+  // from a previous assign so the user does not click a stale button.
+  if (_copyCmdBtnInRow && _copyCmdBtnInRow.parentNode) {
+    _copyCmdBtnInRow.parentNode.removeChild(_copyCmdBtnInRow);
+  }
+  _copyCmdBtnInRow = null;
+  if (_deliverBtnInRow && _deliverBtnInRow.parentNode) {
+    _deliverBtnInRow.parentNode.removeChild(_deliverBtnInRow);
+  }
+  _deliverBtnInRow = null;
+
   var warningDiv = document.getElementById("compile-warning");
   if (warningDiv) { warningDiv.style.display = "none"; clear(warningDiv); }
 
@@ -1312,8 +1346,28 @@ function compilePromptV2() {
       pre.textContent = data.prompt;
       outputDiv.appendChild(pre);
 
-      // Copy button
+      // Defensive cleanup: remove any stale Assign/Copy buttons that survived
+      // (e.g. if a prior compile succeeded and the row wasn't reset for some reason)
+      if (_assignBtnInRow && _assignBtnInRow.parentNode) {
+        _assignBtnInRow.parentNode.removeChild(_assignBtnInRow);
+      }
+      if (_copyBtnInRow && _copyBtnInRow.parentNode) {
+        _copyBtnInRow.parentNode.removeChild(_copyBtnInRow);
+      }
+
+      var compileButtonsRow = document.getElementById("compile-buttons-row");
+
+      // Assign Handoff ID button — appended to the Prompt Templates buttonrow
+      var assignBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      assignBtn.style.marginLeft = "8px";
+      assignBtn.textContent = lbl("lbl_btn_assign_handoff_id", "Assign Handoff ID");
+      assignBtn.onclick = function () { assignHandoffId(data.prompt, data); };
+      if (compileButtonsRow) compileButtonsRow.appendChild(assignBtn);
+      _assignBtnInRow = assignBtn;
+
+      // Copy button — appended to the Prompt Templates buttonrow (last)
       var copyBtn = el("button", "dpmtf-btn dpmtf-small");
+      copyBtn.style.marginLeft = "8px";
       copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt");
       copyBtn.onclick = function () {
         navigator.clipboard.writeText(data.prompt).then(function () {
@@ -1321,14 +1375,8 @@ function compilePromptV2() {
           setTimeout(function () { copyBtn.textContent = lbl("lbl_btn_copy_prompt", "Copy Prompt"); }, 2000);
         });
       };
-      outputDiv.appendChild(copyBtn);
-
-      // Assign Handoff ID button
-      var assignBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-      assignBtn.textContent = lbl("lbl_btn_assign_handoff_id", "Assign Handoff ID");
-      assignBtn.style.marginLeft = "8px";
-      assignBtn.onclick = function () { assignHandoffId(data.prompt, data); };
-      outputDiv.appendChild(assignBtn);
+      if (compileButtonsRow) compileButtonsRow.appendChild(copyBtn);
+      _copyBtnInRow = copyBtn;
 
       var dispatchDiv = el("div", null);
       dispatchDiv.id = "dispatch-info";
@@ -1427,8 +1475,27 @@ function assignHandoffId(promptText, compileData) {
       cmdRow.appendChild(cmdPre);
       dispatchDiv.appendChild(cmdRow);
 
-      // Copy dispatch command button
+      // Defensive cleanup: remove stale Copy Command / Deliver to Bridge from
+      // a previous assign, in case the dispatch-buttons-row was not reset.
+      if (_copyCmdBtnInRow && _copyCmdBtnInRow.parentNode) {
+        _copyCmdBtnInRow.parentNode.removeChild(_copyCmdBtnInRow);
+      }
+      if (_deliverBtnInRow && _deliverBtnInRow.parentNode) {
+        _deliverBtnInRow.parentNode.removeChild(_deliverBtnInRow);
+      }
+
+      // Deliver to Bridge button (FIRST in dispatch-buttons-row, handoff 208)
+      var deliverBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      deliverBtn.id = "compile-btn-deliver-to-bridge";
+      deliverBtn.textContent = lbl("lbl_btn_deliver_to_bridge", "Deliver to Bridge");
+      deliverBtn.onclick = deliverToBridge;
+      var dispatchButtonsRow = document.getElementById("dispatch-buttons-row");
+      if (dispatchButtonsRow) dispatchButtonsRow.appendChild(deliverBtn);
+      _deliverBtnInRow = deliverBtn;
+
+      // Copy dispatch command button (SECOND in dispatch-buttons-row, handoff 208)
       var copyCmdBtn = el("button", "dpmtf-btn dpmtf-small");
+      copyCmdBtn.style.marginLeft = "8px";
       copyCmdBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
       copyCmdBtn.onclick = function () {
         navigator.clipboard.writeText(result.dispatch_command).then(function () {
@@ -1438,15 +1505,8 @@ function assignHandoffId(promptText, compileData) {
           }, 2000);
         });
       };
-      dispatchDiv.appendChild(copyCmdBtn);
-
-      // Deliver to Bridge button — right next to Copy Command
-      var deliverBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-      deliverBtn.id = "compile-btn-deliver-to-bridge";
-      deliverBtn.style.marginLeft = "8px";
-      deliverBtn.textContent = lbl("lbl_btn_deliver_to_bridge", "Deliver to Bridge");
-      deliverBtn.onclick = deliverToBridge;
-      dispatchDiv.appendChild(deliverBtn);
+      if (dispatchButtonsRow) dispatchButtonsRow.appendChild(copyCmdBtn);
+      _copyCmdBtnInRow = copyCmdBtn;
 
       // Update the displayed prompt with the real ID
       var outputDiv = document.getElementById("compile-output");
@@ -2574,6 +2634,10 @@ var _bridgeStepsFlowKey = null;
 var _bridgeStepsMetadata = null;
 var _bridgeEditingStepId = null;
 var _lastAssignedHandoff = null;  // result of /api/prompt-compiler/assign-handoff-id
+var _assignBtnInRow = null;  // current Assign Handoff ID button in compile-buttons-row
+var _copyBtnInRow = null;    // current Copy Prompt button in compile-buttons-row
+var _copyCmdBtnInRow = null; // current Copy Command button in dispatch-buttons-row
+var _deliverBtnInRow = null; // current Deliver to Bridge button in dispatch-buttons-row
 
 function renderStepCard(step, meta) {
   var card = el("div", "dpmtf-card");
