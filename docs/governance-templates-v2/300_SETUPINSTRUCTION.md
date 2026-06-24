@@ -4,9 +4,13 @@
 
 ## Purpose
 
-Defines how to configure DPMtF-WebUI and claude-bridge when moving the system
+Defines how to configure DPMtF-WebUI with BridgeV002 when moving the system
 to a new PC or setting up a fresh development environment. Covers platform
-requirements, config file editing, and tmux session setup.
+requirements, config file editing, database initialization, and flow setup.
+
+**BridgeV002 replaces the legacy claude-bridge entirely.** All role-to-role
+communication is database-driven via `dispatch.py`. No hardcoded session names,
+no manual tmux setup, no `bridge.py`.
 
 ## When to Use
 
@@ -25,10 +29,11 @@ All DPMtF components run natively on Linux:
 
 | Component | Requirement | Install |
 |-----------|-------------|---------|
-| Python 3.12+ | app.py, bridge.py, config.py | `sudo apt install python3` (Ubuntu/Debian) |
-| tmux | 3-layer bridge communication | `sudo apt install tmux` (Ubuntu/Debian) |
+| Python 3.12+ | app.py, dispatch.py, config.py | `sudo apt install python3` (Ubuntu/Debian) |
+| tmux | BridgeV002 session transport | `sudo apt install tmux` (Ubuntu/Debian) |
+| Ollama | Local model runtime (optional — cloud models also supported) | `curl -fsSL https://ollama.com/install.sh \| sh` |
 | Git | Version control | `sudo apt install git` |
-| pip packages | FastAPI, uvicorn, python-dotenv | `pip install -r requirements.txt` |
+| pip packages | FastAPI, uvicorn | `pip install -r requirements.txt` |
 
 **Tested on:** Ubuntu 24.04+, Debian 12+, Linux Mint 22+.
 
@@ -37,55 +42,38 @@ All DPMtF components run natively on Linux:
 All components work on macOS with Homebrew-installed dependencies:
 
 ```bash
-# Install prerequisites
-brew install python@3.12 tmux git
-
-# Verify tmux version (must be >= 3.3)
-tmux -V
+brew install python@3.12 tmux git ollama
 ```
 
 **Caveats:**
 - Paths use `/Users/<username>/` instead of `/home/<username>/`.
 - `os.path.expanduser("~")` resolves correctly on macOS — config.py getters
   adapt automatically.
-- Default file permissions may differ; `chmod` if bridge.py is not executable.
 
 ### Windows (WSL2 Required)
 
-DPMtF does **not** run natively on Windows. The bridge architecture depends on
-`tmux`, which has no native Windows port. **Windows Subsystem for Linux 2 (WSL2)**
-is required:
+DPMtF does **not** run natively on Windows. tmux has no native Windows port.
+**Windows Subsystem for Linux 2 (WSL2)** is required:
 
 ```powershell
 # In PowerShell (Admin):
 wsl --install -d Ubuntu-24.04
 ```
 
-Once WSL2 is running, follow the Linux instructions above inside the WSL2
-terminal. All project files must reside inside the WSL2 filesystem
+Once WSL2 is running, follow the Linux instructions inside the WSL2 terminal.
+All project files must reside inside the WSL2 filesystem
 (`/home/<username>/...`), not on Windows drives (`/mnt/c/...`).
-
-**Why WSL2 is mandatory:**
-- `tmux` requires a Unix PTY (pseudo-terminal) — unavailable on native Windows.
-- `bridge.py` uses `tmux send-keys` for inter-session communication.
-- The 3-layer governance loop (implementer ↔ review ↔ architect) depends on
-  persistent tmux sessions.
-
-**Alternatives that do NOT work:**
-- Cygwin / MSYS2 — tmux support is incomplete and unstable.
-- Docker — tmux inside containers requires `--privileged` mode and host PTY access.
-- GitHub Codespaces / cloud VM — works but requires always-on connectivity.
 
 ---
 
 ## Configuration Files
 
-Two files control all configurable values. Edit these when moving to a new PC.
+Three files control all configurable values. Edit these when moving to a new PC.
 
 ### dpmtf.ini — App Configuration
 
 **Location:** `<project_root>/dpmtf.ini`
-**Commited to git:** Yes (contains defaults, no secrets).
+**Committed to git:** Yes (contains defaults, no secrets).
 
 ```ini
 [app]
@@ -97,8 +85,7 @@ default_locale = en-US   # Default i18n locale
 path = databases/dpmtf.db   # Relative to project root
 
 [paths]
-project_root = /home/svend/DPMtF-WebUI    # ← CHANGE THIS on new PC
-bridge_dir = /home/svend/claude-bridge     # ← CHANGE THIS on new PC
+project_root = /home/<you>/DPMtF-WebUI    # ← CHANGE THIS on new PC
 governance_dir = docs/governance-templates-v2
 log_dir = logs
 exports_dir = exports
@@ -114,109 +101,106 @@ reference_projects = ai-pc-resource-webui-v3
 | Key | Example old | Example new |
 |-----|-------------|-------------|
 | `project_root` | `/home/svend/DPMtF-WebUI` | `/home/alice/DPMtF-WebUI` |
-| `bridge_dir` | `/home/svend/claude-bridge` | `/home/alice/claude-bridge` |
 | `port` | `9130` | `9130` (change only if port conflict) |
+
+> **Note:** `bridge_dir` is no longer in `dpmtf.ini`. Bridge paths are
+> controlled by `DPMTF_BRIDGE_DIR` in `.env` (see below).
 
 ### .env — Secrets & Infrastructure
 
 **Location:** `<project_root>/.env`
-**Commited to git:** **NEVER** — contains secrets. In `.gitignore`.
+**Committed to git:** **NEVER** — contains secrets. In `.gitignore`.
 
 ```ini
-# Secrets (existing — do NOT commit)
+# BridgeV002 infrastructure
+DPMTF_BRIDGE_DIR=/home/<you>/flows     # ← CHANGE THIS on new PC
+
+# Optional: Telegram notifications (legacy — may be removed)
 DPMTF_TELEGRAM_BOT_TOKEN=...
 DPMTF_TELEGRAM_CHAT_ID=...
-DPMTF_CLAUDE_TMUX_SESSION=...
-
-# Bridge infrastructure (added Spor A — 2026-06-16)
-DPMTF_BRIDGE_DIR=/home/svend/claude-bridge     # ← CHANGE THIS on new PC
-DPMTF_REVIEW_SESSION=claude_review
-DPMTF_IMPLEMENTER_SESSION=claude_implementer
-DPMTF_ARCHITECT_SESSION=claude_architect
 ```
 
 **What to change on a new PC:**
 
 | Key | Example old | Example new |
 |-----|-------------|-------------|
-| `DPMTF_BRIDGE_DIR` | `/home/svend/claude-bridge` | `/home/alice/claude-bridge` |
-| `DPMTF_TELEGRAM_BOT_TOKEN` | (old token) | (new bot token from @BotFather) |
-| `DPMTF_TELEGRAM_CHAT_ID` | (old chat ID) | (new chat ID) |
+| `DPMTF_BRIDGE_DIR` | `/home/svend/flows` | `/home/alice/flows` |
 
-**Session names** (`DPMTF_REVIEW_SESSION`, etc.) normally stay the same unless
-you have naming conflicts with existing tmux sessions.
+> **Note:** The legacy session variables (`DPMTF_REVIEW_SESSION`,
+> `DPMTF_IMPLEMENTER_SESSION`, `DPMTF_ARCHITECT_SESSION`) are **no longer used**.
+> BridgeV002 resolves session names from the database (`bridge_roles.tmux_session`).
 
-### Environment Variable Fallback
+### Shell Environment
 
-If `DPMTF_BRIDGE_DIR` is not set in the shell environment AND not in `.env`,
-bridge.py falls back to `~/.dpmtf/bridge`. To avoid this, either:
+Export `DPMTF_BRIDGE_DIR` in your shell profile so manual dispatch commands work:
 
-1. **Set in `.env`** (loaded by config.py when DPMtF-WebUI runs).
-2. **Export in shell profile** (`~/.bashrc`):
-   ```bash
-   export DPMTF_BRIDGE_DIR=/home/svend/claude-bridge
-   ```
-3. **Both** — `.env` for the web app, shell export for direct bridge.py CLI use.
-
-**Recommendation:** Do both. The `.env` file covers the web app. The shell
-export covers manual `bridge.py send` / `bridge.py complete` commands run
-directly in the terminal.
+```bash
+echo 'export DPMTF_BRIDGE_DIR=/home/<you>/flows' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ---
 
-## Tmux Session Setup
+## BridgeV002 — Database-Driven Flow Setup
 
-The governance loop requires three persistent tmux sessions:
+BridgeV002 replaces the legacy `bridge.py` + hardcoded tmux sessions entirely.
+All configuration lives in the database, managed via the DPMtF web UI.
 
-| Session Name | Role | Model | Purpose |
-|-------------|------|-------|---------|
-| `claude_implementer` | Implementor | Local (Ollama) | Code execution |
-| `claude_review` | Review | Cloud (cheap) | Validation & dispatch |
-| `claude_architect` | Architect | Cloud (capable) | Design & escalation |
+### How It Works
 
-### Create Sessions
+1. **Flows** (`bridge_flows`) — define a sequence of role-to-role steps
+   (e.g., `strict_review`: archi01 → imple01 → review01 → review02 → human).
+2. **Roles** (`bridge_roles`) — each role has a `tmux_session` name,
+   `start_cmd` (how to launch Claude Code / OpenCode), and `ollama_model`.
+3. **Steps** (`bridge_flow_steps`) — each step defines from_role, to_role,
+   deliverable paths, and pre/post dispatch scripts.
+4. **Conventions** (`bridge_convention_rules`) — content templates for
+   handoff prompts, callback formats, and verdict structures.
+
+### Setup Per Flow Key
+
+Different flows require different tmux sessions. The sessions needed for a
+flow are determined by the `from_role` entries in `bridge_flow_steps`.
+
+**Example — `strict_review` flow:**
+
+| Step | From Role | To Role | Tmux Session |
+|------|-----------|---------|--------------|
+| archi01-imple01 | archi01 | imple01 | archi01, imple01 |
+| imple01-review01 | imple01 | review01 | imple01, review01 |
+| review01-review02 | review01 | review02 | review01, review02 |
+| review02-human | review02 | human | review02 |
+
+→ **4 tmux sessions required:** `archi01`, `imple01`, `review01`, `review02`
+
+**Other flows** (e.g., a simplified 2-role flow) would require fewer sessions.
+The UI's **Start tmux** button reads the flow definition from the database
+and creates exactly the sessions needed — no guessing, no hardcoding.
+
+### Setup Steps (via Web UI)
+
+1. Start DPMtF-WebUI: `uvicorn app:app --host 0.0.0.0 --port 9130 --reload`
+2. Open `http://localhost:9130` in a browser.
+3. Go to **Setup** → **Bridge Setup** panel.
+4. Verify flows, roles, steps, and conventions are configured (seed data
+   from `init_db.py` provides `strict_review` defaults).
+5. Click **Start tmux** for your flow — creates all required sessions.
+6. Click **Start Coding** — launches Claude Code / OpenCode in each session.
+7. Click **Attach tmux** — builds a viewer session (`flow-<flow_key>`)
+   with one window per role. Attach with `tmux attach -t flow-<flow_key>`.
+
+### Setup Steps (via Terminal — Alternative)
 
 ```bash
-# Create three named sessions (detached)
-tmux new-session -d -s claude_implementer
-tmux new-session -d -s claude_review
-tmux new-session -d -s claude_architect
-```
+# 1. Create tmux sessions for the flow
+python3 scripts/bridgeV002/start_tmuxflow.py strict_review
 
-### Verify Sessions
+# 2. Launch Claude Code / OpenCode in each session
+python3 scripts/bridgeV002/start_coding.py strict_review
 
-```bash
-tmux list-sessions
-# Expected output:
-# claude_architect: 1 windows (created ...)
-# claude_implementer: 1 windows (created ...)
-# claude_review: 1 windows (created ...)
-```
-
-### Start Claude Code in Each Session
-
-```bash
-# In each tmux session, start Claude Code:
-tmux attach -t claude_implementer
-# Inside: claude (or your Claude Code launch command)
-
-tmux attach -t claude_review
-# Inside: claude
-
-tmux attach -t claude_architect
-# Inside: claude
-```
-
-Detach from a session with `Ctrl+B, D`.
-
-### Session Names in Config
-
-If you use different session names, update them in `.env`:
-
-```ini
-DPMTF_REVIEW_SESSION=my_review_session
-DPMTF_IMPLEMENTER_SESSION=my_implementer_session
-DPMTF_ARCHITECT_SESSION=my_architect_session
+# 3. Build viewer session
+python3 scripts/bridgeV002/attach_tmux.py strict_review
+tmux attach -t flow-strict_review
 ```
 
 ---
@@ -228,6 +212,7 @@ DPMTF_ARCHITECT_SESSION=my_architect_session
 ```bash
 # 1. Install prerequisites
 sudo apt update && sudo apt install python3 python3-pip tmux git
+curl -fsSL https://ollama.com/install.sh | sh
 
 # 2. Clone repository
 git clone <repo-url> ~/DPMtF-WebUI
@@ -239,32 +224,29 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 4. Edit config files for your paths
-nano dpmtf.ini     # Change project_root, bridge_dir
-nano .env           # Change DPMTF_BRIDGE_DIR, tokens
+nano dpmtf.ini     # Change project_root
+nano .env           # Change DPMTF_BRIDGE_DIR to /home/<you>/flows
 
-# 5. Export bridge dir in shell (for CLI bridge.py calls)
-echo 'export DPMTF_BRIDGE_DIR=/home/<you>/claude-bridge' >> ~/.bashrc
+# 5. Export bridge dir in shell
+echo 'export DPMTF_BRIDGE_DIR=/home/<you>/flows' >> ~/.bashrc
 source ~/.bashrc
 
 # 6. Create bridge directory
-mkdir -p ~/claude-bridge/reviewtoimplementor
-mkdir -p ~/claude-bridge/implementertoreview
-mkdir -p ~/claude-bridge/reviewtoarchitect
-mkdir -p ~/claude-bridge/architecttoreview
+mkdir -p ~/flows
 
-# 7. Copy bridge.py to bridge directory
-cp /path/to/bridge.py ~/claude-bridge/
-
-# 8. Initialize database
+# 7. Initialize database (creates tables + seed data including strict_review flow)
 python3 scripts/init_db.py
 
-# 9. Create tmux sessions
-tmux new-session -d -s claude_implementer
-tmux new-session -d -s claude_review
-tmux new-session -d -s claude_architect
+# 8. Pull Ollama models (if using local models)
+ollama pull qwen3.6:35b-a3b
+ollama pull qwen3.6:27b-q4_K_M
 
-# 10. Start the app
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload
+# 9. Start the app
+source .venv/bin/activate
+uvicorn app:app --host 0.0.0.0 --port 9130 --reload
+
+# 10. Open http://localhost:9130 → Setup → Bridge Setup
+#     Use Start tmux → Start Coding → Attach tmux buttons
 ```
 
 ### macOS Install
@@ -272,12 +254,7 @@ tmux new-session -d -s claude_architect
 Same as Linux, but install prerequisites via Homebrew:
 
 ```bash
-# 1. Install Homebrew (if not already installed)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# 2. Install prerequisites
-brew install python@3.12 tmux git
-
+brew install python@3.12 tmux git ollama
 # Then follow Linux steps 2-10 above.
 # Paths will be /Users/<you>/... instead of /home/<you>/...
 ```
@@ -287,7 +264,6 @@ brew install python@3.12 tmux git
 ```powershell
 # In PowerShell (Admin):
 wsl --install -d Ubuntu-24.04
-
 # Restart, launch Ubuntu from Start Menu, then follow Linux steps 1-10.
 ```
 
@@ -295,30 +271,52 @@ wsl --install -d Ubuntu-24.04
 
 ## Validation After Setup
 
-Run these checks to verify the setup is correct:
-
 ```bash
 # 1. Config loads correctly
-python3 -c "import sys; sys.path.insert(0,'.'); import config; print(config.get_project_root()); print(config.get_bridge_dir())"
+python3 -c "import config; print('project_root:', config.get_project_root()); print('bridge_dir:', config.get_bridge_dir())"
 # Must print your actual paths, not /home/svend/...
 
-# 2. Database is initialized
-python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(conn.execute('SELECT COUNT(*) FROM ui_labels').fetchone()[0])"
-# Must print a positive number
+# 2. Database is initialized with flow data
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('databases/dpmtf.db')
+print('Flows:', conn.execute('SELECT COUNT(*) FROM bridge_flows').fetchone()[0])
+print('Roles:', conn.execute('SELECT COUNT(*) FROM bridge_roles WHERE is_active=1').fetchone()[0])
+print('Steps:', conn.execute('SELECT COUNT(*) FROM bridge_flow_steps WHERE is_active=1').fetchone()[0])
+conn.close()
+"
 
-# 3. Bridge.py works
-python3 ~/claude-bridge/bridge.py next-id
-# Must print a number without errors
+# 3. BridgeV002 dispatch works
+python3 scripts/bridgeV002/dispatch.py --db-flow strict_review --help
+# Must print help text without errors
 
-# 4. Tmux sessions exist
+# 4. App starts and API responds
+curl -s http://localhost:9130/api/health
+curl -s http://localhost:9130/api/bridge-v2/status
+curl -s http://localhost:9130/api/bridge-v2/flows
+
+# 5. Tmux sessions for your flow (after clicking Start tmux in UI)
 tmux list-sessions
-# Must show claude_implementer, claude_review, claude_architect
-
-# 5. App starts
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload &
-sleep 2
-curl -s http://localhost:9130/api/health || echo "Health check failed"
+# Must show the sessions defined in bridge_roles for your flow
 ```
+
+---
+
+## Adding a New Flow
+
+BridgeV002 supports multiple flows. To add a new flow:
+
+1. **Create the flow** in UI: Setup → Bridge Setup → Flows → Add Flow.
+2. **Create roles** for the flow: Setup → Bridge Setup → Roles → Add Role.
+   Each role needs a `tmux_session` name and `start_cmd`.
+3. **Create steps** for the flow: Setup → Bridge Setup → Steps → Add Step.
+   Each step defines from_role → to_role and deliverable paths.
+4. **Create conventions** if the defaults don't fit: Setup → Bridge Setup →
+   Conventions → Edit. Convention rules define prompt templates and
+   validation schemas.
+
+The UI exposes all CRUD operations for flows, roles, steps, and conventions.
+No config files to edit, no scripts to write.
 
 ---
 
@@ -328,8 +326,8 @@ curl -s http://localhost:9130/api/health || echo "Health check failed"
 |------|----------|
 | [[10_PROJECT]] | Confirming project identity and port. |
 | [[14_ARCHITECTURE]] | Understanding component layout and bridge architecture. |
-| [[100_BRIDGE]] | Bridge protocol details and tmux communication. |
+| [[100_BRIDGE]] | BridgeV002 protocol and dispatch signals. |
 | [[12_CODING_STANDARD]] | Config Lookup Pattern — mandatory config.py usage. |
 | [[16_FILE_ACCESS]] | Project Root Resolution via config.py. |
-
----
+| [[402_STRICT_REVIEW_ARCHI01]] | Architect role definition for strict_review flow. |
+| [[403_STRICT_REVIEW_IMPLE01]] | Implementer role definition for strict_review flow. |
