@@ -121,6 +121,16 @@ General coding standards, validation rules, and git policy are in the
 01-99 series. The 400-series takes precedence when operating within a
 BridgeV002 flow.
 
+## Platform Support
+
+| Platform | Status |
+|----------|--------|
+| **Linux** | Native — fully supported (Ubuntu 24.04+, Debian 12+) |
+| **macOS** | Supported via Homebrew (python, tmux, ollama) |
+| **Windows** | **WSL2 required** — tmux has no native Windows port. Install WSL2 with Ubuntu, then follow Linux setup. Native Windows is not supported. |
+
+See `docs/governance-templates-v2/300_SETUPINSTRUCTION.md` for full platform setup guide.
+
 ## Language Policy
 
 - **en-US** is mandatory for all code, comments, docstrings, commit messages,
