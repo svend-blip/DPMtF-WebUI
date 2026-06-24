@@ -116,14 +116,17 @@ def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
 def build_aggregated_cmd(target_project, start_cmd_suffix):
     """Build the aggregated start command from decomposed fields.
 
-    Returns the command string to send to the tmux session, or None if
+    Returns the full tmux send-keys payload with quoting, or None if
     required fields are missing.
+
+    Format: 'cd {target_project} {suffix}'
+    The opening quote is added here; suffix should NOT include the closing quote.
     """
     if not start_cmd_suffix:
         return None
     if not target_project:
         return None
-    return f"cd {target_project} {start_cmd_suffix}"
+    return f"'cd {target_project} {start_cmd_suffix}'"
 
 
 def main():

@@ -1861,11 +1861,12 @@ function getTargetProject() {
 
 function buildAggregatedCmd(role, targetProject) {
   // Always show the aggregated command — with placeholders when values are missing
+  // Format: tmux send-keys -t {session} 'cd {project} {suffix}' Enter
   var session = role.tmux_session || "(no session)";
   var project = targetProject || "(no project)";
   var suffix = role.start_cmd_suffix || "(not configured)";
   return "tmux send-keys -t " + session +
-         " 'cd " + project + " " + suffix;
+         " 'cd " + project + " " + suffix + "' Enter";
 }
 
 function renderRoleCard(role) {
@@ -2265,7 +2266,7 @@ function addBridgeRole() {
   var scsInput = el("input", null);
   scsInput.id = "bridge-input-start_cmd_suffix";
   scsInput.type = "text";
-  scsInput.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...' Enter";
+  scsInput.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...";
   scsDiv.appendChild(scsInput);
   form.appendChild(scsDiv);
 
@@ -2634,7 +2635,7 @@ function editBridgeRoleFull(roleKey) {
       scsInput2.id = "bridge-edit-input-start_cmd_suffix";
       scsInput2.type = "text";
       scsInput2.value = role.start_cmd_suffix || "";
-      scsInput2.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...' Enter";
+      scsInput2.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...";
       scsDiv2.appendChild(scsInput2);
       form.appendChild(scsDiv2);
 
