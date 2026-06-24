@@ -1869,6 +1869,7 @@ function buildAggregatedCmd(role, targetProject) {
 }
 
 function renderRoleCard(role) {
+  console.log("renderRoleCard called for", role.role_key, "start_cmd_suffix:", role.start_cmd_suffix);
   var card = el("div", "dpmtf-card");
 
   // Header: role key + status badge
@@ -1925,6 +1926,8 @@ function renderRoleCard(role) {
     row.appendChild(valSpan);
     card.appendChild(row);
   });
+
+  console.log("renderRoleCard done for", role.role_key, "fields shown:", fields.filter(function(f) { return f[1]; }).map(function(f) { return f[0]; }));
 
   // Action buttons: Rename, Edit and Delete
   var actions = el("div", null);
