@@ -1,101 +1,137 @@
-# DPMtF WebUI
+# DPMtF-WebUI — Father Project
 
-## Project Purpose
+DPMtF-WebUI is the **Father project** in the DPMtF ecosystem. It owns the
+authoritative governance templates and serves as the Prompt Compiler for all
+projects (including itself). It also hosts **BridgeV002** — the database-driven
+dispatch system for AI role-to-role communication.
 
-DPMtF WebUI is a web-based interface for managing deterministic prompt workflows. It provides a structured approach to creating, organizing, and executing prompt sequences for AI applications.
-
-## Installation
-
-To install the required dependencies, run:
+## Quick Start
 
 ```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-## Starting the Application
+# Initialize database (idempotent — safe to run multiple times)
+python3 scripts/init_db.py
 
-To start the WebUI on port 9130:
+# Start the application
+uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 
-```bash
-python app.py
-```
-
-Or using uvicorn directly:
-
-```bash
-uvicorn app:app --host 0.0.0.0 --port 9130
-```
-
-## Health Check
-
-To check if the application is running properly:
-
-```bash
+# Health check
 curl http://localhost:9130/api/health
 ```
 
-## Importing Reference Panels
+Open `http://localhost:9130` in a browser.
 
-To import panels from ai-pc-resource-webui:
+## Core Systems
 
-```bash
-python scripts/import_reference_panels.py
-```
+### BridgeV002 — AI Role Dispatch
 
-## Checking Imported Panels
+Database-driven dispatch system for AI role-to-role communication. Replaces
+the legacy `claude-bridge` entirely.
 
-To view imported panels through the API:
+- **Flows** — configurable step sequences (e.g., `strict_review`: architect →
+  implementer → technical review → governance review → human)
+- **Roles** — per-flow role definitions with tmux sessions, models, and start
+  commands
+- **Conventions** — content templates for handoff prompts, callback formats,
+  and verdict structures
+- **Signals** — `send`, `complete`, `escalation`, `answer` via `dispatch.py`
 
-```bash
-curl http://localhost:9130/api/panels
-```
+Manage flows, roles, steps, and conventions via the web UI under
+**Setup → Bridge Setup**.
 
-## Phase 1F: Prompt Sequence Planner
+### Prompt Compiler
 
-This phase implements the skeleton for the Prompt Sequence Planner feature. The planner allows users to:
+Assembles handoff prompts from knowledge fragments, scope profiles, and
+governance rules. Generates BridgeV002 dispatch commands for one-click
+delivery to AI roles.
 
-1. See existing prompt sequences
-2. Create new prompt sequences manually
-3. Select a prompt sequence
-4. See steps for the selected sequence
-5. Add simple manual steps to the selected sequence
+### Governance Templates
 
-### Features Implemented
-
-- **Database Schema**: Updated `prompt_sequences` and `prompt_sequence_steps` tables with required columns
-- **API Endpoints**: 
-  - GET /api/prompt-sequences
-  - POST /api/prompt-sequences  
-  - GET /api/prompt-sequences/{sequence_id}/steps
-  - POST /api/prompt-sequences/{sequence_id}/steps
-- **Frontend UI**: 
-  - Form to create new sequences
-  - Dropdown to select existing sequences
-  - Read-only list of steps for selected sequence
-  - Form to add new steps
-  - Status indicators and error handling
-
-### Usage
-
-The Prompt Sequence Planner is now accessible through the WebUI under the "Prompt Sequence Planner" section.
+`docs/governance-templates-v2/` contains the authoritative governance files
+for all DPMtF projects. General templates (01-300) define universal rules.
+Flow-specific templates (401-405) take precedence when operating within a
+BridgeV002 flow.
 
 ## Project Structure
 
-- `app.py` - Main FastAPI application
-- `databases/` - Database files
-- `templates/` - HTML templates
-- `static/` - CSS and other static assets
-- `scripts/` - Utility scripts
-- `exports/` - Exported data
-- `docs/` - Documentation
-- `config/` - Configuration files
-
-## Database Initialization
-
-To initialize the database, run:
-
-```bash
-python scripts/init_db.py
+```
+DPMtF-WebUI/
+├── app.py                  # FastAPI backend (~4000 lines)
+├── config.py               # Central configuration — single source of truth
+├── dpmtf.ini               # App-config defaults (committed)
+├── .env                    # Secrets + infrastructure vars (NEVER commit)
+├── requirements.txt        # Python dependencies
+├── CLAUDE.md               # Project reference for Claude Code
+├── README.md               # This file
+├── templates/
+│   └── index.html          # Single-page application HTML
+├── static/
+│   ├── js/dpmtf-app.js     # Frontend JavaScript (~5000 lines)
+│   └── css/dpmtf-theme.css # Dark theme (GitHub-dark palette)
+├── scripts/
+│   ├── init_db.py          # Database initialization + seed data
+│   ├── initialize_new_webui.py  # Accelerated WebUI Factory
+│   └── bridgeV002/         # BridgeV002 dispatch system
+│       ├── dispatch.py     # Universal dispatcher (4 signals)
+│       ├── bridge_lib.py   # Database lookup, convention resolution
+│       ├── post-dispatch-common.py  # Post-dispatch: validate + ollama stop
+│       ├── start_tmuxflow.py    # Create tmux sessions for a flow
+│       ├── start_coding.py      # Launch AI tools in tmux sessions
+│       ├── stop_tmuxflow.py     # Kill tmux sessions for a flow
+│       └── attach_tmux.py       # Build viewer session for a flow
+├── docs/
+│   ├── governance-templates-v2/ # Authoritative governance (all projects)
+│   │   ├── 01-04 + 10-29 + 99-300  # General governance files
+│   │   ├── 401-405_STRICT_REVIEW_*.md  # Flow-specific role templates
+│   │   └── knowledge-fragments/  # Curated .md fragments for Prompt Compiler
+│   └── superpowers/              # Design specs and implementation plans
+├── databases/
+│   └── dpmtf.db            # SQLite database (runtime state)
+└── .claude/
+    └── skills/STRICTREVIEW/ # Architect cold-start skill
 ```
 
-This creates the necessary tables for the application's data model.
+## Related Projects
+
+| Project | Port | Path | Role |
+|---------|------|------|------|
+| **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Father — governance engine + BridgeV002 |
+| **ENO** | 9131 | `/home/svend/ENO` | First Child project |
+| **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Reference project |
+
+## Configuration
+
+Two files control all configurable values:
+
+- **`dpmtf.ini`** — App-config defaults (committed to git, no secrets)
+- **`.env`** — Secrets + infrastructure vars (NEVER commit)
+
+Key environment variable:
+```bash
+export DPMTF_BRIDGE_DIR=/home/<you>/flows   # BridgeV002 deliverable directory
+```
+
+See `docs/governance-templates-v2/300_SETUPINSTRUCTION.md` for full setup guide.
+
+## Governance
+
+All roles MUST read their governance file before acting:
+
+- **Human:** `01_HUMAN.md`
+- **Architect (strict_review):** `402_STRICT_REVIEW_ARCHI01.md`
+- **Implementer (strict_review):** `403_STRICT_REVIEW_IMPLE01.md`
+- **Technical Review (strict_review):** `404_STRICT_REVIEW_REVIEW01.md`
+- **Governance Review (strict_review):** `405_STRICT_REVIEW_REVIEW02.md`
+
+General coding standards, validation rules, and git policy are in the
+01-99 series. The 400-series takes precedence when operating within a
+BridgeV002 flow.
+
+## Language Policy
+
+- **en-US** is mandatory for all code, comments, docstrings, commit messages,
+  and inter-role bridge communication.
+- Human may use Danish — but prompts forwarded to other roles MUST be
+  translated to English.
