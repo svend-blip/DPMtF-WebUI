@@ -96,8 +96,10 @@ def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
             target_project, bridge_dir=bridge_dir, project_root=project_root
         )
         cmd_str = build_aggregated_cmd(resolved_target, resolved_suffix)
-        print(f"  Aggregated: {cmd_str}")
-        cmd = ["tmux", "send-keys", "-t", session_name, cmd_str, "Enter"]
+        # Wrap in single quotes so tmux sends it as one shell word
+        full_cmd = f"'{cmd_str}'"
+        print(f"  Aggregated: {full_cmd} Enter")
+        cmd = ["tmux", "send-keys", "-t", session_name, full_cmd, "Enter"]
     elif start_cmd:
         # Fallback: use existing start_cmd as before
         resolved = resolve_placeholders(
@@ -116,17 +118,18 @@ def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
 def build_aggregated_cmd(target_project, start_cmd_suffix):
     """Build the aggregated start command from decomposed fields.
 
-    Returns the full tmux send-keys payload with quoting, or None if
+    Returns the command string to send to the tmux session, or None if
     required fields are missing.
 
-    Format: 'cd {target_project} {suffix}'
-    The opening quote is added here; suffix should NOT include the closing quote.
+    Format: cd {target_project} {suffix}
+    The closing quote and Enter are added by run_cmd_in_session.
+    Suffix should NOT include ' Enter — only the command itself.
     """
     if not start_cmd_suffix:
         return None
     if not target_project:
         return None
-    return f"'cd {target_project} {start_cmd_suffix}'"
+    return f"cd {target_project} {start_cmd_suffix}"
 
 
 def main():
