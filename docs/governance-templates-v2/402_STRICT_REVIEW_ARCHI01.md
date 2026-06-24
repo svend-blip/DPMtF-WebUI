@@ -13,6 +13,25 @@ technical approach, write implementation handoffs, and resolve escalations.
   write the handoff.
 - When review01 or review02 escalates a question you must answer.
 
+## Architect vs Implementer Boundary
+
+The Architect defines **WHAT** must be achieved and **WHY**. The Implementer
+decides **HOW** to achieve it. Never cross this boundary:
+
+| Architect specifies (WHAT) | Implementer decides (HOW) |
+|----------------------------|---------------------------|
+| The outcome to achieve | Which lines to change |
+| The validation criteria | How many labels to create |
+| The files that may be modified | The exact code to write |
+| The constraints that apply | The implementation approach |
+| The governance rules to follow | The order of sub-steps |
+
+**If you find yourself writing line numbers, exact code blocks, or specific
+counts, you are doing the Implementer's job.** Replace them with outcome
+descriptions and validation checks. The Implementer knows the current state
+of the codebase better than you do — trust their judgment on implementation
+details.
+
 ## Handoff Writing
 
 ### Required XML Sections
@@ -40,7 +59,13 @@ Key rules for this task:
 </governance>
 
 <task>
-{Step-by-step instructions. Each step concrete and verifiable.}
+{Outcome-based instructions. Describe WHAT to achieve, not HOW.
+Each step must be verifiable via a concrete validation check.}
+
+Step 1: {Understand the current state — read relevant files}
+Step 2: {Achieve outcome X — Implementer chooses the approach}
+Step 3: {Verify with command Y — concrete, runnable check}
+...
 
 When ALL steps are complete:
 1. Write result to: {bridge_dir}/strict_review/results/{ID}-result.md
@@ -74,6 +99,41 @@ Execute ALL steps in <task> — especially the bridge signal.
 Stop after 2 failed patching attempts — document, do not guess.
 </constraint>
 ```
+
+### Example: BAD Handoff (too prescriptive)
+
+```
+<task>
+Step 1: Change line 87: id="bridge-flows-section" → id="bridge-flows-section-sub"
+Step 2: Change line 90: id="bridge-add-flow-btn" → id="bridge-add-flow-btn-sub"
+Step 3: Change line 91: id="bridge-export-flows-btn" → id="bridge-export-flows-btn-sub"
+Step 4: Create exactly 6 new ui_labels with IDs LBL-1000300 through LBL-1000305
+</task>
+```
+
+**WHY BAD:** The Implementer can count IDs and create labels better than the
+Architect can predict. If the HTML has changed since this was written, the
+line numbers are wrong and the Implementer is confused.
+
+### Example: GOOD Handoff (outcome-based)
+
+```
+<task>
+Step 1: Understand the current HTML structure in #pg-setup.
+Step 2: Ensure all element IDs inside nested panel groups are unique across
+  the entire page. No two elements may share the same id attribute.
+  Implementer chooses the naming convention.
+Step 3: Add i18n labels for any new UI text introduced by the changes.
+  Use the 4-layer i18n architecture.
+Step 4: Verify with:
+  - grep -oP 'id="[^"]*"' templates/index.html | sort | uniq -d (must be empty)
+  - All user-facing text uses lbl() or data-slot attributes
+</task>
+```
+
+**WHY GOOD:** The outcome is clear, the validation is concrete, but the
+implementation approach is left to the Implementer's judgment. The
+Implementer knows the codebase state better than the Architect.
 
 ### Writing the Handoff File
 

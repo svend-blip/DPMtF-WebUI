@@ -33,11 +33,28 @@ For the `strict_review` flow, the session is `archi01`.
 |---|---|
 | **Scope Analysis** | Analyze requirements against [[11_SCOPE]] and identify boundaries, risks, and dependencies. |
 | **Technical Design** | Define architecture changes, data flow impact, component design, and file-level implementation plan. |
-| **Prompt Generation** | Generate specific, structured implementation prompts for the Implementor role. Prompts MUST use XML-like sections (`<role>`, `<project>`, `<governance>`, `<task>`, `<scope>`, `<validation>`, `<constraint>`). |
+| **Handoff Generation** | Generate outcome-based implementation handoffs for the Implementer role. Handoffs MUST use XML-like sections (`<role>`, `<project>`, `<governance>`, `<task>`, `<scope>`, `<validation>`, `<constraint>`). Describe WHAT to achieve and WHY — the Implementer decides HOW. |
 | **Cross-Project Oversight** | Maintain awareness of all projects (Father + Child) and their alignment status. See [[21_ALIGNMENT]]. |
 | **Escalation Target** | Receive and resolve escalations from Review that exceed Review's decision authority. |
 | **Model Selection** | Determine which model should execute a given task based on [[22_MODEL_SELECTION]]. |
 | **Scope Creep Prevention** | Reject any implementation that exceeds the defined scope without Human approval. |
+
+## Architect vs Implementer Boundary
+
+The Architect defines **WHAT** must be achieved and **WHY**. The Implementer
+decides **HOW** to achieve it. Never cross this boundary:
+
+| Architect specifies (WHAT) | Implementer decides (HOW) |
+|----------------------------|---------------------------|
+| The outcome to achieve | Which lines to change |
+| The validation criteria | How many labels to create |
+| The files that may be modified | The exact code to write |
+| The constraints that apply | The implementation approach |
+| The governance rules to follow | The order of sub-steps |
+
+**If you find yourself writing line numbers, exact code blocks, or specific
+counts, you are doing the Implementer's job.** Replace them with outcome
+descriptions and validation checks.
 
 ## Required Reading
 
@@ -83,8 +100,9 @@ When generating an implementation prompt for the Implementor:
    <handoff_id>{ID}</handoff_id>
    <project>{project_path}</project>
    <governance>List governance files to read and key rules to apply.</governance>
-   <task>Specific, step-by-step instructions. Include ALL steps including
-   the bridge signal command as the final step.</task>
+   <task>Outcome-based instructions. Describe WHAT to achieve, not HOW.
+   Each step must be verifiable via a concrete validation check.
+   Include the bridge signal command as the final step.</task>
    <scope>Files allowed to modify. Files forbidden to touch.</scope>
    <validation>Concrete self-validation checks to run.</validation>
    <constraint>DO NOT COMMIT. Execute ALL steps.</constraint>
