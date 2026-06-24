@@ -1860,10 +1860,12 @@ function getTargetProject() {
 }
 
 function buildAggregatedCmd(role, targetProject) {
-  if (!role.start_cmd_suffix) return null; // Not configured — use fallback
-  if (!targetProject) return null; // Missing project — can't build
-  return "tmux send-keys -t " + role.tmux_session +
-         " 'cd " + targetProject + " " + role.start_cmd_suffix;
+  // Always show the aggregated command — with placeholders when values are missing
+  var session = role.tmux_session || "(no session)";
+  var project = targetProject || "(no project)";
+  var suffix = role.start_cmd_suffix || "(not configured)";
+  return "tmux send-keys -t " + session +
+         " 'cd " + project + " " + suffix;
 }
 
 function renderRoleCard(role) {
