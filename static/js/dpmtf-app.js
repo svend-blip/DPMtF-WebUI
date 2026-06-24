@@ -1876,6 +1876,8 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
     // G1: Role type (agent/human) — show non-default values
     [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
+    // H150: Enter command — show non-default values
+    [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command && role.enter_command !== "default" ? role.enter_command : null],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -2135,6 +2137,8 @@ function addBridgeRole() {
     if (cm && cm.value.trim()) body.cloud_model = cm.value.trim();
     var om = document.getElementById("bridge-input-ollama_model");
     if (om && om.value.trim()) body.ollama_model = om.value.trim();
+    var ec = document.getElementById("bridge-input-enter_command");
+    if (ec && ec.value !== "default") body.enter_command = ec.value;
 
     fetch("/api/bridge-v2/roles", {
       method: "POST",
@@ -2198,6 +2202,20 @@ function addBridgeRole() {
     div.appendChild(input);
     form.appendChild(div);
   });
+
+  // H150: Enter command select
+  var ecDiv = el("div", "dpmtf-form-group");
+  ecDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_enter_command", "Enter Command")));
+  var ecSelect = el("select", null);
+  ecSelect.id = "bridge-input-enter_command";
+  [["default", "Default (Enter)"], ["c-m", "C-m (Freebuff two-step)"], ["c-j", "C-j (Ctrl+J)"], ["c-d", "C-d (Ctrl+D)"]].forEach(function (pair) {
+    var opt = document.createElement("option");
+    opt.value = pair[0];
+    opt.textContent = pair[1];
+    ecSelect.appendChild(opt);
+  });
+  ecDiv.appendChild(ecSelect);
+  form.appendChild(ecDiv);
 
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
@@ -2395,6 +2413,12 @@ function editBridgeRoleFull(roleKey) {
           body.role_type = rt.value;
         }
 
+        // H150: enter_command select
+        var ec = document.getElementById("bridge-edit-input-enter_command");
+        if (ec && ec.value && ec.value !== "default") {
+          body.enter_command = ec.value;
+        }
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2531,6 +2555,21 @@ function editBridgeRoleFull(roleKey) {
       });
       rtDiv.appendChild(rtSelect);
       form.appendChild(rtDiv);
+
+      // H150: enter_command select
+      var ecDiv2 = el("div", "dpmtf-form-group");
+      ecDiv2.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_enter_command", "Enter Command")));
+      var ecSelect2 = el("select", null);
+      ecSelect2.id = "bridge-edit-input-enter_command";
+      [["default", "Default (Enter)"], ["c-m", "C-m (Freebuff two-step)"], ["c-j", "C-j (Ctrl+J)"], ["c-d", "C-d (Ctrl+D)"]].forEach(function (pair) {
+        var opt = document.createElement("option");
+        opt.value = pair[0];
+        opt.textContent = pair[1];
+        if ((role.enter_command || "default") === pair[0]) opt.selected = true;
+        ecSelect2.appendChild(opt);
+      });
+      ecDiv2.appendChild(ecSelect2);
+      form.appendChild(ecDiv2);
 
       var container = document.getElementById("bridge-roles-list-container");
       if (container) {
