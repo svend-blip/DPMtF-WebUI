@@ -1869,7 +1869,6 @@ function buildAggregatedCmd(role, targetProject) {
 }
 
 function renderRoleCard(role) {
-  console.log("renderRoleCard called for", role.role_key, "start_cmd_suffix:", role.start_cmd_suffix);
   var card = el("div", "dpmtf-card");
 
   // Header: role key + status badge
@@ -1909,13 +1908,16 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
   ];
   fields.forEach(function (pair) {
-    console.log("field:", pair[0], "value:", JSON.stringify(pair[1]), "truthy:", !!pair[1]);
     if (!pair[1]) return;
     var row = el("div", null);
     var label = pair[0];
     // Set data-field for styling hooks
     if (label === lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")) {
       row.setAttribute("data-field", "aggregated_cmd");
+      row.style.border = "2px solid red";  // DEBUG: make it visible
+    }
+    if (label === lbl("lbl_compiler_target_project", "Target Project")) {
+      row.style.border = "2px solid blue";  // DEBUG: make it visible
     }
     row.appendChild(el("span", "dpmtf-small", escapeHtml(label) + ": "));
     var valSpan = el("span", null, escapeHtml(String(pair[1])));
@@ -1927,8 +1929,6 @@ function renderRoleCard(role) {
     row.appendChild(valSpan);
     card.appendChild(row);
   });
-
-  console.log("renderRoleCard done for", role.role_key, "fields shown:", fields.filter(function(f) { return f[1]; }).map(function(f) { return f[0]; }));
 
   // Action buttons: Rename, Edit and Delete
   var actions = el("div", null);
