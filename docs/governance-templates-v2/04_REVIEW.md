@@ -12,7 +12,10 @@ roles from the legacy 8-role pipeline. Review validates all implementation
 results, decides whether to approve or return changes, coordinates the bridge
 workflow, and escalates architectural decisions to the Architect.
 
-The Review runs as a tmux session named `claude_review`.
+The Review runs in a dedicated tmux session. The session name is configured
+in the database (`bridge_roles.tmux_session`) per flow — not hardcoded.
+For the `strict_review` flow, the sessions are `review01` (technical) and
+`review02` (governance).
 
 > **Flow-specific governance:** When operating within a BridgeV002 flow (e.g.
 > `strict_review`), the flow-specific role template (400-series) takes precedence.
@@ -61,9 +64,9 @@ Additionally, the Review reads as needed:
 
 | Input | Description |
 |---|---|
-| Implementor result | From `{bridge_dir}/implementertoreview/{ID}-result.md` and `{ID}-notification.md`. |
+| Implementor result | From `{bridge_dir}/{flow_key}/results/{ID}-result.md` and `{ID}-notification.md`. |
 | Git diff | `git diff` of the Implementor's changes. |
-| Architect response | From `{bridge_dir}/architecttoreview/{ID}-response.md` (escalation answer). |
+| Architect response | From `{bridge_dir}/{flow_key}/escalations/{ID}-response.md` (escalation answer). |
 | NEXT_CONTEXT | After `/clear`: session state from [[27_NEXT_CONTEXT]]. |
 
 ## Outputs
@@ -93,15 +96,15 @@ After APPROVED verdict:
 4. WAIT for Human authorization before any commit/push
 
 Violation of this rule will be reported to Human and may result in
-model deselection per 02_ARCHITECT.md Post-Handoff Stop Rule.
+model deselection per Architect role definition (02_ARCHITECT.md, or 402_STRICT_REVIEW_ARCHI01.md when in strict_review flow).
 
 ```
 1. RECEIVE bridge signal:
    BridgeV002 injects callback prompt into Review's tmux session.
 
 2. READ result and notification:
-   - {bridge_dir}/implementertoreview/{ID}-result.md
-   - {bridge_dir}/implementertoreview/{ID}-notification.md
+   - {bridge_dir}/{flow_key}/results/{ID}-result.md
+   - {bridge_dir}/{flow_key}/results/{ID}-notification.md
 
 3. RUN validation checks (see [[13_VALIDATION]]):
    - Backend syntax: python3 -m py_compile app.py
@@ -120,7 +123,7 @@ model deselection per 02_ARCHITECT.md Post-Handoff Stop Rule.
 
 5. DECIDE verdict:
    ├─ APPROVED → prepare commit for Human approval (stage files, write
-   │             commit message to {bridge_dir}/implementertoreview/{ID}-commit-message.md,
+   │             commit message to {bridge_dir}/{flow_key}/results/{ID}-commit-message.md,
    │             escalate to Human — DO NOT commit/push)
    ├─ APPROVED with notes → prepare commit, document notes, escalate to Human
    └─ REJECTED → return to Implementor with specific fix instructions
@@ -183,9 +186,9 @@ Read and apply:
 1. Read <context> and <question>.
 2. Consult relevant governance files.
 3. Make a decision and write response to:
-   {bridge_dir}/architecttoreview/{ID}-response.md
+   {bridge_dir}/{flow_key}/escalations/{ID}-response.md
 4. Write NOTIFICATION to:
-   {bridge_dir}/architecttoreview/{ID}-notification.md
+   {bridge_dir}/{flow_key}/escalations/{ID}-notification.md
 5. SIGNAL completion via BridgeV002:
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
      --db-flow {flow_key} --signal-answer --from-role {from_role} --to-role {to_role}

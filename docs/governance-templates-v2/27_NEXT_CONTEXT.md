@@ -22,13 +22,14 @@ is the authoritative source of context — not chat memory.
 
 ## `/clear` Reconstruction Rules
 
-1. **Use `/clear` between role transitions.** After `/clear`, chat memory is unavailable.
+1. **No-kill mode:** BridgeV002 uses `ollama stop` to clear context between
+   role transitions — not `/clear`. Sessions are persistent.
 2. **Governance documents are the source of truth.** Do not rely on chat history.
-3. **Reconstruction order after `/clear`:**
-   - Read this file ([[27_NEXT_CONTEXT]]) — identify current role and remaining work.
+3. **Reconstruction order after restart:**
+   - Read your flow-specific governance file (402-405 for strict_review).
    - Read [[10_PROJECT]] — confirm project identity.
-   - Read the active role file (01, 02, 03, or 04) — understand responsibilities.
    - Read [[11_SCOPE]] — confirm phase boundaries.
+   - Check trace log and current.md symlinks for latest state.
    - Read previous role's output (handoff file, result file, or escalation response).
 4. **If information is missing from governance documents, escalate to Human.**
 

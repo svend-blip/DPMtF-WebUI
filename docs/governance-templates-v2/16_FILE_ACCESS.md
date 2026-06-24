@@ -78,7 +78,7 @@ All project paths are resolved via `config.py`:
 | Path | Getter | Example Value |
 |------|--------|---------------|
 | Project root | `config.get_project_root()` | `/home/svend/DPMtF-WebUI` |
-| Bridge directory | `config.get_bridge_dir()` | `/home/svend/claude-bridge` |
+| Bridge directory | `config.get_bridge_dir()` | `/home/svend/flows` (configured via `DPMTF_BRIDGE_DIR`) |
 | Governance docs | `config.get_governance_dir_abs()` | `/home/svend/DPMtF-WebUI/docs/governance-templates-v2` |
 
 When writing handoff prompts, validation scripts, or scope definitions,

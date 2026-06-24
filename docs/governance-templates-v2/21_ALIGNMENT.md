@@ -25,7 +25,7 @@ and `superpowertemplates/superpowers.md` Section 1.
 | **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Master in `docs/governance-templates-v2/` | Father project — governance engine |
 | **ENO** | 9131 | `/home/svend/ENO` | Project-specific only in `docs/dpmtf/`; structural ref from Father | First Child project |
 | **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Project-specific only in `docs/dpmtf/`; structural ref from Father | Reference project |
-| **claude-bridge** | — | `/home/svend/claude-bridge/` | Independent | Bridge infrastructure |
+| **BridgeV002** | — | `scripts/bridgeV002/` (integrated in DPMtF-WebUI) | Database-driven | Bridge infrastructure — replaces legacy claude-bridge |
 
 ---
 

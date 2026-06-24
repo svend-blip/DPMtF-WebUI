@@ -52,12 +52,12 @@ Hardcoded strings like `/home/svend/...` are prohibited — use config getters.
 **Example (correct):**
 ```python
 import config
-handoff_path = f"{config.get_bridge_dir()}/reviewtoimplementor/{hid}-handoff.md"
+handoff_path = f"{config.get_bridge_dir()}/{flow_key}/handoffs/{hid}-handoff.md"
 ```
 
 **Example (WRONG — auto-fail):**
 ```python
-handoff_path = f"/home/svend/claude-bridge/reviewtoimplementor/{hid}-handoff.md"
+handoff_path = f"/home/svend/flows/strict_review/handoffs/{hid}-handoff.md"
 ```
 
 ## JavaScript

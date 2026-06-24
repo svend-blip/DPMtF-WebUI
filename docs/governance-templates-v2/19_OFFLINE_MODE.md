@@ -20,7 +20,7 @@ Local git is the source of truth; remote operations are deferred until online.
 1. **Local git is the source of truth** — all commits are local.
 2. **Push is deferred** — mark as pending in [[27_NEXT_CONTEXT]].
 3. **Local model is default** — no cloud model access when offline.
-4. **Bridge operates locally** — tmux sessions are local, bridge.py works without internet.
+4. **Bridge operates locally** — tmux sessions are local, dispatch.py works without internet.
 5. **No external API calls** — all operations are local.
 6. **Governance files are fully available** — they are local files.
 
@@ -51,11 +51,9 @@ Local git is the source of truth; remote operations are deferred until online.
 
 ## Bridge Operation When Offline
 
-The bridge (`bridge.py`) operates entirely on local tmux sessions:
-
-- `claude_architect` — local only when offline.
-- `claude_implementer` — always local.
-- `claude_review` — local only when offline.
+BridgeV002 (`dispatch.py`) operates entirely on local tmux sessions.
+Session names are configured per flow in `bridge_roles.tmux_session` —
+not hardcoded. All models run locally when offline (Ollama).
 
 All bridge commands work without internet: `send`, `complete`, `ask-architect`,
 `answer-review`, `next-id`.
