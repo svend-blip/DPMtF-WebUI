@@ -158,7 +158,7 @@ handoff_path = f"{config.get_bridge_dir()}/handoffs/{hid}-handoff.md"
 
 **Wrong (auto-fail):**
 ```python
-handoff_path = f"/home/svend/claude-bridge/reviewtoimplementor/{hid}-handoff.md"
+handoff_path = f"/home/svend/flows/strict_review/handoffs/{hid}-handoff.md"
 ```
 
 ## 6. Git Policy
@@ -202,7 +202,6 @@ Full rules: `docs/governance-templates-v2/16_FILE_ACCESS.md`
 - `__pycache__/`, `.pytest_cache/`
 - `.env` files, credentials, API keys
 - Other projects: `/home/svend/ENO/`, `/home/svend/ai-pc-resource-webui-v3/`
-- Legacy bridge: `/home/svend/claude-bridge/` (read-only reference, superseded by BridgeV002)
 
 ### Append-Only Files
 - `docs/governance-templates-v2/25_DECISIONS.md` — decision log
@@ -304,7 +303,6 @@ fragments used by the Prompt Compiler to assemble handoff prompts:
 | **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Father — governance engine + BridgeV002 |
 | **ENO** | 9131 | `/home/svend/ENO` | First Child project |
 | **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Reference project |
-| **claude-bridge** (legacy) | — | `/home/svend/claude-bridge/` | Legacy bridge — superseded by BridgeV002 |
 
 **Rule:** Never modify files in other projects unless explicitly authorized.
 DPMtF-WebUI's `docs/governance-templates-v2/` is the authoritative source for
