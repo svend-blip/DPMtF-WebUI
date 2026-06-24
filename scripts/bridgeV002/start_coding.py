@@ -96,10 +96,9 @@ def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
             target_project, bridge_dir=bridge_dir, project_root=project_root
         )
         cmd_str = build_aggregated_cmd(resolved_target, resolved_suffix)
-        # Wrap in single quotes so tmux sends it as one shell word
-        full_cmd = f"'{cmd_str}'"
-        print(f"  Aggregated: {full_cmd} Enter")
-        cmd = ["tmux", "send-keys", "-t", session_name, full_cmd, "Enter"]
+        print(f"  Aggregated: {cmd_str}")
+        # Send as separate arguments — no shell quoting needed with subprocess
+        cmd = ["tmux", "send-keys", "-t", session_name, cmd_str, "Enter"]
     elif start_cmd:
         # Fallback: use existing start_cmd as before
         resolved = resolve_placeholders(
