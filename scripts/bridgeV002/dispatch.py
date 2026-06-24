@@ -84,18 +84,39 @@ def get_pane_command(session_name):
     return "unknown"
 
 
-def inject_via_send_keys(session_name, text):
-    """Send text + Enter via tmux send-keys. Used for Claude Code sessions."""
-    # Write text to temp file then use send-keys with load-buffer for multiline
+def inject_via_send_keys(session_name, text, enter_command="default"):
+    """Send text + submit key via tmux send-keys.
+
+    Supports per-role enter_command:
+      - 'default': Enter in same command (Claude Code, standard)
+      - 'c-m': Two-step — text first, then separate C-m (Freebuff)
+      - 'c-j': Two-step with C-j (Ctrl+J / line feed)
+      - 'c-d': Two-step with C-d (Ctrl+D / EOF)
+    """
     tmp = None
     try:
         fd, tmp = tempfile.mkstemp(suffix=".txt", prefix="bridge-inject-")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         subprocess.run(["tmux", "load-buffer", tmp], check=True)
-        subprocess.run(
-            ["tmux", "send-keys", "-t", session_name, "Enter"], check=True
-        )
+
+        # Submit based on enter_command
+        if enter_command == "c-m":
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "", "C-m"], check=True
+            )
+        elif enter_command == "c-j":
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "", "C-j"], check=True
+            )
+        elif enter_command == "c-d":
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "", "C-d"], check=True
+            )
+        else:  # "default" — original behavior
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "Enter"], check=True
+            )
     finally:
         if tmp and os.path.exists(tmp):
             try:
@@ -104,10 +125,11 @@ def inject_via_send_keys(session_name, text):
                 pass
 
 
-def inject_via_paste_buffer(session_name, text):
-    """Write to temp file, load-buffer, paste-buffer, send Enter. Used for OpenCode sessions."""
-    # Note: send-keys Enter after paste-buffer is REQUIRED — OpenCode won't
-    # auto-execute pasted text without a trailing Enter keypress.
+def inject_via_paste_buffer(session_name, text, enter_command="default"):
+    """Write to temp file, load-buffer, paste-buffer, send submit key. Used for OpenCode sessions.
+
+    Supports per-role enter_command (same values as inject_via_send_keys).
+    """
     fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="bridge-prompt-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -115,8 +137,24 @@ def inject_via_paste_buffer(session_name, text):
         subprocess.run(["tmux", "load-buffer", tmp_path], check=True)
         subprocess.run(["tmux", "paste-buffer", "-t", session_name], check=True)
         time.sleep(0.3)
-        # Enter keypress is mandatory — OpenCode does not auto-execute pasted input.
-        subprocess.run(["tmux", "send-keys", "-t", session_name, "Enter"], check=True)
+
+        # Submit based on enter_command
+        if enter_command == "c-m":
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "", "C-m"], check=True
+            )
+        elif enter_command == "c-j":
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "", "C-j"], check=True
+            )
+        elif enter_command == "c-d":
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "", "C-d"], check=True
+            )
+        else:  # "default" — original behavior
+            subprocess.run(
+                ["tmux", "send-keys", "-t", session_name, "Enter"], check=True
+            )
         time.sleep(0.3)
     finally:
         try:
@@ -125,11 +163,17 @@ def inject_via_paste_buffer(session_name, text):
             pass
 
 
-def inject_prompt(session_name, text):
+def inject_prompt(session_name, text, enter_command="default"):
     """Detect tool type and route to correct injection method.
 
     For OpenCode sessions, prepends soft-clear preamble before actual prompt.
     For Claude Code sessions, uses send-keys directly.
+
+    enter_command controls how the submit key is sent:
+      - 'default': Enter (standard for Claude Code / OpenCode)
+      - 'c-m': Two-step C-m (Freebuff)
+      - 'c-j': Two-step C-j
+      - 'c-d': Two-step C-d
     """
     tool = get_pane_command(session_name)
     if tool == "opencode":
@@ -140,9 +184,9 @@ def inject_prompt(session_name, text):
             "Treat this message as the authoritative task."
         )
         combined = f"{soft_clear}\n\n{text}"
-        inject_via_paste_buffer(session_name, combined)
+        inject_via_paste_buffer(session_name, combined, enter_command)
     else:
-        inject_via_send_keys(session_name, text)
+        inject_via_send_keys(session_name, text, enter_command)
 
 
 def unload_ollama_model(model_name):
