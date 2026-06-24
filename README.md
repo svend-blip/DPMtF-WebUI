@@ -93,14 +93,6 @@ DPMtF-WebUI/
     └── skills/STRICTREVIEW/ # Architect cold-start skill
 ```
 
-## Related Projects
-
-| Project | Port | Path | Role |
-|---------|------|------|------|
-| **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Father — governance engine + BridgeV002 |
-| **ENO** | 9131 | `/home/svend/ENO` | First Child project |
-| **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Reference project |
-
 ## Configuration
 
 Two files control all configurable values:
