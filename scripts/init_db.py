@@ -4600,6 +4600,17 @@ try:
 except sqlite3.OperationalError:
     pass
 
+# H160: start_cmd_suffix column on bridge_roles — decomposed start command
+# When set, the aggregated start command is built from:
+#   tmux send-keys -t {tmux_session} 'cd {target_project} {start_cmd_suffix}
+# When NULL, falls back to existing start_cmd field.
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN start_cmd_suffix TEXT DEFAULT NULL
+    """)
+except sqlite3.OperationalError:
+    pass
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
