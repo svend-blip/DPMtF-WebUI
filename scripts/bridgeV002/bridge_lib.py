@@ -327,7 +327,7 @@ def load_role_from_db(role_name, db_path=None):
         Keys: role_key, tmux_session, start_cmd, model_type, cloud_model,
               ollama_model, setup_script, teardown_script, deliver_error_msg,
               is_active, created_at, updated_at, restart_policy,
-              governance_file, role_type, enter_command
+              governance_file, role_type, enter_command, start_cmd_suffix
 
     Raises:
         ValueError: If table doesn't exist or role not found.
