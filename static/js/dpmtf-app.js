@@ -1876,8 +1876,8 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
     // G1: Role type (agent/human) — show non-default values
     [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
-    // H150: Enter command — show non-default values
-    [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command && role.enter_command !== "default" ? role.enter_command : null],
+    // H150: Enter command — always show
+    [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
