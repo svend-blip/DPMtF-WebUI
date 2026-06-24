@@ -37,7 +37,7 @@ def get_flow_roles(db_path, flow_key):
 
     rows = conn.execute(
         """
-        SELECT r.role_key, r.tmux_session, r.start_cmd
+        SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
@@ -57,6 +57,7 @@ def get_flow_roles(db_path, flow_key):
                 "role_key": row["role_key"],
                 "tmux_session": row["tmux_session"],
                 "start_cmd": row["start_cmd"],
+                "start_cmd_suffix": row["start_cmd_suffix"],
             })
 
     conn.close()
@@ -76,21 +77,53 @@ def ensure_session_exists(session_name):
         return False
 
 
-def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root):
-    """Run a resolved command in an existing tmux session via send-keys.
+def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
+                       start_cmd_suffix=None, target_project=None):
+    """Run a start command in an existing tmux session via send-keys.
 
-    Assumes the session already exists (use start_tmuxflow.py to create it).
-    Prints the resolved command before executing.
-    Returns True on success.
+    If start_cmd_suffix is set, builds aggregated command from:
+      cd {target_project} {suffix}
+    Otherwise falls back to the existing start_cmd field.
+
+    Returns True on success, False on failure.
     """
-    # Resolve placeholders in start_cmd via bridge_lib
-    resolved = resolve_placeholders(start_cmd, bridge_dir=bridge_dir, project_root=project_root)
+    if start_cmd_suffix and target_project:
+        # New decomposed mode: build aggregated command
+        resolved_suffix = resolve_placeholders(
+            start_cmd_suffix, bridge_dir=bridge_dir, project_root=project_root
+        )
+        resolved_target = resolve_placeholders(
+            target_project, bridge_dir=bridge_dir, project_root=project_root
+        )
+        cmd_str = build_aggregated_cmd(resolved_target, resolved_suffix)
+        print(f"  Aggregated: {cmd_str}")
+        cmd = ["tmux", "send-keys", "-t", session_name, cmd_str, "Enter"]
+    elif start_cmd:
+        # Fallback: use existing start_cmd as before
+        resolved = resolve_placeholders(
+            start_cmd, bridge_dir=bridge_dir, project_root=project_root
+        )
+        print(f"  Command: {resolved}")
+        cmd = ["tmux", "send-keys", "-t", session_name, resolved, "Enter"]
+    else:
+        print(f"  ERROR: No start_cmd or start_cmd_suffix configured")
+        return False
 
-    print(f"  Command: {resolved}")
-
-    cmd = ["tmux", "send-keys", "-t", session_name, resolved, "Enter"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode == 0
+
+
+def build_aggregated_cmd(target_project, start_cmd_suffix):
+    """Build the aggregated start command from decomposed fields.
+
+    Returns the command string to send to the tmux session, or None if
+    required fields are missing.
+    """
+    if not start_cmd_suffix:
+        return None
+    if not target_project:
+        return None
+    return f"cd {target_project} {start_cmd_suffix}"
 
 
 def main():
@@ -133,8 +166,8 @@ def main():
         session_name = role["tmux_session"]
         start_cmd = role["start_cmd"]
 
-        if not start_cmd:
-            print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no start_cmd)")
+        if not start_cmd and not role.get("start_cmd_suffix"):
+            print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no start_cmd or start_cmd_suffix)")
             skipped.append(role["role_key"])
             continue
 
@@ -148,7 +181,14 @@ def main():
 
         # Execute the role's start command in the existing tmux session
         print(f"  {role['role_key']:15s} → '{session_name}'  (start_cmd) ...")
-        ok = run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root)
+        ok = run_cmd_in_session(
+            session_name,
+            role["start_cmd"],
+            bridge_dir,
+            project_root,
+            start_cmd_suffix=role.get("start_cmd_suffix"),
+            target_project=project_root,  # target_project = DPMtF project root
+        )
         if ok:
             started.append(session_name)
             print(f"    Command sent to session.")
