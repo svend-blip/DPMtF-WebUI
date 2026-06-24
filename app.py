@@ -4778,8 +4778,8 @@ async def bridge_v2_create_role(request: Request):
         cursor.execute("""
             INSERT INTO bridge_roles
             (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
-             setup_script, teardown_script, deliver_error_msg, enter_command)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             setup_script, teardown_script, deliver_error_msg, enter_command, start_cmd_suffix)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["role_key"],
             data["tmux_session"],
@@ -4791,6 +4791,7 @@ async def bridge_v2_create_role(request: Request):
             data.get("teardown_script"),
             data.get("deliver_error_msg"),
             data.get("enter_command", "default"),
+            data.get("start_cmd_suffix"),
         ))
     else:
         # Role exists (active or soft-deleted) — reactivate/update it
@@ -4800,7 +4801,7 @@ async def bridge_v2_create_role(request: Request):
         params = []
         for field in ["tmux_session", "start_cmd", "model_type", "cloud_model",
                       "ollama_model", "setup_script", "teardown_script",
-                      "deliver_error_msg", "enter_command"]:
+                      "deliver_error_msg", "enter_command", "start_cmd_suffix"]:
             if field in data:
                 sets.append(f"{field} = ?")
                 params.append(data[field])
@@ -4839,6 +4840,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "governance_file",
         "role_type",  # G1: allow frontend to change role type (agent/human)
         "enter_command",  # H150: per-role Enter key configuration
+        "start_cmd_suffix",  # H160: decomposed start command suffix
     ]
     sets = []
     params = []
