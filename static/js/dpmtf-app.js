@@ -1847,6 +1847,25 @@ function loadBridgeRoles() {
     });
 }
 
+function getTargetProject() {
+  // Read from the compile form's target_project input (most current value)
+  var input = document.getElementById("compile-target_project");
+  if (input && input.value.trim()) {
+    return input.value.trim();
+  }
+  // Fallback: DPMTF_PROJECT_ROOT from page context
+  var meta = document.querySelector("meta[name='project-root']");
+  if (meta) return meta.getAttribute("content");
+  return "";
+}
+
+function buildAggregatedCmd(role, targetProject) {
+  if (!role.start_cmd_suffix) return null; // Not configured — use fallback
+  if (!targetProject) return null; // Missing project — can't build
+  return "tmux send-keys -t " + role.tmux_session +
+         " 'cd " + targetProject + " " + role.start_cmd_suffix;
+}
+
 function renderRoleCard(role) {
   var card = el("div", "dpmtf-card");
 
@@ -1866,24 +1885,42 @@ function renderRoleCard(role) {
   header.appendChild(badge);
   card.appendChild(header);
 
-  // Role details as key-value pairs
+  // Fields in aggregated order (top-down = how the command is built)
+  var targetProject = getTargetProject();
   var fields = [
+    // 1. tmux_session — first part of aggregated command
     [lbl("lbl_bridge_tmux_session", "Tmux Session"), role.tmux_session],
-    [lbl("lbl_bridge_start_cmd", "Start Command"), role.start_cmd],
+    // 2. target_project — read-only, from Prompt Compiler
+    [lbl("lbl_compiler_target_project", "Target Project"), targetProject || "(not set)"],
+    // 3. start_cmd_suffix — editable part after cd {project}
+    [lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix"), role.start_cmd_suffix || null],
+    // 4. Aggregeret streng (read-only, genereret)
+    [lbl("lbl_bridge_aggregated_cmd", "Aggregated Command"), buildAggregatedCmd(role, targetProject)],
+    // Existing fields below
+    [lbl("lbl_bridge_start_cmd", "Start Command (fallback)"), role.start_cmd],
     [lbl("lbl_bridge_model_type", "Model Type"), role.model_type],
     [lbl("lbl_bridge_cloud_model", "Cloud Model"), role.cloud_model],
     [lbl("lbl_bridge_ollama_model", "Ollama Model"), role.ollama_model],
     [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
-    // G1: Role type (agent/human) — show non-default values
     [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
-    // H150: Enter command — always show
     [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
     var row = el("div", null);
-    row.appendChild(el("span", "dpmtf-small", escapeHtml(pair[0]) + ": "));
-    row.appendChild(el("span", null, escapeHtml(String(pair[1]))));
+    var label = pair[0];
+    // Set data-field for styling hooks
+    if (label === lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")) {
+      row.setAttribute("data-field", "aggregated_cmd");
+    }
+    row.appendChild(el("span", "dpmtf-small", escapeHtml(label) + ": "));
+    var valSpan = el("span", null, escapeHtml(String(pair[1])));
+    if (label === lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")) {
+      valSpan.style.fontFamily = "monospace";
+      valSpan.style.fontSize = "11px";
+      valSpan.style.wordBreak = "break-all";
+    }
+    row.appendChild(valSpan);
     card.appendChild(row);
   });
 
