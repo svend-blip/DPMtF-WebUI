@@ -102,14 +102,27 @@ def inject_via_send_keys(session_name, text, enter_command="default"):
 
         # Submit based on enter_command
         if enter_command == "c-m":
+            # Two-step: paste text first, then separate C-m (Freebuff)
+            subprocess.run(
+                ["tmux", "paste-buffer", "-t", session_name], check=True
+            )
+            time.sleep(0.3)
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "", "C-m"], check=True
             )
         elif enter_command == "c-j":
             subprocess.run(
+                ["tmux", "paste-buffer", "-t", session_name], check=True
+            )
+            time.sleep(0.3)
+            subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "", "C-j"], check=True
             )
         elif enter_command == "c-d":
+            subprocess.run(
+                ["tmux", "paste-buffer", "-t", session_name], check=True
+            )
+            time.sleep(0.3)
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "", "C-d"], check=True
             )
