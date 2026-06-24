@@ -4590,6 +4590,16 @@ cursor.execute(
     ("human", "human"),
 )
 
+# H150: enter_command column on bridge_roles — how Enter is sent for tmux injection
+# Values: 'default' (Enter in same command), 'c-m' (two-step: text then separate C-m),
+#         'c-j' (two-step with C-j), 'c-d' (two-step with C-d)
+try:
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN enter_command TEXT DEFAULT 'default'
+    """)
+except sqlite3.OperationalError:
+    pass
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
