@@ -2177,6 +2177,9 @@ function addBridgeRole() {
     var ec = document.getElementById("bridge-input-enter_command");
     if (ec && ec.value !== "default") body.enter_command = ec.value;
 
+    var scs = document.getElementById("bridge-input-start_cmd_suffix");
+    if (scs && scs.value.trim()) body.start_cmd_suffix = scs.value.trim();
+
     fetch("/api/bridge-v2/roles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2253,6 +2256,16 @@ function addBridgeRole() {
   });
   ecDiv.appendChild(ecSelect);
   form.appendChild(ecDiv);
+
+  // H160: start_cmd_suffix input
+  var scsDiv = el("div", "dpmtf-form-group");
+  scsDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix")));
+  var scsInput = el("input", null);
+  scsInput.id = "bridge-input-start_cmd_suffix";
+  scsInput.type = "text";
+  scsInput.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...' Enter";
+  scsDiv.appendChild(scsInput);
+  form.appendChild(scsDiv);
 
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
@@ -2456,6 +2469,10 @@ function editBridgeRoleFull(roleKey) {
           body.enter_command = ec.value;
         }
 
+        // H160: start_cmd_suffix
+        var scs = document.getElementById("bridge-edit-input-start_cmd_suffix");
+        if (scs) body.start_cmd_suffix = scs.value.trim();
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2607,6 +2624,17 @@ function editBridgeRoleFull(roleKey) {
       });
       ecDiv2.appendChild(ecSelect2);
       form.appendChild(ecDiv2);
+
+      // H160: start_cmd_suffix input
+      var scsDiv2 = el("div", "dpmtf-form-group");
+      scsDiv2.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix")));
+      var scsInput2 = el("input", null);
+      scsInput2.id = "bridge-edit-input-start_cmd_suffix";
+      scsInput2.type = "text";
+      scsInput2.value = role.start_cmd_suffix || "";
+      scsInput2.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...' Enter";
+      scsDiv2.appendChild(scsInput2);
+      form.appendChild(scsDiv2);
 
       var container = document.getElementById("bridge-roles-list-container");
       if (container) {
