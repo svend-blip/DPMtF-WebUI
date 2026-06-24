@@ -1909,6 +1909,7 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
   ];
   fields.forEach(function (pair) {
+    console.log("field:", pair[0], "value:", JSON.stringify(pair[1]), "truthy:", !!pair[1]);
     if (!pair[1]) return;
     var row = el("div", null);
     var label = pair[0];
