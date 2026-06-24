@@ -26,7 +26,7 @@ All files within the new project directory:
 - `/home/svend/DPMtF-WebUI/` — Father project (READ-ONLY reference)
 - `/home/svend/DPMtF-WebUI/config.py` — Father config (DO NOT MODIFY)
 - `/home/svend/DPMtF-WebUI/dpmtf.ini` — Father config (DO NOT MODIFY)
-- `/home/svend/claude-bridge/` — Bridge infrastructure (DO NOT MODIFY)
+- `/home/svend/flows/` — Bridge infrastructure (DO NOT MODIFY)
 - `/home/svend/ENO/` — Other Child project (DO NOT MODIFY)
 - `/home/svend/ai-pc-resource-webui-v3/` — Reference project (DO NOT MODIFY)
 

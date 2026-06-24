@@ -52,14 +52,14 @@ def get_bridge_dir() -> str:
     env = os.environ.get("DPMTF_BRIDGE_DIR")
     if env:
         return env
-    return _config.get("paths", "bridge_dir", fallback="/home/svend/claude-bridge")
+    return _config.get("paths", "bridge_dir", fallback="/home/svend/flows")
 
 def get_bridge_base_path() -> str:
-    """Bridge base path. .ini [bridge] base_path, or fallback to project_root/claude-bridge."""
+    """Bridge base path. .ini [bridge] base_path, or fallback to project_root/flows."""
     configured = _config.get("bridge", "base_path", fallback=None)
     if configured:
         return configured
-    return str(Path(get_project_root()) / "claude-bridge")
+    return str(Path(get_project_root()) / "flows")
 
 
 def get_project_root() -> str:
