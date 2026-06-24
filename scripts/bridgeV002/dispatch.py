@@ -626,7 +626,8 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
 
-    inject_prompt(tmux_session, prompt_text)
+    inject_prompt(tmux_session, prompt_text,
+                  enter_command=to_role.get("enter_command", "default"))
     time.sleep(0.5)
 
     # Post-dispatch: offload predecessor's model to free VRAM
@@ -819,7 +820,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         )
 
     # Step 8: Inject callback prompt into to_role's tmux session
-    inject_prompt(tmux_session, prompt_text)
+    inject_prompt(tmux_session, prompt_text,
+                  enter_command=to_role.get("enter_command", "default"))
     time.sleep(0.5)
 
     # Step 9: Post-dispatch - stop from_role's Ollama model (VRAM cleanup)
@@ -1001,7 +1003,8 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         )
 
     # Step 6: Inject prompt into architect's tmux session
-    inject_prompt(tmux_session, prompt_text)
+    inject_prompt(tmux_session, prompt_text,
+                  enter_command=to_role_data.get("enter_command", "default"))
     time.sleep(0.5)
 
     # Step 7: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
@@ -1136,7 +1139,8 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         prompt_text += f"\n\n## Note\nNo separate response file found. The architect may have provided inline guidance."
 
     # Step 4: Inject prompt into review's tmux session
-    inject_prompt(tmux_session, prompt_text)
+    inject_prompt(tmux_session, prompt_text,
+                  enter_command=to_role_data.get("enter_command", "default"))
     time.sleep(0.5)
 
     # Step 5: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
@@ -1347,7 +1351,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         )
 
     # Step 8: Inject prompt into target role's tmux session
-    inject_prompt(tmux_session, prompt_text)
+    inject_prompt(tmux_session, prompt_text,
+                  enter_command=to_role_data.get("enter_command", "default"))
     time.sleep(0.5)
 
     print(f"  Handoff dispatch prompt injected into '{tmux_session}'")
