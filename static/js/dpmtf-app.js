@@ -1914,10 +1914,6 @@ function renderRoleCard(role) {
     // Set data-field for styling hooks
     if (label === lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")) {
       row.setAttribute("data-field", "aggregated_cmd");
-      row.style.border = "2px solid red";  // DEBUG: make it visible
-    }
-    if (label === lbl("lbl_compiler_target_project", "Target Project")) {
-      row.style.border = "2px solid blue";  // DEBUG: make it visible
     }
     row.appendChild(el("span", "dpmtf-small", escapeHtml(label) + ": "));
     var valSpan = el("span", null, escapeHtml(String(pair[1])));
@@ -2641,6 +2637,33 @@ function editBridgeRoleFull(roleKey) {
       scsInput2.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...' Enter";
       scsDiv2.appendChild(scsInput2);
       form.appendChild(scsDiv2);
+
+      // H160: Target Project (read-only, from Prompt Compiler)
+      var tpDiv = el("div", "dpmtf-form-group");
+      tpDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_project", "Target Project")));
+      var tpDisplay = el("div", null);
+      tpDisplay.style.padding = "8px";
+      tpDisplay.style.background = "#161b22";
+      tpDisplay.style.borderRadius = "4px";
+      tpDisplay.style.fontFamily = "monospace";
+      tpDisplay.style.fontSize = "12px";
+      tpDisplay.textContent = getTargetProject() || "(not set)";
+      tpDiv.appendChild(tpDisplay);
+      form.appendChild(tpDiv);
+
+      // H160: Aggregated Command (read-only, generated)
+      var aggDiv = el("div", "dpmtf-form-group");
+      aggDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")));
+      var aggDisplay = el("div", null);
+      aggDisplay.style.padding = "8px";
+      aggDisplay.style.background = "#161b22";
+      aggDisplay.style.borderRadius = "4px";
+      aggDisplay.style.fontFamily = "monospace";
+      aggDisplay.style.fontSize = "11px";
+      aggDisplay.style.wordBreak = "break-all";
+      aggDisplay.textContent = buildAggregatedCmd(role, getTargetProject());
+      aggDiv.appendChild(aggDisplay);
+      form.appendChild(aggDiv);
 
       var container = document.getElementById("bridge-roles-list-container");
       if (container) {
