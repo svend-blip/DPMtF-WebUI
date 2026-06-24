@@ -60,8 +60,9 @@ cd {PROJECT_PATH}
 - **ENO** (/home/svend/ENO, port 9131) — First Child project.
 - **ai-pc-resource-webui-v3** (/home/svend/ai-pc-resource-webui-v3, port 9123) —
   Reference project for testing the DPMtF prompt compiler.
-- **claude-bridge** (/home/svend/claude-bridge/) — Tmux bridge infrastructure for
-  cloud↔local model communication via Python bridge.py.
+- **BridgeV002** — Integrated into DPMtF-WebUI (`scripts/bridgeV002/`).
+  Database-driven dispatch system replacing the legacy `claude-bridge`.
+  Flow-specific deliverable directories under `DPMTF_BRIDGE_DIR`.
 
 ## Father vs Child Projects
 

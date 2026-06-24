@@ -25,7 +25,7 @@ they MUST stop and ask. This replaces the legacy "Permission Mode Policy"
 | `implementation` | Implementor executes prompts and produces code changes. | Yes, within handoff scope. |
 | `validation` | Review validates implementation results. | Yes, within governance rules. |
 | `commit_release` | Staging, committing, or pushing changes to git. | **No** — Human approval required. |
-| `bridge_dispatch` | Sending prompts via bridge.py. | Yes, within governance rules. |
+| `bridge_dispatch` | Sending prompts via BridgeV002 dispatch.py. | Yes, within governance rules. |
 
 ## Stop-and-Ask Rules (All Roles)
 
@@ -56,9 +56,9 @@ following are explicit:
 | Role | Auto-Execute Scope |
 |------|-------------------|
 | **Human** | Full control — all actions require self-authorization. |
-| **Architect** | Read governance + codebase. Write governance docs + bridge handoff files. Bridge dispatch (`bridge.py send`, `bridge.py answer-review`). |
-| **Implementor** | Read scoped files + governance references. Write files within handoff `<scope>`. Bridge signal (`bridge.py complete`). |
-| **Review** | Read all changed files + governance docs. Write governance docs + bridge handoff files. Bridge dispatch (`bridge.py send`, `bridge.py ask-architect`). Git staging (NOT commit). |
+| **Architect** | Read governance + codebase. Write governance docs + bridge handoff files. Bridge dispatch (`dispatch.py --signal-send`, `--signal-answer`). |
+| **Implementor** | Read scoped files + governance references. Write files within handoff `<scope>`. Bridge signal (`dispatch.py --signal-complete`). |
+| **Review** | Read all changed files + governance docs. Write governance docs + bridge handoff files. Bridge dispatch (`dispatch.py --signal-complete`, `--signal-escalation`). Git staging (NOT commit). |
 
 ## Escalation for Permission Boundaries
 

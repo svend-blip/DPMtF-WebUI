@@ -24,7 +24,7 @@ by the Review role after every validation pass.
 | **Date** | {YYYY-MM-DD} |
 | **Phase** | {PHASE_KEY} — {PHASE_TITLE} |
 | **Handoff ID** | {ID} |
-| **Reviewer** | claude_review |
+| **Reviewer** | {role_key} (e.g. review01 or review02 for strict_review) |
 
 ### Pre-Commit Checks
 

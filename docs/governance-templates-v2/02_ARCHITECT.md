@@ -11,7 +11,9 @@ loop. It consolidates the former **Analyst**, **Solution Architect**, and
 analyzes requirements, designs the technical approach, generates implementation
 prompts, and makes architectural decisions.
 
-The Architect runs as a tmux session named `claude_architect`.
+The Architect runs in a dedicated tmux session. The session name is configured
+in the database (`bridge_roles.tmux_session`) per flow — not hardcoded.
+For the `strict_review` flow, the session is `archi01`.
 
 > **Flow-specific governance:** When operating within a BridgeV002 flow (e.g.
 > `strict_review`), the flow-specific role template (400-series) takes precedence.
@@ -68,7 +70,7 @@ Additionally, the Architect reads these as needed:
 |---|---|
 | Architecture design | Technical approach document (may be inline in the implementation prompt). |
 | Implementation prompt | Structured prompt for Implementor, written to the flow's handoff directory (e.g. `{bridge_dir}/handoffs/{ID}-handoff.md`). |
-| Escalation response | Architect's decision written to `{bridge_dir}/architecttoreview/{ID}-response.md`. Signal completion via BridgeV002 dispatch. |
+| Escalation response | Architect's decision written to `{bridge_dir}/{flow_key}/escalations/{ID}-response.md`. Signal completion via BridgeV002 dispatch (`signal_answer`). |
 | Scope analysis | Analysis of requirements, risks, and dependencies. |
 
 ## Prompt Generation Rules

@@ -10,9 +10,9 @@ in this document for the project record.
 
 ## When to Use
 
-- **Implementor:** Fill in as part of `implementertoreview/{ID}-result.md`.
-- **Review:** Consolidate into this file after validation passes.
-- **After `/clear`:** Reference to understand what was last implemented.
+- **Implementer:** Fill in as part of `{bridge_dir}/{flow_key}/results/{ID}-result.md`.
+- **Review:** Read as input for technical validation.
+- **After restart:** Reference to understand what was last implemented.
 
 ---
 
@@ -25,8 +25,8 @@ in this document for the project record.
 | **Date** | {YYYY-MM-DD} |
 | **Phase** | {PHASE_KEY} — {PHASE_TITLE} |
 | **Handoff ID** | {ID} |
-| **Implementor** | claude_implementer |
-| **Reviewer** | claude_review |
+| **Implementer** | {role_key} (e.g. imple01 for strict_review) |
+| **Reviewer** | {role_key} (e.g. review01 for strict_review) |
 
 ### Git Baseline
 

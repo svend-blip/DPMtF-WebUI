@@ -109,17 +109,21 @@ between runtime state and governance templates.}
 
 ## Component Communication
 
+BridgeV002 is database-driven — session names, models, and step sequences are
+configured per flow in `bridge_roles` and `bridge_flow_steps`. The diagram
+below shows the `strict_review` flow as an example.
+
 ```
 Human (01_HUMAN)
     ↓ scope definition
-Architect (02_ARCHITECT) → claude_architect tmux session
-    ↓ implementation prompt via bridge
-Review (04_REVIEW) → claude_review tmux session
-    ↓ dispatch via bridge.py send
-Implementor (03_IMPLEMENTOR) → claude_implementer tmux session
-    ↓ result via bridge.py complete
-Review (04_REVIEW)
-    ↓ validation verdict
+Architect (402_STRICT_REVIEW_ARCHI01) → archi01 tmux session
+    ↓ signal_send via dispatch.py
+Implementer (403_STRICT_REVIEW_IMPLE01) → imple01 tmux session
+    ↓ signal_complete via dispatch.py
+Review01 (404_STRICT_REVIEW_REVIEW01) → review01 tmux session
+    ↓ signal_complete via dispatch.py
+Review02 (405_STRICT_REVIEW_REVIEW02) → review02 tmux session
+    ↓ signal_complete (human_delivery — no tmux injection)
 Human (01_HUMAN)
     ↓ commit authorization
 git commit + git push
