@@ -130,12 +130,29 @@ If FAIL: specific reasons and what imple01 must fix.
 - **Minor issues found** → document in findings, mark PASS with notes, signal complete.
 - **Critical failure** → mark FAIL, signal complete (review02 decides next step).
 
-## Signaling Completion
+## Dispatching the Review
+
+After writing the technical review, signal completion:
 
 ```bash
 python3 {project_root}/scripts/bridgeV002/dispatch.py \
   --db-flow strict_review --signal-complete --from-role review01 --id {ID}
 ```
+
+**Do NOT use `/clear` before this command.** The signal injects the callback
+into review02's session.
+
+## Post-Signal Stop Rule — CRITICAL
+
+**After signaling completion, you MUST stop all activity immediately.**
+
+- No Monitor, no Bash, no background tasks, no file writes.
+- No pre-writing files for future steps.
+- No continuing to investigate or analyze the implementation.
+- The session is idle until the next prompt arrives.
+
+**Why:** Only ONE role is active at a time. After signaling, review02 is active.
+Any activity by you violates sequential execution.
 
 ## Escalation
 

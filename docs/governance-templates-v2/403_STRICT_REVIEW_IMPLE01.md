@@ -95,7 +95,9 @@ Files Changed: {count} files
 Next Action: review01 validates
 ```
 
-### 3. Signal Completion
+### Dispatching the Completion
+
+After writing result and notification files, signal completion:
 
 ```bash
 python3 {project_root}/scripts/bridgeV002/dispatch.py \
@@ -105,18 +107,22 @@ python3 {project_root}/scripts/bridgeV002/dispatch.py \
 **Do NOT use `/clear` before this command.** The signal injects the callback
 into review01's session.
 
-## After Signaling — Stop
+## Post-Signal Stop Rule — CRITICAL
 
-After `signal_complete`, your active phase ends. **Stop all activity immediately.**
+**After signaling completion, you MUST stop all activity immediately.**
 
-- Do NOT suggest or start follow-up work.
-- Do NOT run reviewer agents or self-review passes.
-- Do NOT continue with planning, analysis, or exploration.
-- Do NOT poll for results or pre-write files for future steps.
+- No Monitor, no Bash, no background tasks, no file writes.
+- No suggesting or starting follow-up work.
+- No running reviewer agents or self-review passes.
+- No continuing with planning, analysis, or exploration.
+- No polling for results or pre-writing files for future steps.
+- No chat/TUI commentary after `signal_complete` unless the bridge
+  explicitly requires a final one-line status message.
 - Your only output after signaling is the result and notification files you
   already wrote. Nothing else.
-- Produce no chat/TUI commentary after `signal_complete` unless the bridge
-  explicitly requires a final one-line status message.
+
+**Why:** Only ONE role is active at a time. After signaling, review01 is active.
+Any activity by you violates sequential execution.
 
 ## Constraints
 
