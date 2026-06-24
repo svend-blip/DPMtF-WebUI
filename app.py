@@ -880,6 +880,7 @@ async def get_available_languages():
         "da-DK": "Dansk",
         "en-US": "English",
         "de-DE": "Deutsch",
+        "el-GR": "Ελληνικά",
         "sv-SE": "Svenska",
     }
 

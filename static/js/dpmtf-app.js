@@ -576,7 +576,7 @@ function buildDrawerContent() {
 
       // Run validation button
       var runBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-      runBtn.textContent = "Run Validation";
+      runBtn.textContent = lbl("lbl_btn_run_validation", "Run Validation");
       runBtn.onclick = function () { runValidationDrawer(); };
       valBody.appendChild(runBtn);
 
@@ -634,7 +634,7 @@ function buildDrawerContent() {
       if (data.active && data.session) {
         var s = data.session;
         var statusBadge = el("span", "dpmtf-badge dpmtf-badge-success");
-        statusBadge.textContent = "Active";
+        statusBadge.textContent = lbl("lbl_bridge_active", "Active");
         sessBody.appendChild(statusBadge);
         sessBody.appendChild(el("div", "dpmtf-small", null));
         var info = [];
@@ -644,7 +644,7 @@ function buildDrawerContent() {
         sessBody.appendChild(el("div", "dpmtf-small", info.join(" | ")));
       } else {
         var inactiveBadge = el("span", "dpmtf-badge dpmtf-badge-info");
-        inactiveBadge.textContent = "No active session";
+        inactiveBadge.textContent = lbl("lbl_bridge_inactive", "No active session");
         sessBody.appendChild(inactiveBadge);
       }
     })
@@ -667,7 +667,7 @@ function buildDrawerContent() {
       clear(wfBody);
       var runs = data.runs || [];
       if (!runs.length) {
-        wfBody.appendChild(el("p", "dpmtf-muted", "No workflow runs yet."));
+        wfBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_no_workflow_runs", "No workflow runs yet.")));
         return;
       }
       var table = el("table", "dpmtf-table");
@@ -943,7 +943,7 @@ function buildCompilerForm() {
     clear(current);
     var emptyOpt2 = document.createElement("option");
     emptyOpt2.value = "";
-    emptyOpt2.textContent = "(optional — select for BridgeV002 dispatch)";
+    emptyOpt2.textContent = lbl("lbl_optional_select_for_bridgev002", "(optional — select for BridgeV002 dispatch)");
     current.appendChild(emptyOpt2);
     if (!flowKey) {
       _updateAutoSession(null, null);
@@ -989,7 +989,7 @@ function buildCompilerForm() {
           }
         })
         .catch(function () {
-          info.textContent = step.to_role + " (session info unavailable)";
+          info.textContent = step.to_role + " (" + lbl("lbl_session_info_unavailable", "session info unavailable") + ")";
           div.style.display = "";
         });
     } else {
@@ -1004,7 +1004,7 @@ function buildCompilerForm() {
   autoSessionDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_session", "Target Session")));
   var autoSessionInfo = el("span", "dpmtf-small");
   autoSessionInfo.id = "compile-auto-session-info";
-  autoSessionInfo.textContent = "(auto-resolved from flow step)";
+  autoSessionInfo.textContent = lbl("lbl_auto_resolved_flow_step", "(auto-resolved from flow step)");
   autoSessionDiv.appendChild(autoSessionInfo);
   container.appendChild(autoSessionDiv);
 
@@ -1051,7 +1051,7 @@ function buildCompilerForm() {
   nameInput.type = "text";
   nameInput.id = "compile-accel-name";
   nameInput.maxLength = 10;
-  nameInput.placeholder = "mywebui";
+  nameInput.placeholder = lbl("lbl_placeholder_new_webui_name", "mywebui");
   nameDiv.appendChild(nameInput);
   container.appendChild(nameDiv);
 
@@ -1065,7 +1065,7 @@ function buildCompilerForm() {
   portInput.id = "compile-accel-port";
   portInput.min = 9132;
   portInput.max = 9199;
-  portInput.placeholder = "9136";
+  portInput.placeholder = lbl("lbl_placeholder_new_webui_port", "9136");
   portDiv.appendChild(portInput);
   container.appendChild(portDiv);
 
@@ -1077,7 +1077,7 @@ function buildCompilerForm() {
   var titleInput = el("input", null);
   titleInput.type = "text";
   titleInput.id = "compile-accel-title";
-  titleInput.placeholder = "My Project";
+  titleInput.placeholder = lbl("lbl_placeholder_new_webui_title", "My Project");
   titleDiv.appendChild(titleInput);
   container.appendChild(titleDiv);
 
@@ -2050,11 +2050,11 @@ function startTmuxForFlow(flowKey) {
       if (data.status === "ok") {
         alert("✅ " + data.message);
       } else {
-        alert("❌ Error: " + (data.detail || "Unknown error"));
+        alert("❌ " + lbl("lbl_error_prefix", "Error: ") + (data.detail || lbl("lbl_unknown_error", "Unknown error")));
       }
     })
     .catch(function(err) {
-      alert("Network error: " + err.message);
+      alert(lbl("lbl_network_error_prefix", "Network error: ") + err.message);
     });
 }
 
@@ -2066,28 +2066,28 @@ function startCodingForFlow(flowKey) {
       if (data.status === "ok") {
         alert("✅ " + data.message);
       } else {
-        alert("❌ Error: " + (data.detail || "Unknown error"));
+        alert("❌ " + lbl("lbl_error_prefix", "Error: ") + (data.detail || lbl("lbl_unknown_error", "Unknown error")));
       }
     })
     .catch(function(err) {
-      alert("Network error: " + err.message);
+      alert(lbl("lbl_network_error_prefix", "Network error: ") + err.message);
     });
 }
 
 // ---- STOP TMUX FOR FLOW (BridgeV002) ----
 function stopTmuxForFlow(flowKey) {
-  if (!confirm("Stop all tmux sessions for '" + flowKey + "'?")) return;
+  if (!confirm(lbl("lbl_confirm_stop_tmux_sessions", "Stop all tmux sessions for '{flowKey}'?").replace("{flowKey}", flowKey))) return;
   fetch("/api/bridge-v2/flows/" + flowKey + "/stop-tmux", { method: "POST" })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data.status === "ok") {
         alert("✅ " + data.message);
       } else {
-        alert("❌ Error: " + (data.detail || "Unknown error"));
+        alert("❌ " + lbl("lbl_error_prefix", "Error: ") + (data.detail || lbl("lbl_unknown_error", "Unknown error")));
       }
     })
     .catch(function(err) {
-      alert("Network error: " + err.message);
+      alert(lbl("lbl_network_error_prefix", "Network error: ") + err.message);
     });
 }
 
@@ -2099,11 +2099,11 @@ function attachTmuxForFlow(flowKey) {
       if (data.status === "ok") {
         alert("✅ " + data.message);
       } else {
-        alert("❌ Error: " + (data.detail || "Unknown error"));
+        alert("❌ " + lbl("lbl_error_prefix", "Error: ") + (data.detail || lbl("lbl_unknown_error", "Unknown error")));
       }
     })
     .catch(function(err) {
-      alert("Network error: " + err.message);
+      alert(lbl("lbl_network_error_prefix", "Network error: ") + err.message);
     });
 }
 
@@ -2992,7 +2992,7 @@ function _editBridgeStep(stepId, flowKey) {
 }
 
 function _deleteBridgeStep(stepId, flowKey) {
-  if (!confirm("Delete step #" + stepId + "?")) return;
+  if (!confirm(lbl("lbl_confirm_delete_step", "Delete step #{stepId}?").replace("{stepId}", stepId))) return;
   fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey) + "/" + stepId, { method: "DELETE" })
     .then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);

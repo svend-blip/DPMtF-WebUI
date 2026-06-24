@@ -561,7 +561,21 @@ ui_labels_data = [
     ("LBL-1000301", "lbl_deliver_in_progress", "template_manager", "Delivering...", "Loading state shown on Deliver to Bridge button while dispatch runs"),
     ("LBL-1000302", "lbl_deliver_no_handoff", "template_manager", "No handoff ready. Assign a handoff ID first.", "Error message when Deliver to Bridge is clicked before Assign Handoff ID"),
     ("LBL-1000303", "lbl_deliver_success", "template_manager", "Handoff {ID} delivered to {TO}", "Success message after dispatch completes"),
-] 
+    # ── Comprehensive i18n (handoff 213) ──
+    ("LBL-1000304", "lbl_btn_run_validation", "main", "Run Validation", "Validation drawer: trigger button"),
+    ("LBL-1000305", "lbl_placeholder_new_webui_name", "main", "mywebui", "Accelerated WebUI form: name input placeholder"),
+    ("LBL-1000306", "lbl_placeholder_new_webui_port", "main", "9136", "Accelerated WebUI form: port input placeholder"),
+    ("LBL-1000307", "lbl_placeholder_new_webui_title", "main", "My Project", "Accelerated WebUI form: title input placeholder"),
+    ("LBL-1000308", "lbl_no_workflow_runs", "main", "No workflow runs yet.", "Workflow card empty state"),
+    ("LBL-1000309", "lbl_optional_select_for_bridgev002", "main", "(optional — select for BridgeV002 dispatch)", "Step dropdown empty option label"),
+    ("LBL-1000310", "lbl_session_info_unavailable", "main", "session info unavailable", "Session info fallback when role lookup fails"),
+    ("LBL-1000311", "lbl_auto_resolved_flow_step", "main", "(auto-resolved from flow step)", "Indicates tmux session is auto-resolved from flow step"),
+    ("LBL-1000312", "lbl_error_prefix", "main", "Error: ", "Prefix for error messages in alerts and status text"),
+    ("LBL-1000313", "lbl_unknown_error", "main", "Unknown error", "Fallback error message when detail is missing"),
+    ("LBL-1000314", "lbl_network_error_prefix", "main", "Network error: ", "Prefix for network failure alerts"),
+    ("LBL-1000315", "lbl_confirm_stop_tmux_sessions", "main", "Stop all tmux sessions for '{flowKey}'?", "Confirm dialog before stopping tmux sessions for a flow"),
+    ("LBL-1000316", "lbl_confirm_delete_step", "main", "Delete step #{stepId}?", "Confirm dialog before deleting a bridge step"),
+]
 
 # Safely insert or update ui_labels data (no DELETE)
 for label in ui_labels_data:
@@ -1201,7 +1215,90 @@ ui_label_translations_data = [
     ("LBL-1000302", "sv-SE", "Ingen handoff redo. Tilldela ett handoff-ID först."),
     ("LBL-1000303", "de-DE", "Handoff {ID} an {TO} gesendet"),
     ("LBL-1000303", "sv-SE", "Handoff {ID} levererat till {TO}"),
-] 
+    # ── Comprehensive i18n (handoff 213) — el-GR fills for existing LBL-1000300-303 ──
+    ("LBL-1000300", "el-GR", "Στείλε στο Bridge"),
+    ("LBL-1000301", "el-GR", "Αποστολή..."),
+    ("LBL-1000302", "el-GR", "Δεν υπάρχει έτοιμο handoff. Αναθέστε πρώτα ένα handoff-ID."),
+    ("LBL-1000303", "el-GR", "Handoff {ID} στάλθηκε στο {TO}"),
+    # ── Comprehensive i18n (handoff 213) — LBL-1000304 lbl_btn_run_validation ──
+    ("LBL-1000304", "en-US", "Run Validation"),
+    ("LBL-1000304", "da-DK", "Kør Validering"),
+    ("LBL-1000304", "de-DE", "Validierung starten"),
+    ("LBL-1000304", "el-GR", "Εκτέλεση Επικύρωσης"),
+    ("LBL-1000304", "sv-SE", "Kör Validering"),
+    # ── LBL-1000305 lbl_placeholder_new_webui_name ──
+    ("LBL-1000305", "en-US", "mywebui"),
+    ("LBL-1000305", "da-DK", "minwebui"),
+    ("LBL-1000305", "de-DE", "meinwebui"),
+    ("LBL-1000305", "el-GR", "mywebui"),
+    ("LBL-1000305", "sv-SE", "minwebui"),
+    # ── LBL-1000306 lbl_placeholder_new_webui_port ──
+    ("LBL-1000306", "en-US", "9136"),
+    ("LBL-1000306", "da-DK", "9136"),
+    ("LBL-1000306", "de-DE", "9136"),
+    ("LBL-1000306", "el-GR", "9136"),
+    ("LBL-1000306", "sv-SE", "9136"),
+    # ── LBL-1000307 lbl_placeholder_new_webui_title ──
+    ("LBL-1000307", "en-US", "My Project"),
+    ("LBL-1000307", "da-DK", "Mit Projekt"),
+    ("LBL-1000307", "de-DE", "Mein Projekt"),
+    ("LBL-1000307", "el-GR", "Το Έργο μου"),
+    ("LBL-1000307", "sv-SE", "Mitt Projekt"),
+    # ── LBL-1000308 lbl_no_workflow_runs ──
+    ("LBL-1000308", "en-US", "No workflow runs yet."),
+    ("LBL-1000308", "da-DK", "Ingen workflow-kørsler endnu."),
+    ("LBL-1000308", "de-DE", "Noch keine Workflow-Läufe."),
+    ("LBL-1000308", "el-GR", "Δεν υπάρχουν εκτελέσεις ροής εργασίας ακόμα."),
+    ("LBL-1000308", "sv-SE", "Inga workflow-körningar ännu."),
+    # ── LBL-1000309 lbl_optional_select_for_bridgev002 ──
+    ("LBL-1000309", "en-US", "(optional — select for BridgeV002 dispatch)"),
+    ("LBL-1000309", "da-DK", "(valgfrit — vælg for BridgeV002-afsendelse)"),
+    ("LBL-1000309", "de-DE", "(optional — für BridgeV002-Versand auswählen)"),
+    ("LBL-1000309", "el-GR", "(προαιρετικό — επιλέξτε για αποστολή BridgeV002)"),
+    ("LBL-1000309", "sv-SE", "(valfritt — välj för BridgeV002-distribution)"),
+    # ── LBL-1000310 lbl_session_info_unavailable ──
+    ("LBL-1000310", "en-US", "session info unavailable"),
+    ("LBL-1000310", "da-DK", "sessionsinfo ikke tilgængelig"),
+    ("LBL-1000310", "de-DE", "Sitzungsinformationen nicht verfügbar"),
+    ("LBL-1000310", "el-GR", "πληροφορίες συνεδρίας μη διαθέσιμες"),
+    ("LBL-1000310", "sv-SE", "sessionsinfo inte tillgänglig"),
+    # ── LBL-1000311 lbl_auto_resolved_flow_step ──
+    ("LBL-1000311", "en-US", "(auto-resolved from flow step)"),
+    ("LBL-1000311", "da-DK", "(automatisk løst fra flow-trin)"),
+    ("LBL-1000311", "de-DE", "(automatisch aus Flow-Schritt aufgelöst)"),
+    ("LBL-1000311", "el-GR", "(αυτόματη επίλυση από βήμα ροής)"),
+    ("LBL-1000311", "sv-SE", "(automatiskt löst från flödessteg)"),
+    # ── LBL-1000312 lbl_error_prefix ──
+    ("LBL-1000312", "en-US", "Error: "),
+    ("LBL-1000312", "da-DK", "Fejl: "),
+    ("LBL-1000312", "de-DE", "Fehler: "),
+    ("LBL-1000312", "el-GR", "Σφάλμα: "),
+    ("LBL-1000312", "sv-SE", "Fel: "),
+    # ── LBL-1000313 lbl_unknown_error ──
+    ("LBL-1000313", "en-US", "Unknown error"),
+    ("LBL-1000313", "da-DK", "Ukendt fejl"),
+    ("LBL-1000313", "de-DE", "Unbekannter Fehler"),
+    ("LBL-1000313", "el-GR", "Άγνωστο σφάλμα"),
+    ("LBL-1000313", "sv-SE", "Okänt fel"),
+    # ── LBL-1000314 lbl_network_error_prefix ──
+    ("LBL-1000314", "en-US", "Network error: "),
+    ("LBL-1000314", "da-DK", "Netværksfejl: "),
+    ("LBL-1000314", "de-DE", "Netzwerkfehler: "),
+    ("LBL-1000314", "el-GR", "Σφάλμα δικτύου: "),
+    ("LBL-1000314", "sv-SE", "Nätverksfel: "),
+    # ── LBL-1000315 lbl_confirm_stop_tmux_sessions ──
+    ("LBL-1000315", "en-US", "Stop all tmux sessions for '{flowKey}'?"),
+    ("LBL-1000315", "da-DK", "Stop alle tmux-sessioner for '{flowKey}'?"),
+    ("LBL-1000315", "de-DE", "Alle tmux-Sitzungen für '{flowKey}' stoppen?"),
+    ("LBL-1000315", "el-GR", "Διακοπή όλων των συνεδριών tmux για το '{flowKey}';"),
+    ("LBL-1000315", "sv-SE", "Stoppa alla tmux-sessioner för '{flowKey}'?"),
+    # ── LBL-1000316 lbl_confirm_delete_step ──
+    ("LBL-1000316", "en-US", "Delete step #{stepId}?"),
+    ("LBL-1000316", "da-DK", "Slet trin #{stepId}?"),
+    ("LBL-1000316", "de-DE", "Schritt #{stepId} löschen?"),
+    ("LBL-1000316", "el-GR", "Διαγραφή βήματος #{stepId};"),
+    ("LBL-1000316", "sv-SE", "Ta bort steg #{stepId}?"),
+]
 
 # Safely insert or update ui_label_translations data (no DELETE)
 for translation in ui_label_translations_data:
@@ -1353,7 +1450,21 @@ ui_text_slots_data = [
     ("lbl_deliver_in_progress", "Deliver to Bridge loading state"),
     ("lbl_deliver_no_handoff", "Deliver to Bridge no-handoff error"),
     ("lbl_deliver_success", "Deliver to Bridge success message"),
-] 
+    # ── Comprehensive i18n (handoff 213) ──
+    ("lbl_btn_run_validation", "Validation drawer: trigger button"),
+    ("lbl_placeholder_new_webui_name", "Accelerated WebUI form: name input placeholder"),
+    ("lbl_placeholder_new_webui_port", "Accelerated WebUI form: port input placeholder"),
+    ("lbl_placeholder_new_webui_title", "Accelerated WebUI form: title input placeholder"),
+    ("lbl_no_workflow_runs", "Workflow card empty state"),
+    ("lbl_optional_select_for_bridgev002", "Step dropdown empty option label"),
+    ("lbl_session_info_unavailable", "Session info fallback when role lookup fails"),
+    ("lbl_auto_resolved_flow_step", "Indicates tmux session is auto-resolved from flow step"),
+    ("lbl_error_prefix", "Prefix for error messages in alerts and status text"),
+    ("lbl_unknown_error", "Fallback error message when detail is missing"),
+    ("lbl_network_error_prefix", "Prefix for network failure alerts"),
+    ("lbl_confirm_stop_tmux_sessions", "Confirm dialog before stopping tmux sessions for a flow"),
+    ("lbl_confirm_delete_step", "Confirm dialog before deleting a bridge step"),
+]
 for slot_key, description in ui_text_slots_data:
     cursor.execute("""
         INSERT OR IGNORE INTO ui_text_slots (slot_key, description)
@@ -1502,7 +1613,21 @@ ui_text_slot_labels_data = [
     ("lbl_deliver_in_progress", "lbl_deliver_in_progress"),
     ("lbl_deliver_no_handoff", "lbl_deliver_no_handoff"),
     ("lbl_deliver_success", "lbl_deliver_success"),
-] 
+    # ── Comprehensive i18n slot-label binding (handoff 213) ──
+    ("lbl_btn_run_validation", "lbl_btn_run_validation"),
+    ("lbl_placeholder_new_webui_name", "lbl_placeholder_new_webui_name"),
+    ("lbl_placeholder_new_webui_port", "lbl_placeholder_new_webui_port"),
+    ("lbl_placeholder_new_webui_title", "lbl_placeholder_new_webui_title"),
+    ("lbl_no_workflow_runs", "lbl_no_workflow_runs"),
+    ("lbl_optional_select_for_bridgev002", "lbl_optional_select_for_bridgev002"),
+    ("lbl_session_info_unavailable", "lbl_session_info_unavailable"),
+    ("lbl_auto_resolved_flow_step", "lbl_auto_resolved_flow_step"),
+    ("lbl_error_prefix", "lbl_error_prefix"),
+    ("lbl_unknown_error", "lbl_unknown_error"),
+    ("lbl_network_error_prefix", "lbl_network_error_prefix"),
+    ("lbl_confirm_stop_tmux_sessions", "lbl_confirm_stop_tmux_sessions"),
+    ("lbl_confirm_delete_step", "lbl_confirm_delete_step"),
+]
 for slot_key, label_key in ui_text_slot_labels_data:
     cursor.execute("""
         INSERT OR IGNORE INTO ui_text_slot_labels (slot_key, label_key)
