@@ -126,7 +126,11 @@ def inject_via_send_keys(session_name, text, enter_command="default"):
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "", "C-d"], check=True
             )
-        else:  # "default" — original behavior
+        else:  # "default" — paste text then Enter (Claude Code, standard)
+            subprocess.run(
+                ["tmux", "paste-buffer", "-t", session_name], check=True
+            )
+            time.sleep(0.3)
             subprocess.run(
                 ["tmux", "send-keys", "-t", session_name, "Enter"], check=True
             )
