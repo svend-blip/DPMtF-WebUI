@@ -1,12 +1,14 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import os
+import io
 import json
 import sys
 import platform
 import subprocess
 import sqlite3
+from datetime import datetime
 from fastapi import HTTPException
 import config  # DPMtF-WebUI central config (Spor A — hardcoding cleanup)
 from pathlib import Path
@@ -5297,6 +5299,52 @@ async def bridge_v2_export(request: Request):
         result["all_steps"] = all_steps
 
     return {"export_type": export_type, "data": result}
+
+
+@app.post("/api/bridge-v2/db-backup")
+async def bridge_v2_db_backup():
+    """Create a full SQLite database backup and stream it as a downloadable file.
+
+    Opens the source database in read-only mode via URI so the running app's
+    write connection is not blocked. The backup is materialized in memory
+    using SQLite's online backup API and then serialized to bytes.
+    """
+    try:
+        raw_path = config.get_db_path()
+        db_abs = raw_path if os.path.isabs(raw_path) else str(Path(raw_path).resolve())
+
+        src_conn = sqlite3.connect(f"file:{db_abs}?mode=ro", uri=True)
+        dst_conn = sqlite3.connect(":memory:")
+        try:
+            src_conn.backup(dst_conn)
+            data = dst_conn.serialize()
+        finally:
+            try:
+                dst_conn.close()
+            except Exception:
+                pass
+            try:
+                src_conn.close()
+            except Exception:
+                pass
+
+        app_name = config.get_father_project() or "dpmtf-webui"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{app_name}_{timestamp}.db.bak"
+
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-DB-Backup-Source": db_abs,
+                "X-DB-Backup-Size": str(len(data)),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database backup failed: {e}")
 
 
 if __name__ == "__main__":

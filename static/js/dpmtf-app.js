@@ -2717,11 +2717,16 @@ function buildBridgeExport() {
     ["all", lbl("lbl_bridge_export_all", "View All")],
     ["roles", lbl("lbl_bridge_export_roles", "View Roles")],
     ["flows", lbl("lbl_bridge_export_flows", "View Flows")],
-    ["all_steps", lbl("lbl_bridge_view_all_steps", "View All Steps")]
+    ["all_steps", lbl("lbl_bridge_view_all_steps", "View All Steps")],
+    ["all_data", lbl("lbl_bridge_export_all_data", "Export all data")]
   ].forEach(function (pair) {
     var btn = el("button", "dpmtf-btn");
     btn.textContent = pair[1];
-    btn.onclick = function () { exportBridge(pair[0]); };
+    if (pair[0] === "all_data") {
+      btn.onclick = function () { exportAllData(); };
+    } else {
+      btn.onclick = function () { exportBridge(pair[0]); };
+    }
     container.appendChild(btn);
   });
 
@@ -2761,6 +2766,74 @@ function exportBridge(type) {
     })
     .catch(function (err) {
       outputDiv.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+    });
+}
+
+function exportAllData() {
+  var outputDiv = document.getElementById("bridge-export-output");
+  if (outputDiv) {
+    outputDiv.textContent = lbl("lbl_status_loading", "Loading...");
+  }
+
+  var suggestedName = "dpmtf-webui_" +
+    new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15) + ".db.bak";
+
+  var useFilePicker = typeof window.showSaveFilePicker === "function";
+
+  fetch("/api/bridge-v2/db-backup", { method: "POST" })
+    .then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (txt) {
+          throw new Error(txt || ("HTTP " + res.status));
+        });
+      }
+      var cd = res.headers.get("Content-Disposition") || "";
+      var match = cd.match(/filename="?([^";]+)"?/);
+      var filename = (match && match[1]) ? match[1] : suggestedName;
+      return res.blob().then(function (blob) { return { blob: blob, filename: filename }; });
+    })
+    .then(function (data) {
+      if (useFilePicker) {
+        return window.showSaveFilePicker({
+          suggestedName: data.filename,
+          types: [{
+            description: "SQLite database backup",
+            accept: { "application/octet-stream": [".db.bak", ".db", ".bak"] }
+          }]
+        })
+          .then(function (fileHandle) {
+            return fileHandle.createWritable().then(function (writable) {
+              return writable.write(data.blob).then(function () { return writable.close(); });
+            });
+          })
+          .then(function () {
+            if (outputDiv) {
+              outputDiv.textContent = lbl("lbl_bridge_export_all_data", "Export all data")
+                + ": " + data.filename;
+            }
+          });
+      }
+      var url = URL.createObjectURL(data.blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = data.filename;
+      a.rel = "noopener";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      if (outputDiv) {
+        outputDiv.textContent = lbl("lbl_bridge_export_all_data", "Export all data")
+          + ": " + data.filename;
+      }
+    })
+    .catch(function (err) {
+      if (outputDiv) {
+        outputDiv.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      } else {
+        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+      }
     });
 }
 
