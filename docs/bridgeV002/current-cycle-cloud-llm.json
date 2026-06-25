@@ -1,16 +1,13 @@
 {
-  "last_handoff": 002,
-  "title": "Rearrange Delete button after Attach tmux in flow actions row",
+  "last_handoff": 003,
+  "title": "Swap Attach tmux before Stop tmux in flow card actions",
   "flow": "cloud_llm",
   "active_role": "archi01cloud",
-  "design_notes": "Delete button must be moved to the end of the action buttons row in Setup->Flows. Only one file changes: static/js/dpmtf-app.js — move the delBtn block after attachTmuxBtn.",
-  "verification_checklist": [
-    "Action button order is: Manage Steps, Edit, Start tmux, Start code interface, Stop tmux, Attach tmux, Delete",
-    "Delete still calls deleteBridgeFlow() with correct flow_key",
-    "No duplicate or orphaned delBtn references remain"
-  ],
+  "design_notes": "Moved Attach tmux button above Stop tmux. Order: Manage Steps, Edit, Start tmux, Start code interface, Attach tmux, Stop tmux, Delete.",
+  "verification_checklist": [],
   "open_gaps": [],
   "branch": "master",
-  "commit": "",
-  "updated": "2026-06-25T00:00:00Z"
+  "commit": "3cecbb6",
+  "verdict": "APPROVED",
+  "updated": "2026-06-25T14:45:00Z"
 }

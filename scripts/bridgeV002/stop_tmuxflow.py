@@ -44,7 +44,7 @@ def kill_tmux_sessions(sessions):
     for session in sorted(sessions):
         print(f"  Killing tmux session '{session}'...")
         result = subprocess.run(
-            ["tmux", "kill-session", "-t", session],
+            ["tmux", "kill-session", "-t", "=" + session],
             capture_output=True, text=True,
         )
         if result.returncode == 0:

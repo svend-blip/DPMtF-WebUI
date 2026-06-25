@@ -830,7 +830,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     # Prepend governance file reference for target role
     gov_file = to_role.get("governance_file")
-    project_root_sc = os.path.dirname(_db_path())
+    project_root_sc = PROJECT_ROOT
     if gov_file:
         gov_path = os.path.join(project_root_sc, "docs", "governance-templates-v2", gov_file)
         prompt_text = (
@@ -1015,7 +1015,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
     # Prepend governance file reference for target role
     gov_file = to_role_data.get("governance_file")
     if gov_file:
-        gov_path_e = os.path.join(os.path.dirname(_db_path()),
+        gov_path_e = os.path.join(PROJECT_ROOT,
                                   "docs", "governance-templates-v2", gov_file)
         prompt_text = (
             f"Your role is defined in {gov_path_e}. Read it now before proceeding.\n\n"
@@ -1336,7 +1336,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     # Step 5: Prepend governance file reference if target role has one
     gov_file = to_role_data.get("governance_file")
-    project_root = os.path.dirname(_db_path())
+    project_root = PROJECT_ROOT
     if gov_file:
         gov_path = os.path.join(project_root, "docs", "governance-templates-v2", gov_file)
         print(f"  Governance: {gov_file}")

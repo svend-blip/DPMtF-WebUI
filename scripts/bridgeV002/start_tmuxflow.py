@@ -41,7 +41,7 @@ def get_required_sessions(db_path, flow_key):
 def session_exists(session_name):
     """Return True if a tmux session with the given name already exists."""
     result = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
+        ["tmux", "has-session", "-t", "=" + session_name],
         capture_output=True,
     )
     return result.returncode == 0

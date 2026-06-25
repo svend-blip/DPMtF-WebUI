@@ -47,7 +47,7 @@ def get_flow_tmux_sessions(db_path, flow_key):
 def session_exists(session_name):
     """Check if a tmux session is running."""
     result = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
+        ["tmux", "has-session", "-t", "=" + session_name],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
@@ -62,7 +62,7 @@ def build_viewer_session(viewer_name, flow_sessions):
     # Kill existing viewer session if present (from a previous run)
     if session_exists(viewer_name):
         subprocess.run(
-            ["tmux", "kill-session", "-t", viewer_name],
+            ["tmux", "kill-session", "-t", "=" + viewer_name],
             capture_output=True, text=True,
         )
 
