@@ -51,8 +51,9 @@ delivery to AI roles.
 
 `docs/governance-templates-v2/` contains the authoritative governance files
 for all DPMtF projects. General templates (01-300) define universal rules.
-Flow-specific templates (401-405) take precedence when operating within a
-BridgeV002 flow.
+Flow-specific templates (4xx series) take precedence when operating within a
+BridgeV002 flow — e.g., 401-405 for strict_review, 411-415 for cloud_llm,
+and 421-425 for cloud_pay.
 
 ## Project Structure
 
@@ -84,13 +85,16 @@ DPMtF-WebUI/
 ├── docs/
 │   ├── governance-templates-v2/ # Authoritative governance (all projects)
 │   │   ├── 01-04 + 10-29 + 99-300  # General governance files
-│   │   ├── 401-405_STRICT_REVIEW_*.md  # Flow-specific role templates
+│   │   ├── 401-405, 411-415, 421-425 — flow-specific role templates (strict_review, cloud_llm, cloud_pay)
 │   │   └── knowledge-fragments/  # Curated .md fragments for Prompt Compiler
 │   └── superpowers/              # Design specs and implementation plans
 ├── databases/
 │   └── dpmtf.db            # SQLite database (runtime state)
 └── .claude/
-    └── skills/STRICTREVIEW/ # Architect cold-start skill
+    └── skills/
+        ├── STRICTREVIEW/   # Architect cold-start — strict_review flow
+        ├── CLOUDLLM/       # Architect cold-start — cloud_llm flow
+        └── CLOUDPAY/       # Architect cold-start — cloud_pay flow
 ```
 
 ## Configuration
@@ -116,6 +120,14 @@ All roles MUST read their governance file before acting:
 - **Implementer (strict_review):** `403_STRICT_REVIEW_IMPLE01.md`
 - **Technical Review (strict_review):** `404_STRICT_REVIEW_REVIEW01.md`
 - **Governance Review (strict_review):** `405_STRICT_REVIEW_REVIEW02.md`
+- **Architect (cloud_llm):** `412_CLOUD_LLM_ARCHI01CLOUD.md`
+- **Implementer (cloud_llm):** `413_CLOUD_LLM_IMPLE01CLOUD.md`
+- **Technical Review (cloud_llm):** `414_CLOUD_LLM_REVIEW01CLOUD.md`
+- **Governance Review (cloud_llm):** `415_CLOUD_LLM_REVIEW02CLOUD.md`
+- **Architect (cloud_pay):** `422_CLOUD_PAY_ARCHI01PAY.md`
+- **Implementer (cloud_pay):** `423_CLOUD_PAY_IMPLE01PAY.md`
+- **Technical Review (cloud_pay):** `424_CLOUD_PAY_REVIEW01PAY.md`
+- **Governance Review (cloud_pay):** `425_CLOUD_PAY_REVIEW02PAY.md`
 
 General coding standards, validation rules, and git policy are in the
 01-99 series. The 400-series takes precedence when operating within a
