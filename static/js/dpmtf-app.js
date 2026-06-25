@@ -2063,17 +2063,17 @@ function renderFlowCard(flow, steps) {
   startCodingBtn.onclick = function () { startCodingForFlow(flow.flow_key); };
   actions.appendChild(startCodingBtn);
 
-  // --- STOP TMUX button (new for BridgeV002) ---
-  var stopTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
-  stopTmuxBtn.textContent = lbl("lbl_bridge_stop_tmux", "Stop tmux");
-  stopTmuxBtn.onclick = function () { stopTmuxForFlow(flow.flow_key); };
-  actions.appendChild(stopTmuxBtn);
-
   // --- ATTACH TMUX button (new for BridgeV002) ---
   var attachTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-info");
   attachTmuxBtn.textContent = lbl("lbl_bridge_attach_tmux", "Attach tmux");
   attachTmuxBtn.onclick = function () { attachTmuxForFlow(flow.flow_key); };
   actions.appendChild(attachTmuxBtn);
+
+  // --- STOP TMUX button (new for BridgeV002) ---
+  var stopTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  stopTmuxBtn.textContent = lbl("lbl_bridge_stop_tmux", "Stop tmux");
+  stopTmuxBtn.onclick = function () { stopTmuxForFlow(flow.flow_key); };
+  actions.appendChild(stopTmuxBtn);
 
   // --- DELETE button (moved to end of row by handoff 002) ---
   var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
