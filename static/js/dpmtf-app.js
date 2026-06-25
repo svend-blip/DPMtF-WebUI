@@ -2051,11 +2051,6 @@ function renderFlowCard(flow, steps) {
   editBtn.onclick = function () { editBridgeFlow(flow.flow_key); };
   actions.appendChild(editBtn);
 
-  var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
-  delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
-  delBtn.onclick = function () { deleteBridgeFlow(flow.flow_key); };
-  actions.appendChild(delBtn);
-
   // --- START TMUX button (new for BridgeV002) ---
   var startTmuxBtn = el("button", "dpmtf-btn dpmtf-btn-success");
   startTmuxBtn.textContent = lbl("lbl_bridge_start_tmux", "Start tmux");
@@ -2079,6 +2074,12 @@ function renderFlowCard(flow, steps) {
   attachTmuxBtn.textContent = lbl("lbl_bridge_attach_tmux", "Attach tmux");
   attachTmuxBtn.onclick = function () { attachTmuxForFlow(flow.flow_key); };
   actions.appendChild(attachTmuxBtn);
+
+  // --- DELETE button (moved to end of row by handoff 002) ---
+  var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
+  delBtn.onclick = function () { deleteBridgeFlow(flow.flow_key); };
+  actions.appendChild(delBtn);
 
   card.appendChild(actions);
   return card;
@@ -2178,7 +2179,7 @@ function addBridgeRole() {
     var om = document.getElementById("bridge-input-ollama_model");
     if (om && om.value.trim()) body.ollama_model = om.value.trim();
     var ec = document.getElementById("bridge-input-enter_command");
-    if (ec && ec.value !== "default") body.enter_command = ec.value;
+    if (ec) body.enter_command = ec.value;
 
     var scs = document.getElementById("bridge-input-start_cmd_suffix");
     if (scs && scs.value.trim()) body.start_cmd_suffix = scs.value.trim();
@@ -2468,7 +2469,7 @@ function editBridgeRoleFull(roleKey) {
 
         // H150: enter_command select
         var ec = document.getElementById("bridge-edit-input-enter_command");
-        if (ec && ec.value && ec.value !== "default") {
+        if (ec) {
           body.enter_command = ec.value;
         }
 

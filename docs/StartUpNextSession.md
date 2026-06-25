@@ -11,15 +11,28 @@ DPMtF governance loop. Your role is defined in
 When operating within the `strict_review` flow, the flow-specific template
 `docs/governance-templates-v2/402_STRICT_REVIEW_ARCHI01.md` takes precedence.
 
+When operating within the `cloud_llm` flow, the flow-specific template
+`docs/governance-templates-v2/412_CLOUD_LLM_ARCHI01CLOUD.md` takes precedence.
+
 ## 2. Cold Start — Required Files
 
-Read these files in order to reconstruct project state:
+Read these files in order to reconstruct project state for `strict_review` flow:
 
-1. `docs/bridgeV002/current-cycle.json` — latest cycle state (handoff ID, active role, gaps)
+1. `docs/bridgeV002/current-cycle-strict-review.json` — latest cycle state (handoff ID, active role, gaps)
 2. `docs/governance-templates-v2/402_STRICT_REVIEW_ARCHI01.md` — your flow-specific role definition
 3. `docs/governance-templates-v2/100_BRIDGE.md` — BridgeV002 protocol
 4. `docs/governance-templates-v2/99_ROLEINTERACTION.md` — role loop and escalation
 5. `CLAUDE.md` — project overview, config, coding standards
+
+Read these files in order to reconstruct project state for `cloud_llm` flow:
+
+1. `docs/bridgeV002/current-cycle-cloud-llm.json` — latest cycle state (handoff ID, active role, gaps)
+2. `docs/governance-templates-v2/412_CLOUD_LLM_ARCHI01CLOUD.md` — your flow-specific role definition
+3. `docs/governance-templates-v2/100_BRIDGE.md` — BridgeV002 protocol
+4. `docs/governance-templates-v2/99_ROLEINTERACTION.md` — role loop and escalation
+5. `CLAUDE.md` — project overview, config, coding standards
+
+
 
 ## 3. Active Hard Rules
 
@@ -38,7 +51,7 @@ Read these files in order to reconstruct project state:
 
 ## 4. Save-State Procedure
 
-Before dispatching a handoff, update `docs/bridgeV002/current-cycle.json`:
+Before dispatching a handoff, update `docs/bridgeV002/current-cycle-strict-review.json` for `strict_review` flow:
 
 ```json
 {
@@ -54,20 +67,36 @@ Before dispatching a handoff, update `docs/bridgeV002/current-cycle.json`:
   "updated": "2026-06-22T15:30:00Z"
 }
 ```
+Before dispatching a handoff, update `docs/bridgeV002/current-cycle-cloud-llm.json` for `cloud_llm` flow:
+
+```json
+{
+  "last_handoff": 144,
+  "title": "Short description of the handoff",
+  "flow": "cloud_llm",
+  "active_role": "archi01cloud",
+  "design_notes": "Key design decisions the architect made",
+  "verification_checklist": ["check 1", "check 2"],
+  "open_gaps": [],
+  "branch": "hardening/bridgev002-phase1-config",
+  "commit": "7ef7622",
+  "updated": "2026-06-22T15:30:00Z"
+}
+```
 
 Then dispatch. Do not skip this step — it is the Architect's memory across
 `ollama stop` cycles.
 
 ## 5. Stop Condition
 
-Stop ALL activity and wait for Human (Svend) after:
+Stop ALL activity and wait for Human after:
 
 - Dispatching a handoff via `dispatch.py --signal-send`
 - Completing an escalation response via `dispatch.py --signal-answer`
 - Hitting an ambiguity that requires Human decision
 - Human explicitly says "stop" or "wait"
 
-## 6. Tmux Sessions (strict_review flow)
+## 6. Tmux Sessions
 
 Only these 4 sessions matter for the strict_review flow. Models and tools are
 configured in the database (`bridge_roles.start_cmd`) — not hardcoded here.
@@ -81,6 +110,21 @@ configured in the database (`bridge_roles.start_cmd`) — not hardcoded here.
 
 Start/stop/attach via BridgeV002 UI buttons.
 View all 4: `tmux attach -t flow-strict_review` (after clicking Attach tmux).
+
+
+Only these 4 sessions matter for the cloud_llm flow. Models and tools are
+configured in the database (`bridge_roles.start_cmd`) — not hardcoded here.
+
+| Session | Role | Governance |
+|---------|------|------------|
+| `archi01cloud` | Architect | 412_CLOUD_LLM_ARCHI01CLOUD.md |
+| `imple01cloud` | Implementer | 413_CLOUD_LLM_IMPLE01CLOUD.md |
+| `review01cloud` | Technical Review | 414_CLOUD_LLM_REVIEW01CLOUD.md |
+| `review02cloud` | Governance Review | 415_CLOUD_LLM_REVIEW02CLOUD.md |
+
+Start/stop/attach via BridgeV002 UI buttons.
+View all 4: `tmux attach -t flow_cloud_llm` (after clicking Attach tmux).
+
 
 ## 7. Quick Verification
 
@@ -101,5 +145,6 @@ curl -s http://localhost:9130/api/bridge-v2/status
 | Home | /home/svend |
 | Project root | /home/svend/DPMtF-WebUI |
 | Bridge deliverable_dir | **BridgeV002 uses database-driven `deliverable_dir`** from `bridge_flow_steps.deliverable_dir` — *not* legacy `/home/svend/claude-bridge`. Current values: `/home/svend/flows/strict_review/{handoffs,results,reviews,verdicts}` |
+| Bridge deliverable_dir | **BridgeV002 uses database-driven `deliverable_dir`** from `bridge_flow_steps.deliverable_dir` — *not* legacy `/home/svend/claude-bridge`. Current values: `/home/svend/flows/cloud_llm/{handoffs,results,reviews,verdicts}` |
 | Ollama endpoint | http://127.0.0.1:11434 |
 | Runtime | `/home/svend/.local/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |

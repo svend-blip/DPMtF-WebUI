@@ -637,11 +637,13 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
             prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
             prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+            prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
         else:
             prompt_text = f"Read and execute {full_deliverable_path}"
     else:
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
+        prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
 
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
@@ -817,7 +819,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
         prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
-        # Also inject the actual deliverable file path so next role knows what to read
+        prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
         prompt_text += f"\n\n## Current Deliverable\nRead your input from: {full_deliverable_path}"
     else:
         prompt_text = (
@@ -1000,6 +1002,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         prompt_text = prompt_text.replace("{source_role}", from_role_key)
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        prompt_text = prompt_text.replace("{flow_key}", flow_key)
         # Inject the actual question file path so architect knows what to read
         prompt_text += f"\n\n## Escalation Question File\nRead the escalation question from: {full_question_path}"
     else:
@@ -1142,6 +1145,7 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         prompt_text = prompt_text.replace("{source_role}", from_role_key)
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        prompt_text = prompt_text.replace("{flow_key}", flow_key)
     else:
         prompt_text = (
             f"The role '{from_role_key}' has provided an escalation response "
@@ -1348,6 +1352,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text = prompt_text.replace("{source_role}", from_role_key)
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
+        prompt_text = prompt_text.replace("{flow_key}", flow_key)
         # Append explicit dispatch instruction with absolute path
         prompt_text += (
             f"\n\n## Dispatch Instruction\n"

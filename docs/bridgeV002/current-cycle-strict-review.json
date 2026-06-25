@@ -1,0 +1,21 @@
+{
+  "last_handoff": 213,
+  "title": "i18n: fix el-GR display name + replace hardcoded strings with lbl()",
+  "flow": "strict_review",
+  "active_role": "archi01",
+  "design_notes": "Three issues in one handoff: (1) locale_names dict missing el-GR → dropdown shows 'el-GR' instead of 'Ελληνικά', (2) ~6 hardcoded textContent/placeholder strings in dpmtf-app.js should use lbl(), (3) seed data adds 4 new labels across all 5 locales bringing el-GR to full 220/220 coverage.",
+  "verification_checklist": [
+    "app.py locale_names dict has 'el-GR': 'Ελληνικά'",
+    "All hardcoded textContent replaced with lbl()",
+    "All placeholders replaced with lbl()",
+    "4 new labels seeded in all 5 locales (220 each)",
+    "4 previously missing el-GR translations now complete",
+    "No innerHTML anywhere in static/ or templates/",
+    "node --check static/js/dpmtf-app.js passes",
+    "python3 -m py_compile app.py scripts/init_db.py passes"
+  ],
+  "open_gaps": [],
+  "branch": "hardening/bridgev002-phase1-config",
+  "commit": "7ef7622",
+  "updated": "2026-06-24T00:00:00Z"
+}
