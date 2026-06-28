@@ -884,7 +884,9 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # Update cycle state for Architect cold-start
     _update_cycle_state(handoff_id, flow_key, payload["to_role"])
 
-    # Step 12: Auto-chain to next step if enabled
+    # Step 12: Auto-chain to next step if enabled.
+    # Uses signal_send (not run_flow_step_db) so the auto-chain waiting
+    # logic runs for every step in the chain.
     if auto_complete_enabled:
         current_sort = current_step.get("sort_order", 0)
         next_step = None
@@ -895,7 +897,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         if next_step:
             print(f"\n  Auto-chain enabled - dispatching next step: {next_step['step_key']}")
             # Reuse the same handoff_id — all steps in a chain share one flow run ID
-            run_flow_step_db(flow_key, next_step["step_key"], handoff_id, bridge_dir)
+            signal_send(flow_key, next_step["from_role"], next_step["to_role"],
+                       handoff_id, bridge_dir)
 
     return True
 
