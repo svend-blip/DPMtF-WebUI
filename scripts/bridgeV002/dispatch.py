@@ -663,7 +663,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             print(f"  Running post-dispatch script: {resolved_path}")
             execute_script_with_params(resolved_path, payload)
 
-    update_symlink(bridge_dir, deliverable_dir, payload["deliverable_file"])
+    update_symlink(bridge_dir, payload["deliverable_dir"], payload["deliverable_file"])
 
     log(
         f"{payload['from_role']}->{payload['to_role']}",
