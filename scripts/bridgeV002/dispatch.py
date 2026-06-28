@@ -1438,12 +1438,10 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     _update_cycle_state(handoff_id, flow_key, to_role_key)
 
     # Step 11: Auto-chain — if flow has auto_complete_enabled, wait for the
-    # target role's output and chain to the next step via signal_complete.
+    # target role's output and chain directly to the next step via signal_send.
     flow_auto = flow_data.get("flow", {}).get("auto_complete_enabled", 0)
     if flow_auto:
         # Determine the output file the target role will produce.
-        # Pattern: {ID}_{role_key}.json — {ID} replaced by handoff_id,
-        # {role_key} replaced by to_role (the role doing the work).
         output_pattern = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
         output_file = output_pattern.replace("{ID}", handoff_id).replace("{role_key}", to_role_key)
         output_path = os.path.join(bridge_dir, deliverable_dir, output_file)
@@ -1462,10 +1460,20 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
         if os.path.exists(output_path):
             print(f"  Output detected after {waited}s")
-            # Run signal_complete to validate + dispatch to next role.
-            # signal_complete's own auto_complete_enabled check will chain further.
-            signal_complete(flow_key, target_step.get("step_key"), to_role_key,
+            # Find the next step and chain via signal_send recursively.
+            # signal_send's own auto-chain will handle further steps.
+            current_sort = target_step.get("sort_order", 0)
+            next_step = None
+            for s in steps:
+                if s.get("sort_order", 0) == current_sort + 1:
+                    next_step = s
+                    break
+            if next_step:
+                print(f"  Chaining to: {next_step['step_key']}")
+                signal_send(flow_key, next_step["from_role"], next_step["to_role"],
                           handoff_id, bridge_dir)
+            else:
+                print(f"  ✅ Flow complete — no more steps in chain")
         else:
             print(f"  ⚠️  Timeout waiting for {to_role_key} output after 30min")
             print(f"  Chain stopped. Run signal-complete manually when ready.")
