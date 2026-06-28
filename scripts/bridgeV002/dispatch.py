@@ -894,9 +894,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
                 break
         if next_step:
             print(f"\n  Auto-chain enabled - dispatching next step: {next_step['step_key']}")
-            # Generate new ID for next step
-            next_id = f"{get_next_id_for_flow(flow_key, db_path=_db_path()):03d}"
-            run_flow_step_db(flow_key, next_step["step_key"], next_id, bridge_dir)
+            # Reuse the same handoff_id — all steps in a chain share one flow run ID
+            run_flow_step_db(flow_key, next_step["step_key"], handoff_id, bridge_dir)
 
     return True
 
