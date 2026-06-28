@@ -40,20 +40,22 @@ def parse_args():
     return parser.parse_args()
 
 
-def resolve_deliverable_file(deliverable_pattern, handoff_id):
-    """Replace {ID} placeholder in pattern with actual handoff ID.
+def resolve_deliverable_file(deliverable_pattern, handoff_id, from_role=None):
+    """Replace {ID} and {role_key} placeholders in pattern.
 
-    This function is the ONLY place where {ID} resolution happens — making it
-    configurable via database without changing script code.
+    {ID} is replaced with the handoff ID.
+    {role_key} is replaced with the from_role (the role that wrote the file).
 
     Examples:
         "{ID}-handoff.md" + "113" → "113-handoff.md"
-        "{ID}-callback.md" + "114" → "114-callback.md"
-        "{ID}-review-verdict.md" + "115" → "115-review-verdict.md"
+        "{ID}_{role_key}.json" + "012" + "trend01_trade" → "012_trend01_trade.json"
 
     Returns a string; never modifies the original pattern.
     """
-    return deliverable_pattern.replace("{ID}", str(handoff_id))
+    result = deliverable_pattern.replace("{ID}", str(handoff_id))
+    if from_role:
+        result = result.replace("{role_key}", from_role)
+    return result
 
 
 def get_deliverable_path(bridge_dir, deliverable_dir, resolved_filename):
@@ -90,7 +92,7 @@ def get_ollama_model_from_db(from_role_key, db_path):
             (from_role_key,)
         ).fetchone()
         conn.close()
-        return row["ollama_model"] if row and row.get("ollama_model") else None
+        return row["ollama_model"] if row and row["ollama_model"] else None
     except sqlite3.OperationalError as e:
         print(f"  WARNING: Database lookup failed ({e})")
         return None
@@ -129,6 +131,13 @@ def stop_ollama_model(model_name):
 def main():
     args = parse_args()
 
+    # Ensure project root is on sys.path for config import
+    import sys as _sys
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.dirname(os.path.dirname(_script_dir))
+    if _project_root not in _sys.path:
+        _sys.path.insert(0, _project_root)
+
     # Import DPMtF-WebUI config at runtime — never hardcoded paths
     import config as dpmtf_config
     bridge_dir = dpmtf_config.get_bridge_base_path()
@@ -136,8 +145,8 @@ def main():
 
     print(f"\n[Post-Dispatch Common] Handoff #{args.handoff_id} (step: {args.step_key})")
 
-    # Step 1: Resolve deliverable filename by replacing {ID} placeholder
-    resolved_filename = resolve_deliverable_file(args.deliverable_pattern, args.handoff_id)
+    # Step 1: Resolve deliverable filename by replacing {ID} and {role_key} placeholders
+    resolved_filename = resolve_deliverable_file(args.deliverable_pattern, args.handoff_id, args.from_role)
 
     # Step 2: Construct full deliverable path from config + DB values
     full_deliverable_path = get_deliverable_path(bridge_dir, args.deliverable_dir, resolved_filename)
