@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument("--deliverable-pattern", required=True, help="Deliverable filename pattern with {ID} placeholder (from DB bridge_flow_steps.deliverable_pattern). Script resolves {ID} at runtime.")
     parser.add_argument("--from-role", required=True, help="From role key (from DB bridge_flow_steps.from_role)")
     parser.add_argument("--error-msg", default="", help="Error message template for failure case (from DB bridge_flow_steps.error_msg)")
-    return parser.parse_args()
+    return parser.parse_known_args()[0]
 
 
 def resolve_deliverable_file(deliverable_pattern, handoff_id, from_role=None):
