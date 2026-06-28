@@ -3347,7 +3347,7 @@ async def create_webui_initialize(request: Request):
             status_code=400,
             content={
                 "success": False,
-                "error": result.stderr or result.stdout or "Unknown error",
+                "detail": result.stderr or result.stdout or "Unknown error",
             },
         )
 
@@ -4478,6 +4478,47 @@ async def bridge_v2_list_conventions():
         return {"conventions": conventions, "count": len(conventions)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list bridge conventions: {e}")
+
+
+@app.post("/api/bridge-v2/conventions")
+async def bridge_v2_create_convention(request: Request):
+    """Create a new BridgeV002 convention rule."""
+    data = await request.json()
+    required = ["rule_key", "step_type", "dir_template", "pattern_template"]
+    for f in required:
+        if f not in data:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {f}")
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    existing = cursor.execute(
+        "SELECT rule_key FROM bridge_convention_rules WHERE rule_key = ?",
+        (data["rule_key"],)
+    ).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=409, detail=f"Convention '{data['rule_key']}' already exists")
+
+    cursor.execute("""
+        INSERT INTO bridge_convention_rules
+        (rule_key, step_type, dir_template, pattern_template, error_template,
+         prompt_template, content_template, validation_schema, rule_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["rule_key"],
+        data["step_type"],
+        data["dir_template"],
+        data["pattern_template"],
+        data.get("error_template", ""),
+        data.get("prompt_template", ""),
+        data.get("content_template", ""),
+        data.get("validation_schema", ""),
+        data.get("rule_type", "generic"),
+    ))
+    conn.commit()
+    conn.close()
+    return {"status": "created", "rule_key": data["rule_key"]}
 
 
 @app.patch("/api/bridge-v2/conventions/{rule_key}")

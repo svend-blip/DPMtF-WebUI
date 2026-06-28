@@ -251,6 +251,7 @@ def get_next_id_for_flow(flow_key, db_path=None):
             )
         else:
             # Auto-create counter at 1 for unknown flows
+            new_id = 1
             try:
                 cursor.execute(
                     "INSERT INTO bridge_id_counters (flow_key, next_id) VALUES (?, 1)",

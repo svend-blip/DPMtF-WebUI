@@ -355,9 +355,10 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
     else:
         payload["deliverable_pattern"] = ""
 
-    # deliverable_file: pattern with {ID} replaced by handoff_id
+    # deliverable_file: pattern with {ID} replaced by handoff_id,
+    # {role_key} replaced by from_role (the role writing the file)
     pattern = payload.get("deliverable_pattern", "")
-    payload["deliverable_file"] = pattern.replace("{ID}", handoff_id)
+    payload["deliverable_file"] = pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
 
     # error_msg: use step value, fall back to convention template
     if step.get("error_msg"):
@@ -1281,6 +1282,36 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             f"Handoff file at {handoff_path} for human review",
         )
         return True
+
+    # G2: Human senders auto-generate handoff file from convention template.
+    # When from_role is human, there is no prior agent to write the handoff.
+    # Generate it from the convention's content_template so cronjob flows work.
+    from_role_type = from_role_data.get("role_type", "agent")
+    if from_role_type == "human":
+        deliverable_dir = payload.get("deliverable_dir", "")
+        handoff_path = os.path.join(bridge_dir, deliverable_dir, payload["deliverable_file"])
+        if not os.path.exists(handoff_path):
+            # Auto-generate from convention content_template
+            ctemplate = payload.get("prompt_template", "")
+            if not ctemplate and rule_key:
+                try:
+                    convention = resolve_convention_from_db(rule_key)
+                    ctemplate = convention.get("content_template", "")
+                except (ValueError, sqlite3.OperationalError):
+                    ctemplate = ""
+            if ctemplate:
+                # Build a minimal handoff with the required XML sections
+                generated = f"<role>You are {to_role_key} in the {flow_key} flow.</role>\n"
+                generated += f"<task>Execute your role according to the governance file. Produce JSON output to the inbox.</task>\n"
+                generated += f"<constraint>SIMULATION_ONLY = TRUE. Follow GATES.md. Valid JSON only.</constraint>\n"
+                os.makedirs(os.path.dirname(handoff_path), exist_ok=True)
+                with open(handoff_path, "w", encoding="utf-8") as f:
+                    f.write(generated)
+                print(f"  Auto-generated handoff file: {handoff_path}")
+            else:
+                print(f"  ERROR: No convention template available to auto-generate handoff")
+                print(f"  Prompt Compiler must write handoff file before signaling send")
+                return False
 
     # Step 2: Check target session is alive
     if not session_alive(tmux_session):
