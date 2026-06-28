@@ -1341,21 +1341,22 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         )
         return False
 
-    # Validate required XML sections in handoff content (matches legacy cmd_send)
-    with open(handoff_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    required_sections = ["<role>", "<task>", "<constraint>"]
-    missing = [s for s in required_sections if s not in content]
-    if missing:
-        print(f"  ERROR: Handoff file missing required XML sections: "
-              f"{', '.join(missing)}")
-        log(
-            f"{from_role_key}->{to_role_key}",
-            handoff_id,
-            "send_failed",
-            f"Missing XML sections: {', '.join(missing)}",
-        )
-        return False
+    # Validate required XML sections in handoff content (skip for json_output)
+    if rule_key != "json_output":
+        with open(handoff_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        required_sections = ["<role>", "<task>", "<constraint>"]
+        missing = [s for s in required_sections if s not in content]
+        if missing:
+            print(f"  ERROR: Handoff file missing required XML sections: "
+                  f"{', '.join(missing)}")
+            log(
+                f"{from_role_key}->{to_role_key}",
+                handoff_id,
+                "send_failed",
+                f"Handoff file missing required XML sections: {', '.join(missing)}",
+            )
+            return False
 
     handoff_abs = os.path.abspath(handoff_path)
     handoff_file = payload["deliverable_file"]
