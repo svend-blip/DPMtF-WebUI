@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# trade-cronjob.sh — Daily Trade Cockpit simulation flow starter
+#
+# Usage:
+#   ./scripts/trade-cronjob.sh [FLOW_ID]
+#
+# If FLOW_ID is omitted, the next ID from the database counter is used.
+#
+# Designed for cron:
+#   0 9 * * 1-5 /home/svend/DPMtF-WebUI/scripts/trade-cronjob.sh >> /home/svend/DPMtF-WebUI/logs/trade-cronjob.log 2>&1
+
+set -euo pipefail
+
+PROJECT_ROOT="/home/svend/DPMtF-WebUI"
+TRADE_INBOX="/home/svend/trade-ui/inbox/pending"
+LOG_DIR="${PROJECT_ROOT}/logs"
+FLOW_KEY="trade_cockpit_simulation_v001"
+
+# ── Resolve flow ID ──────────────────────────────────
+
+if [ $# -ge 1 ]; then
+    FLOW_ID="$1"
+else
+    FLOW_ID=$(python3 -c "
+import sqlite3
+conn = sqlite3.connect('${PROJECT_ROOT}/databases/dpmtf.db')
+row = conn.execute(\"SELECT next_id FROM bridge_id_counters WHERE flow_key='${FLOW_KEY}'\").fetchone()
+print(f'{row[0]:03d}')
+conn.close()
+")
+fi
+
+echo "═══════════════════════════════════════════════════════════"
+echo "  Trade Cockpit Cronjob — Flow ${FLOW_ID}"
+echo "  Started: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "═══════════════════════════════════════════════════════════"
+
+# ── 1. Pre-flight cleanup ─────────────────────────────
+
+echo ""
+echo "[1/6] Pre-flight cleanup..."
+
+# Stop trade Ollama models (free VRAM, clear context)
+TRADE_MODELS=("qwen3.6:35b-a3b-64k" "qwen3.6:27b-q4_K_M" "deepseek-v4-pro:cloud")
+for model in "${TRADE_MODELS[@]}"; do
+    if ollama ps 2>/dev/null | grep -q "$model"; then
+        echo "  Stopping $model..."
+        ollama stop "$model" 2>/dev/null || true
+    fi
+done
+echo "  Ollama models cleared."
+
+# Kill old trade tmux sessions
+TRADE_SESSIONS=(
+    trend01_trade market01_trade analyst01_trade
+    risk01_trade review01_trade sim01_trade
+    score01_trade learn01_trade
+)
+for session in "${TRADE_SESSIONS[@]}"; do
+    if tmux has-session -t "$session" 2>/dev/null; then
+        tmux kill-session -t "$session" 2>/dev/null || true
+        echo "  Killed tmux session: $session"
+    fi
+done
+echo "  Tmux sessions cleared."
+
+# ── 2. Create tmux sessions ───────────────────────────
+
+echo ""
+echo "[2/6] Creating tmux sessions..."
+
+SIM_SESSIONS=(
+    trend01_trade market01_trade analyst01_trade
+    risk01_trade review01_trade sim01_trade
+)
+for session in "${SIM_SESSIONS[@]}"; do
+    tmux new-session -d -s "$session"
+    echo "  Created: $session"
+done
+
+# ── 3. Start coding frontends ─────────────────────────
+
+echo ""
+echo "[3/6] Starting coding frontends..."
+cd "$PROJECT_ROOT"
+python3 scripts/bridgeV002/start_coding.py "$FLOW_KEY"
+
+# ── 4. Create trigger file ────────────────────────────
+
+echo ""
+echo "[4/6] Creating trigger file..."
+mkdir -p "$TRADE_INBOX"
+cat > "${TRADE_INBOX}/${FLOW_ID}_humantrade.json" << TRIGGEREOF
+<role>You are trend01_trade in the ${FLOW_KEY} flow.</role>
+<task>Execute your role according to the governance file. Produce JSON output to the inbox.</task>
+<constraint>SIMULATION_ONLY = TRUE. Follow GATES.md. Valid JSON only.</constraint>
+TRIGGEREOF
+echo "  Created: ${FLOW_ID}_humantrade.json"
+
+# ── 5. Wait for models to initialize ──────────────────
+
+echo ""
+echo "[5/6] Waiting for models to initialize (10s)..."
+sleep 10
+
+# ── 6. Dispatch ────────────────────────────────────────
+
+echo ""
+echo "[6/6] Dispatching flow ${FLOW_ID}..."
+python3 scripts/bridgeV002/dispatch.py \
+    --db-flow "$FLOW_KEY" \
+    --signal-send --from-role humantrade --to-role trend01_trade \
+    --id "$FLOW_ID"
+
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo "  Flow ${FLOW_ID} dispatch complete"
+echo "  Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "═══════════════════════════════════════════════════════════"
