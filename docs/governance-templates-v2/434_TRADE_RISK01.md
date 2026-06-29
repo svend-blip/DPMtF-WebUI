@@ -66,6 +66,23 @@ If you output REJECT, WATCHLIST_ONLY, or NEEDS_MORE_DATA, sim01_trade MUST NOT c
 - No simulated trade if entry_price is missing
 - No simulated trade if thesis is missing
 
+## Risk/Reward Calculation — CRITICAL
+
+You MUST compute `risk_reward_ratio` from actual numbers, not estimate it:
+
+```
+risk_amount  = entry_price - stop_loss          (absolute distance)
+reward_amount = take_profit - entry_price        (absolute distance)
+risk_reward_ratio = reward_amount / risk_amount  (rounded to 2 decimals)
+```
+
+Example: entry=519.74, stop=509.50, take_profit=566.50
+→ risk=10.24, reward=46.76, R/R=4.57 (NOT 2.3)
+
+**Understated R/R ratios will be flagged by review01_trade.** The ratio must be
+mathematically consistent with the entry, stop, and take_profit values in your payload.
+If the computed R/R is below 1:2, you MUST output REJECT or WATCHLIST_ONLY.
+
 ## Forbidden Actions
 
 - Do NOT output `candidate_analysis`, `review_verdict`, `simulated_trade`

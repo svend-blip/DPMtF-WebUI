@@ -630,6 +630,17 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             return False
 
     # Compose final injection text: use convention prompt_template or content_template from DB
+    # Resolve model_name for {model_name} placeholder
+    target_model_name_rs = ""
+    if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
+        target_model_name_rs = to_role["ollama_model"]
+    elif to_role.get("model_type") == "cloud" and to_role.get("cloud_model"):
+        target_model_name_rs = to_role["cloud_model"]
+
+    # Resolve output_file: the filename the TO role should write
+    output_pattern_rs = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
+    output_file_rs = output_pattern_rs.replace("{ID}", payload["handoff_id"]).replace("{role_key}", payload["to_role"])
+
     prompt_text = payload.get("prompt_template", "")
     if not prompt_text:
         ctemplate = resolve_content_template_from_db(rule_key, db_path=_db_path())
@@ -639,12 +650,22 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
             prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
             prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+            prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
+            prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
+            prompt_text = prompt_text.replace("{output_file}", output_file_rs)
+            prompt_text = prompt_text.replace("{model_name}", target_model_name_rs)
+            prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
         else:
             prompt_text = f"Read and execute {full_deliverable_path}"
     else:
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
+        prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
+        prompt_text = prompt_text.replace("{output_file}", output_file_rs)
+        prompt_text = prompt_text.replace("{model_name}", target_model_name_rs)
+        prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
 
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
@@ -815,12 +836,28 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         rule_key, db_path=_db_path()
     ) if rule_key else ""
 
+    # Resolve model_name for {model_name} placeholder
+    target_model_name_sc = ""
+    if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
+        target_model_name_sc = to_role["ollama_model"]
+    elif to_role.get("model_type") == "cloud" and to_role.get("cloud_model"):
+        target_model_name_sc = to_role["cloud_model"]
+
+    # Resolve output_file: the filename the TO role should write
+    output_pattern_sc = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
+    output_file_sc = output_pattern_sc.replace("{ID}", payload["handoff_id"]).replace("{role_key}", payload["to_role"])
+
     if ctemplate:
         prompt_text = ctemplate.replace("{handoff_id}", payload["handoff_id"])
         prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
         prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
+        prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
+        prompt_text = prompt_text.replace("{output_file}", output_file_sc)
+        prompt_text = prompt_text.replace("{model_name}", target_model_name_sc)
+        prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
         prompt_text += f"\n\n## Current Deliverable\nRead your input from: {full_deliverable_path}"
     else:
         prompt_text = (
@@ -1381,12 +1418,28 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     ) if rule_key else ""
 
     # Step 7: Build prompt with placeholder replacement
+    # Resolve model_name for {model_name} placeholder
+    target_model_name = ""
+    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
+        target_model_name = to_role_data["ollama_model"]
+    elif to_role_data.get("model_type") == "cloud" and to_role_data.get("cloud_model"):
+        target_model_name = to_role_data["cloud_model"]
+
+    # Resolve output_file: the filename the TO role should write
+    output_pattern = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
+    output_file = output_pattern.replace("{ID}", handoff_id).replace("{role_key}", to_role_key)
+
     if ctemplate:
         prompt_text = ctemplate.replace("{handoff_id}", handoff_id)
         prompt_text = prompt_text.replace("{source_role}", from_role_key)
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{deliverable_dir}", deliverable_dir)
+        prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
+        prompt_text = prompt_text.replace("{output_file}", output_file)
+        prompt_text = prompt_text.replace("{model_name}", target_model_name)
+        prompt_text = prompt_text.replace("{previous_deliverable_path}", handoff_abs)
         # Append explicit dispatch instruction with absolute path
         prompt_text += (
             f"\n\n## Dispatch Instruction\n"
@@ -1450,16 +1503,29 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         print(f"\n  ⛓️  Auto-chain enabled — waiting for {to_role_key} to complete...")
         print(f"  Watching for: {output_path}")
 
-        # Poll for the output file (max 30 minutes)
+        # Record timestamp before polling — only files modified AFTER this
+        # timestamp trigger the chain. Prevents old output files from
+        # previous flow runs from immediately triggering auto-chain.
         import time as time_mod
+        start_wait = time_mod.time()
+
+        # If output file already exists from a previous run, log and wait for overwrite
+        if os.path.exists(output_path):
+            old_mtime = os.path.getmtime(output_path)
+            age_s = int(start_wait - old_mtime)
+            print(f"  ⚠️  Output file already exists (age: {age_s}s) — waiting for fresh output...")
+
+        # Poll for the output file (max 30 minutes)
         waited = 0
-        while not os.path.exists(output_path) and waited < 1800:
+        while waited < 1800:
             time_mod.sleep(10)
             waited += 10
+            if os.path.exists(output_path) and os.path.getmtime(output_path) > start_wait:
+                break
             if waited % 60 == 0:
                 print(f"  ... still waiting ({waited // 60}m)")
 
-        if os.path.exists(output_path):
+        if os.path.exists(output_path) and os.path.getmtime(output_path) > start_wait:
             print(f"  Output detected after {waited}s")
             # Find the next step and chain via signal_send recursively.
             # signal_send's own auto-chain will handle further steps.

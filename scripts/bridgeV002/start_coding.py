@@ -26,30 +26,49 @@ from bridge_lib import resolve_placeholders  # noqa: E402
 
 
 def get_flow_roles(db_path, flow_key):
-    """Fetch all from_role role data for active steps in a flow.
+    """Fetch all role data for active steps in a flow (both from_role and to_role).
 
     Returns a list of dicts sorted by sort_order:
         [{role_key, tmux_session, start_cmd}, ...]
     Duplicate roles are deduplicated (first occurrence wins).
+
+    Includes the last step's to_role so the final role in the chain
+    also gets its coding frontend started.
     """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    rows = conn.execute(
+    # Fetch from_role entries
+    from_rows = conn.execute(
         """
-        SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix
+        SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix, s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
-        ORDER BY s.sort_order
         """,
         (flow_key,),
     ).fetchall()
 
-    # Deduplicate by role_key (first occurrence wins)
+    # Fetch the last step's to_role (final role in chain, never a from_role)
+    to_rows = conn.execute(
+        """
+        SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix, s.sort_order + 0.5 AS sort_order
+        FROM bridge_flow_steps s
+        JOIN bridge_roles r ON s.to_role = r.role_key
+        WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+        ORDER BY s.sort_order DESC
+        LIMIT 1
+        """,
+        (flow_key,),
+    ).fetchall()
+
+    # Combine and deduplicate by role_key (first occurrence wins)
+    all_rows = list(from_rows) + list(to_rows)
+    all_rows.sort(key=lambda r: r["sort_order"])
+
     seen = set()
     result = []
-    for row in rows:
+    for row in all_rows:
         rk = row["role_key"]
         if rk not in seen:
             seen.add(rk)
