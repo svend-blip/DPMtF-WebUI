@@ -20,6 +20,10 @@
 - Python: `python3 -m py_compile` før færdigmeldelse
 - Shell: `bash -n` før færdigmeldelse
 - `schema_version` forventet: 1
+- **Ingen `shell=True`** i healthcheck — alle subprocess-kald skal bruge liste-argumenter. Binaries fra Machine Profile må kun bruges som executable-argument, aldrig interpoleres i shell-strenge.
+- **`.gitignore` før lokale testprofiler** — reglen skal være på plads før `profiles/machine.ai-pc.json` eller `profiles/machine.local.json` oprettes
+- **Stop hvis `config.py` kræver omlægning** — Fase 1 må bruge eksisterende `get_project_root()` men ikke refaktorere config-struktur
+- **Metadata-endpoint må ikke returnere paths** — `GET /api/system/machine-profile` returnerer kun metadata. `GET /api/system/healthcheck` må gerne vise path-værdier i Path Checks. Secrets må aldrig returneres i nogen endpoint.
 
 ---
 
@@ -467,7 +471,9 @@ Never modifies state. Never returns secrets.
 import os
 import json
 import shutil
+import socket
 import subprocess
+import urllib.request
 import config
 
 
@@ -654,19 +660,28 @@ def run_section_ports(profile):
     if not ports:
         return results
 
-    # App port — always pass if we're running (the app is responding)
+    # App port — socket-check like expected_children
     app_port = ports.get("app")
     if app_port:
-        results.append(_check_result(
-            "ports", "app", "pass", "info",
-            f"App running on port {app_port}"
-        ))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        try:
+            sock.connect(("127.0.0.1", app_port))
+            sock.close()
+            results.append(_check_result(
+                "ports", "app", "pass", "info",
+                f"App port {app_port} is responding"
+            ))
+        except Exception:
+            results.append(_check_result(
+                "ports", "app", "warning", "warning",
+                f"App port {app_port} is not responding"
+            ))
 
     # Ollama port — check if local_ollama is enabled
     ollama_port = ports.get("ollama")
     local_ollama = profile.get("providers", {}).get("local_ollama", {})
     if ollama_port and local_ollama.get("available"):
-        import urllib.request
         try:
             url = f"http://127.0.0.1:{ollama_port}"
             urllib.request.urlopen(url, timeout=2)
@@ -683,7 +698,6 @@ def run_section_ports(profile):
     # Expected children — warning only
     children = ports.get("expected_children", {})
     for child_name, child_port in children.items():
-        import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
         try:
@@ -821,7 +835,6 @@ def run_section_ollama(profile):
     # Check endpoint via /api/tags
     endpoint = local_ollama.get("endpoint", "http://127.0.0.1:11434")
     tags_url = endpoint.rstrip("/") + "/api/tags"
-    import urllib.request
     try:
         urllib.request.urlopen(tags_url, timeout=2)
         results.append(_check_result(
@@ -1176,7 +1189,7 @@ function loadSystemSetup() {
     })
     .catch(function (err) {
       var errP = el("p", "dpmtf-error");
-      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      errP.textContent = lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || "");
       container.appendChild(errP);
     });
 }
@@ -1278,7 +1291,7 @@ function runSystemCheck(section) {
       renderSystemCheckResults(listDiv, summaryP, data);
     })
     .catch(function (err) {
-      summaryP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      summaryP.textContent = lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || "");
     });
 }
 
@@ -1538,12 +1551,13 @@ curl -s http://127.0.0.1:9130/api/system/healthcheck | python3 -m json.tool
 # Forventet: summary.warnings > 0, første check er profile warning
 ```
 
-- [ ] **Test 5: Path check med AI-PC profil**
+- [ ] **Test 5: Path check med AI-PC profil (fallback)**
 
 ```bash
-cp profiles/machine.ai-pc.example.json profiles/machine.ai-pc.json
+cp profiles/machine.ai-pc.example.json profiles/machine.local.json
 curl -s http://127.0.0.1:9130/api/system/healthcheck/paths | python3 -m json.tool
 # Forventet: project_root og bridge_dir er pass
+rm profiles/machine.local.json
 ```
 
 - [ ] **Test 6: Binary check**
@@ -1582,6 +1596,37 @@ python3 -m py_compile /home/svend/DPMtF-WebUI/config.py
 python3 -m py_compile /home/svend/DPMtF-WebUI/scripts/system_healthcheck.py
 python3 -m py_compile /home/svend/DPMtF-WebUI/scripts/init_db.py
 # Forventet: ingen output (success)
+```
+
+- [ ] **Test 11: No-runtime-diff — verificér at kun tilladte filer er ændret**
+
+```bash
+git diff --name-only HEAD
+```
+
+Bekræft at kun disse filer er ændret:
+```
+profiles/.gitkeep
+profiles/machine.local.example.json
+profiles/machine.ai-pc.example.json
+.gitignore
+config.py
+scripts/system_healthcheck.py
+app.py
+static/js/dpmtf-app.js
+templates/index.html
+scripts/init_db.py
+```
+
+Bekræft i færdigmelding:
+```
+Ingen bridge_roles schema ændret
+Ingen bridge_flow_steps schema ændret
+Ingen start_cmd_suffix ændret
+Ingen tmux injection ændret
+Ingen deliverable_dir resolution ændret
+Ingen flow execution logic ændret
+Ingen role start/stop logic ændret
 ```
 
 ---
