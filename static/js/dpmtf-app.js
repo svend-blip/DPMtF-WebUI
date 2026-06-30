@@ -3781,16 +3781,25 @@ function loadSystemSetup() {
   if (!container) return;
   clear(container);
 
+  var loadingP = el("p", "dpmtf-muted");
+  loadingP.textContent = "Indlæser...";
+  container.appendChild(loadingP);
+
   fetch("/api/system/machine-profile")
-    .then(function (res) { return res.json(); })
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
     .then(function (meta) {
+      clear(container);
       renderSystemSetupHeader(container, meta);
       renderSystemSetupButtons(container);
       renderSystemSetupCheckContainer(container);
     })
     .catch(function (err) {
+      clear(container);
       var errP = el("p", "dpmtf-error");
-      errP.textContent = lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || "");
+      errP.textContent = "Fejl: " + (err.message || "Kunne ikke hente Machine Profile");
       container.appendChild(errP);
     });
 }
