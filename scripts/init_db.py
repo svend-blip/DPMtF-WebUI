@@ -4729,16 +4729,16 @@ cursor.executemany(
         # Claude + cloud_ollama
         ("claude", "cloud_ollama", "deepseek-v4-pro:cloud", "market01_trade"),
         # Claude + local_ollama (27b-q4_K_M)
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01"),
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01cloud"),
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01pay"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "learn01_trade"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "score01_trade"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "sim01_trade"),
-        # Claude + local_ollama (35b-a3b)
-        ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02"),
-        ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02cloud"),
-        ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02pay"),
+        # OpenCode + local_ollama (review rollers — faktisk runtime er opencode)
+        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01"),
+        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01cloud"),
+        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01pay"),
+        ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02"),
+        ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02cloud"),
+        ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02pay"),
         # OpenCode + local_ollama
         ("opencode", "local_ollama", "qwen3.6-27b-coder:latest", "imple01"),
         # OpenCode + openrouter (minimax)
