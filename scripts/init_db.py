@@ -4708,6 +4708,33 @@ if not _column_exists(cursor, "bridge_roles", "default_model"):
         ALTER TABLE bridge_roles ADD COLUMN default_model TEXT DEFAULT NULL
     """)
 
+# Machine Profile Fase 2A — config_dir for OpenCode roles
+if not _column_exists(cursor, "bridge_roles", "config_dir"):
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN config_dir TEXT DEFAULT NULL
+    """)
+
+# Populate config_dir from legacy start_cmd_suffix for OpenCode roles
+# Extracts the directory name from OPENCODE_CONFIG_DIR=".../opencode-roles/<name>"
+# Only sets NULL fields — never overwrites manually configured values
+cursor.executemany(
+    """UPDATE bridge_roles
+       SET config_dir = ?
+       WHERE role_key = ? AND config_dir IS NULL""",
+    [
+        ("imple01", "imple01"),
+        ("imple01pay", "imple01"),
+        ("analyst01_trade", "imple01"),
+        ("review01", "review01"),
+        ("review01cloud", "review01"),
+        ("review01pay", "review01"),
+        ("review01_trade", "glm52trade"),
+        ("review02", "review02"),
+        ("review02cloud", "review02"),
+        ("review02pay", "review02"),
+    ],
+)
+
 # Seed default_runtime/default_provider/default_model from analyzed patterns
 # Only seeds when ALL THREE fields are NULL — never partially overwrites.
 # One entry per role_key — no duplicates.

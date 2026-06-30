@@ -46,6 +46,7 @@ def get_flow_roles(db_path, flow_key):
         """
         SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix,
                r.default_runtime, r.default_provider, r.default_model,
+               r.config_dir,
                s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
@@ -59,6 +60,7 @@ def get_flow_roles(db_path, flow_key):
         """
         SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix,
                r.default_runtime, r.default_provider, r.default_model,
+               r.config_dir,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.to_role = r.role_key
@@ -87,6 +89,7 @@ def get_flow_roles(db_path, flow_key):
                 "default_runtime": row["default_runtime"],
                 "default_provider": row["default_provider"],
                 "default_model": row["default_model"],
+                "config_dir": row["config_dir"],
             })
 
     conn.close()
@@ -267,6 +270,7 @@ def main():
                     model=role.get("default_model"),
                     role_key=role["role_key"],
                     machine_profile=machine_profile,
+                    config_dir=role.get("config_dir"),
                 )
 
                 # Check model against provider model list (warning only in Fase 2A)

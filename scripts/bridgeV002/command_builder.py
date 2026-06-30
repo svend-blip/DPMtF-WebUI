@@ -12,7 +12,8 @@ import shlex
 import shutil
 
 
-def build_start_command(runtime, provider, model, role_key, machine_profile):
+def build_start_command(runtime, provider, model, role_key, machine_profile,
+                        config_dir=None):
     """Build a start command object from logical role fields + Machine Profile.
 
     Args:
@@ -21,6 +22,7 @@ def build_start_command(runtime, provider, model, role_key, machine_profile):
         model: str — which model to use
         role_key: str — the role's unique key (for config_dir resolution)
         machine_profile: dict — from config.get_machine_profile()
+        config_dir: str or None — override config directory name (OpenCode only)
 
     Returns:
         dict with keys: cwd (str), env (dict), argv (list[str])
@@ -55,7 +57,10 @@ def build_start_command(runtime, provider, model, role_key, machine_profile):
             f"Unsupported runtime/provider combination: {runtime}/{provider}"
         )
 
-    return builder(runtime, provider, model, role_key, machine_profile)
+    # Resolve config directory: explicit config_dir > role_key
+    effective_config_dir = config_dir or role_key
+
+    return builder(runtime, provider, model, effective_config_dir, machine_profile)
 
 
 # ── Builder registry ──────────────────────────────────────────
@@ -148,7 +153,7 @@ def build_claude_ollama_command(runtime, provider, model, role_key, mp):
 
 
 @_register("opencode", "local_ollama")
-def build_opencode_ollama_command(runtime, provider, model, role_key, mp):
+def build_opencode_ollama_command(runtime, provider, model, config_dir, mp):
     """Build OpenCode + local Ollama command."""
     binaries = mp.get("binaries", {})
     runtimes = mp.get("runtimes", {})
@@ -158,22 +163,22 @@ def build_opencode_ollama_command(runtime, provider, model, role_key, mp):
     runtime_cfg = _get_runtime_config("opencode", runtimes)
 
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
-    config_dir = f"{config_base}/{role_key}"
+    full_config_dir = f"{config_base}/{config_dir}"
 
     cwd = paths.get("project_root", os.getcwd())
 
     return {
         "cwd": cwd,
         "env": {
-            "OPENCODE_CONFIG_DIR": config_dir,
-            "OPENCODE_CONFIG": f"{config_dir}/opencode.json",
+            "OPENCODE_CONFIG_DIR": full_config_dir,
+            "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
         },
         "argv": [opencode_bin, "--model", f"ollama/{model}"],
     }
 
 
 @_register("opencode", "openrouter")
-def build_opencode_openrouter_command(runtime, provider, model, role_key, mp):
+def build_opencode_openrouter_command(runtime, provider, model, config_dir, mp):
     """Build OpenCode + OpenRouter command.
 
     OpenRouter API key comes from environment — NOT included in command object.
@@ -186,15 +191,15 @@ def build_opencode_openrouter_command(runtime, provider, model, role_key, mp):
     runtime_cfg = _get_runtime_config("opencode", runtimes)
 
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
-    config_dir = f"{config_base}/{role_key}"
+    full_config_dir = f"{config_base}/{config_dir}"
 
     cwd = paths.get("project_root", os.getcwd())
 
     return {
         "cwd": cwd,
         "env": {
-            "OPENCODE_CONFIG_DIR": config_dir,
-            "OPENCODE_CONFIG": f"{config_dir}/opencode.json",
+            "OPENCODE_CONFIG_DIR": full_config_dir,
+            "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
         },
         "argv": [opencode_bin, "--model", f"openrouter/{model}"],
     }
