@@ -4825,8 +4825,9 @@ async def bridge_v2_create_role(request: Request):
         cursor.execute("""
             INSERT INTO bridge_roles
             (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
-             setup_script, teardown_script, deliver_error_msg, enter_command, start_cmd_suffix)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             setup_script, teardown_script, deliver_error_msg, enter_command, start_cmd_suffix,
+             default_runtime, default_provider, default_model)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["role_key"],
             data["tmux_session"],
@@ -4839,6 +4840,9 @@ async def bridge_v2_create_role(request: Request):
             data.get("deliver_error_msg"),
             data.get("enter_command", "default"),
             data.get("start_cmd_suffix"),
+            data.get("default_runtime"),
+            data.get("default_provider"),
+            data.get("default_model"),
         ))
     else:
         # Role exists (active or soft-deleted) — reactivate/update it
@@ -4848,7 +4852,8 @@ async def bridge_v2_create_role(request: Request):
         params = []
         for field in ["tmux_session", "start_cmd", "model_type", "cloud_model",
                       "ollama_model", "setup_script", "teardown_script",
-                      "deliver_error_msg", "enter_command", "start_cmd_suffix"]:
+                      "deliver_error_msg", "enter_command", "start_cmd_suffix",
+                      "default_runtime", "default_provider", "default_model"]:
             if field in data:
                 sets.append(f"{field} = ?")
                 params.append(data[field])
@@ -4888,6 +4893,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "role_type",  # G1: allow frontend to change role type (agent/human)
         "enter_command",  # H150: per-role Enter key configuration
         "start_cmd_suffix",  # H160: decomposed start command suffix
+        "default_runtime", "default_provider", "default_model",  # Machine Profile Fase 2A
     ]
     sets = []
     params = []
@@ -5053,15 +5059,20 @@ async def bridge_v2_create_flow(request: Request):
             "UPDATE bridge_flows SET is_default = 0 WHERE is_default = 1"
         )
 
+    use_mp = data.get("use_machine_profile", 0)
+    if use_mp not in (0, 1):
+        use_mp = 0
+
     cursor.execute("""
-        INSERT INTO bridge_flows (flow_key, name, description, step_order, is_default)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO bridge_flows (flow_key, name, description, step_order, is_default, use_machine_profile)
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (
         data["flow_key"],
         data["name"],
         data.get("description"),
         data.get("step_order"),
         is_default,
+        use_mp,
     ))
 
     step_count = 0
@@ -5111,7 +5122,7 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
 
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
-        "auto_complete_enabled",
+        "auto_complete_enabled", "use_machine_profile",
     ]
     sets = []
     params = []
