@@ -19,46 +19,36 @@ limits unless scope is explicitly changed through the documented process.
 
 ## Phase
 
-**MACHINE_PROFILE_FASE1 — Machine Profile: Portabelt Setup-lag**
+**MACHINE_PROFILE_FASE2A — Machine Profile: Role Runtime Config**
 
 ## In Scope Now
 
-- `profiles/` mappe
-- `profiles/.gitkeep`
-- `profiles/machine.local.example.json`
-- `profiles/machine.ai-pc.example.json`
-- `.gitignore` opdatering for lokale Machine Profiles
-- `config.get_machine_profile()`
-- `config.get_machine_profile_path()`
-- `config.get_machine_profile_metadata()`
-- `GET /api/system/machine-profile`
-- `GET /api/system/healthcheck`
-- `GET /api/system/healthcheck/{section}`
-- Read-only System Setup panel i frontend
-- i18n labels for nye System Setup UI-elementer
+- `bridge_flows.use_machine_profile` kolonne (idempotent)
+- `bridge_roles.default_runtime`, `default_provider`, `default_model` kolonner (idempotent)
+- `scripts/bridgeV002/command_builder.py` — `build_start_command()` + 5 builders + renderer
+- `start_coding.py` ændring — vælg mellem legacy og Machine Profile kommando
+- Frontend: `use_machine_profile` checkbox på flow, `default_runtime/provider/model` på rolle
+- Backend API: flow/role endpoints accepterer nye felter
+- i18n labels for nye UI-elementer
 
 ## Out of Scope Now
 
-- Ændring af `bridge_roles` schema
-- Ændring af `bridge_flow_steps` schema
-- Ændring af `bridge_roles.start_cmd_suffix`
-- Automatisk kommando-bygning fra Machine Profile
-- `use_machine_profile` på flows
-- Migration af eksisterende roller
-- Migration af deliverable_dir
-- Start/stop af roller via Machine Profile
-- Redigering af Machine Profile fra UI
+- Fjernelse af `start_cmd_suffix`
+- Massemigrering af alle flows
+- `command_templates` i Machine Profile
+- `runtime_commands` database-tabel
+- Flow-role overrides (Fase 2B)
+- Ændring af tmux/prompt/flow execution ud over valg af startkommando
 
 ## Key Principle
 
-Machine Profile er et read-only opslagslag. Det må ikke ændre eksisterende runtime-adfærd. Alle flows, roller og scripts skal køre uændret videre — med eller uden Machine Profile.
+Flow bestemmer OM Machine Profile bruges. Rolle bestemmer HVAD der skal køres. Machine Profile bestemmer HVORDAN. Builder oversætter. `start_cmd_suffix` bevares som legacy fallback.
 
 ## Constraints
 
-- Do NOT modify `bridge_roles` schema or data.
-- Do NOT modify `bridge_flow_steps` schema or data.
-- Do NOT modify `start_cmd_suffix` logic.
-- Do NOT modify tmux injection or role start/stop logic.
+- Do NOT remove `start_cmd_suffix`.
+- Do NOT massemigrere flows.
+- Do NOT modify tmux injection or role start/stop logic beyond command source selection.
 - Do NOT modify deliverable_dir resolution.
 - Do NOT introduce new dependencies without Human Approval Gate.
 - Do NOT commit until explicitly instructed by Human.
@@ -69,16 +59,13 @@ Machine Profile er et read-only opslagslag. Det må ikke ændre eksisterende run
 
 ## Success Criteria
 
-- App starter uden `profiles/` mappe
-- App starter uden Machine Profile fil
-- Invalid JSON i Machine Profile crasher ikke appen
-- `GET /api/system/machine-profile` returnerer `exists=false` hvis fil mangler
-- `GET /api/system/healthcheck` returnerer warning hvis fil mangler
-- Path check markerer eksisterende sti som `pass`
-- Path check markerer manglende required path som `fail`/`error`
-- Binary check virker både for absolut sti og PATH binary
-- Secrets check returnerer kun `found`/`missing` — aldrig secret value
-- Ukendt healthcheck section returnerer `400`
+- `use_machine_profile` default = 0 for alle eksisterende flows
+- Flow med `use_machine_profile=0` bruger `start_cmd_suffix` uændret
+- Flow med `use_machine_profile=1` bruger `build_start_command()`
+- Samme rolle i to flows påvirkes ikke globalt
+- Manglende Machine Profile ved `use_machine_profile=1` → stop med fejl, ingen fallback
+- Alle 5 builder-mønstre producerer korrekte kommandoer
+- Ingen cloud secrets i command object eller shell-string
 
 ## Scope Change Process
 

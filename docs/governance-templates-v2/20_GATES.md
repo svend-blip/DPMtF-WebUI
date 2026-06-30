@@ -223,4 +223,31 @@ New gates can be added as needed:
 - Document the addition in [[26_CHANGELOG]].
 - Update [[99_ROLEINTERACTION]] if the gate affects the role loop.
 
+### GATE-M6: Machine Profile Activation
+
+```
+TRIGGER: User enables use_machine_profile on a flow.
+
+QUESTION: "Er Machine Profile valid og mindst én provider available?"
+
+CONSEQUENCE:
+  - Hvis Machine Profile mangler → checkbox disabled, kan ikke aktiveres
+  - Hvis JSON invalid → checkbox disabled, kan ikke aktiveres
+  - Hvis schema_version mismatch → checkbox disabled, kan ikke aktiveres
+  - Hvis ingen provider available → advarsel men tillader aktivering
+```
+
+### GATE-M7: No Silent Fallback
+
+```
+TRIGGER: Flow har use_machine_profile=1 men build_start_command() fejler.
+
+QUESTION: "Skal fejlen rapporteres og rollen stoppes?"
+
+CONSEQUENCE:
+  - Fejl skal være synlig — ingen skjult fallback til start_cmd_suffix
+  - Rollen startes ikke
+  - Fejlbesked logges
+```
+
 ---
