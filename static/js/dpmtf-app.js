@@ -2184,6 +2184,14 @@ function addBridgeRole() {
     var scs = document.getElementById("bridge-input-start_cmd_suffix");
     if (scs && scs.value.trim()) body.start_cmd_suffix = scs.value.trim();
 
+    // Machine Profile Fase 2A — only save if not disabled
+    var rtEl = document.getElementById("bridge-input-default-runtime");
+    var pvEl = document.getElementById("bridge-input-default-provider");
+    var mdEl = document.getElementById("bridge-input-default-model");
+    if (rtEl && !rtEl.disabled) body.default_runtime = rtEl.value || null;
+    if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
+    if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
+
     fetch("/api/bridge-v2/roles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2271,6 +2279,90 @@ function addBridgeRole() {
   scsDiv.appendChild(scsInput);
   form.appendChild(scsDiv);
 
+  // Machine Profile Fase 2A — default_runtime, default_provider, default_model
+  var mpSectionDiv = el("div", "dpmtf-form-group");
+  mpSectionDiv.appendChild(el("h4", null, lbl("system_setup_machine_profile", "Machine Profile")));
+
+  // default_runtime dropdown
+  var rtDiv = el("div", "dpmtf-form-group");
+  rtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_runtime", "default_runtime")));
+  var rtSelect = el("select", null);
+  rtSelect.id = "bridge-input-default-runtime";
+  rtSelect.disabled = true;
+  var rtEmpty = el("option", null);
+  rtEmpty.value = "";
+  rtEmpty.textContent = "";
+  rtSelect.appendChild(rtEmpty);
+  rtDiv.appendChild(rtSelect);
+  mpSectionDiv.appendChild(rtDiv);
+
+  // default_provider dropdown
+  var pvDiv = el("div", "dpmtf-form-group");
+  pvDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_provider", "default_provider")));
+  var pvSelect = el("select", null);
+  pvSelect.id = "bridge-input-default-provider";
+  pvSelect.disabled = true;
+  var pvEmpty = el("option", null);
+  pvEmpty.value = "";
+  pvEmpty.textContent = "";
+  pvSelect.appendChild(pvEmpty);
+  pvDiv.appendChild(pvSelect);
+  mpSectionDiv.appendChild(pvDiv);
+
+  // default_model text input with datalist
+  var mdDiv = el("div", "dpmtf-form-group");
+  mdDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_model", "default_model")));
+  var mdInput = el("input", null);
+  mdInput.type = "text";
+  mdInput.id = "bridge-input-default-model";
+  mdInput.setAttribute("list", "bridge-default-model-options");
+  mdInput.disabled = true;
+  var mdList = el("datalist", null);
+  mdList.id = "bridge-default-model-options";
+  mdDiv.appendChild(mdInput);
+  mdDiv.appendChild(mdList);
+  mpSectionDiv.appendChild(mdDiv);
+
+  form.appendChild(mpSectionDiv);
+
+  // Populate Machine Profile fields
+  fetch("/api/system/machine-profile")
+    .then(function (res) { return res.json(); })
+    .then(function (meta) {
+      var disabled = !meta.exists || meta.parse_error || meta.schema_version !== 1;
+      rtSelect.disabled = disabled;
+      pvSelect.disabled = disabled;
+      mdInput.disabled = disabled;
+
+      if (!disabled) {
+        // Populate runtimes
+        var runtimes = (meta.runtimes && Object.keys(meta.runtimes).length)
+          ? Object.keys(meta.runtimes)
+          : ["claude", "opencode", "freebuff"];
+        runtimes.forEach(function (rt) {
+          var opt = el("option", null);
+          opt.value = rt;
+          opt.textContent = rt;
+          rtSelect.appendChild(opt);
+        });
+
+        // Populate providers
+        if (meta.providers) {
+          Object.keys(meta.providers).forEach(function (pv) {
+            var opt = el("option", null);
+            opt.value = pv;
+            opt.textContent = pv + " (" + (meta.providers[pv].model_count || 0) + " models)";
+            pvSelect.appendChild(opt);
+          });
+        }
+      }
+    })
+    .catch(function () {
+      rtSelect.disabled = true;
+      pvSelect.disabled = true;
+      mdInput.disabled = true;
+    });
+
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
   btnRow.appendChild(cancelBtn);
@@ -2278,6 +2370,9 @@ function addBridgeRole() {
 
   container.insertBefore(form, container.firstChild);
 }
+
+// Update role save to include Machine Profile fields
+var _origAddBridgeRoleSave = null;
 
 function addBridgeFlow() {
   var container = document.getElementById("bridge-flows-list-container");
@@ -2305,6 +2400,8 @@ function addBridgeFlow() {
     if (desc && desc.value.trim()) body.description = desc.value.trim();
     var acInput = document.getElementById("bridge-input-auto_complete_enabled");
     if (acInput) body.auto_complete_enabled = acInput.checked ? 1 : 0;
+    var mpEl = document.getElementById("bridge-input-use-machine-profile");
+    if (mpEl && !mpEl.disabled) body.use_machine_profile = mpEl.checked ? 1 : 0;
     body.steps = [];
 
     fetch("/api/bridge-v2/flows", {
@@ -2350,6 +2447,48 @@ function addBridgeFlow() {
   acDiv.appendChild(acLabel);
   form.appendChild(acDiv);
 
+  // Machine Profile Fase 2A — use_machine_profile checkbox
+  var mpDiv = el("div", null);
+  var mpLabel = el("label", null);
+  var mpInput = el("input", null);
+  mpInput.type = "checkbox";
+  mpInput.id = "bridge-input-use-machine-profile";
+  mpInput.disabled = true;  // disabled until Machine Profile status is checked
+  mpLabel.appendChild(mpInput);
+  mpLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_use_machine_profile", "Brug Machine Profile til startkommandoer")));
+  mpDiv.appendChild(mpLabel);
+  var mpHelp = el("p", "dpmtf-small dpmtf-muted");
+  mpHelp.id = "mp-flow-help";
+  mpHelp.textContent = lbl("lbl_mp_checking", "Tjekker Machine Profile...");
+  mpDiv.appendChild(mpHelp);
+  form.appendChild(mpDiv);
+
+  // Check Machine Profile status for this flow form
+  fetch("/api/system/machine-profile")
+    .then(function (res) { return res.json(); })
+    .then(function (meta) {
+      var helpEl = document.getElementById("mp-flow-help");
+      if (!meta.exists) {
+        mpInput.disabled = true;
+        if (helpEl) helpEl.textContent = lbl("lbl_mp_missing",
+          "Machine Profile mangler — opret profil i System Setup før aktivering.");
+      } else if (meta.parse_error) {
+        mpInput.disabled = true;
+        if (helpEl) helpEl.textContent = lbl("lbl_mp_parse_error",
+          "Machine Profile har JSON-fejl — ret profilen før aktivering.");
+      } else if (meta.schema_version !== 1) {
+        mpInput.disabled = true;
+        if (helpEl) helpEl.textContent = lbl("lbl_mp_schema_mismatch",
+          "Machine Profile schema_version matcher ikke — opdater profilen før aktivering.");
+      } else {
+        mpInput.disabled = false;
+        if (helpEl) helpEl.textContent = "";
+      }
+    })
+    .catch(function () {
+      mpInput.disabled = true;
+    });
+
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
   btnRow.appendChild(cancelBtn);
@@ -2357,6 +2496,9 @@ function addBridgeFlow() {
 
   container.insertBefore(form, container.firstChild);
 }
+
+// Update flow save to include use_machine_profile
+var _origAddBridgeFlowSave = null;
 
 function deleteBridgeRole(roleKey) {
   if (!confirm(escapeHtml(roleKey) + "?")) return;
