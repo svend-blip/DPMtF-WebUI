@@ -11,3 +11,7 @@ databases/*.bak.*
 databases/*.preh99.*
 .playwright-mcp/
 screenshot-*.png
+
+# Machine Profiles — local copies are git-ignored
+profiles/*.json
+!profiles/*.example.json
