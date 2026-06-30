@@ -114,6 +114,76 @@ CONSEQUENCE:
   - Human says NO  → document in [[21_ALIGNMENT]] that staleness is accepted.
 ```
 
+### GATE-M1: Machine Profile Optional
+
+```
+TRIGGER: System Setup panel is opened OR healthcheck is run.
+
+QUESTION: "Findes aktiv Machine Profile?"
+
+CONSEQUENCE:
+  - Hvis NEJ → App må stadig starte. Eksisterende funktionalitet må ikke
+               påvirkes. System Setup viser warning. Machine Profile
+               features behandles som deaktiveret.
+```
+
+### GATE-M2: Kritiske Stier
+
+```
+TRIGGER: Healthcheck kører path checks.
+
+QUESTION: "Findes required paths fra Machine Profile?"
+
+Minimum:
+  - paths.project_root
+  - paths.bridge_dir
+
+CONSEQUENCE:
+  - Hvis NEJ → Healthcheck viser fail/error. Fase 1 må stadig ikke
+               blokere eksisterende app-start.
+```
+
+### GATE-M3: Required Binaries
+
+```
+TRIGGER: Healthcheck kører binary checks.
+
+QUESTION: "Findes required binaries?"
+
+Minimum:
+  - python
+  - tmux
+
+CONSEQUENCE:
+  - Hvis NEJ → Healthcheck viser fail/error. Fase 1 må stadig ikke
+               ændre eksisterende runtime-adfærd.
+```
+
+### GATE-M4: Provider Availability
+
+```
+TRIGGER: Healthcheck kører provider checks.
+
+QUESTION: "Er mindst én provider available=true?"
+
+CONSEQUENCE:
+  - Hvis NEJ → Healthcheck viser warning. Ingen eksisterende flows må
+               ændres eller blokeres i Fase 1.
+```
+
+### GATE-M5: No Runtime Migration in Phase 1
+
+```
+TRIGGER: Implementering foreslår ændring af flow-, rolle- eller
+         startkommando-logik.
+
+QUESTION: "Ændrer implementationen eksisterende flow-, rolle- eller
+          startkommando-logik?"
+
+CONSEQUENCE:
+  - Hvis JA → STOP. Det er Fase 2+ scope creep. Dokumentér og eskaler.
+```
+
 ## Gate Rules
 
 ### Precision
@@ -140,6 +210,11 @@ If multiple gates trigger simultaneously, ask in this order:
 4. GATE-FEATURE-ROLLOUT (cross-project rollout)
 5. GATE-GOVERNANCE-SYNC Trigger A (structural divergence)
 6. GATE-GOVERNANCE-SYNC Trigger B (project-specific staleness)
+7. GATE-M5 (no runtime migration in Phase 1 — stop-check)
+8. GATE-M1 (Machine Profile optional)
+9. GATE-M2 (kritiske stier)
+10. GATE-M3 (required binaries)
+11. GATE-M4 (provider availability)
 
 ### New Gates
 

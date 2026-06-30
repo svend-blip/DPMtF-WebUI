@@ -19,30 +19,48 @@ limits unless scope is explicitly changed through the documented process.
 
 ## Phase
 
-**{PHASE_KEY} — {PHASE_TITLE}**
+**MACHINE_PROFILE_FASE1 — Machine Profile: Portabelt Setup-lag**
 
 ## In Scope Now
 
-- {Bullet list of what is included in this phase.}
-- {Be specific — reference files, components, features.}
+- `profiles/` mappe
+- `profiles/.gitkeep`
+- `profiles/machine.local.example.json`
+- `profiles/machine.ai-pc.example.json`
+- `.gitignore` opdatering for lokale Machine Profiles
+- `config.get_machine_profile()`
+- `config.get_machine_profile_path()`
+- `config.get_machine_profile_metadata()`
+- `GET /api/system/machine-profile`
+- `GET /api/system/healthcheck`
+- `GET /api/system/healthcheck/{section}`
+- Read-only System Setup panel i frontend
+- i18n labels for nye System Setup UI-elementer
 
 ## Out of Scope Now
 
-- {Bullet list of what is explicitly excluded.}
-- {Changes to other projects.}
-- {New external dependencies without Human approval.}
-- {Database schema changes without prior approval.}
-- {Changes to {specific files or components}.}
+- Ændring af `bridge_roles` schema
+- Ændring af `bridge_flow_steps` schema
+- Ændring af `bridge_roles.start_cmd_suffix`
+- Automatisk kommando-bygning fra Machine Profile
+- `use_machine_profile` på flows
+- Migration af eksisterende roller
+- Migration af deliverable_dir
+- Start/stop af roller via Machine Profile
+- Redigering af Machine Profile fra UI
 
 ## Key Principle
 
-{1-2 sentences describing the guiding principle for this phase.}
+Machine Profile er et read-only opslagslag. Det må ikke ændre eksisterende runtime-adfærd. Alle flows, roller og scripts skal køre uændret videre — med eller uden Machine Profile.
 
 ## Constraints
 
-- Do NOT modify {other projects}.
+- Do NOT modify `bridge_roles` schema or data.
+- Do NOT modify `bridge_flow_steps` schema or data.
+- Do NOT modify `start_cmd_suffix` logic.
+- Do NOT modify tmux injection or role start/stop logic.
+- Do NOT modify deliverable_dir resolution.
 - Do NOT introduce new dependencies without Human Approval Gate.
-- Do NOT modify database schema without prior approval.
 - Do NOT commit until explicitly instructed by Human.
 - All frontend text MUST use `lbl(key, fallback)` — no hardcoded English strings.
 - No `innerHTML` for dynamic content — use `createElement()`/`textContent`/`appendChild()`.
@@ -51,8 +69,16 @@ limits unless scope is explicitly changed through the documented process.
 
 ## Success Criteria
 
-- {Measurable, verifiable criteria for phase completion.}
-- {Each criterion should be testable by Review.}
+- App starter uden `profiles/` mappe
+- App starter uden Machine Profile fil
+- Invalid JSON i Machine Profile crasher ikke appen
+- `GET /api/system/machine-profile` returnerer `exists=false` hvis fil mangler
+- `GET /api/system/healthcheck` returnerer warning hvis fil mangler
+- Path check markerer eksisterende sti som `pass`
+- Path check markerer manglende required path som `fail`/`error`
+- Binary check virker både for absolut sti og PATH binary
+- Secrets check returnerer kun `found`/`missing` — aldrig secret value
+- Ukendt healthcheck section returnerer `400`
 
 ## Scope Change Process
 

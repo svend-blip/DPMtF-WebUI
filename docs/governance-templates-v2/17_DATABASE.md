@@ -63,4 +63,24 @@ panel_subgroup_mappings — subgroup_key, subpattern_key, is_visible
 - If no subgroups defined: implicit "All" subgroup, flat display.
 - `is_visible = 0` hides the element via CSS class `dpmtf-hidden`.
 
+## Machine Profile
+
+Machine Profiles gemmes som JSON-filer i `profiles/`.
+
+De gemmes ikke i databasen i Fase 1.
+
+Årsager:
+- Machine Profile skal kunne læses før databaseafhængig runtime-logik
+- Machine Profile er maskinspecifik
+- Lokale profiler skal kunne være git-ignored
+- Secrets må ikke gemmes i Machine Profile
+
+Aktiv profil vælges via `.env`:
+
+```
+DPMTF_MACHINE_PROFILE=machine.ai-pc.json
+```
+
+Machine Profile må i Fase 1 kun bruges til read-only healthcheck og System Setup-visning.
+
 ---
