@@ -67,6 +67,10 @@
       "available": false,
       "env_key": "ANTHROPIC_API_KEY",
       "models": []
+    },
+    "opencode_builtin": {
+      "available": false,
+      "models": []
     }
   },
 
