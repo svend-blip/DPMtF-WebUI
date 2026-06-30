@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "name": "My Machine",
+  "description": "Machine Profile — copy to machine.<name>.json and customize",
+
+  "capabilities": {
+    "tmux": true,
+    "cuda": false,
+    "local_ollama": false,
+    "cloud_models": false,
+    "telegram_bridge": false,
+    "cron": false
+  },
+
+  "paths": {
+    "project_root": "/home/user/DPMtF-WebUI",
+    "bridge_dir": "/home/user/flows",
+    "trade_inbox": "/home/user/trade-ui/inbox/pending",
+    "log_dir": "/home/user/DPMtF-WebUI/logs",
+    "exports_dir": "/home/user/DPMtF-WebUI/exports"
+  },
+
+  "binaries": {
+    "python": "python3",
+    "tmux": "tmux",
+    "ollama": "ollama",
+    "claude": "claude",
+    "opencode": "opencode",
+    "freebuff": "freebuff"
+  },
+
+  "runtimes": {
+    "claude": {
+      "binary_ref": "claude",
+      "default_env": {
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "65536"
+      }
+    },
+    "opencode": {
+      "binary_ref": "opencode",
+      "config_base": "$HOME/.config/opencode-roles"
+    },
+    "freebuff": {
+      "binary_ref": "freebuff"
+    }
+  },
+
+  "providers": {
+    "local_ollama": {
+      "available": false,
+      "endpoint": "http://127.0.0.1:11434",
+      "auth_token": "ollama",
+      "models": []
+    },
+    "cloud_ollama": {
+      "available": false,
+      "endpoint": "http://127.0.0.1:11434",
+      "auth_token": "ollama",
+      "models": []
+    },
+    "openrouter": {
+      "available": false,
+      "env_key": "OPENROUTER_API_KEY",
+      "models": []
+    },
+    "anthropic_direct": {
+      "available": false,
+      "env_key": "ANTHROPIC_API_KEY",
+      "models": []
+    }
+  },
+
+  "ports": {
+    "app": 9130,
+    "ollama": 11434,
+    "resource_webui": 9121,
+    "expected_children": {}
+  },
+
+  "checks": {
+    "required_paths": ["project_root", "bridge_dir"],
+    "required_binaries": ["python", "tmux"],
+    "required_ports": ["app"],
+    "required_secrets": [],
+    "required_providers": []
+  }
+}

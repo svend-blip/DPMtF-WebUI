@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "name": "AI-PC",
+  "description": "Primary development machine — local Ollama + OpenCode",
+
+  "capabilities": {
+    "tmux": true,
+    "cuda": true,
+    "local_ollama": true,
+    "cloud_models": true,
+    "telegram_bridge": true,
+    "cron": true
+  },
+
+  "paths": {
+    "project_root": "/home/svend/DPMtF-WebUI",
+    "bridge_dir": "/home/svend/flows",
+    "trade_inbox": "/home/svend/trade-ui/inbox/pending",
+    "log_dir": "/home/svend/DPMtF-WebUI/logs",
+    "exports_dir": "/home/svend/DPMtF-WebUI/exports"
+  },
+
+  "binaries": {
+    "python": "python3",
+    "tmux": "tmux",
+    "ollama": "ollama",
+    "claude": "/home/svend/.npm-global/bin/claude",
+    "opencode": "/home/svend/.opencode/bin/opencode",
+    "freebuff": "/home/svend/.local/bin/freebuff"
+  },
+
+  "runtimes": {
+    "claude": {
+      "binary_ref": "claude",
+      "default_env": {
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "65536"
+      }
+    },
+    "opencode": {
+      "binary_ref": "opencode",
+      "config_base": "$HOME/.config/opencode-roles"
+    },
+    "freebuff": {
+      "binary_ref": "freebuff"
+    }
+  },
+
+  "providers": {
+    "local_ollama": {
+      "available": true,
+      "endpoint": "http://127.0.0.1:11434",
+      "auth_token": "ollama",
+      "models": [
+        "qwen3.6:35b-a3b-64k",
+        "qwen3.6:27b-q4_K_M",
+        "qwen3.6:35b-a3b",
+        "qwen3.6-27b-coder:latest"
+      ]
+    },
+    "cloud_ollama": {
+      "available": true,
+      "endpoint": "http://127.0.0.1:11434",
+      "auth_token": "ollama",
+      "models": [
+        "deepseek-v4-pro:cloud"
+      ]
+    },
+    "openrouter": {
+      "available": true,
+      "env_key": "OPENROUTER_API_KEY",
+      "models": [
+        "z-ai/glm-5.2",
+        "minimax/MiniMax-M3",
+        "deepseek/deepseek-v4-pro"
+      ]
+    },
+    "anthropic_direct": {
+      "available": false,
+      "env_key": "ANTHROPIC_API_KEY",
+      "models": []
+    }
+  },
+
+  "ports": {
+    "app": 9130,
+    "ollama": 11434,
+    "resource_webui": 9121,
+    "expected_children": {
+      "ENO": 9131,
+      "ai-pc-resource-webui-v3": 9123
+    }
+  },
+
+  "checks": {
+    "required_paths": ["project_root", "bridge_dir"],
+    "required_binaries": ["python", "tmux"],
+    "required_ports": ["app"],
+    "required_secrets": [],
+    "required_providers": []
+  }
+}
