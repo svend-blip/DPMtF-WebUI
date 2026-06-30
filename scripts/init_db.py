@@ -605,6 +605,15 @@ ui_labels_data = [
     ("LBL-1000343", "system_setup_run_ollama", "main", "Run ollama", "Button to run ollama check"),
     ("LBL-1000344", "system_setup_run_providers", "main", "Run providers", "Button to run providers check"),
     ("LBL-1000345", "system_setup_parse_error", "main", "JSON parse error in profile", "Error message for invalid Machine Profile JSON"),
+    # ── Machine Profile Fase 2A — flow/role labels ──
+    ("LBL-1000346", "lbl_bridge_use_machine_profile", "main", "Use Machine Profile for start commands", "Checkbox label for enabling Machine Profile on a flow"),
+    ("LBL-1000347", "lbl_bridge_default_runtime", "main", "default_runtime", "Label for default runtime field on role form"),
+    ("LBL-1000348", "lbl_bridge_default_provider", "main", "default_provider", "Label for default provider field on role form"),
+    ("LBL-1000349", "lbl_bridge_default_model", "main", "default_model", "Label for default model field on role form"),
+    ("LBL-1000350", "lbl_mp_missing", "main", "Machine Profile missing — create profile in System Setup before activating.", "Help text when Machine Profile file is missing"),
+    ("LBL-1000351", "lbl_mp_parse_error", "main", "Machine Profile has JSON error — fix profile before activating.", "Help text when Machine Profile JSON is invalid"),
+    ("LBL-1000352", "lbl_mp_schema_mismatch", "main", "Machine Profile schema_version mismatch — update profile before activating.", "Help text when Machine Profile schema_version does not match"),
+    ("LBL-1000353", "lbl_mp_checking", "main", "Checking Machine Profile...", "Temporary text while Machine Profile status is being checked"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -1358,6 +1367,15 @@ ui_label_translations_data = [
     ("LBL-1000343", "da-DK", "Kør ollama"),
     ("LBL-1000344", "da-DK", "Kør udbydere"),
     ("LBL-1000345", "da-DK", "JSON-fejl i profil"),
+    # ── Machine Profile Fase 2A — Danish translations ──
+    ("LBL-1000346", "da-DK", "Brug Machine Profile til startkommandoer"),
+    ("LBL-1000347", "da-DK", "default_runtime"),
+    ("LBL-1000348", "da-DK", "default_provider"),
+    ("LBL-1000349", "da-DK", "default_model"),
+    ("LBL-1000350", "da-DK", "Machine Profile mangler — opret profil i System Setup før aktivering."),
+    ("LBL-1000351", "da-DK", "Machine Profile har JSON-fejl — ret profilen før aktivering."),
+    ("LBL-1000352", "da-DK", "Machine Profile schema_version matcher ikke — opdater profilen før aktivering."),
+    ("LBL-1000353", "da-DK", "Tjekker Machine Profile..."),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)
