@@ -4476,33 +4476,8 @@ cursor.execute(
     ("escalation_content", "escalation"),
 )
 
-# G2/G4: Migrate existing callback + verdict content_templates to minimal file refs
+# G2/G4: Migrate existing verdict content_templates to minimal file refs
 # Unlike IS NULL seed above, these unconditionally update live databases.
-cursor.execute(
-    """UPDATE bridge_convention_rules
-       SET content_template = ?
-       WHERE rule_key = 'callback'""",
-    (
-        "<handoff_id>{handoff_id}</handoff_id>\n"
-        "\n"
-        "<source_role>{source_role}</source_role>\n"
-        "\n"
-        "<deliverable_input>\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
-        "</deliverable_input>\n"
-        "\n"
-        "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
-        "</deliverable_output>\n"
-        "\n"
-        "<dispatch_command>\n"
-        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
-        "</dispatch_command>",
-    ),
-)
-
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
@@ -4525,13 +4500,6 @@ cursor.execute(
 )
 
 # G2/G4: Migrate validation_schemas to match minimal templates
-cursor.execute(
-    """UPDATE bridge_convention_rules
-       SET validation_schema = ?
-       WHERE rule_key = 'callback'""",
-    ('["<handoff_id>", "<source_role>", "<deliverable_input>", "<deliverable_output>"]',),
-)
-
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET validation_schema = ?

@@ -121,3 +121,7 @@ def get_implementer_session() -> str:
 
 def get_architect_session() -> str:
     return os.environ.get("DPMTF_ARCHITECT_SESSION", "claude_architect")
+
+def get_trade_inbox_dir() -> str:
+    """Absolute path to Trade Cockpit inbox directory for JSON output."""
+    return os.environ.get("DPMTF_TRADE_INBOX", "/home/svend/trade-ui/inbox/pending")

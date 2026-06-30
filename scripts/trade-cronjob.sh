@@ -12,7 +12,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/svend/DPMtF-WebUI"
-TRADE_INBOX="/home/svend/trade-ui/inbox/pending"
+TRADE_INBOX=$(python3 -c "import sys; sys.path.insert(0, '${PROJECT_ROOT}'); import config; print(config.get_trade_inbox_dir())")
 LOG_DIR="${PROJECT_ROOT}/logs"
 FLOW_KEY="trade_cockpit_simulation_v001"
 
