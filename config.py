@@ -10,6 +10,7 @@ Sources (in priority order):
 3. Hardcoded fallbacks (last resort, for development only)
 """
 
+import json
 import os
 import configparser
 from pathlib import Path
@@ -125,3 +126,93 @@ def get_architect_session() -> str:
 def get_trade_inbox_dir() -> str:
     """Absolute path to Trade Cockpit inbox directory for JSON output."""
     return os.environ.get("DPMTF_TRADE_INBOX", "/home/svend/trade-ui/inbox/pending")
+
+
+# ── Machine Profile (Fase 1) ──────────────────────────────────────
+
+def get_machine_profile_path() -> str:
+    """Return resolved path to active Machine Profile.
+
+    Reads DPMTF_MACHINE_PROFILE from env, falls back to machine.local.json.
+    Returns the absolute path whether or not the file exists.
+    """
+    profile_name = os.environ.get("DPMTF_MACHINE_PROFILE", "machine.local.json")
+    return os.path.join(get_project_root(), "profiles", profile_name)
+
+
+def get_machine_profile() -> dict:
+    """Load active Machine Profile or return empty dict.
+
+    Machine Profile is optional in Phase 1.
+    Missing, invalid, or partial profiles must not break existing app startup.
+
+    Returns:
+        dict with profile data, or {} if file missing/invalid.
+    """
+    profile_path = get_machine_profile_path()
+    if not os.path.exists(profile_path):
+        return {}
+    try:
+        with open(profile_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def get_machine_profile_metadata() -> dict:
+    """Return safe metadata about the active Machine Profile.
+
+    Never returns secrets, paths, or raw profile data.
+    Safe for exposure via API.
+    Distinguishes three states: missing, invalid JSON, valid.
+
+    Returns:
+        dict with keys: active_profile, exists, parse_error, name,
+                        description, schema_version, capabilities,
+                        providers
+    """
+    profile_path = get_machine_profile_path()
+    profile_name = os.environ.get("DPMTF_MACHINE_PROFILE", "machine.local.json")
+    exists = os.path.exists(profile_path)
+
+    result = {
+        "active_profile": profile_name,
+        "exists": exists,
+        "parse_error": None,
+        "name": None,
+        "description": None,
+        "schema_version": None,
+        "capabilities": {},
+        "providers": {},
+    }
+
+    if not exists:
+        return result
+
+    try:
+        with open(profile_path, "r", encoding="utf-8") as f:
+            profile = json.load(f)
+    except json.JSONDecodeError as e:
+        result["parse_error"] = str(e)
+        return result
+    except IOError as e:
+        result["parse_error"] = str(e)
+        return result
+
+    if not profile:
+        return result
+
+    result["name"] = profile.get("name")
+    result["description"] = profile.get("description")
+    result["schema_version"] = profile.get("schema_version")
+    result["capabilities"] = profile.get("capabilities", {})
+
+    # Summarize providers — only available + model_count, never secrets
+    providers = profile.get("providers", {})
+    for pkey, pdata in providers.items():
+        result["providers"][pkey] = {
+            "available": pdata.get("available", False),
+            "model_count": len(pdata.get("models", [])),
+        }
+
+    return result
