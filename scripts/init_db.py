@@ -4639,6 +4639,80 @@ try:
 except sqlite3.OperationalError:
     pass
 
+# ── Machine Profile Fase 2A — idempotente runtime-kolonner ──────────────
+
+def _column_exists(cursor, table_name, column_name):
+    """Check if a column exists in a known table (idempotent schema helper)."""
+    allowed_tables = {"bridge_flows", "bridge_roles"}
+    if table_name not in allowed_tables:
+        raise ValueError(f"Unsupported table for column check: {table_name}")
+    rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(row[1] == column_name for row in rows)
+
+
+# use_machine_profile on bridge_flows
+if not _column_exists(cursor, "bridge_flows", "use_machine_profile"):
+    cursor.execute("""
+        ALTER TABLE bridge_flows ADD COLUMN use_machine_profile INTEGER DEFAULT 0
+    """)
+
+# default_runtime, default_provider, default_model on bridge_roles
+if not _column_exists(cursor, "bridge_roles", "default_runtime"):
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN default_runtime TEXT DEFAULT NULL
+    """)
+
+if not _column_exists(cursor, "bridge_roles", "default_provider"):
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN default_provider TEXT DEFAULT NULL
+    """)
+
+if not _column_exists(cursor, "bridge_roles", "default_model"):
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN default_model TEXT DEFAULT NULL
+    """)
+
+# Seed default_runtime/default_provider/default_model from analyzed patterns
+# Only seeds when ALL THREE fields are NULL — never partially overwrites.
+# One entry per role_key — no duplicates.
+# NOTE: review01_trade is NOT auto-seeded — conflicting patterns.
+cursor.executemany(
+    """UPDATE bridge_roles
+       SET default_runtime = ?, default_provider = ?, default_model = ?
+       WHERE role_key = ?
+         AND default_runtime IS NULL
+         AND default_provider IS NULL
+         AND default_model IS NULL""",
+    [
+        # Claude + local_ollama (35b-a3b-64k)
+        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01"),
+        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01cloud"),
+        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01pay"),
+        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "trend01_trade"),
+        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "risk01_trade"),
+        # Claude + cloud_ollama
+        ("claude", "cloud_ollama", "deepseek-v4-pro:cloud", "market01_trade"),
+        # Claude + local_ollama (27b-q4_K_M)
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01"),
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01cloud"),
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01pay"),
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "learn01_trade"),
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "score01_trade"),
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "sim01_trade"),
+        # Claude + local_ollama (35b-a3b)
+        ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02"),
+        ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02cloud"),
+        ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02pay"),
+        # OpenCode + local_ollama
+        ("opencode", "local_ollama", "qwen3.6-27b-coder:latest", "imple01"),
+        # OpenCode + openrouter (minimax)
+        ("opencode", "openrouter", "minimax/MiniMax-M3", "analyst01_trade"),
+        ("opencode", "openrouter", "minimax/MiniMax-M3", "imple01pay"),
+        # Freebuff
+        ("freebuff", None, "freebuff-default", "imple01cloud"),
+    ],
+)
+
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
 # Layer 3: ui_labels — semantic definitions
