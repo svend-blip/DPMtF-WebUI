@@ -3764,6 +3764,14 @@ panel_subgroups_seed = [
     ("sg_periodic_phase", "periodic", "Fase", "Phase", 1, 1),
     ("sg_periodic_planning", "periodic", "Planlægning", "Planning", 2, 1),
     ("sg_periodic_existing", "periodic", "Eksisterende Projekter", "Existing Projects", 3, 1),
+    # Setup subgroups
+    ("sg_setup_flows", "setup", "Flows", "Flows", 1, 1),
+    ("sg_setup_steps", "setup", "Trin", "Steps", 2, 1),
+    ("sg_setup_roles", "setup", "Roller", "Roles", 3, 1),
+    ("sg_setup_conventions", "setup", "Konventioner", "Conventions", 4, 1),
+    ("sg_setup_export", "setup", "Eksport", "Export", 5, 1),
+    ("sg_setup_db_status", "setup", "Database Status", "Database Status", 6, 1),
+    ("sg_setup_system", "setup", "Systemopsætning", "System Setup", 7, 1),
 ]
 for sg in panel_subgroups_seed:
     cursor.execute("""
@@ -3776,6 +3784,14 @@ for sg in panel_subgroups_seed:
 panel_subgroup_mappings_seed = [
     ("lbl_panel_phase_status", "sg_periodic_phase"),
     ("lbl_panel_project_planning", "sg_periodic_planning"),
+    # Setup mappings
+    ("lbl_bridge_flows_title", "sg_setup_flows"),
+    ("lbl_bridge_steps_title", "sg_setup_steps"),
+    ("lbl_bridge_roles_title", "sg_setup_roles"),
+    ("lbl_bridge_conventions_title", "sg_setup_conventions"),
+    ("lbl_bridge_export", "sg_setup_export"),
+    ("lbl_panel_db_status", "sg_setup_db_status"),
+    ("system_setup_title", "sg_setup_system"),
 ]
 for slot, sg in panel_subgroup_mappings_seed:
     cursor.execute("""
