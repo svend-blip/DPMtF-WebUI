@@ -6,22 +6,48 @@
 
 ---
 
-## 1. Problem
+## 1. Formål
 
-DPMtF er hardcodet til én maskine ("AI-PC"). Ved kopiering til en anden maskine knækker:
+DPMtF skal gøres mere portabelt ved at indføre et nyt Machine Profile-lag, som adskiller maskinspecifik konfiguration fra DPMtF Core.
 
-- Absolutte stier i `dpmtf.ini`, `.env`, `bridge_flow_steps.deliverable_dir`
-- Runtime-kommandoer i `bridge_roles.start_cmd_suffix` (20 roller)
-- CUDA devices, Ollama endpoint, OpenCode config stier
-- Modelnavne og provider-konfiguration spredt over database og scripts
-
-**Mål:** Separér "DPMtF Core" (projektlogik) fra "Machine Profile" (maskindetaljer) så samme kodebase kan køre på AI-PC, Mac Neo, Son PC, remote VPS — med forskellige providers og modeller.
+Målet er **ikke** at migrere eksisterende flows, roller eller startkommandoer i denne fase. Målet er kun at skabe et sikkert, read-only setup-lag, som kan vise om den aktuelle maskine er korrekt konfigureret.
 
 ---
 
-## 2. Arkitektur
+## 2. Grundregel
 
-### 2.1 Tre konfigurationslag
+Flows, roller og prompt-sekvenser må ikke kende maskinspecifikke detaljer.
+
+De må på sigt kun referere til logiske felter som:
+
+```
+runtime
+provider
+model
+role_key
+flow_key
+```
+
+Machine Profile oversætter senere disse logiske felter til konkrete værdier som:
+
+```
+paths
+binaries
+ports
+provider endpoints
+model availability
+env keys
+tmux capability
+ollama capability
+```
+
+I Fase 1 må Machine Profile kun bruges til visning og healthcheck.
+
+---
+
+## 3. Arkitektur
+
+### 3.1 Tre konfigurationslag
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -45,13 +71,7 @@ DPMtF er hardcodet til én maskine ("AI-PC"). Ved kopiering til en anden maskine
 └──────────────────────────────────────────────┘
 ```
 
-### 2.2 Princip
-
-- **Flows og roller må kun referere til logiske felter** — aldrig stier, kommandoer eller maskindetaljer
-- **Machine Profile oversætter logiske felter til konkrete værdier** — f.eks. `runtime: "claude"` → `/home/svend/.npm-global/bin/claude`
-- **Eksisterende config forbliver urørt i Fase 1** — Machine Profile er et nyt lag, ikke en erstatning
-
-### 2.3 Dataflow
+### 3.2 Dataflow
 
 ```
 Frontend "System Setup" panel
@@ -66,40 +86,92 @@ config.get_machine_profile()
 profiles/machine.ai-pc.json  ←── valgt via DPMTF_MACHINE_PROFILE i .env
         │
         ▼
-Valideringsmotor: paths → porte → secrets → tmux → ollama → binaries
+Valideringsmotor: profile → paths → binaries → ports → secrets → tmux → ollama → providers
         │
         ▼
-Response: { checks: [{name, status, message}], summary: {passed, warnings, failed} }
+Response: { profile, summary, checks: [{section, name, status, severity, message}] }
 ```
 
 ---
 
-## 3. Machine Profile filformat
+## 4. Filstruktur
 
-### 3.1 Filstruktur
+### 4.1 Mappe og filer
 
 ```
 profiles/
-├── machine.local.example.json   ← committet skabelon
-├── machine.ai-pc.json           ← git-ignored
-├── machine.mac-neo.json         ← git-ignored
-├── machine.son-pc.json          ← git-ignored
-└── machine.remote-vps.json      ← git-ignored
+  .gitkeep
+  machine.local.example.json
+  machine.ai-pc.example.json
 ```
 
-Aktiv profil vælges via `.env`:
+Tilføj til `.gitignore`:
+
+```gitignore
+profiles/*.json
+!profiles/*.example.json
 ```
+
+Formål:
+
+| Fil | Beskrivelse |
+|-----|-------------|
+| `machine.local.example.json` | Neutral template — committet |
+| `machine.ai-pc.example.json` | Realistisk eksempel baseret på AI-PC — committet |
+| `machine.<name>.json` | Lokal, git-ignored profil |
+
+### 4.2 Aktiv profil
+
+Vælges via `.env`:
+
+```env
 DPMTF_MACHINE_PROFILE=machine.ai-pc.json
 ```
 
-Fallback: `machine.local.json` hvis env variabel ikke er sat.
+Fallback hvis env ikke er sat: `machine.local.json`
 
-### 3.2 Format — `machine.local.example.json`
+Hvis ingen profil findes, skal appen stadig starte og eksisterende funktionalitet fortsætte uændret.
+
+---
+
+## 5. Machine Profile filformat
+
+### 5.1 `schema_version`
+
+Alle Machine Profiles skal have:
 
 ```json
 {
+  "schema_version": 1,
+  "name": "AI-PC"
+}
+```
+
+Healthcheck skal kunne advare hvis profilens `schema_version` ikke matcher appens forventede version:
+
+```
+⚠️ Machine Profile schema_version=1, expected=2
+```
+
+Forventet version i Fase 1: **1**
+
+### 5.2 Komplet format — `machine.local.example.json`
+
+```json
+{
+  "schema_version": 1,
   "name": "AI-PC",
   "description": "Primary development machine — local Ollama + OpenCode",
+
+  "capabilities": {
+    "tmux": true,
+    "cuda": true,
+    "local_ollama": true,
+    "cloud_models": true,
+    "telegram_bridge": true,
+    "cron": true
+  },
+
   "paths": {
     "project_root": "/home/svend/DPMtF-WebUI",
     "bridge_dir": "/home/svend/flows",
@@ -107,29 +179,32 @@ Fallback: `machine.local.json` hvis env variabel ikke er sat.
     "log_dir": "/home/svend/DPMtF-WebUI/logs",
     "exports_dir": "/home/svend/DPMtF-WebUI/exports"
   },
+
   "binaries": {
-    "claude": "/home/svend/.npm-global/bin/claude",
-    "opencode": "/home/svend/.opencode/bin/opencode",
-    "freebuff": "/home/svend/.local/bin/freebuff",
     "python": "python3",
     "tmux": "tmux",
-    "ollama": "ollama"
+    "ollama": "ollama",
+    "claude": "/home/svend/.npm-global/bin/claude",
+    "opencode": "/home/svend/.opencode/bin/opencode",
+    "freebuff": "/home/svend/.local/bin/freebuff"
   },
+
   "runtimes": {
     "claude": {
-      "binary": "/home/svend/.npm-global/bin/claude",
-      "env": {
+      "binary_ref": "claude",
+      "default_env": {
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "65536"
       }
     },
     "opencode": {
-      "binary": "/home/svend/.opencode/bin/opencode",
+      "binary_ref": "opencode",
       "config_base": "$HOME/.config/opencode-roles"
     },
     "freebuff": {
-      "binary": "/home/svend/.local/bin/freebuff"
+      "binary_ref": "freebuff"
     }
   },
+
   "providers": {
     "local_ollama": {
       "available": true,
@@ -163,43 +238,67 @@ Fallback: `machine.local.json` hvis env variabel ikke er sat.
       "available": false,
       "env_key": "ANTHROPIC_API_KEY",
       "models": []
-    },
-    "freebuff": {
-      "available": true,
-      "binary": "freebuff",
-      "models": ["Freebuf"]
     }
   },
+
   "ports": {
     "app": 9130,
+    "ollama": 11434,
+    "resource_webui": 9121,
     "expected_children": {
       "ENO": 9131,
       "ai-pc-resource-webui-v3": 9123
     }
   },
+
   "checks": {
-    "required_paths": ["project_root", "bridge_dir"],
-    "required_binaries": ["tmux", "python"],
-    "required_models": [],
-    "required_ports": ["app"],
-    "required_secrets": []
+    "required_paths": [
+      "project_root",
+      "bridge_dir"
+    ],
+    "required_binaries": [
+      "python",
+      "tmux"
+    ],
+    "required_ports": [
+      "app"
+    ],
+    "required_secrets": [],
+    "required_providers": []
   }
 }
 ```
 
-### 3.3 Provider-typer
+### 5.3 Runtimes og providers — adskillelse
 
-Fra databasen er 5 provider-typer i brug:
+Definition:
 
-| # | Type | Eksempel model | Runtime | Hvordan |
-|---|------|---------------|---------|---------|
+| Begreb | Betydning | Eksempel |
+|--------|-----------|----------|
+| `runtime` | Hvilket program starter rollen | `claude`, `opencode`, `freebuff` |
+| `provider` | Hvor modellen kommer fra | `local_ollama`, `openrouter` |
+| `model` | Hvilken model der bruges | `qwen3.6:27b-q4_K_M` |
+
+Eksempler på kombinationer:
+
+```
+runtime: claude       provider: local_ollama    model: qwen3.6:27b-q4_K_M
+runtime: opencode     provider: openrouter      model: z-ai/glm-5.2
+runtime: freebuff     provider: none            model: freebuff-default
+```
+
+**Freebuff** er en runtime, ikke en provider. Den har sin egen CLI og model-håndtering. Den ligger derfor under `runtimes`, ikke under `providers`.
+
+### 5.4 Provider-typer i brug
+
+| # | Provider | Eksempel model | Runtime | Hvordan |
+|---|----------|---------------|---------|---------|
 | 1 | `local_ollama` | `qwen3.6:35b-a3b-64k` | `claude` | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN=ollama` |
 | 2 | `cloud_ollama` | `deepseek-v4-pro:cloud` | `claude` | Samme endpoint, anden model |
 | 3 | `openrouter` | `openrouter/z-ai/glm-5.2` | `opencode` | `OPENROUTER_API_KEY` |
 | 4 | `anthropic_direct` | — | `opencode` | `ANTHROPIC_API_KEY` |
-| 5 | `freebuff` | `Freebuf` | `freebuff` | Custom CLI |
 
-### 3.4 Rolle → Kommando oversættelse (Fase 2, ikke nu)
+### 5.5 Rolle → Kommando oversættelse (Fase 2, ikke nu)
 
 Nuværende (maskinspecifik):
 ```
@@ -219,171 +318,537 @@ Machine Profile oversætter til konkret kommando.
 
 ---
 
-## 4. System Setup UI
+## 6. Healthcheck
 
-### 4.1 Panelstruktur
+### 6.1 Response-format
 
-Nyt panel under "Setup" med disse sektioner:
+```json
+{
+  "profile": {
+    "name": "AI-PC",
+    "filename": "machine.ai-pc.json",
+    "schema_version": 1
+  },
+  "summary": {
+    "passed": 8,
+    "warnings": 2,
+    "failed": 1
+  },
+  "checks": [
+    {
+      "section": "paths",
+      "name": "project_root",
+      "status": "pass",
+      "severity": "error",
+      "message": "/home/svend/DPMtF-WebUI exists"
+    },
+    {
+      "section": "secrets",
+      "name": "OPENROUTER_API_KEY",
+      "status": "warning",
+      "severity": "warning",
+      "message": "Env key not found"
+    },
+    {
+      "section": "ports",
+      "name": "ENO",
+      "status": "fail",
+      "severity": "warning",
+      "message": "Port 9131 is not responding"
+    }
+  ]
+}
+```
+
+### 6.2 Status og severity
+
+Tilladte `status`-værdier:
+
+| Status | Betydning |
+|--------|-----------|
+| `pass` | Check bestået |
+| `warning` | Problem fundet, ikke kritisk |
+| `fail` | Check fejlet |
+| `skip` | Check ikke relevant (f.eks. provider deaktiveret) |
+
+Tilladte `severity`-værdier:
+
+| Severity | Betydning |
+|----------|-----------|
+| `error` | Kan senere blokere start (Fase 2+) |
+| `warning` | Vises men blokerer ikke |
+| `info` | Kun oplysning |
+
+I Fase 1 må healthcheck **ikke** blokere eksisterende funktionalitet.
+
+### 6.3 Healthcheck-sektioner
+
+#### profile
+
+Checker:
+- Aktiv profil valgt
+- Profilfil findes
+- JSON kan parses
+- `schema_version` findes
+- `schema_version` matcher forventet version
+
+Hvis ingen profil findes:
+```json
+{
+  "section": "profile",
+  "name": "machine_profile",
+  "status": "warning",
+  "severity": "warning",
+  "message": "No Machine Profile configured. Existing functionality is unchanged."
+}
+```
+
+#### paths
+
+Checker alle paths i `profile.paths`.
+
+Regler:
+- `required_paths` mangler eller findes ikke → `fail` / `error`
+- Ikke-required paths mangler → `warning` / `warning`
+- Paths der findes → `pass` / `info`
+
+#### binaries
+
+Checker binaries i `profile.binaries`.
+
+Regler:
+- Hvis værdi er absolut sti: check om fil findes og er executable
+- Hvis værdi ikke er absolut sti: brug `shutil.which()`
+- `required_binaries` mangler → `fail` / `error`
+- Ikke-required binaries mangler → `warning` / `warning`
+
+#### ports
+
+Checker porte i `profile.ports`.
+
+Regler:
+- `app`-port: `pass` hvis appen selv svarer
+- `ollama`-port: checker endpoint hvis `local_ollama` er enabled
+- `expected_children`: må kun give `warning`, ikke `error`
+
+#### secrets
+
+Checker env keys defineret i providers.
+
+Regler:
+- Hvis `provider.available=true` og `provider.env_key` findes:
+  - env key sat → `pass`
+  - env key mangler → `warning`
+- Hvis `provider.available=false` → `skip`
+- **Secrets må aldrig returneres i API response** — kun found/missing status
+
+#### tmux
+
+Checker kun hvis `capabilities.tmux=true`.
+
+Regler:
+- `tmux` binary fundet → `pass`
+- `tmux ls` kan køres → `pass`/`warning` afhængigt af resultat
+- Ingen tmux sessions → `warning`/`info`, ikke `error`
+
+#### ollama
+
+Checker kun hvis `capabilities.local_ollama=true` eller provider `local_ollama.available=true`.
+
+Regler:
+- Endpoint reachable → `pass`
+- Endpoint ikke reachable → `warning`/`error` afhængigt af om `local_ollama` er required
+- Models i `profile.providers.local_ollama.models`:
+  - pulled → `pass`
+  - missing → `warning`
+
+I Fase 1 må manglende Ollama-modeller ikke blokere appen.
+
+#### providers
+
+Checker:
+- Mindst én provider `available=true`
+- Provider har enten `endpoint` eller `env_key` hvor relevant
+- `model_count`
+
+Hvis ingen provider er `available` → `warning`. Ikke `error` i Fase 1.
+
+---
+
+## 7. API endpoints
+
+### 7.1 `GET /api/system/machine-profile`
+
+Returnerer kun sikker metadata og summary. Må ikke returnere secrets.
+
+```json
+{
+  "active_profile": "machine.ai-pc.json",
+  "exists": true,
+  "name": "AI-PC",
+  "description": "Primary development machine — local Ollama + OpenCode",
+  "schema_version": 1,
+  "capabilities": {
+    "tmux": true,
+    "cuda": true,
+    "local_ollama": true,
+    "cloud_models": true
+  },
+  "providers": {
+    "local_ollama": {
+      "available": true,
+      "model_count": 4
+    },
+    "openrouter": {
+      "available": true,
+      "model_count": 3
+    }
+  }
+}
+```
+
+### 7.2 `GET /api/system/healthcheck`
+
+Kører alle checks. Sektioner: `profile`, `paths`, `binaries`, `ports`, `secrets`, `tmux`, `ollama`, `providers`.
+
+### 7.3 `GET /api/system/healthcheck/{section}`
+
+Kører én sektion. Tilladte section-værdier: `profile`, `paths`, `binaries`, `ports`, `secrets`, `tmux`, `ollama`, `providers`.
+
+Ukendt section → `400 Bad Request`.
+
+---
+
+## 8. config.py ændringer
+
+Tilføj tre nye getters:
+
+```python
+def get_machine_profile():
+    """Load active Machine Profile or return empty dict.
+
+    Machine Profile is optional in Phase 1.
+    Missing, invalid, or partial profiles must not break existing app startup.
+    """
+
+def get_machine_profile_path():
+    """Return resolved path to active Machine Profile."""
+
+def get_machine_profile_metadata():
+    """Return safe metadata: filename, exists, name, schema_version, description."""
+```
+
+Adfærd for `get_machine_profile()`:
+
+1. Læs `DPMTF_MACHINE_PROFILE` fra env
+2. Hvis ikke sat, brug `machine.local.json`
+3. Find filen i `profiles/`
+4. Hvis filen findes og er valid JSON → returnér dict
+5. Hvis filen mangler → returnér `{}`
+6. Hvis filen er invalid JSON → returnér `{}` og lad healthcheck vise warning
+
+**Vigtigt:** Eksisterende config getters må ikke ændres i Fase 1. Machine Profile må ikke overtage `dpmtf.ini`, `.env` eller eksisterende runtime-logik.
+
+---
+
+## 9. Frontend — System Setup panel
+
+### 9.1 Panelstruktur
+
+Read-only panel under Setup. Sektioner:
 
 | Sektion | Indhold |
 |---------|---------|
-| **Machine Profile** | Aktiv profil navn, skift profil (fremtidig), profil metadata |
-| **Model Providers** | Hver provider med ✅/❌ + tilgængelige modeller |
+| **Machine Profile** | Aktiv profil, schema version, capabilities |
+| **Model Providers** | Hver provider med ✅/❌ + model count |
 | **Role Runtime Config** | Hver runtime binary med ✅/❌ status |
-| **Path Checks** | ✅/⚠️/❌ for hver sti i `paths` |
-| **Port Checks** | ✅/❌ for hver port i `ports` |
-| **Secrets Check** | ✅/⚠️ for hver env variabel i providers |
-| **Tmux Session Check** | Kørende sessioner, forventede sessioner |
-| **Ollama Model Check** | Pulled/missing for hver model i `providers.*.models` |
-| **Migration** | Export/import Machine Profile (fremtidig) |
+| **Path Checks** | ✅/⚠️/❌ for hver sti |
+| **Port Checks** | ✅/❌ for hver port |
+| **Secrets Check** | ✅/⚠️ for hver env variabel |
+| **Tmux Session Check** | Kørende sessioner |
+| **Ollama Model Check** | Pulled/missing for hver model |
+| **Migration** | Placeholder — fremtidig export/import |
 
-### 4.2 Visning
+### 9.2 Knapper
 
-Hver check vises med status-ikon og besked:
+```
+Kør alle checks
+Kør paths
+Kør binaries
+Kør ports
+Kør secrets
+Kør tmux
+Kør ollama
+Kør providers
+```
+
+### 9.3 Visning
+
+Øverst:
+
+```
+Maskine: AI-PC
+Profil: machine.ai-pc.json
+Schema: v1
+Status: 8 passed / 2 warnings / 1 failed
+```
+
+Eksempel:
 
 ```
 ✅ project_root        /home/svend/DPMtF-WebUI
 ✅ bridge_dir          /home/svend/flows
-✅ trade_inbox         /home/svend/trade-ui/inbox/pending
-✅ claude binary       /home/svend/.npm-global/bin/claude
-✅ opencode binary     /home/svend/.opencode/bin/opencode
+✅ tmux                tmux found
+✅ python              python3 found
 ✅ Ollama reachable    http://127.0.0.1:11434
 ✅ API key             OPENROUTER_API_KEY found
-✅ tmux installed      tmux 3.4
-⚠️  Model              qwen3.6:27b-q4_K_M not pulled
-❌ Port 9131           ENO not running
+⚠️ Model              qwen3.6:27b-q4_K_M not pulled
+⚠️ Port 9131          ENO not running
 ```
 
-### 4.3 Interaktion
+### 9.4 Ingen profil
 
-- "Kør alle checks" knap øverst
-- Individuelle "Kør" knapper per sektion
-- `data-slot` attributter for i18n
-- Maskinens navn vises øverst: `Maskine: AI-PC (machine.ai-pc.json)`
-- Hvis ingen Machine Profile findes: "Ingen Machine Profile konfigureret. Opret profiles/machine.local.json"
+Hvis ingen Machine Profile findes:
 
-### 4.4 API endpoints
-
-| Method | Path | Beskrivelse |
-|--------|------|-------------|
-| `GET` | `/api/system/healthcheck` | Kører alle aktive checks fra `checks` sektionen |
-| `GET` | `/api/system/healthcheck/{section}` | Kører én sektion (paths, ports, secrets, tmux, ollama, binaries) |
-| `GET` | `/api/system/machine-profile` | Returnerer nuværende profil metadata (navn, beskrivelse, providers) |
-
-Ingen POST/PUT i Fase 1 — Machine Profile redigeres manuelt i filen.
+```
+Ingen Machine Profile konfigureret.
+Opret profiles/machine.local.json eller sæt DPMTF_MACHINE_PROFILE i .env.
+Eksisterende DPMtF funktionalitet er uændret.
+```
 
 ---
 
-## 5. Migreringssti
+## 10. i18n
 
-### 5.1 Fase 1 — Machine Profile + System Setup (denne fase)
+Alle nye UI-tekster skal have stabile labels med `data-slot`:
 
-**Varighed:** 2-3 uger
-
-| Trin | Beskrivelse |
-|------|-------------|
-| 1.1 | Opret `profiles/` mappe + `machine.local.example.json` |
-| 1.2 | Tilføj `profiles/*.json` til `.gitignore` (undtagen `.example`) |
-| 1.3 | `config.get_machine_profile()` — indlæser aktiv profil, returnerer `{}` hvis ingen |
-| 1.4 | `GET /api/system/healthcheck` — valideringsmotor |
-| 1.5 | `GET /api/system/machine-profile` — profil metadata |
-| 1.6 | System Setup panel i frontend |
-| 1.7 | i18n labels for alle nye UI-elementer |
-| 1.8 | Opdater `11_SCOPE.md`, `20_GATES.md`, `17_DATABASE.md` |
-
-**Intet eksisterende røres.** Alle flows, roller, scripts kører uændret.
-
-### 5.2 Fase 2 — Role Runtime Config (næste fase)
-
-1. `bridge_roles` får nye kolonner: `provider`, `runtime` (logiske felter)
-2. `start_cmd_suffix` forbliver — `build_start_command()` bruger Machine Profile når logiske felter er udfyldt
-3. `use_machine_profile` boolean på `bridge_flows`
-4. Per-flow aktivering — tester ét flow ad gangen
-5. Når alle flows er migreret: fjern `start_cmd_suffix` og parameteren
-
-### 5.3 Fase 3 — Deliverable Dir afkobling
-
-`bridge_flow_steps.deliverable_dir` erstattes af relative stier der resolves mod Machine Profile's `paths.bridge_dir`.
-
-### 5.4 Bagudkompatibilitet
-
-```python
-def get_machine_profile():
-    """Indlæser aktiv Machine Profile, eller returnerer tom dict."""
-    profile_name = os.environ.get("DPMTF_MACHINE_PROFILE", "machine.local.json")
-    profile_path = os.path.join(get_project_root(), "profiles", profile_name)
-    if os.path.exists(profile_path):
-        with open(profile_path) as f:
-            return json.load(f)
-    return {}  # Tom — alle Machine Profile features deaktiveret
 ```
-
-- Ingen Machine Profile fil → alle nye features usynlige, alt eksisterende kører som før
-- Machine Profile fil findes men er tom/partiel → healthcheck viser warnings, ikke fejl
-- Eksisterende `config.py` getters forbliver uændrede
+system_setup_title
+system_setup_run_all_checks
+system_setup_machine_profile
+system_setup_model_providers
+system_setup_runtime_config
+system_setup_path_checks
+system_setup_port_checks
+system_setup_secrets_check
+system_setup_tmux_check
+system_setup_ollama_check
+system_setup_migration
+system_setup_no_profile
+system_setup_existing_unchanged
+```
 
 ---
 
-## 6. Governance opdateringer
+## 11. Faseopdeling
 
-### 6.1 `11_SCOPE.md` — tilføjelse
+### Fase 1A — Filesystem og config
+
+```
+profiles/.gitkeep
+profiles/machine.local.example.json
+profiles/machine.ai-pc.example.json
+.gitignore update
+config.get_machine_profile()
+config.get_machine_profile_path()
+config.get_machine_profile_metadata()
+```
+
+Ingen frontend. Ingen API endpoints.
+
+### Fase 1B — Healthcheck backend
+
+```
+healthcheck engine (alle 8 sektioner)
+GET /api/system/machine-profile
+GET /api/system/healthcheck
+GET /api/system/healthcheck/{section}
+```
+
+Ingen runtime-ændringer.
+
+### Fase 1C — Frontend System Setup
+
+```
+Read-only System Setup panel
+Kør alle checks
+Kør enkelt sektion
+Status summary
+Check list rendering
+No profile state
+```
+
+### Fase 1D — i18n og governance
+
+```
+i18n labels (seed data i init_db.py)
+11_SCOPE.md update
+20_GATES.md update
+17_DATABASE.md update
+```
+
+---
+
+## 12. Testkrav
+
+Minimum tests:
+
+| # | Test |
+|---|------|
+| 1 | App starter uden `profiles/` mappe |
+| 2 | App starter uden Machine Profile fil |
+| 3 | Invalid JSON i Machine Profile crasher ikke appen |
+| 4 | `GET /api/system/machine-profile` returnerer `exists=false` hvis fil mangler |
+| 5 | `GET /api/system/healthcheck` returnerer warning hvis fil mangler |
+| 6 | Path check markerer eksisterende sti som `pass` |
+| 7 | Path check markerer manglende required path som `fail`/`error` |
+| 8 | Binary check virker både for absolut sti og PATH binary |
+| 9 | Secrets check returnerer kun `found`/`missing` — aldrig secret value |
+| 10 | Ukendt healthcheck section returnerer `400` |
+
+Manuel verification:
+
+```bash
+curl -s http://127.0.0.1:9130/api/system/machine-profile | python3 -m json.tool
+curl -s http://127.0.0.1:9130/api/system/healthcheck | python3 -m json.tool
+curl -s http://127.0.0.1:9130/api/system/healthcheck/paths | python3 -m json.tool
+```
+
+---
+
+## 13. Stram stopregel
+
+Fase 1 skal stoppe før nogen af disse ændres:
+
+```
+bridge_roles schema
+bridge_flow_steps schema
+start_cmd_suffix
+role start/stop logic
+tmux injection logic
+deliverable_dir resolution
+flow execution logic
+```
+
+Hvis implementeringen får behov for disse ændringer, skal arbejdet stoppes og rapporteres som Fase 2-scope.
+
+---
+
+## 14. Governance opdateringer
+
+### 14.1 `11_SCOPE.md` — tilføjelse
 
 ```markdown
-## Aktivt scope — Machine Profile (Fase 1)
+## Aktivt scope — Machine Profile Fase 1
 
 ### Inden for scope
-- `profiles/` mappe med machine profiles (JSON)
-- `machine.local.example.json` committet skabelon
-- `config.get_machine_profile()` getter
-- `GET /api/system/healthcheck` endpoint
-- `GET /api/system/machine-profile` endpoint
-- System Setup panel i frontend (nyt panel under Setup)
-- i18n labels for alle nye UI-elementer
 
-### Uden for scope (fase 2+)
-- Ændring af `bridge_roles` skema eller data
-- Ændring af `bridge_flow_steps` skema eller data
-- Ændring af `start_cmd_suffix` logik
-- `use_machine_profile` parameter på flows
+- `profiles/` mappe
+- `profiles/.gitkeep`
+- `profiles/machine.local.example.json`
+- `profiles/machine.ai-pc.example.json`
+- `.gitignore` opdatering for lokale Machine Profiles
+- `config.get_machine_profile()`
+- `config.get_machine_profile_path()`
+- `config.get_machine_profile_metadata()`
+- `GET /api/system/machine-profile`
+- `GET /api/system/healthcheck`
+- `GET /api/system/healthcheck/{section}`
+- Read-only System Setup panel i frontend
+- i18n labels for nye System Setup UI-elementer
+
+### Uden for scope
+
+- Ændring af `bridge_roles` schema
+- Ændring af `bridge_flow_steps` schema
+- Ændring af `bridge_roles.start_cmd_suffix`
 - Automatisk kommando-bygning fra Machine Profile
+- `use_machine_profile` på flows
+- Migration af eksisterende roller
+- Migration af deliverable_dir
+- Start/stop af roller via Machine Profile
+- Redigering af Machine Profile fra UI
 ```
 
-### 6.2 `20_GATES.md` — tilføjelse
+### 14.2 `20_GATES.md` — tilføjelse
 
 ```markdown
-## Gate M1: Machine Profile eksisterer
-- Spørgsmål: Findes `profiles/<aktiv>.json`?
-- Hvis NEJ: System Setup viser "Ingen Machine Profile".
-  Alle Machine Profile features deaktiveret.
-  Eksisterende funktionalitet upåvirket.
+## Gate M1: Machine Profile optional
 
-## Gate M2: Kritiske stier valideret
-- Spørgsmål: Eksisterer `paths.project_root` og `paths.bridge_dir`?
-- Hvis NEJ: App starter men viser ⚠️ i System Setup.
-  Healthcheck returnerer warnings.
+Spørgsmål: Findes aktiv Machine Profile?
 
-## Gate M3: Mindst én provider tilgængelig
-- Spørgsmål: Er mindst én provider `available: true`?
-- Hvis NEJ: System Setup viser ⚠️.
-  Flows kan ikke startes før en provider er konfigureret.
+Hvis nej:
+- App må stadig starte
+- Eksisterende funktionalitet må ikke påvirkes
+- System Setup viser warning
+- Machine Profile features behandles som deaktiveret
+
+## Gate M2: Kritiske stier
+
+Spørgsmål: Findes required paths fra Machine Profile?
+
+Minimum:
+- `paths.project_root`
+- `paths.bridge_dir`
+
+Hvis nej:
+- Healthcheck viser fail/error
+- Fase 1 må stadig ikke blokere eksisterende app-start
+
+## Gate M3: Required binaries
+
+Spørgsmål: Findes required binaries?
+
+Minimum:
+- `python`
+- `tmux`
+
+Hvis nej:
+- Healthcheck viser fail/error
+- Fase 1 må stadig ikke ændre eksisterende runtime-adfærd
+
+## Gate M4: Provider availability
+
+Spørgsmål: Er mindst én provider available=true?
+
+Hvis nej:
+- Healthcheck viser warning
+- Ingen eksisterende flows må ændres eller blokeres i Fase 1
+
+## Gate M5: No runtime migration in Phase 1
+
+Spørgsmål: Ændrer implementationen eksisterende flow-, rolle- eller startkommando-logik?
+
+Hvis ja:
+- Stop
+- Det er Fase 2+ scope creep
 ```
 
-### 6.3 `17_DATABASE.md` — tilføjelse
+### 14.3 `17_DATABASE.md` — tilføjelse
 
 ```markdown
-## Machine Profile (filsystem)
+## Machine Profile
 
-Machine Profiles gemmes som JSON-filer i `profiles/` — ikke i databasen.
-Årsag: Machine Profile skal kunne læses før databasen er tilgængelig.
+Machine Profiles gemmes som JSON-filer i `profiles/`.
 
-Aktiv profil vælges via `DPMTF_MACHINE_PROFILE` i `.env`.
+De gemmes ikke i databasen i Fase 1.
+
+Årsager:
+- Machine Profile skal kunne læses før databaseafhængig runtime-logik
+- Machine Profile er maskinspecifik
+- Lokale profiler skal kunne være git-ignored
+- Secrets må ikke gemmes i Machine Profile
+
+Aktiv profil vælges via `.env`:
+
+`DPMTF_MACHINE_PROFILE=machine.ai-pc.json`
+
+Machine Profile må i Fase 1 kun bruges til read-only healthcheck og System Setup-visning.
 ```
 
 ---
 
-## 7. Maskinspecifikke hardcoding — nuværende tilstand
-
-Oversigt over hvad der findes i dag og hvornår det adresseres:
+## 15. Maskinspecifikke hardcoding — nuværende tilstand
 
 | Lag | Antal | Eksempel | Løses i |
 |-----|-------|----------|---------|
@@ -397,17 +862,34 @@ Oversigt over hvad der findes i dag og hvornår det adresseres:
 
 ---
 
-## 8. Filoversigt
+## 16. Filoversigt
 
 | Fil | Handling |
 |------|----------|
-| `profiles/machine.local.example.json` | **Ny** — committet skabelon |
-| `profiles/.gitkeep` | **Ny** — holder mappen i git |
-| `.gitignore` | **Opdater** — tilføj `profiles/*.json` undtagen `.example` |
-| `config.py` | **Opdater** — ny `get_machine_profile()` getter |
-| `app.py` | **Opdater** — 2-3 nye endpoints |
+| `profiles/.gitkeep` | **Ny** |
+| `profiles/machine.local.example.json` | **Ny** — committet neutral skabelon |
+| `profiles/machine.ai-pc.example.json` | **Ny** — committet realistisk eksempel |
+| `.gitignore` | **Opdater** — `profiles/*.json` undtagen `*.example.json` |
+| `config.py` | **Opdater** — 3 nye getters |
+| `app.py` | **Opdater** — 3 nye endpoints |
 | `static/js/dpmtf-app.js` | **Opdater** — System Setup panel |
 | `scripts/init_db.py` | **Opdater** — seed data for nye UI labels |
 | `docs/governance-templates-v2/11_SCOPE.md` | **Opdater** |
 | `docs/governance-templates-v2/20_GATES.md` | **Opdater** |
 | `docs/governance-templates-v2/17_DATABASE.md` | **Opdater** |
+
+---
+
+## 17. Konklusion
+
+Denne ændring indfører Machine Profile som et sikkert, valgfrit og read-only konfigurationslag.
+
+Fase 1 giver:
+
+- Portabilitetsgrundlag
+- Synlig System Setup-status
+- Healthcheck af profile, paths, binaries, ports, secrets, tmux, ollama og providers
+- Ingen risiko for eksisterende flows
+- Ingen runtime-migration endnu
+
+Fase 2 kan derefter bruge Machine Profile til Role Runtime Config og dynamisk kommando-bygning, men det er eksplicit uden for denne opgave.
