@@ -69,7 +69,43 @@ start_coding.py
 
 ## 4. Database schema ændringer
 
-### 4.1 `bridge_flows`
+### 4.1 Idempotente schemaændringer
+
+Alle `ALTER TABLE ADD COLUMN` skal være idempotente — må ikke fejle hvis kørt flere gange.
+
+Brug `PRAGMA table_info` til at tjekke om kolonnen allerede findes:
+
+```python
+def column_exists(conn, table_name, column_name):
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(row[1] == column_name for row in rows)
+```
+
+```python
+if not column_exists(conn, "bridge_flows", "use_machine_profile"):
+    cursor.execute(
+        "ALTER TABLE bridge_flows ADD COLUMN use_machine_profile INTEGER DEFAULT 0"
+    )
+
+if not column_exists(conn, "bridge_roles", "default_runtime"):
+    cursor.execute(
+        "ALTER TABLE bridge_roles ADD COLUMN default_runtime TEXT DEFAULT NULL"
+    )
+
+if not column_exists(conn, "bridge_roles", "default_provider"):
+    cursor.execute(
+        "ALTER TABLE bridge_roles ADD COLUMN default_provider TEXT DEFAULT NULL"
+    )
+
+if not column_exists(conn, "bridge_roles", "default_model"):
+    cursor.execute(
+        "ALTER TABLE bridge_roles ADD COLUMN default_model TEXT DEFAULT NULL"
+    )
+```
+
+Hvis `scripts/init_db.py` allerede er projektets idempotente schema-updater, bruges den. Ellers opret `scripts/migrations/add_machine_profile_runtime_fields.py`.
+
+### 4.2 `bridge_flows`
 
 ```sql
 ALTER TABLE bridge_flows ADD COLUMN use_machine_profile INTEGER DEFAULT 0;
@@ -78,7 +114,7 @@ ALTER TABLE bridge_flows ADD COLUMN use_machine_profile INTEGER DEFAULT 0;
 - `0` eller `NULL` = legacy mode (brug `start_cmd_suffix`)
 - `1` = Machine Profile mode (brug `build_start_command()`)
 
-### 4.2 `bridge_roles`
+### 4.3 `bridge_roles`
 
 ```sql
 ALTER TABLE bridge_roles ADD COLUMN default_runtime TEXT DEFAULT NULL;
@@ -245,19 +281,74 @@ Rollen gemmer rene modelnavne uden runtime-prefix:
 | Provider ikke i Machine Profile | `Provider not configured in Machine Profile: <provider>` |
 | Runtime binary ikke fundet | `Runtime binary not found: <binary>` |
 
-### 8.3 Ingen fallback
+### 8.3 Ingen skjult fallback
 
-Når `use_machine_profile=1`, må systemet IKKE falde tilbage til `start_cmd_suffix` ved fejl. Fejl skal være synlige.
+Når `use_machine_profile=1`, må systemet IKKE falde tilbage til `start_cmd_suffix` ved fejl. Fejl skal være synlige og stoppe start af den pågældende rolle.
+
+Tilladt fallback findes kun når `use_machine_profile=0`.
+
+### 8.4 Default model validation — warning i Fase 2A
+
+Hvis `default_model` ikke findes i Machine Profile providerens model-liste, skal Fase 2A give en warning — ikke en fejl.
+
+```
+Fase 2A: model ikke listet → warning
+Fase 2B: produktionsflows kan gøre dette til gate/error
+```
+
+Dette undgår at migrationen blokeres af ufuldstændige model-lister.
 
 ---
 
 ## 9. Sikkerhedsregler
 
-- **Tilladt:** `ANTHROPIC_AUTH_TOKEN=ollama` (lokal dummy-token)
-- **Ikke tilladt:** `OPENROUTER_API_KEY=sk-or-...` eller `ANTHROPIC_API_KEY=sk-ant-...` i command object
+### 9.1 auth_token-regel
+
+- **Tilladt:** `ANTHROPIC_AUTH_TOKEN=ollama` (lokal Ollama dummy-token)
+- **Ikke tilladt:** Andre `auth_token` værdier i command object eller shell-string
+
+Regel:
+```
+Hvis auth_token == "ollama":
+  må renderes til command object for lokal/cloud Ollama kompatibilitet
+
+Hvis auth_token != "ollama":
+  behandles som secret
+  må ikke returneres i command object
+  må ikke renderes i shell-string
+  skal komme fra miljøvariabel eller eksisterende secret-håndtering
+```
+
+Dette forhindrer at Machine Profile senere utilsigtet bliver secret-bærer.
+
+### 9.2 Cloud secrets
+
+- **Ikke tilladt i command object:** `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `MINIMAX_API_KEY`, andre `sk-*` tokens, `.env` content, rå secret values
 - Cloud secrets kommer fra miljø, ikke fra `build_start_command()` output
 - Ingen `shell=True` i Python execution
 - Renderer skal shell-quote værdier sikkert
+
+### 9.3 Command object tilladte felter
+
+Tilladt:
+```
+ANTHROPIC_BASE_URL
+ANTHROPIC_AUTH_TOKEN=ollama
+CLAUDE_CODE_MAX_OUTPUT_TOKENS
+OPENCODE_CONFIG_DIR
+OPENCODE_CONFIG
+argv
+cwd
+```
+
+Ikke tilladt:
+```
+OPENROUTER_API_KEY
+ANTHROPIC_API_KEY
+andre sk-* tokens
+.env content
+rå secret values
+```
 
 ---
 
@@ -266,8 +357,10 @@ Når `use_machine_profile=1`, må systemet IKKE falde tilbage til `start_cmd_suf
 ### 10.1 Flow-formular
 
 - Ny checkbox: `use_machine_profile` — "Brug Machine Profile til startkommandoer"
-- Hvis Machine Profile findes: enabled
-- Hvis Machine Profile mangler: disabled + hjælpetekst
+- **Kun enabled når:** Machine Profile fil findes, JSON er valid, og `schema_version` matcher forventet version
+- Hvis Machine Profile mangler: disabled + "Machine Profile mangler — opret profil i System Setup før aktivering."
+- Hvis JSON er invalid: disabled + "Machine Profile har JSON-fejl — ret profilen før aktivering."
+- Hvis `schema_version` ikke matcher: disabled + "Machine Profile schema_version matcher ikke — opdater profilen før aktivering."
 - Default: 0 (legacy mode)
 
 ### 10.2 Rolle-formular
@@ -302,9 +395,10 @@ Uændret fra Fase 1 — read-only.
 
 ### Fase 2A må gerne
 
-- Tilføje `use_machine_profile` på `bridge_flows`
-- Tilføje `default_runtime`, `default_provider`, `default_model` på `bridge_roles`
+- Tilføje `use_machine_profile` på `bridge_flows` (idempotent)
+- Tilføje `default_runtime`, `default_provider`, `default_model` på `bridge_roles` (idempotent)
 - Implementere `build_start_command()` og command object renderer
+- Ændre `start_coding.py` **kun** til at vælge mellem legacy og Machine Profile kommando
 - Aktivere Machine Profile for ét flow ad gangen
 - Bevare `start_cmd_suffix` som legacy fallback
 
@@ -316,10 +410,12 @@ Uændret fra Fase 1 — read-only.
 - Tilføje `command_templates` til Machine Profile
 - Tilføje `runtime_commands` database-tabel
 - Bygge flow-role overrides (Fase 2B)
-- Ændre tmux injection semantics
-- Ændre prompt injection
+- Ændre prompt injection i `start_coding.py`
+- Ændre tmux target/session semantics i `start_coding.py`
+- Ændre wait/sleep timing i `start_coding.py`
 - Ændre deliverable_dir resolution
-- Ændre flow execution logic ud over valg af startkommando
+- Ændre status updates, verdict handling, flow step execution
+- Ændre stop/restart logic
 
 ---
 
@@ -365,7 +461,7 @@ model = step.model_override or role.default_model
 
 | Fil | Handling |
 |------|----------|
-| `scripts/init_db.py` | **Opdater** — nye kolonner + seed data for default-felter |
+| `scripts/init_db.py` (eller `scripts/migrations/add_machine_profile_runtime_fields.py`) | **Opdater** — idempotente nye kolonner + seed data for default-felter |
 | `scripts/bridgeV002/start_coding.py` | **Opdater** — brug `build_start_command()` når `use_machine_profile=1` |
 | `scripts/bridgeV002/command_builder.py` | **Ny** — `build_start_command()` + 5 builders + renderer |
 | `app.py` | **Opdater** — API endpoints for nye felter (allerede delvist understøttet) |
