@@ -3383,7 +3383,182 @@ function onReady() {
   loadUserPreferences();
   initDrawer();
   loadBridgeSetup();
+  if (typeof loadSystemSetup === "function") loadSystemSetup();
 }
+
+/* ── 12. System Setup Panel (Machine Profile) ────────── */
+
+var _systemSetupSections = [
+  "profile", "paths", "binaries", "ports",
+  "secrets", "tmux", "ollama", "providers"
+];
+
+function loadSystemSetup() {
+  var container = document.getElementById("system-setup-content");
+  if (!container) return;
+  clear(container);
+
+  fetch("/api/system/machine-profile")
+    .then(function (res) { return res.json(); })
+    .then(function (meta) {
+      renderSystemSetupHeader(container, meta);
+      renderSystemSetupButtons(container);
+      renderSystemSetupCheckContainer(container);
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || "");
+      container.appendChild(errP);
+    });
+}
+
+function renderSystemSetupHeader(container, meta) {
+  var headerDiv = el("div", "dpmtf-system-setup-header");
+
+  if (!meta.exists) {
+    var noProfile = el("p", "dpmtf-warning");
+    noProfile.textContent = lbl("system_setup_no_profile",
+      "Ingen maskinprofil konfigureret. " +
+      "Opret profiles/machine.local.json eller sæt DPMTF_MACHINE_PROFILE i .env. " +
+      "Eksisterende DPMtF-funktionalitet er uændret.");
+    headerDiv.appendChild(noProfile);
+    container.appendChild(headerDiv);
+    return;
+  }
+
+  if (meta.parse_error) {
+    var parseErr = el("p", "dpmtf-error");
+    parseErr.textContent = lbl("system_setup_parse_error", "JSON-fejl i profil") +
+      ": " + (meta.parse_error || "");
+    headerDiv.appendChild(parseErr);
+  }
+
+  var infoLines = [
+    lbl("system_setup_machine", "Maskine") + ": " + (meta.name || "ukendt"),
+    lbl("system_setup_profile", "Profil") + ": " + (meta.active_profile || ""),
+    lbl("system_setup_schema", "Schema") + ": v" + (meta.schema_version || "?"),
+  ];
+
+  infoLines.forEach(function (line) {
+    var p = el("p", "dpmtf-small");
+    p.textContent = line;
+    headerDiv.appendChild(p);
+  });
+
+  container.appendChild(headerDiv);
+}
+
+function renderSystemSetupButtons(container) {
+  var btnDiv = el("div", "dpmtf-btn-group");
+
+  var allBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  allBtn.textContent = lbl("system_setup_run_all_checks", "Kør alle checks");
+  allBtn.onclick = function () { runSystemCheck(null); };
+  btnDiv.appendChild(allBtn);
+
+  _systemSetupSections.forEach(function (sec) {
+    var btn = el("button", "dpmtf-btn dpmtf-btn-secondary");
+    btn.textContent = lbl("system_setup_run_" + sec, "Kør " + sec);
+    btn.onclick = function () { runSystemCheck(sec); };
+    btnDiv.appendChild(btn);
+  });
+
+  container.appendChild(btnDiv);
+}
+
+function renderSystemSetupCheckContainer(container) {
+  var checkDiv = el("div", "dpmtf-system-setup-checks");
+  checkDiv.id = "system-setup-checks";
+
+  var summaryP = el("p", "dpmtf-small dpmtf-muted");
+  summaryP.id = "system-setup-summary";
+  summaryP.textContent = lbl("system_setup_ready", "Klar. Klik på en check-knap for at køre.");
+  checkDiv.appendChild(summaryP);
+
+  var listDiv = el("div", "dpmtf-check-list");
+  listDiv.id = "system-setup-check-list";
+  checkDiv.appendChild(listDiv);
+
+  container.appendChild(checkDiv);
+}
+
+function runSystemCheck(section) {
+  var listDiv = document.getElementById("system-setup-check-list");
+  var summaryP = document.getElementById("system-setup-summary");
+  if (!listDiv || !summaryP) return;
+
+  clear(listDiv);
+  summaryP.textContent = lbl("system_setup_running", "Kører checks...");
+
+  var url = "/api/system/healthcheck";
+  if (section) {
+    url += "/" + encodeURIComponent(section);
+  }
+
+  fetch(url)
+    .then(function (res) {
+      if (!res.ok) {
+        return res.json().then(function (err) {
+          throw new Error(err.detail || "Healthcheck failed");
+        });
+      }
+      return res.json();
+    })
+    .then(function (data) {
+      renderSystemCheckResults(listDiv, summaryP, data);
+    })
+    .catch(function (err) {
+      summaryP.textContent = lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || "");
+    });
+}
+
+function renderSystemCheckResults(listDiv, summaryP, data) {
+  var summary = data.summary || {};
+  summaryP.textContent =
+    lbl("system_setup_status", "Status") + ": " +
+    (summary.passed || 0) + " bestået / " +
+    (summary.warnings || 0) + " advarsler / " +
+    (summary.failed || 0) + " fejlet";
+
+  var checks = data.checks || [];
+  if (!checks.length) {
+    var emptyP = el("p", "dpmtf-muted");
+    emptyP.textContent = lbl("system_setup_no_checks", "Ingen checks returneret");
+    listDiv.appendChild(emptyP);
+    return;
+  }
+
+  checks.forEach(function (check) {
+    var row = el("div", "dpmtf-check-row");
+
+    var icon = el("span", "dpmtf-check-icon");
+    if (check.status === "pass") {
+      icon.textContent = "✅";
+      icon.className += " dpmtf-check-pass";
+    } else if (check.status === "warning") {
+      icon.textContent = "⚠️";
+      icon.className += " dpmtf-check-warning";
+    } else if (check.status === "fail") {
+      icon.textContent = "❌";
+      icon.className += " dpmtf-check-fail";
+    } else {
+      icon.textContent = "⏭️";
+      icon.className += " dpmtf-check-skip";
+    }
+    row.appendChild(icon);
+
+    var nameSpan = el("span", "dpmtf-check-name");
+    nameSpan.textContent = check.name;
+    row.appendChild(nameSpan);
+
+    var msgSpan = el("span", "dpmtf-check-message");
+    msgSpan.textContent = check.message;
+    row.appendChild(msgSpan);
+
+    listDiv.appendChild(row);
+  });
+}
+
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", onReady);
