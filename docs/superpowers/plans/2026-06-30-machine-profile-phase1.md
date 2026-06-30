@@ -10,12 +10,13 @@
 
 ## Global Constraints
 
-- **Stopregel:** Må IKKE ændre `bridge_roles` schema, `bridge_flow_steps` schema, `start_cmd_suffix`, tmux injection, deliverable_dir resolution, eller flow execution logic
+- **Stopregel (skærpet):** Må IKKE ændre: `bridge_roles` schema, `bridge_flow_steps` schema, `start_cmd_suffix`, tmux injection logic, deliverable_dir resolution, flow execution logic, role start/stop logic, dynamic command building, `use_machine_profile` flag. Kun read-only GET endpoints. Tilladte filer: `profiles/`, `.gitignore`, `config.py`, `scripts/system_healthcheck.py`, `app.py`, `static/js/dpmtf-app.js`, `templates/index.html`, `scripts/init_db.py`, governance docs.
 - Machine Profile er valgfri — app skal starte uden den
-- Invalid JSON i Machine Profile må ikke crashe appen
-- Secrets må aldrig returneres i API responses
-- Alle frontend-tekster skal bruge `lbl(key, fallback)` — ingen hardcodede engelske strenge
-- Ingen `innerHTML` til dynamisk indhold — brug `createElement()`/`textContent`/`appendChild()`
+- Tre tilstande skal kunne skelnes: (1) profilfil mangler, (2) profilfil findes men JSON er invalid, (3) profilfil findes og er valid men tom/partiel
+- Invalid JSON i Machine Profile må ikke crashe appen — `get_machine_profile()` returnerer `{}`, metadata returnerer `parse_error`
+- Secrets må aldrig returneres i API responses — kun `found`/`not found`/`skipped`
+- Alle frontend-tekster skal bruge `lbl(key, fallback)` — danske fallback-tekster
+- Ingen `innerHTML` til dynamisk indhold — brug `createElement()`/`textContent`/`appendChild()`. Brug IKKE `escapeHtml()` med `textContent` (unødvendigt)
 - Python: `python3 -m py_compile` før færdigmeldelse
 - Shell: `bash -n` før færdigmeldelse
 - `schema_version` forventet: 1
@@ -343,10 +344,12 @@ def get_machine_profile_metadata() -> dict:
 
     Never returns secrets, paths, or raw profile data.
     Safe for exposure via API.
+    Distinguishes three states: missing, invalid JSON, valid.
 
     Returns:
-        dict with keys: active_profile, exists, name, description,
-                        schema_version, capabilities, providers_summary
+        dict with keys: active_profile, exists, parse_error, name,
+                        description, schema_version, capabilities,
+                        providers
     """
     profile_path = get_machine_profile_path()
     profile_name = os.environ.get("DPMTF_MACHINE_PROFILE", "machine.local.json")
@@ -355,6 +358,7 @@ def get_machine_profile_metadata() -> dict:
     result = {
         "active_profile": profile_name,
         "exists": exists,
+        "parse_error": None,
         "name": None,
         "description": None,
         "schema_version": None,
@@ -368,7 +372,14 @@ def get_machine_profile_metadata() -> dict:
     try:
         with open(profile_path, "r", encoding="utf-8") as f:
             profile = json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except json.JSONDecodeError as e:
+        result["parse_error"] = str(e)
+        return result
+    except IOError as e:
+        result["parse_error"] = str(e)
+        return result
+
+    if not profile:
         return result
 
     result["name"] = profile.get("name")
@@ -479,11 +490,18 @@ def _check_result(section, name, status, severity, message):
 
 
 def run_section_profile(profile, profile_path):
-    """Check Machine Profile file itself."""
+    """Check Machine Profile file itself.
+
+    Distinguishes three states:
+    1. Profile file missing → warning
+    2. Profile file exists but JSON invalid → fail/error
+    3. Profile file exists and valid → check schema_version etc.
+    """
     results = []
     profile_name = os.environ.get("DPMTF_MACHINE_PROFILE", "machine.local.json")
 
-    if not profile:
+    # State 1: File missing
+    if not os.path.exists(profile_path):
         results.append(_check_result(
             "profile", "machine_profile", "warning", "warning",
             "No Machine Profile configured. "
@@ -492,30 +510,38 @@ def run_section_profile(profile, profile_path):
         ))
         return results
 
-    if not os.path.exists(profile_path):
-        results.append(_check_result(
-            "profile", "profile_file", "warning", "warning",
-            f"Profile file not found: {profile_path}"
-        ))
-        return results
-
-    # Check JSON validity (already parsed by caller, but double-check)
+    # State 2: File exists — try to parse
     try:
         with open(profile_path, "r", encoding="utf-8") as f:
-            json.load(f)
-        results.append(_check_result(
-            "profile", "json_valid", "pass", "info",
-            "Profile JSON is valid"
-        ))
-    except (json.JSONDecodeError, IOError) as e:
+            parsed = json.load(f)
+    except json.JSONDecodeError as e:
         results.append(_check_result(
             "profile", "json_valid", "fail", "error",
             f"Profile JSON is invalid: {e}"
         ))
         return results
+    except IOError as e:
+        results.append(_check_result(
+            "profile", "json_valid", "fail", "error",
+            f"Cannot read profile file: {e}"
+        ))
+        return results
+
+    # State 3: Valid JSON
+    results.append(_check_result(
+        "profile", "json_valid", "pass", "info",
+        "Profile JSON is valid"
+    ))
+
+    if not parsed:
+        results.append(_check_result(
+            "profile", "profile_content", "warning", "warning",
+            "Machine Profile is empty or incomplete"
+        ))
+        return results
 
     # Check schema_version
-    sv = profile.get("schema_version")
+    sv = parsed.get("schema_version")
     if sv is None:
         results.append(_check_result(
             "profile", "schema_version", "warning", "warning",
@@ -534,7 +560,7 @@ def run_section_profile(profile, profile_path):
 
     results.append(_check_result(
         "profile", "profile_name", "pass", "info",
-        f"Active profile: {profile_name} — {profile.get('name', 'unnamed')}"
+        f"Active profile: {profile_name} — {parsed.get('name', 'unnamed')}"
     ))
 
     return results
@@ -716,7 +742,10 @@ def run_section_secrets(profile):
 
 
 def run_section_tmux(profile):
-    """Check tmux if capabilities.tmux=true."""
+    """Check tmux if capabilities.tmux=true.
+
+    Uses the tmux binary from Machine Profile, falling back to 'tmux' on PATH.
+    """
     results = []
     capabilities = profile.get("capabilities", {})
 
@@ -727,12 +756,17 @@ def run_section_tmux(profile):
         ))
         return results
 
-    # Check tmux binary
-    tmux_path = shutil.which("tmux")
+    # Use binary from Machine Profile, fall back to 'tmux'
+    tmux_bin = profile.get("binaries", {}).get("tmux", "tmux")
+    if os.path.isabs(tmux_bin):
+        tmux_path = tmux_bin if (os.path.isfile(tmux_bin) and os.access(tmux_bin, os.X_OK)) else None
+    else:
+        tmux_path = shutil.which(tmux_bin)
+
     if not tmux_path:
         results.append(_check_result(
             "tmux", "tmux_binary", "fail", "error",
-            "tmux not found on PATH"
+            f"tmux binary not found: {tmux_bin}"
         ))
         return results
 
@@ -744,7 +778,7 @@ def run_section_tmux(profile):
     # Check tmux sessions
     try:
         result = subprocess.run(
-            ["tmux", "list-sessions"],
+            [tmux_path, "list-sessions"],
             capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
@@ -768,7 +802,11 @@ def run_section_tmux(profile):
 
 
 def run_section_ollama(profile):
-    """Check Ollama if local_ollama is available."""
+    """Check Ollama if local_ollama is available.
+
+    Uses the ollama binary from Machine Profile, falling back to 'ollama' on PATH.
+    Endpoint check uses /api/tags instead of root endpoint.
+    """
     results = []
     capabilities = profile.get("capabilities", {})
     local_ollama = profile.get("providers", {}).get("local_ollama", {})
@@ -780,11 +818,12 @@ def run_section_ollama(profile):
         ))
         return results
 
-    # Check endpoint
+    # Check endpoint via /api/tags
     endpoint = local_ollama.get("endpoint", "http://127.0.0.1:11434")
+    tags_url = endpoint.rstrip("/") + "/api/tags"
     import urllib.request
     try:
-        urllib.request.urlopen(endpoint, timeout=2)
+        urllib.request.urlopen(tags_url, timeout=2)
         results.append(_check_result(
             "ollama", "ollama_endpoint", "pass", "info",
             f"Ollama reachable at {endpoint}"
@@ -795,9 +834,10 @@ def run_section_ollama(profile):
             "ollama", "ollama_endpoint", "fail", severity,
             f"Ollama not reachable at {endpoint}"
         ))
+        # Endpoint failed — skip model check
         return results
 
-    # Check models
+    # Check models using binary from Machine Profile
     models = local_ollama.get("models", [])
     if not models:
         results.append(_check_result(
@@ -806,9 +846,23 @@ def run_section_ollama(profile):
         ))
         return results
 
+    # Use ollama binary from Machine Profile
+    ollama_bin = profile.get("binaries", {}).get("ollama", "ollama")
+    if os.path.isabs(ollama_bin):
+        ollama_path = ollama_bin if (os.path.isfile(ollama_bin) and os.access(ollama_bin, os.X_OK)) else None
+    else:
+        ollama_path = shutil.which(ollama_bin)
+
+    if not ollama_path:
+        results.append(_check_result(
+            "ollama", "ollama_binary", "warning", "warning",
+            f"ollama binary not found: {ollama_bin} — cannot check models"
+        ))
+        return results
+
     try:
         result = subprocess.run(
-            ["ollama", "list"], capture_output=True, text=True, timeout=10
+            [ollama_path, "list"], capture_output=True, text=True, timeout=10
         )
         pulled = result.stdout if result.returncode == 0 else ""
     except Exception:
@@ -1133,17 +1187,25 @@ function renderSystemSetupHeader(container, meta) {
   if (!meta.exists) {
     var noProfile = el("p", "dpmtf-warning");
     noProfile.textContent = lbl("system_setup_no_profile",
-      "No Machine Profile configured. " +
-      "Create profiles/machine.local.json or set DPMTF_MACHINE_PROFILE in .env. " +
-      "Existing DPMtF functionality is unchanged.");
+      "Ingen maskinprofil konfigureret. " +
+      "Opret profiles/machine.local.json eller sæt DPMTF_MACHINE_PROFILE i .env. " +
+      "Eksisterende DPMtF-funktionalitet er uændret.");
     headerDiv.appendChild(noProfile);
     container.appendChild(headerDiv);
     return;
   }
 
+  // Show parse_error if present
+  if (meta.parse_error) {
+    var parseErr = el("p", "dpmtf-error");
+    parseErr.textContent = lbl("system_setup_parse_error", "JSON-fejl i profil") +
+      ": " + (meta.parse_error || "");
+    headerDiv.appendChild(parseErr);
+  }
+
   var infoLines = [
-    lbl("system_setup_machine", "Machine") + ": " + escapeHtml(meta.name || "unknown"),
-    lbl("system_setup_profile", "Profile") + ": " + escapeHtml(meta.active_profile || ""),
+    lbl("system_setup_machine", "Maskine") + ": " + (meta.name || "ukendt"),
+    lbl("system_setup_profile", "Profil") + ": " + (meta.active_profile || ""),
     lbl("system_setup_schema", "Schema") + ": v" + (meta.schema_version || "?"),
   ];
 
@@ -1160,13 +1222,13 @@ function renderSystemSetupButtons(container) {
   var btnDiv = el("div", "dpmtf-btn-group");
 
   var allBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  allBtn.textContent = lbl("system_setup_run_all_checks", "Run All Checks");
+  allBtn.textContent = lbl("system_setup_run_all_checks", "Kør alle checks");
   allBtn.onclick = function () { runSystemCheck(null); };
   btnDiv.appendChild(allBtn);
 
   _systemSetupSections.forEach(function (sec) {
     var btn = el("button", "dpmtf-btn dpmtf-btn-secondary");
-    btn.textContent = lbl("system_setup_run_" + sec, "Run " + sec);
+    btn.textContent = lbl("system_setup_run_" + sec, "Kør " + sec);
     btn.onclick = function () { runSystemCheck(sec); };
     btnDiv.appendChild(btn);
   });
@@ -1180,7 +1242,7 @@ function renderSystemSetupCheckContainer(container) {
 
   var summaryP = el("p", "dpmtf-small dpmtf-muted");
   summaryP.id = "system-setup-summary";
-  summaryP.textContent = lbl("system_setup_ready", "Ready. Click a check button to run.");
+  summaryP.textContent = lbl("system_setup_ready", "Klar. Klik på en check-knap for at køre.");
   checkDiv.appendChild(summaryP);
 
   var listDiv = el("div", "dpmtf-check-list");
@@ -1196,7 +1258,7 @@ function runSystemCheck(section) {
   if (!listDiv || !summaryP) return;
 
   clear(listDiv);
-  summaryP.textContent = lbl("system_setup_running", "Running checks...");
+  summaryP.textContent = lbl("system_setup_running", "Kører checks...");
 
   var url = "/api/system/healthcheck";
   if (section) {
@@ -1224,14 +1286,14 @@ function renderSystemCheckResults(listDiv, summaryP, data) {
   var summary = data.summary || {};
   summaryP.textContent =
     lbl("system_setup_status", "Status") + ": " +
-    (summary.passed || 0) + " passed / " +
-    (summary.warnings || 0) + " warnings / " +
-    (summary.failed || 0) + " failed";
+    (summary.passed || 0) + " bestået / " +
+    (summary.warnings || 0) + " advarsler / " +
+    (summary.failed || 0) + " fejlet";
 
   var checks = data.checks || [];
   if (!checks.length) {
     var emptyP = el("p", "dpmtf-muted");
-    emptyP.textContent = lbl("system_setup_no_checks", "No checks returned");
+    emptyP.textContent = lbl("system_setup_no_checks", "Ingen checks returneret");
     listDiv.appendChild(emptyP);
     return;
   }
@@ -1355,6 +1417,7 @@ cursor.executemany(
         ("system_setup_run_tmux", "Run tmux"),
         ("system_setup_run_ollama", "Run ollama"),
         ("system_setup_run_providers", "Run providers"),
+        ("system_setup_parse_error", "JSON parse error in profile"),
     ],
 )
 ```
@@ -1399,6 +1462,7 @@ cursor.executemany(
         ("system_setup_run_tmux", "da-DK", "Kør tmux"),
         ("system_setup_run_ollama", "da-DK", "Kør ollama"),
         ("system_setup_run_providers", "da-DK", "Kør udbydere"),
+        ("system_setup_parse_error", "da-DK", "JSON-fejl i profil"),
     ],
 )
 ```
@@ -1456,12 +1520,14 @@ curl -s http://127.0.0.1:9130/api/system/machine-profile | python3 -m json.tool
 # Forventet: exists=false
 ```
 
-- [ ] **Test 3: Invalid JSON crasher ikke**
+- [ ] **Test 3: Invalid JSON crasher ikke — metadata viser parse_error**
 
 ```bash
 echo "not json" > profiles/machine.local.json
 curl -s http://127.0.0.1:9130/api/system/machine-profile | python3 -m json.tool
-# Forventet: exists=true men name=null (JSON parse fejl håndteret)
+# Forventet: exists=true, parse_error udfyldt, name=null, schema_version=null
+curl -s http://127.0.0.1:9130/api/system/healthcheck/profile | python3 -m json.tool
+# Forventet: section=profile, status=fail, severity=error, message indeholder "invalid JSON"
 rm profiles/machine.local.json
 ```
 
@@ -1522,11 +1588,45 @@ python3 -m py_compile /home/svend/DPMtF-WebUI/scripts/init_db.py
 
 ## Stopregel — verificér før commit
 
-Før hver commit, verificér at ingen af disse er blevet ændret:
+Før hver commit, verificér at kun tilladte filer er ændret:
 
 ```bash
-git diff --stat HEAD | grep -E "bridge_roles|bridge_flow_steps|start_cmd_suffix|tmux|deliverable_dir|flow_execution"
+git diff --name-only HEAD
 ```
 
-Hvis nogen af disse matcher → **STOP**. Det er Fase 2+ scope creep.
+Tilladte filer i Fase 1:
+
+```
+profiles/.gitkeep
+profiles/machine.local.example.json
+profiles/machine.ai-pc.example.json
+.gitignore
+config.py
+scripts/system_healthcheck.py
+app.py
+static/js/dpmtf-app.js
+templates/index.html
+scripts/init_db.py
+docs/governance-templates-v2/11_SCOPE.md
+docs/governance-templates-v2/20_GATES.md
+docs/governance-templates-v2/17_DATABASE.md
+docs/superpowers/specs/2026-06-30-machine-profile-design.md
+docs/superpowers/plans/2026-06-30-machine-profile-phase1.md
+```
+
+Hvis andre filer ændres → **STOP**. Rapporter hvorfor.
+
+Særligt stop hvis ændrede filer eller diffs berører:
+
+```
+database migrations for bridge_roles
+database migrations for bridge_flow_steps
+start_cmd_suffix
+tmux injection scripts
+deliverable_dir resolution
+flow execution
+role start/stop commands
+```
+
+Bemærk: Fase 1 tilføjer legitimt tmux healthcheck — dette er tilladt fordi det kun er read-only status, ikke tmux injection.
 
