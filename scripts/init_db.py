@@ -614,6 +614,7 @@ ui_labels_data = [
     ("LBL-1000351", "lbl_mp_parse_error", "main", "Machine Profile has JSON error — fix profile before activating.", "Help text when Machine Profile JSON is invalid"),
     ("LBL-1000352", "lbl_mp_schema_mismatch", "main", "Machine Profile schema_version mismatch — update profile before activating.", "Help text when Machine Profile schema_version does not match"),
     ("LBL-1000353", "lbl_mp_checking", "main", "Checking Machine Profile...", "Temporary text while Machine Profile status is being checked"),
+    ("LBL-1000354", "lbl_bridge_edit_flow", "main", "Edit Flow", "Full edit flow form heading"),
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
@@ -1376,6 +1377,7 @@ ui_label_translations_data = [
     ("LBL-1000351", "da-DK", "Machine Profile har JSON-fejl — ret profilen før aktivering."),
     ("LBL-1000352", "da-DK", "Machine Profile schema_version matcher ikke — opdater profilen før aktivering."),
     ("LBL-1000353", "da-DK", "Tjekker Machine Profile..."),
+    ("LBL-1000354", "da-DK", "Rediger Flow"),
 ]
 
 # Safely insert or update ui_label_translations data (no DELETE)

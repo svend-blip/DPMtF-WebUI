@@ -2046,9 +2046,14 @@ function renderFlowCard(flow, steps) {
   };
   actions.appendChild(manageBtn);
 
+  var renameBtn = el("button", "dpmtf-btn");
+  renameBtn.textContent = lbl("lbl_bridge_rename", "Rename");
+  renameBtn.onclick = function () { editBridgeFlow(flow.flow_key); };
+  actions.appendChild(renameBtn);
+
   var editBtn = el("button", "dpmtf-btn");
   editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
-  editBtn.onclick = function () { editBridgeFlow(flow.flow_key); };
+  editBtn.onclick = function () { editBridgeFlowFull(flow.flow_key); };
   actions.appendChild(editBtn);
 
   // --- START TMUX button (new for BridgeV002) ---
@@ -2619,6 +2624,14 @@ function editBridgeRoleFull(roleKey) {
         var scs = document.getElementById("bridge-edit-input-start_cmd_suffix");
         if (scs) body.start_cmd_suffix = scs.value.trim();
 
+        // Machine Profile Fase 2A — only save if not disabled
+        var rtEl = document.getElementById("bridge-edit-input-default-runtime");
+        var pvEl = document.getElementById("bridge-edit-input-default-provider");
+        var mdEl = document.getElementById("bridge-edit-input-default-model");
+        if (rtEl && !rtEl.disabled) body.default_runtime = rtEl.value || null;
+        if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
+        if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2782,6 +2795,88 @@ function editBridgeRoleFull(roleKey) {
       scsDiv2.appendChild(scsInput2);
       form.appendChild(scsDiv2);
 
+      // Machine Profile Fase 2A — default_runtime, default_provider, default_model
+      var mpSectionDiv = el("div", "dpmtf-form-group");
+      mpSectionDiv.appendChild(el("h4", null, lbl("system_setup_machine_profile", "Machine Profile")));
+
+      var rtDiv = el("div", "dpmtf-form-group");
+      rtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_runtime", "default_runtime")));
+      var rtSelect = el("select", null);
+      rtSelect.id = "bridge-edit-input-default-runtime";
+      rtSelect.disabled = true;
+      var rtEmpty = el("option", null);
+      rtEmpty.value = "";
+      rtEmpty.textContent = "";
+      rtSelect.appendChild(rtEmpty);
+      rtDiv.appendChild(rtSelect);
+      mpSectionDiv.appendChild(rtDiv);
+
+      var pvDiv = el("div", "dpmtf-form-group");
+      pvDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_provider", "default_provider")));
+      var pvSelect = el("select", null);
+      pvSelect.id = "bridge-edit-input-default-provider";
+      pvSelect.disabled = true;
+      var pvEmpty = el("option", null);
+      pvEmpty.value = "";
+      pvEmpty.textContent = "";
+      pvSelect.appendChild(pvEmpty);
+      pvDiv.appendChild(pvSelect);
+      mpSectionDiv.appendChild(pvDiv);
+
+      var mdDiv = el("div", "dpmtf-form-group");
+      mdDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_model", "default_model")));
+      var mdInput = el("input", null);
+      mdInput.type = "text";
+      mdInput.id = "bridge-edit-input-default-model";
+      mdInput.setAttribute("list", "bridge-edit-default-model-options");
+      mdInput.value = role.default_model || "";
+      mdInput.disabled = true;
+      var mdList = el("datalist", null);
+      mdList.id = "bridge-edit-default-model-options";
+      mdDiv.appendChild(mdInput);
+      mdDiv.appendChild(mdList);
+      mpSectionDiv.appendChild(mdDiv);
+
+      form.appendChild(mpSectionDiv);
+
+      // Populate Machine Profile fields for edit form
+      fetch("/api/system/machine-profile")
+        .then(function (res) { return res.json(); })
+        .then(function (meta) {
+          var disabled = !meta.exists || meta.parse_error || meta.schema_version !== 1;
+          rtSelect.disabled = disabled;
+          pvSelect.disabled = disabled;
+          mdInput.disabled = disabled;
+
+          if (!disabled) {
+            var runtimes = (meta.runtimes && Object.keys(meta.runtimes).length)
+              ? Object.keys(meta.runtimes)
+              : ["claude", "opencode", "freebuff"];
+            runtimes.forEach(function (rt) {
+              var opt = el("option", null);
+              opt.value = rt;
+              opt.textContent = rt;
+              if (role.default_runtime === rt) opt.selected = true;
+              rtSelect.appendChild(opt);
+            });
+
+            if (meta.providers) {
+              Object.keys(meta.providers).forEach(function (pv) {
+                var opt = el("option", null);
+                opt.value = pv;
+                opt.textContent = pv + " (" + (meta.providers[pv].model_count || 0) + " models)";
+                if (role.default_provider === pv) opt.selected = true;
+                pvSelect.appendChild(opt);
+              });
+            }
+          }
+        })
+        .catch(function () {
+          rtSelect.disabled = true;
+          pvSelect.disabled = true;
+          mdInput.disabled = true;
+        });
+
       // H160: Target Project (read-only, from Prompt Compiler)
       var tpDiv = el("div", "dpmtf-form-group");
       tpDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_project", "Target Project")));
@@ -2847,6 +2942,152 @@ function editBridgeFlow(flowKey) {
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+    });
+}
+
+function editBridgeFlowFull(flowKey) {
+  fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey))
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var flow = data.flow;
+
+      var existing = document.getElementById("bridge-flow-edit-form");
+      if (existing) { existing.remove(); }
+
+      var form = el("div", "dpmtf-card");
+      form.id = "bridge-flow-edit-form";
+
+      var cancelBtn = el("button", "dpmtf-btn");
+      cancelBtn.textContent = lbl("lbl_bridge_cancel", "Cancel");
+      cancelBtn.onclick = function () { form.remove(); };
+
+      var saveBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+      saveBtn.textContent = lbl("lbl_bridge_save", "Save");
+      saveBtn.onclick = function () {
+        var body = {};
+        var nm = document.getElementById("bridge-edit-input-name").value.trim();
+        if (!nm) { alert(lbl("lbl_bridge_flow_name", "Name") + " is required."); return; }
+        body.name = nm;
+
+        var desc = document.getElementById("bridge-edit-input-description");
+        if (desc) body.description = desc.value.trim();
+
+        var acInput = document.getElementById("bridge-edit-input-auto_complete_enabled");
+        if (acInput) body.auto_complete_enabled = acInput.checked ? 1 : 0;
+
+        var mpEl = document.getElementById("bridge-edit-input-use-machine-profile");
+        if (mpEl && !mpEl.disabled) body.use_machine_profile = mpEl.checked ? 1 : 0;
+
+        fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+          .then(function (res) { return res.json(); })
+          .then(function () {
+            alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + flowKey);
+            loadBridgeFlows();
+          })
+          .catch(function (err) {
+            alert(lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || ""));
+          });
+      };
+
+      form.appendChild(el("h4", null, lbl("lbl_bridge_edit_flow", "Edit Flow") + ": " + escapeHtml(flowKey)));
+
+      // flow_key (readonly)
+      var fkDiv = el("div", "dpmtf-form-group");
+      fkDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_flow_key", "Flow Key") + " (locked)"));
+      var fkInput = el("input", null);
+      fkInput.type = "text";
+      fkInput.value = flow.flow_key;
+      fkInput.disabled = true;
+      fkInput.style.background = "#161b22";
+      fkInput.style.color = "#8b949e";
+      fkDiv.appendChild(fkInput);
+      form.appendChild(fkDiv);
+
+      // name
+      var nmDiv = el("div", "dpmtf-form-group");
+      nmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_flow_name", "Name")));
+      var nmInput = el("input", null);
+      nmInput.id = "bridge-edit-input-name";
+      nmInput.type = "text";
+      nmInput.value = flow.name || "";
+      nmDiv.appendChild(nmInput);
+      form.appendChild(nmDiv);
+
+      // description
+      var descDiv = el("div", "dpmtf-form-group");
+      descDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_flow_description", "Description")));
+      var descInput = el("input", null);
+      descInput.id = "bridge-edit-input-description";
+      descInput.type = "text";
+      descInput.value = flow.description || "";
+      descDiv.appendChild(descInput);
+      form.appendChild(descDiv);
+
+      // auto_complete_enabled checkbox
+      var acDiv = el("div", null);
+      var acLabel = el("label", null);
+      var acInput = el("input", null);
+      acInput.type = "checkbox";
+      acInput.id = "bridge-edit-input-auto_complete_enabled";
+      if (flow.auto_complete_enabled) acInput.checked = true;
+      acLabel.appendChild(acInput);
+      acLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_flow_auto_complete", "Auto-complete enabled")));
+      acDiv.appendChild(acLabel);
+      form.appendChild(acDiv);
+
+      // use_machine_profile checkbox
+      var mpDiv = el("div", null);
+      var mpLabel = el("label", null);
+      var mpInput = el("input", null);
+      mpInput.type = "checkbox";
+      mpInput.id = "bridge-edit-input-use-machine-profile";
+      mpInput.disabled = true;
+      if (flow.use_machine_profile) mpInput.checked = true;
+      mpLabel.appendChild(mpInput);
+      mpLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_use_machine_profile", "Brug Machine Profile til startkommandoer")));
+      mpDiv.appendChild(mpLabel);
+      var mpHelp = el("p", "dpmtf-small dpmtf-muted");
+      mpHelp.id = "mp-flow-edit-help";
+      mpHelp.textContent = lbl("lbl_mp_checking", "Tjekker Machine Profile...");
+      mpDiv.appendChild(mpHelp);
+      form.appendChild(mpDiv);
+
+      fetch("/api/system/machine-profile")
+        .then(function (res) { return res.json(); })
+        .then(function (meta) {
+          var helpEl = document.getElementById("mp-flow-edit-help");
+          if (!meta.exists) {
+            mpInput.disabled = true;
+            if (helpEl) helpEl.textContent = lbl("lbl_mp_missing", "Machine Profile mangler — opret profil i System Setup før aktivering.");
+          } else if (meta.parse_error) {
+            mpInput.disabled = true;
+            if (helpEl) helpEl.textContent = lbl("lbl_mp_parse_error", "Machine Profile har JSON-fejl — ret profilen før aktivering.");
+          } else if (meta.schema_version !== 1) {
+            mpInput.disabled = true;
+            if (helpEl) helpEl.textContent = lbl("lbl_mp_schema_mismatch", "Machine Profile schema_version matcher ikke — opdater profilen før aktivering.");
+          } else {
+            mpInput.disabled = false;
+            if (helpEl) helpEl.textContent = "";
+          }
+        })
+        .catch(function () {
+          mpInput.disabled = true;
+        });
+
+      var btnRow = el("div", null);
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(cancelBtn);
+      form.appendChild(btnRow);
+
+      var container = document.getElementById("bridge-flows-list-container");
+      if (container) container.insertBefore(form, container.firstChild);
+    })
+    .catch(function (err) {
+      alert(lbl("lbl_status_error_prefix", "Fejl: ") + (err.message || ""));
     });
 }
 
