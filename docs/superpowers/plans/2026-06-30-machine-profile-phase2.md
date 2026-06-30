@@ -12,16 +12,22 @@
 
 - **Stopregel:** Må IKKE fjerne `start_cmd_suffix`, massemigrere flows, ændre tmux/prompt/flow execution ud over valg af startkommando
 - Alle schemaændringer skal være idempotente (`PRAGMA table_info` check før `ALTER TABLE`)
-- `use_machine_profile` default = 0 for alle eksisterende flows
+- `use_machine_profile` default = 0 for alle eksisterende flows. Kun værdien 1 = Machine Profile mode. NULL, 0 eller andre værdier = legacy mode.
 - `default_runtime`, `default_provider`, `default_model` er nullable, default NULL
-- Når `use_machine_profile=1`: ingen skjult fallback til `start_cmd_suffix` ved fejl
+- **Ingen fallback:** Når `use_machine_profile=1` og Machine Profile mangler/er invalid → stop med fejl. Ingen skjult fallback til `start_cmd_suffix`.
 - `auth_token` må kun være `"ollama"` i command object — andre værdier behandles som secrets
 - Cloud secrets (OPENROUTER_API_KEY, ANTHROPIC_API_KEY) må aldrig indgå i command object
 - `default_model` ikke i model-liste → warning, ikke error (Fase 2A)
-- Frontend: `use_machine_profile` checkbox kun enabled når Machine Profile findes, er valid JSON, og schema_version matcher
+- Frontend: `use_machine_profile` checkbox kun enabled når Machine Profile findes, er valid JSON, og schema_version matcher. Disabled checkbox må ikke gemme værdi.
+- Renderer: `cd <cwd> && ENV=value ENV2=value2 binary --arg` — env-vars før argv i samme kommando, ikke kædet med `&&`
 - Python: `python3 -m py_compile` før færdigmeldelse
 - JavaScript: `node --check` før færdigmeldelse
 - Ingen `shell=True` i Python execution
+- `_column_exists()` må kun bruges med allowlistede tabelnavne: `bridge_flows`, `bridge_roles`
+- `_resolve_binary()` skal bruge `shutil.which()` for ikke-absolutte stier
+- `get_flow_machine_profile_flag()` skal håndtere manglende kolonne (returnerer 0)
+- `get_flow_roles()` skal SELECTe `default_runtime`, `default_provider`, `default_model`
+- Seed-data: én entry pr. rolle, kun opdater når alle 3 default-felter er NULL
 
 ---
 
@@ -39,7 +45,10 @@ Find en passende placering i `init_db.py` (før schemaændringerne) og tilføj:
 
 ```python
 def _column_exists(cursor, table_name, column_name):
-    """Check if a column exists in a table (idempotent schema helper)."""
+    """Check if a column exists in a known table (idempotent schema helper)."""
+    allowed_tables = {"bridge_flows", "bridge_roles"}
+    if table_name not in allowed_tables:
+        raise ValueError(f"Unsupported table for column check: {table_name}")
     rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
     return any(row[1] == column_name for row in rows)
 ```
@@ -82,13 +91,19 @@ Udfyld `default_runtime`, `default_provider`, `default_model` baseret på de 20 
 
 ```python
 # Seed default_runtime/default_provider/default_model from analyzed patterns
-# Only sets NULL fields — never overwrites manually configured values
+# Only seeds when ALL THREE fields are NULL — never partially overwrites.
+# One entry per role_key — no duplicates.
+# NOTE: review01_trade had conflicting inferred patterns during analysis.
+# It is NOT auto-seeded here. Set manually after verifying the active database value.
 cursor.executemany(
     """UPDATE bridge_roles
        SET default_runtime = ?, default_provider = ?, default_model = ?
-       WHERE role_key = ? AND default_runtime IS NULL""",
+       WHERE role_key = ?
+         AND default_runtime IS NULL
+         AND default_provider IS NULL
+         AND default_model IS NULL""",
     [
-        # Claude + local_ollama
+        # Claude + local_ollama (35b-a3b-64k)
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01"),
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01cloud"),
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01pay"),
@@ -96,7 +111,7 @@ cursor.executemany(
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "risk01_trade"),
         # Claude + cloud_ollama
         ("claude", "cloud_ollama", "deepseek-v4-pro:cloud", "market01_trade"),
-        # Claude + local_ollama (27b)
+        # Claude + local_ollama (27b-q4_K_M)
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01cloud"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "review01pay"),
@@ -109,16 +124,15 @@ cursor.executemany(
         ("claude", "local_ollama", "qwen3.6:35b-a3b", "review02pay"),
         # OpenCode + local_ollama
         ("opencode", "local_ollama", "qwen3.6-27b-coder:latest", "imple01"),
-        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01_trade"),
-        # OpenCode + openrouter
-        ("opencode", "openrouter", "z-ai/glm-5.2", "review01_trade"),  # overrides above — handled manually
-        # OpenCode + cloud (minimax)
+        # OpenCode + openrouter (minimax)
         ("opencode", "openrouter", "minimax/MiniMax-M3", "analyst01_trade"),
         ("opencode", "openrouter", "minimax/MiniMax-M3", "imple01pay"),
         # Freebuff
         ("freebuff", None, "freebuff-default", "imple01cloud"),
     ],
 )
+# NOTE: review01_trade is NOT auto-seeded — conflicting patterns.
+# Verify manually: sqlite3 ... "SELECT role_key, start_cmd_suffix FROM bridge_roles WHERE role_key='review01_trade';"
 ```
 
 Bemærk: `review01_trade` har to entries — den sidste vinder pga `WHERE default_runtime IS NULL`. Hvis den allerede er seedet, opdateres den ikke. Implementer skal verificere den korrekte værdi for `review01_trade` (OpenCode + openrouter + z-ai/glm-5.2 ifølge databasen).
@@ -175,6 +189,7 @@ Renderer handles tmux-safe shell string conversion.
 
 import os
 import shlex
+import shutil
 
 
 def build_start_command(runtime, provider, model, role_key, machine_profile):
@@ -243,15 +258,19 @@ def _register(runtime, provider):
 def _resolve_binary(binary_ref, binaries, runtime_name):
     """Resolve a binary_ref from Machine Profile binaries section.
 
-    Returns absolute path if available, or the ref itself for PATH lookup.
-    Raises ValueError if binary is not found and not on PATH.
+    Returns the binary path/name for use in command argv.
+    Raises ValueError if binary is not found.
     """
     binary_path = binaries.get(binary_ref, binary_ref)
+
     if os.path.isabs(binary_path):
         if os.path.isfile(binary_path) and os.access(binary_path, os.X_OK):
             return binary_path
         raise ValueError(f"Runtime binary not found: {binary_path}")
-    # Non-absolute — assume on PATH (validated by healthcheck)
+
+    # Non-absolute — verify it exists on PATH
+    if shutil.which(binary_path) is None:
+        raise ValueError(f"Runtime binary not found on PATH: {binary_path}")
     return binary_path
 
 
@@ -380,7 +399,10 @@ def build_freebuff_command(runtime, provider, model, role_key, mp):
 def render_tmux_shell_string(command_object):
     """Render a command object to a tmux-safe shell string.
 
-    Builds: cd <cwd> && ENV=value ... binary --arg ...
+    Builds: cd <cwd> && ENV=value ENV2=value2 binary --arg
+
+    Environment variables are set BEFORE the command in the same shell
+    invocation — not chained with && between each env var.
 
     Uses shlex.quote() for safe shell quoting.
     Never uses shell=True internally.
@@ -390,24 +412,32 @@ def render_tmux_shell_string(command_object):
 
     Returns:
         str — shell command string safe for tmux send-keys
+
+    Raises:
+        ValueError: if argv is empty
     """
-    parts = []
-
-    # cd to working directory
     cwd = command_object.get("cwd", "")
-    if cwd:
-        parts.append(f"cd {shlex.quote(cwd)}")
-
-    # Environment variables
-    for key, value in command_object.get("env", {}).items():
-        parts.append(f"{key}={shlex.quote(str(value))}")
-
-    # Command and arguments
+    env = command_object.get("env", {})
     argv = command_object.get("argv", [])
-    if argv:
-        parts.append(" ".join(shlex.quote(arg) for arg in argv))
 
-    return " && ".join(parts) if parts else ""
+    if not argv:
+        raise ValueError("Command object missing argv")
+
+    prefix = ""
+    if cwd:
+        prefix = f"cd {shlex.quote(cwd)} && "
+
+    env_parts = [
+        f"{key}={shlex.quote(str(value))}"
+        for key, value in env.items()
+    ]
+
+    argv_part = " ".join(shlex.quote(str(arg)) for arg in argv)
+
+    if env_parts:
+        return prefix + " ".join(env_parts + [argv_part])
+
+    return prefix + argv_part
 ```
 
 - [ ] **Step 2: Valider syntaks**
@@ -496,25 +526,49 @@ I toppen af `start_coding.py`, efter de eksisterende imports:
 from command_builder import build_start_command, render_tmux_shell_string  # noqa: E402
 ```
 
-- [ ] **Step 2: Tilføj load_flow_from_db til get_flow_roles**
+- [ ] **Step 2: Opdater get_flow_roles() til at SELECTe nye rollefelter**
 
-`get_flow_roles()` skal også returnere `use_machine_profile` fra flowet. Opdater SQL i `get_flow_roles()`:
+Find funktionen `get_flow_roles()` (omkring linje 28). Opdater SQL SELECT til at inkludere de nye felter:
 
-Find funktionen `get_flow_roles()` (omkring linje 28). Tilføj en separat query til at hente flowets `use_machine_profile`:
+```python
+# I get_flow_roles() — tilføj til SELECT:
+#   r.default_runtime, r.default_provider, r.default_model
+```
+
+Og i dict-opbygningen:
+
+```python
+"default_runtime": row["default_runtime"],
+"default_provider": row["default_provider"],
+"default_model": row["default_model"],
+```
+
+- [ ] **Step 2b: Tilføj get_flow_machine_profile_flag()**
 
 ```python
 def get_flow_machine_profile_flag(db_path, flow_key):
-    """Return use_machine_profile flag for a flow (0 or 1)."""
+    """Return use_machine_profile flag for a flow (0 or 1).
+
+    Handles missing column gracefully (returns 0 = legacy mode).
+    Only value 1 = Machine Profile mode. NULL, 0, missing column = legacy.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT use_machine_profile FROM bridge_flows WHERE flow_key = ?",
-        (flow_key,)
-    ).fetchone()
-    conn.close()
-    if row:
-        return row["use_machine_profile"] or 0
-    return 0
+    try:
+        cols = conn.execute("PRAGMA table_info(bridge_flows)").fetchall()
+        if not any(row["name"] == "use_machine_profile" for row in cols):
+            return 0
+
+        row = conn.execute(
+            "SELECT use_machine_profile FROM bridge_flows WHERE flow_key = ?",
+            (flow_key,)
+        ).fetchone()
+
+        if row and row["use_machine_profile"] == 1:
+            return 1
+        return 0
+    finally:
+        conn.close()
 ```
 
 - [ ] **Step 3: Opdater main() til at bruge Machine Profile**
@@ -527,35 +581,22 @@ Find linjen hvor `roles = get_flow_roles(...)` kaldes. Efter denne linje, tilfø
 # Machine Profile Fase 2A — check if flow uses Machine Profile
 use_machine_profile = get_flow_machine_profile_flag(db_path, args.flow_key)
 machine_profile = {}
+
 if use_machine_profile:
     machine_profile = config_mod.get_machine_profile()
     if not machine_profile:
-        print("WARNING: flow.use_machine_profile=1 but no Machine Profile found.")
+        print("ERROR: flow.use_machine_profile=1 but no valid Machine Profile found.")
         print("  Create profiles/machine.local.json or set DPMTF_MACHINE_PROFILE in .env.")
-        print("  Falling back to legacy start_cmd_suffix for this run.")
-        use_machine_profile = False
+        print("  No fallback to legacy start_cmd_suffix is allowed when Machine Profile is enabled.")
+        return 1
 ```
 
-- [ ] **Step 4: Opdater run_cmd_in_session kaldet**
+- [ ] **Step 4: Opdater kommando-valg i main()-løkken**
 
-I løkken over roller, erstat det eksisterende `run_cmd_in_session` kald med Machine Profile logik. Find linjen:
-
-```python
-ok = run_cmd_in_session(
-    session_name,
-    role["start_cmd"],
-    bridge_dir,
-    project_root,
-    start_cmd_suffix=role.get("start_cmd_suffix"),
-    target_project=project_root,
-)
-```
-
-Erstat med:
+I løkken over roller, erstat det eksisterende `run_cmd_in_session` kald med Machine Profile logik. **Genbrug `run_cmd_in_session()` som eksekveringsmekanisme** — indfør ikke ny tmux send-keys semantik:
 
 ```python
 if use_machine_profile:
-    # Build command from Machine Profile
     try:
         cmd_obj = build_start_command(
             runtime=role.get("default_runtime"),
@@ -564,6 +605,7 @@ if use_machine_profile:
             role_key=role["role_key"],
             machine_profile=machine_profile,
         )
+
         # Check model against provider model list (warning only in Fase 2A)
         provider_key = role.get("default_provider")
         if provider_key and provider_key in machine_profile.get("providers", {}):
@@ -573,16 +615,24 @@ if use_machine_profile:
                       f"Machine Profile provider '{provider_key}' model list")
 
         cmd_str = render_tmux_shell_string(cmd_obj)
-        print(f"  Machine Profile: {cmd_str}")
-        cmd = ["tmux", "send-keys", "-t", session_name, cmd_str, "Enter"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        ok = result.returncode == 0
+        print("  Command source: machine_profile")
+
+        ok = run_cmd_in_session(
+            session_name,
+            cmd_str,  # fuld command string
+            bridge_dir,
+            project_root,
+            start_cmd_suffix=None,
+            target_project=project_root,
+        )
+
     except ValueError as e:
         print(f"  ERROR building Machine Profile command: {e}")
         errors.append(role["role_key"])
         continue
+
 else:
-    # Legacy path — unchanged
+    print("  Command source: legacy_start_cmd_suffix")
     ok = run_cmd_in_session(
         session_name,
         role["start_cmd"],
@@ -592,6 +642,8 @@ else:
         target_project=project_root,
     )
 ```
+
+**Hvis `run_cmd_in_session()` ikke accepterer en fuld command string som første argument:** Stop og rapporter. Indfør ikke ny tmux send-keys semantik. Lav i stedet en minimal adapter der kalder `run_cmd_in_session()` med de parametre den forventer, uden at ændre tmux target/session/prompt semantics.
 
 - [ ] **Step 5: Valider syntaks**
 
@@ -735,13 +787,14 @@ fetch("/api/system/machine-profile")
   });
 ```
 
-- [ ] **Step 3: Opdater save-funktioner til at inkludere nye felter**
+- [ ] **Step 3: Opdater save-funktioner til at inkludere nye felter (disabled-safe)**
 
-I flow save-funktionen, tilføj:
+I flow save-funktionen, tilføj — **kun hvis checkbox ikke er disabled**:
 
 ```javascript
-if (document.getElementById("bridge-input-use-machine-profile")) {
-  body.use_machine_profile = document.getElementById("bridge-input-use-machine-profile").checked ? 1 : 0;
+var mpEl = document.getElementById("bridge-input-use-machine-profile");
+if (mpEl && !mpEl.disabled) {
+  body.use_machine_profile = mpEl.checked ? 1 : 0;
 }
 ```
 
@@ -751,9 +804,38 @@ I rolle save-funktionen, tilføj:
 var rtEl = document.getElementById("bridge-input-default-runtime");
 var pvEl = document.getElementById("bridge-input-default-provider");
 var mdEl = document.getElementById("bridge-input-default-model");
-if (rtEl) body.default_runtime = rtEl.value || null;
-if (pvEl) body.default_provider = pvEl.value || null;
-if (mdEl) body.default_model = mdEl.value || null;
+if (rtEl && !rtEl.disabled) body.default_runtime = rtEl.value || null;
+if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
+if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
+```
+
+- [ ] **Step 3b: default_model som tekstfelt med datalist (ikke dropdown)**
+
+Erstat `default_model` tekstfeltet med en datalist-løsning:
+
+```javascript
+var mdInput = el("input", null);
+mdInput.type = "text";
+mdInput.id = "bridge-input-default-model";
+mdInput.setAttribute("list", "bridge-default-model-options");
+mdInput.value = data.default_model || "";
+mdInput.disabled = disabled;
+
+var mdList = el("datalist", null);
+mdList.id = "bridge-default-model-options";
+// Models populeres ikke automatisk i Fase 2A — GET /api/system/machine-profile
+// returnerer kun model_count, ikke model-lister. Tekstfelt med datalist giver
+// fleksibilitet uden at kræve nyt endpoint.
+form.appendChild(mdInput);
+form.appendChild(mdList);
+```
+
+- [ ] **Step 3c: Runtime dropdown fra Machine Profile (med hardcoded fallback)**
+
+```javascript
+var runtimes = (meta.runtimes && Object.keys(meta.runtimes).length)
+  ? Object.keys(meta.runtimes)
+  : ["claude", "opencode", "freebuff"];
 ```
 
 - [ ] **Step 4: Valider JavaScript**
@@ -767,6 +849,54 @@ node --check /home/svend/DPMtF-WebUI/static/js/dpmtf-app.js
 ```bash
 git add static/js/dpmtf-app.js
 git commit -m "[trade] Tilføj Machine Profile frontend — use_machine_profile checkbox på flow, default_runtime/provider/model på rolle"
+```
+
+---
+
+### Task 4B: Backend API — accepter nye felter
+
+**Files:**
+- Modify: `app.py`
+
+**Interfaces:**
+- Produces: Flow create/update endpoints accepterer `use_machine_profile`. Role create/update endpoints accepterer `default_runtime`, `default_provider`, `default_model`. Response payloads inkluderer de nye felter.
+
+- [ ] **Step 1: Opdater flow create/update endpoints**
+
+Find flow POST/PUT endpoints. Tilføj `use_machine_profile` til accepterede felter:
+
+```python
+use_machine_profile = data.get("use_machine_profile", 0)
+# Valider: kun 0 eller 1
+if use_machine_profile not in (0, 1):
+    use_machine_profile = 0
+```
+
+Inkluder i INSERT/UPDATE SQL og response.
+
+- [ ] **Step 2: Opdater role create/update endpoints**
+
+Find role POST/PUT endpoints. Tilføj de tre nye felter:
+
+```python
+default_runtime = data.get("default_runtime")
+default_provider = data.get("default_provider")
+default_model = data.get("default_model")
+```
+
+Inkluder i INSERT/UPDATE SQL og response. Ingen validering mod Machine Profile i save-endpoint — runtime-validering sker ved flow-start.
+
+- [ ] **Step 3: Valider syntaks**
+
+```bash
+python3 -m py_compile /home/svend/DPMtF-WebUI/app.py
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add app.py
+git commit -m "[trade] Backend API accepterer Machine Profile felter — use_machine_profile på flow, default_runtime/provider/model på rolle"
 ```
 
 ---
@@ -809,12 +939,28 @@ Find `ui_label_translations_data` listen og tilføj før `]`:
     ("LBL-1000352", "da-DK", "Machine Profile schema_version matcher ikke — opdater profilen før aktivering."),
 ```
 
-- [ ] **Step 3: Valider og kør**
+- [ ] **Step 2b: Tjek at i18n IDs ikke kolliderer**
 
 ```bash
-python3 -m py_compile /home/svend/DPMtF-WebUI/scripts/init_db.py
-python3 /home/svend/DPMtF-WebUI/scripts/init_db.py
+sqlite3 /home/svend/DPMtF-WebUI/databases/dpmtf.db "
+SELECT label_id, label_key
+FROM ui_labels
+WHERE label_id BETWEEN 'LBL-1000346' AND 'LBL-1000352'
+   OR label_key IN (
+     'lbl_bridge_use_machine_profile',
+     'lbl_bridge_default_runtime',
+     'lbl_bridge_default_provider',
+     'lbl_bridge_default_model',
+     'lbl_mp_missing',
+     'lbl_mp_parse_error',
+     'lbl_mp_schema_mismatch'
+   );
+"
 ```
+
+Hvis nogen IDs er optaget: brug næste ledige LBL-ID'er og opdater både labels og translations.
+
+- [ ] **Step 3: Valider og kør**
 
 - [ ] **Step 4: Commit**
 
@@ -950,6 +1096,58 @@ python3 -m py_compile /home/svend/DPMtF-WebUI/app.py
 node --check /home/svend/DPMtF-WebUI/static/js/dpmtf-app.js
 ```
 
+- [ ] **Test 4b: Renderer shell semantics**
+
+```bash
+python3 - <<'PY'
+import sys
+sys.path.insert(0, '/home/svend/DPMtF-WebUI/scripts/bridgeV002')
+from command_builder import render_tmux_shell_string
+
+cmd = {
+    "cwd": "/tmp/test path",
+    "env": {"A": "1", "B": "two words"},
+    "argv": ["echo", "hello world"],
+}
+s = render_tmux_shell_string(cmd)
+expected = "cd '/tmp/test path' && A=1 B='two words' echo 'hello world'"
+assert s == expected, f"Mismatch: {s!r} != {expected!r}"
+print("renderer shell semantics PASS")
+PY
+```
+
+- [ ] **Test 4c: No duplicate seeded roles**
+
+```bash
+sqlite3 /home/svend/DPMtF-WebUI/databases/dpmtf.db "
+SELECT role_key, COUNT(*)
+FROM bridge_roles
+GROUP BY role_key
+HAVING COUNT(*) > 1;
+"
+# Forventet: ingen rows
+```
+
+- [ ] **Test 4d: No OpenRouter secret in generated command**
+
+```bash
+python3 - <<'PY'
+import json, sys
+sys.path.insert(0, '/home/svend/DPMtF-WebUI/scripts/bridgeV002')
+from command_builder import build_start_command, render_tmux_shell_string
+
+with open('/home/svend/DPMtF-WebUI/profiles/machine.ai-pc.example.json') as f:
+    mp = json.load(f)
+
+cmd = build_start_command('opencode', 'openrouter', 'z-ai/glm-5.2', 'test', mp)
+s = render_tmux_shell_string(cmd)
+for forbidden in ['OPENROUTER_API_KEY=', 'ANTHROPIC_API_KEY=', 'sk-or-', 'sk-ant-']:
+    assert forbidden not in str(cmd), f"Found {forbidden} in command object"
+    assert forbidden not in s, f"Found {forbidden} in shell string"
+print("no cloud secrets PASS")
+PY
+```
+
 - [ ] **Test 5: use_machine_profile default = 0**
 
 ```bash
@@ -978,6 +1176,7 @@ Tilladte filer i Fase 2A:
 scripts/init_db.py
 scripts/bridgeV002/command_builder.py
 scripts/bridgeV002/start_coding.py
+app.py
 static/js/dpmtf-app.js
 templates/index.html
 docs/governance-templates-v2/11_SCOPE.md
