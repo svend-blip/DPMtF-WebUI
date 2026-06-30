@@ -250,10 +250,14 @@ def render_tmux_shell_string(command_object):
     if cwd:
         prefix = f"cd {shlex.quote(cwd)} && "
 
-    env_parts = [
-        f"{key}={shlex.quote(str(value))}"
-        for key, value in env.items()
-    ]
+    env_parts = []
+    for key, value in env.items():
+        val_str = str(value)
+        # Values containing $ are shell variables — use double quotes to allow expansion
+        if "$" in val_str:
+            env_parts.append(f'{key}="{val_str}"')
+        else:
+            env_parts.append(f"{key}={shlex.quote(val_str)}")
 
     argv_part = " ".join(shlex.quote(str(arg)) for arg in argv)
 
