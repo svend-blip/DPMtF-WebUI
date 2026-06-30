@@ -205,6 +205,35 @@ def build_opencode_openrouter_command(runtime, provider, model, config_dir, mp):
     }
 
 
+@_register("opencode", "opencode_builtin")
+def build_opencode_builtin_command(runtime, provider, model, config_dir, mp):
+    """Build OpenCode + built-in provider command (no model prefix).
+
+    Used when OpenCode handles the provider directly (e.g. minimax, anthropic).
+    Model is passed as-is without openrouter:/ollama: prefix.
+    """
+    binaries = mp.get("binaries", {})
+    runtimes = mp.get("runtimes", {})
+    paths = mp.get("paths", {})
+
+    opencode_bin = _resolve_binary("opencode", binaries, "opencode")
+    runtime_cfg = _get_runtime_config("opencode", runtimes)
+
+    config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
+    full_config_dir = f"{config_base}/{config_dir}"
+
+    cwd = paths.get("project_root", os.getcwd())
+
+    return {
+        "cwd": cwd,
+        "env": {
+            "OPENCODE_CONFIG_DIR": full_config_dir,
+            "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
+        },
+        "argv": [opencode_bin, "--model", model],
+    }
+
+
 @_register("freebuff", None)
 def build_freebuff_command(runtime, provider, model, role_key, mp):
     """Build Freebuff command. Freebuff is a runtime, not a provider."""

@@ -4768,9 +4768,9 @@ cursor.executemany(
         ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02pay"),
         # OpenCode + local_ollama
         ("opencode", "local_ollama", "qwen3.6-27b-coder:latest", "imple01"),
-        # OpenCode + openrouter (minimax)
-        ("opencode", "openrouter", "minimax/MiniMax-M3", "analyst01_trade"),
-        ("opencode", "openrouter", "minimax/MiniMax-M3", "imple01pay"),
+        # OpenCode + built-in provider (no prefix — OpenCode handles directly)
+        ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "analyst01_trade"),
+        ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "imple01pay"),
         # Freebuff
         ("freebuff", None, "freebuff-default", "imple01cloud"),
     ],
