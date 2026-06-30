@@ -25,6 +25,10 @@ from bridge_lib import (
 )
 from dispatch import build_step_payload
 
+# Machine Profile healthcheck (Fase 1)
+sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
+from system_healthcheck import run_healthcheck
+
 app = FastAPI(title="DPMtF WebUI")
 
 # Mount static files
@@ -5386,6 +5390,62 @@ async def bridge_v2_db_backup():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database backup failed: {e}")
+
+
+# ── Machine Profile Fase 1 — System Setup API ──────────────────
+
+
+@app.get("/api/system/machine-profile")
+async def system_machine_profile():
+    """Return safe metadata about the active Machine Profile.
+
+    Never returns secrets, paths, or raw profile data.
+    """
+    try:
+        metadata = config.get_machine_profile_metadata()
+        return metadata
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read Machine Profile: {e}",
+        )
+
+
+@app.get("/api/system/healthcheck")
+async def system_healthcheck():
+    """Run all Machine Profile healthchecks.
+
+    Returns structured results with status and severity per check.
+    Never blocks existing functionality.
+    """
+    try:
+        profile = config.get_machine_profile()
+        result = run_healthcheck(profile)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Healthcheck failed: {e}",
+        )
+
+
+@app.get("/api/system/healthcheck/{section}")
+async def system_healthcheck_section(section: str):
+    """Run a single section of Machine Profile healthchecks.
+
+    Valid sections: profile, paths, binaries, ports, secrets, tmux, ollama, providers
+    """
+    try:
+        profile = config.get_machine_profile()
+        result = run_healthcheck(profile, section=section)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Healthcheck failed: {e}",
+        )
 
 
 if __name__ == "__main__":
