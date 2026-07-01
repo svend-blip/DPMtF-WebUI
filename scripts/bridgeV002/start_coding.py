@@ -44,7 +44,7 @@ def get_flow_roles(db_path, flow_key):
     # Fetch from_role entries
     from_rows = conn.execute(
         """
-        SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix,
+        SELECT r.role_key, r.tmux_session,
                r.default_runtime, r.default_provider, r.default_model,
                r.config_dir,
                s.runtime_override, s.provider_override, s.model_override,
@@ -59,7 +59,7 @@ def get_flow_roles(db_path, flow_key):
     # Fetch the last step's to_role (final role in chain, never a from_role)
     to_rows = conn.execute(
         """
-        SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix,
+        SELECT r.role_key, r.tmux_session,
                r.default_runtime, r.default_provider, r.default_model,
                r.config_dir,
                s.runtime_override, s.provider_override, s.model_override,
@@ -86,8 +86,6 @@ def get_flow_roles(db_path, flow_key):
             result.append({
                 "role_key": row["role_key"],
                 "tmux_session": row["tmux_session"],
-                "start_cmd": row["start_cmd"],
-                "start_cmd_suffix": row["start_cmd_suffix"],
                 "default_runtime": row["default_runtime"],
                 "default_provider": row["default_provider"],
                 "default_model": row["default_model"],
@@ -99,31 +97,6 @@ def get_flow_roles(db_path, flow_key):
 
     conn.close()
     return result
-
-
-def get_flow_machine_profile_flag(db_path, flow_key):
-    """Return use_machine_profile flag for a flow (0 or 1).
-
-    Handles missing column gracefully (returns 0 = legacy mode).
-    Only value 1 = Machine Profile mode. NULL, 0, missing column = legacy.
-    """
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        cols = conn.execute("PRAGMA table_info(bridge_flows)").fetchall()
-        if not any(row["name"] == "use_machine_profile" for row in cols):
-            return 0
-
-        row = conn.execute(
-            "SELECT use_machine_profile FROM bridge_flows WHERE flow_key = ?",
-            (flow_key,)
-        ).fetchone()
-
-        if row and row["use_machine_profile"] == 1:
-            return 1
-        return 0
-    finally:
-        conn.close()
 
 
 def ensure_session_exists(session_name):
@@ -225,17 +198,12 @@ def main():
         print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
         return
 
-    # Machine Profile Fase 2A — check if flow uses Machine Profile
-    use_machine_profile = get_flow_machine_profile_flag(db_path, args.flow_key)
-    machine_profile = {}
-
-    if use_machine_profile:
-        machine_profile = config_mod.get_machine_profile()
-        if not machine_profile:
-            print("ERROR: flow.use_machine_profile=1 but no valid Machine Profile found.")
-            print("  Create profiles/machine.local.json or set DPMTF_MACHINE_PROFILE in .env.")
-            print("  No fallback to legacy start_cmd_suffix is allowed when Machine Profile is enabled.")
-            return 1
+    # Machine Profile — always used for command building
+    machine_profile = config_mod.get_machine_profile()
+    if not machine_profile:
+        print("ERROR: No valid Machine Profile found.")
+        print("  Create profiles/machine.local.json or set DPMTF_MACHINE_PROFILE in .env.")
+        return 1
 
     # 2. Process each role — execute start_cmd in existing tmux session
     started = []
@@ -243,20 +211,11 @@ def main():
     errors = []
     for role in roles:
         session_name = role["tmux_session"]
-        start_cmd = role["start_cmd"]
 
-        # Machine Profile mode: require default_runtime
-        if use_machine_profile:
-            if not role.get("default_runtime"):
-                print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no default_runtime)")
-                skipped.append(role["role_key"])
-                continue
-        else:
-            # Legacy mode: require start_cmd or start_cmd_suffix
-            if not start_cmd and not role.get("start_cmd_suffix"):
-                print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no start_cmd or start_cmd_suffix)")
-                skipped.append(role["role_key"])
-                continue
+        if not role.get("default_runtime"):
+            print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no default_runtime)")
+            skipped.append(role["role_key"])
+            continue
 
         # Verify session exists before trying to run
         if not ensure_session_exists(session_name):
@@ -266,67 +225,53 @@ def main():
             errors.append(role["role_key"])
             continue
 
-        # Execute the role's start command
-        if use_machine_profile:
-            try:
-                # Fase 2B: override chain — step override > role default
-                runtime = role.get("runtime_override") or role.get("default_runtime")
-                provider = role.get("provider_override") or role.get("default_provider")
-                model = role.get("model_override") or role.get("default_model")
+        # Build command from Machine Profile
+        try:
+            # Fase 2B: override chain — step override > role default
+            runtime = role.get("runtime_override") or role.get("default_runtime")
+            provider = role.get("provider_override") or role.get("default_provider")
+            model = role.get("model_override") or role.get("default_model")
 
-                cmd_obj = build_start_command(
-                    runtime=runtime,
-                    provider=provider,
-                    model=model,
-                    role_key=role["role_key"],
-                    machine_profile=machine_profile,
-                    config_dir=role.get("config_dir"),
-                )
+            cmd_obj = build_start_command(
+                runtime=runtime,
+                provider=provider,
+                model=model,
+                role_key=role["role_key"],
+                machine_profile=machine_profile,
+                config_dir=role.get("config_dir"),
+            )
 
-                # Check model against provider model list (warning only in Fase 2A)
-                provider_key = role.get("default_provider")
-                if provider_key and provider_key in machine_profile.get("providers", {}):
-                    provider_models = machine_profile["providers"][provider_key].get("models", [])
-                    if provider_models and role.get("default_model") not in provider_models:
-                        print(f"  WARNING: model '{role.get('default_model')}' not in "
-                              f"Machine Profile provider '{provider_key}' model list")
+            # Check model against provider model list (warning only)
+            provider_key = role.get("default_provider")
+            if provider_key and provider_key in machine_profile.get("providers", {}):
+                provider_models = machine_profile["providers"][provider_key].get("models", [])
+                if provider_models and role.get("default_model") not in provider_models:
+                    print(f"  WARNING: model '{role.get('default_model')}' not in "
+                          f"Machine Profile provider '{provider_key}' model list")
 
-                cmd_str = render_tmux_shell_string(cmd_obj)
-                # cwd: Prompt Compiler's target_project (project_root) takes precedence.
-                # Machine Profile's paths.project_root is the fallback.
-                cwd = project_root
-                if machine_profile:
-                    mp_paths = machine_profile.get("paths", {})
-                    cwd = mp_paths.get("project_root", project_root)
-                cmd_str = f"cd {cwd} && {cmd_str}"
-                print(f"  {role['role_key']:15s} → '{session_name}'  (machine_profile) ...")
-                print("  Command source: machine_profile")
+            cmd_str = render_tmux_shell_string(cmd_obj)
+            # cwd: Prompt Compiler's target_project (project_root) takes precedence.
+            # Machine Profile's paths.project_root is the fallback.
+            cwd = project_root
+            mp_paths = machine_profile.get("paths", {})
+            cwd = mp_paths.get("project_root", project_root)
+            cmd_str = f"cd {cwd} && {cmd_str}"
+            print(f"  {role['role_key']:15s} → '{session_name}'  (machine_profile) ...")
 
-                ok = run_cmd_in_session(
-                    session_name,
-                    cmd_str,
-                    bridge_dir,
-                    project_root,
-                    start_cmd_suffix=None,
-                    target_project=project_root,
-                )
-
-            except ValueError as e:
-                print(f"  {role['role_key']:15s} → '{session_name}'")
-                print(f"  ERROR building Machine Profile command: {e}")
-                errors.append(role["role_key"])
-                continue
-        else:
-            print(f"  {role['role_key']:15s} → '{session_name}'  (start_cmd) ...")
-            print("  Command source: legacy_start_cmd_suffix")
             ok = run_cmd_in_session(
                 session_name,
-                role["start_cmd"],
+                cmd_str,
                 bridge_dir,
                 project_root,
-                start_cmd_suffix=role.get("start_cmd_suffix"),
+                start_cmd_suffix=None,
                 target_project=project_root,
             )
+
+        except ValueError as e:
+            print(f"  {role['role_key']:15s} → '{session_name}'")
+            print(f"  ERROR building Machine Profile command: {e}")
+            errors.append(role["role_key"])
+            continue
 
         if ok:
             started.append(session_name)
