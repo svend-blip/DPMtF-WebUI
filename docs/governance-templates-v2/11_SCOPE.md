@@ -19,53 +19,40 @@ limits unless scope is explicitly changed through the documented process.
 
 ## Phase
 
-**MACHINE_PROFILE_FASE2A — Machine Profile: Role Runtime Config**
+**GOVERNANCE_FRONTEND — Frontend Governance + Machine Profile afsluttet**
 
 ## In Scope Now
 
-- `bridge_flows.use_machine_profile` kolonne (idempotent)
-- `bridge_roles.default_runtime`, `default_provider`, `default_model` kolonner (idempotent)
-- `scripts/bridgeV002/command_builder.py` — `build_start_command()` + 5 builders + renderer
-- `start_coding.py` ændring — vælg mellem legacy og Machine Profile kommando
-- Frontend: `use_machine_profile` checkbox på flow, `default_runtime/provider/model` på rolle
-- Backend API: flow/role endpoints accepterer nye felter
-- i18n labels for nye UI-elementer
+- `30_FRONTEND_GOVERNANCE.md` — fælles frontend-governance
+- Frontend Impact som obligatorisk output-afsnit i designs og implementeringer
+- Review/verdict fejler ved manglende Frontend Impact
+- Opdatering af eksisterende governance templates med Frontend Impact referencer
+- Machine Profile: legacy-kode fjernet, døde frontend-felter fjernet
 
 ## Out of Scope Now
 
-- Fjernelse af `start_cmd_suffix`
-- Massemigrering af alle flows
-- `command_templates` i Machine Profile
-- `runtime_commands` database-tabel
-- Flow-role overrides (Fase 2B)
-- Ændring af tmux/prompt/flow execution ud over valg af startkommando
+- MCP server til frontend-kontekst (fremtidig fase)
+- Nye panel groups (kun eksisterende: Daily, Journals, Reports, Periodic, Setup)
 
 ## Key Principle
 
-Flow bestemmer OM Machine Profile bruges. Rolle bestemmer HVAD der skal køres. Machine Profile bestemmer HVORDAN. Builder oversætter. `start_cmd_suffix` bevares som legacy fallback.
+Frontend Impact må aldrig udelades. Alle UI-ændringer skal følge panel-registreringsreglerne i `30_FRONTEND_GOVERNANCE.md`. "No frontend impact" skal begrundes.
 
 ## Constraints
 
-- Do NOT remove `start_cmd_suffix`.
-- Do NOT massemigrere flows.
-- Do NOT modify tmux injection or role start/stop logic beyond command source selection.
-- Do NOT modify deliverable_dir resolution.
 - Do NOT introduce new dependencies without Human Approval Gate.
 - Do NOT commit until explicitly instructed by Human.
 - All frontend text MUST use `lbl(key, fallback)` — no hardcoded English strings.
 - No `innerHTML` for dynamic content — use `createElement()`/`textContent`/`appendChild()`.
 - Python: `py_compile` before signaling completion, PEP 8, parameterized SQL queries.
 - Shell: `bash -n` before signaling completion, `set -euo pipefail`.
+- New panels MUST be registered in `panel_subgroups` + `panel_subgroup_mappings`.
 
 ## Success Criteria
 
-- `use_machine_profile` default = 0 for alle eksisterende flows
-- Flow med `use_machine_profile=0` bruger `start_cmd_suffix` uændret
-- Flow med `use_machine_profile=1` bruger `build_start_command()`
-- Samme rolle i to flows påvirkes ikke globalt
-- Manglende Machine Profile ved `use_machine_profile=1` → stop med fejl, ingen fallback
-- Alle 5 builder-mønstre producerer korrekte kommandoer
-- Ingen cloud secrets i command object eller shell-string
+- `30_FRONTEND_GOVERNANCE.md` oprettet og committet
+- Alle relevante governance templates opdateret med Frontend Impact referencer
+- Review/verdict fejler ved manglende Frontend Impact
 
 ## Scope Change Process
 

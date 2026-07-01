@@ -60,6 +60,11 @@ handoff_path = f"{config.get_bridge_dir()}/{flow_key}/handoffs/{hid}-handoff.md"
 handoff_path = f"/home/svend/flows/strict_review/handoffs/{hid}-handoff.md"
 ```
 
+## Frontend Governance
+
+All frontend changes MUST follow [[30_FRONTEND_GOVERNANCE]] for panel registration,
+subgroup mapping, and i18n requirements.
+
 ## JavaScript
 
 | Rule | Description |

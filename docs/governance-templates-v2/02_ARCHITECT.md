@@ -81,6 +81,31 @@ Additionally, the Architect reads these as needed:
 | Previous implementation result | From Review: validated diff, test results, review verdict. |
 | NEXT_CONTEXT | After `/clear`: session state from [[27_NEXT_CONTEXT]]. |
 
+## Frontend Impact
+
+All designs MUST include a Frontend Impact section following [[30_FRONTEND_GOVERNANCE]].
+
+```markdown
+## Frontend Impact
+
+- Frontend impact: <what changes in the UI>
+- index.html impact: <yes/no, what changes>
+- Panel group/subgroup: <which group, which subgroup>
+- Existing panel reused: <yes/no, which>
+- New panel needed: <yes/no, why>
+- Frontend verification: <how to verify the change>
+```
+
+If no frontend change is needed:
+
+```markdown
+## Frontend Impact
+
+No frontend impact.
+
+Reason: <why frontend is not affected>
+```
+
 ## Outputs
 
 | Output | Description |

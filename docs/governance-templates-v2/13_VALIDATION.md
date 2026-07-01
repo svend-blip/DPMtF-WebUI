@@ -31,6 +31,7 @@ Every change set MUST pass ALL of the following before being considered valid:
 | 6 | Schema change check | Review diff for `ALTER TABLE`, `CREATE TABLE` | No schema changes unless phase explicitly allows them. |
 | 7 | innerHTML check | `grep -RIn "innerHTML" static templates --exclude-dir=__pycache__ \|\| echo "no_innerHTML"` | Result MUST be `no_innerHTML` or an approved exception with security justification. |
 | 8 | i18n check | `grep -RIn '"[A-Z][a-z]' static/js/` | Only `lbl()` fallbacks and CSS classes. No bare user-visible English strings. |
+| 9 | Frontend Impact | Verify Frontend Impact section present per [[30_FRONTEND_GOVERNANCE]] | Missing = fail. Panel registration, subgroup mapping, i18n labels verified. |
 
 ## Functional Validation
 

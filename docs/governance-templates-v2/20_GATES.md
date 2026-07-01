@@ -215,6 +215,7 @@ If multiple gates trigger simultaneously, ask in this order:
 9. GATE-M2 (kritiske stier)
 10. GATE-M3 (required binaries)
 11. GATE-M4 (provider availability)
+12. GATE-FRONTEND (missing Frontend Impact)
 
 ### New Gates
 
@@ -248,6 +249,19 @@ CONSEQUENCE:
   - Fejl skal være synlig — ingen skjult fallback til start_cmd_suffix
   - Rollen startes ikke
   - Fejlbesked logges
+```
+
+### GATE-FRONTEND: Missing Frontend Impact
+
+```
+TRIGGER: Design eller implementering mangler Frontend Impact-afsnit.
+
+QUESTION: "Mangler Frontend Impact i output?"
+
+CONSEQUENCE:
+  - Review/verdict skal fejle
+  - Kan ikke godkendes før Frontend Impact er udfyldt
+  - "No frontend impact" skal være begrundet
 ```
 
 ---

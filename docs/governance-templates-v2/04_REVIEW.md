@@ -80,6 +80,21 @@ Additionally, the Review reads as needed:
 | Updated NEXT_CONTEXT | Session state written to [[27_NEXT_CONTEXT]]. |
 | Validation report | Written to [[29_VALIDATION_REPORT]]. |
 
+## Frontend Impact Check
+
+Review MUST verify Frontend Impact following [[30_FRONTEND_GOVERNANCE]]:
+
+- [ ] Frontend Impact section present in implementation output
+- [ ] "No frontend impact" has a reason (if claimed)
+- [ ] UI changes specify panel group/subgroup
+- [ ] New panels are registered in `panel_subgroups` + `panel_subgroup_mappings`
+- [ ] i18n labels exist for all new UI text
+- [ ] No `innerHTML` in new code
+- [ ] `node --check` passes
+- [ ] `init_db.py` runs idempotent
+
+**Missing Frontend Impact = fail**
+
 ## Validation Workflow
 
 When the Implementor signals completion:

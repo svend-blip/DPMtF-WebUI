@@ -62,6 +62,7 @@ panel_subgroup_mappings — subgroup_key, subpattern_key, is_visible
 - Subgroups are database-driven — no HTML changes needed for new subgroups.
 - If no subgroups defined: implicit "All" subgroup, flat display.
 - `is_visible = 0` hides the element via CSS class `dpmtf-hidden`.
+- For implementation guide, see [[30_FRONTEND_GOVERNANCE]].
 
 ## Machine Profile
 

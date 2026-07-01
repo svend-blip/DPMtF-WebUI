@@ -58,6 +58,17 @@ Before acting, the Implementor MUST read the files specified in the
 | Governance context | Files specified in the handoff's `<governance>` section. |
 | Project files | Read access to files within the defined `<scope>`. |
 
+## Frontend Impact
+
+All implementations MUST include a Frontend Impact section following [[30_FRONTEND_GOVERNANCE]].
+
+If frontend is affected, follow the panel registration rules in [[30_FRONTEND_GOVERNANCE]]:
+1. Add HTML section with `data-slot` in `index.html`
+2. Register subgroup in `panel_subgroups` (init_db.py)
+3. Register mapping in `panel_subgroup_mappings` (init_db.py)
+4. Add i18n labels (init_db.py)
+5. Add JavaScript in `dpmtf-app.js`
+
 ## Outputs
 
 | Output | Description |
