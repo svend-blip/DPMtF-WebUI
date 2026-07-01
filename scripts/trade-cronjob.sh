@@ -21,12 +21,15 @@ FLOW_KEY="trade_cockpit_simulation_v001"
 if [ $# -ge 1 ]; then
     FLOW_ID="$1"
 else
+    # Atomically reserve the next ID AND increment the counter via the
+    # shared library function. A raw SELECT would never advance the
+    # counter (dispatch.py only increments when --id is omitted), causing
+    # every cron run to reuse the same ID and collide with stale output.
     FLOW_ID=$(python3 -c "
-import sqlite3
-conn = sqlite3.connect('${PROJECT_ROOT}/databases/dpmtf.db')
-row = conn.execute(\"SELECT next_id FROM bridge_id_counters WHERE flow_key='${FLOW_KEY}'\").fetchone()
-print(f'{row[0]:03d}')
-conn.close()
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/scripts/bridgeV002')
+from bridge_lib import get_next_id_for_flow
+print(f'{get_next_id_for_flow(\"${FLOW_KEY}\", db_path=\"${PROJECT_ROOT}/databases/dpmtf.db\"):03d}')
 ")
 fi
 

@@ -4754,7 +4754,8 @@ if not _column_exists(cursor, "bridge_flow_steps", "model_override"):
 # Seed default_runtime/default_provider/default_model from analyzed patterns
 # Only seeds when ALL THREE fields are NULL — never partially overwrites.
 # One entry per role_key — no duplicates.
-# NOTE: review01_trade is NOT auto-seeded — conflicting patterns.
+# review01_trade is seeded explicitly: opencode + openrouter + z-ai/glm-5.2
+# (config_dir='glm52trade' set above; command builder prepends openrouter/ prefix).
 cursor.executemany(
     """UPDATE bridge_roles
        SET default_runtime = ?, default_provider = ?, default_model = ?
@@ -4766,7 +4767,7 @@ cursor.executemany(
         # Claude + local_ollama (35b-a3b-64k)
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01"),
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01cloud"),
-        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01pay"),
+        ("claude", "openrouter", "z-ai/glm-5.2", "archi01pay"),
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "trend01_trade"),
         ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "risk01_trade"),
         # Claude + cloud_ollama
@@ -4787,6 +4788,8 @@ cursor.executemany(
         # OpenCode + built-in provider (no prefix — OpenCode handles directly)
         ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "analyst01_trade"),
         ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "imple01pay"),
+        # OpenCode + openrouter (review01_trade — GLM 5.2 via OpenRouter, glm52trade config)
+        ("opencode", "openrouter", "z-ai/glm-5.2", "review01_trade"),
         # Freebuff
         ("freebuff", None, "freebuff-default", "imple01cloud"),
     ],
@@ -5324,6 +5327,20 @@ cursor.execute(
     """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
        VALUES (?, ?)""",
     ("strict_review", 139),
+)
+
+# Trade Cockpit flows — counters auto-increment via get_next_id_for_flow()
+# in bridge_lib.py (called by the cronjob scripts). Seeded here so the
+# first run finds a row; existing rows are never overwritten (INSERT OR IGNORE).
+cursor.execute(
+    """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
+       VALUES (?, ?)""",
+    ("trade_cockpit_simulation_v001", 1),
+)
+cursor.execute(
+    """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
+       VALUES (?, ?)""",
+    ("trade_cockpit_scoring_v001", 1),
 )
 
 # Commit changes and close connection
