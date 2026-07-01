@@ -1869,6 +1869,18 @@ function buildAggregatedCmd(role, targetProject) {
          " 'cd " + project + " " + suffix + "' Enter";
 }
 
+function buildMachineProfileDisplay(role) {
+  // Show Machine Profile logical fields as a readable command preview
+  var runtime = role.default_runtime || "(ingen runtime)";
+  var provider = role.default_provider || "(ingen provider)";
+  var model = role.default_model || "(ingen model)";
+  var configDir = role.config_dir || role.role_key;
+  return "[MP] runtime=" + runtime +
+         " provider=" + provider +
+         " model=" + model +
+         " config=" + configDir;
+}
+
 function renderRoleCard(role) {
   var card = el("div", "dpmtf-card");
 
@@ -1899,6 +1911,8 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix"), role.start_cmd_suffix || null],
     // 4. Aggregeret streng (read-only, genereret)
     [lbl("lbl_bridge_aggregated_cmd", "Aggregated Command"), buildAggregatedCmd(role, targetProject)],
+    // 4b. Machine Profile preview (read-only, viser logiske felter)
+    [lbl("lbl_bridge_mp_preview", "Machine Profile"), buildMachineProfileDisplay(role)],
     // Existing fields below
     [lbl("lbl_bridge_start_cmd", "Start Command (fallback)"), role.start_cmd],
     [lbl("lbl_bridge_model_type", "Model Type"), role.model_type],
