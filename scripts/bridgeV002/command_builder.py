@@ -143,10 +143,7 @@ def build_claude_ollama_command(runtime, provider, model, role_key, mp):
     env["ANTHROPIC_BASE_URL"] = endpoint
     env["ANTHROPIC_AUTH_TOKEN"] = auth_token
 
-    cwd = paths.get("project_root", os.getcwd())
-
     return {
-        "cwd": cwd,
         "env": env,
         "argv": [claude_bin, "--model", model],
     }
@@ -165,10 +162,7 @@ def build_opencode_ollama_command(runtime, provider, model, config_dir, mp):
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
     full_config_dir = f"{config_base}/{config_dir}"
 
-    cwd = paths.get("project_root", os.getcwd())
-
     return {
-        "cwd": cwd,
         "env": {
             "OPENCODE_CONFIG_DIR": full_config_dir,
             "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
@@ -185,7 +179,6 @@ def build_opencode_openrouter_command(runtime, provider, model, config_dir, mp):
     """
     binaries = mp.get("binaries", {})
     runtimes = mp.get("runtimes", {})
-    paths = mp.get("paths", {})
 
     opencode_bin = _resolve_binary("opencode", binaries, "opencode")
     runtime_cfg = _get_runtime_config("opencode", runtimes)
@@ -193,10 +186,7 @@ def build_opencode_openrouter_command(runtime, provider, model, config_dir, mp):
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
     full_config_dir = f"{config_base}/{config_dir}"
 
-    cwd = paths.get("project_root", os.getcwd())
-
     return {
-        "cwd": cwd,
         "env": {
             "OPENCODE_CONFIG_DIR": full_config_dir,
             "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
@@ -214,7 +204,6 @@ def build_opencode_builtin_command(runtime, provider, model, config_dir, mp):
     """
     binaries = mp.get("binaries", {})
     runtimes = mp.get("runtimes", {})
-    paths = mp.get("paths", {})
 
     opencode_bin = _resolve_binary("opencode", binaries, "opencode")
     runtime_cfg = _get_runtime_config("opencode", runtimes)
@@ -222,10 +211,7 @@ def build_opencode_builtin_command(runtime, provider, model, config_dir, mp):
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
     full_config_dir = f"{config_base}/{config_dir}"
 
-    cwd = paths.get("project_root", os.getcwd())
-
     return {
-        "cwd": cwd,
         "env": {
             "OPENCODE_CONFIG_DIR": full_config_dir,
             "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
@@ -238,13 +224,10 @@ def build_opencode_builtin_command(runtime, provider, model, config_dir, mp):
 def build_freebuff_command(runtime, provider, model, role_key, mp):
     """Build Freebuff command. Freebuff is a runtime, not a provider."""
     binaries = mp.get("binaries", {})
-    paths = mp.get("paths", {})
 
     freebuff_bin = _resolve_binary("freebuff", binaries, "freebuff")
-    cwd = paths.get("project_root", os.getcwd())
 
     return {
-        "cwd": cwd,
         "env": {},
         "argv": [freebuff_bin],
     }
@@ -256,8 +239,9 @@ def build_freebuff_command(runtime, provider, model, role_key, mp):
 def render_tmux_shell_string(command_object):
     """Render a command object to a tmux-safe shell string.
 
-    Builds: cd <cwd> && ENV=value ENV2=value2 binary --arg
+    Builds: ENV=value ENV2=value2 binary --arg
 
+    The caller is responsible for prepending 'cd <dir> && ' if needed.
     Environment variables are set BEFORE the command in the same shell
     invocation — not chained with && between each env var.
 
@@ -265,7 +249,7 @@ def render_tmux_shell_string(command_object):
     Never uses shell=True internally.
 
     Args:
-        command_object: dict with cwd, env, argv
+        command_object: dict with env, argv
 
     Returns:
         str — shell command string safe for tmux send-keys
@@ -273,16 +257,11 @@ def render_tmux_shell_string(command_object):
     Raises:
         ValueError: if argv is empty
     """
-    cwd = command_object.get("cwd", "")
     env = command_object.get("env", {})
     argv = command_object.get("argv", [])
 
     if not argv:
         raise ValueError("Command object missing argv")
-
-    prefix = ""
-    if cwd:
-        prefix = f"cd {shlex.quote(cwd)} && "
 
     env_parts = []
     for key, value in env.items():
@@ -296,6 +275,6 @@ def render_tmux_shell_string(command_object):
     argv_part = " ".join(shlex.quote(str(arg)) for arg in argv)
 
     if env_parts:
-        return prefix + " ".join(env_parts + [argv_part])
+        return " ".join(env_parts + [argv_part])
 
-    return prefix + argv_part
+    return argv_part

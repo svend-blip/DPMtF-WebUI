@@ -282,6 +282,13 @@ def main():
                               f"Machine Profile provider '{provider_key}' model list")
 
                 cmd_str = render_tmux_shell_string(cmd_obj)
+                # cwd: Prompt Compiler's target_project (project_root) takes precedence.
+                # Machine Profile's paths.project_root is the fallback.
+                cwd = project_root
+                if machine_profile:
+                    mp_paths = machine_profile.get("paths", {})
+                    cwd = mp_paths.get("project_root", project_root)
+                cmd_str = f"cd {cwd} && {cmd_str}"
                 print(f"  {role['role_key']:15s} → '{session_name}'  (machine_profile) ...")
                 print("  Command source: machine_profile")
 
