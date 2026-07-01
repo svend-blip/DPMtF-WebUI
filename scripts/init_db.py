@@ -4679,7 +4679,7 @@ except sqlite3.OperationalError:
 
 def _column_exists(cursor, table_name, column_name):
     """Check if a column exists in a known table (idempotent schema helper)."""
-    allowed_tables = {"bridge_flows", "bridge_roles"}
+    allowed_tables = {"bridge_flows", "bridge_roles", "bridge_flow_steps"}
     if table_name not in allowed_tables:
         raise ValueError(f"Unsupported table for column check: {table_name}")
     rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -4734,6 +4734,22 @@ cursor.executemany(
         ("review02pay", "review02"),
     ],
 )
+
+# Machine Profile Fase 2B — flow-role overrides on bridge_flow_steps
+if not _column_exists(cursor, "bridge_flow_steps", "runtime_override"):
+    cursor.execute("""
+        ALTER TABLE bridge_flow_steps ADD COLUMN runtime_override TEXT DEFAULT NULL
+    """)
+
+if not _column_exists(cursor, "bridge_flow_steps", "provider_override"):
+    cursor.execute("""
+        ALTER TABLE bridge_flow_steps ADD COLUMN provider_override TEXT DEFAULT NULL
+    """)
+
+if not _column_exists(cursor, "bridge_flow_steps", "model_override"):
+    cursor.execute("""
+        ALTER TABLE bridge_flow_steps ADD COLUMN model_override TEXT DEFAULT NULL
+    """)
 
 # Seed default_runtime/default_provider/default_model from analyzed patterns
 # Only seeds when ALL THREE fields are NULL — never partially overwrites.

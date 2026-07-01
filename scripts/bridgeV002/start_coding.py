@@ -47,6 +47,7 @@ def get_flow_roles(db_path, flow_key):
         SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix,
                r.default_runtime, r.default_provider, r.default_model,
                r.config_dir,
+               s.runtime_override, s.provider_override, s.model_override,
                s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
@@ -61,6 +62,7 @@ def get_flow_roles(db_path, flow_key):
         SELECT r.role_key, r.tmux_session, r.start_cmd, r.start_cmd_suffix,
                r.default_runtime, r.default_provider, r.default_model,
                r.config_dir,
+               s.runtime_override, s.provider_override, s.model_override,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.to_role = r.role_key
@@ -90,6 +92,9 @@ def get_flow_roles(db_path, flow_key):
                 "default_provider": row["default_provider"],
                 "default_model": row["default_model"],
                 "config_dir": row["config_dir"],
+                "runtime_override": row["runtime_override"],
+                "provider_override": row["provider_override"],
+                "model_override": row["model_override"],
             })
 
     conn.close()
@@ -264,10 +269,15 @@ def main():
         # Execute the role's start command
         if use_machine_profile:
             try:
+                # Fase 2B: override chain — step override > role default
+                runtime = role.get("runtime_override") or role.get("default_runtime")
+                provider = role.get("provider_override") or role.get("default_provider")
+                model = role.get("model_override") or role.get("default_model")
+
                 cmd_obj = build_start_command(
-                    runtime=role.get("default_runtime"),
-                    provider=role.get("default_provider"),
-                    model=role.get("default_model"),
+                    runtime=runtime,
+                    provider=provider,
+                    model=model,
                     role_key=role["role_key"],
                     machine_profile=machine_profile,
                     config_dir=role.get("config_dir"),

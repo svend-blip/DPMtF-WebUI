@@ -4671,8 +4671,9 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
         INSERT INTO bridge_flow_steps
             (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
              pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order,
-             auto_chain_to_next, validation_required)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             auto_chain_to_next, validation_required,
+             runtime_override, provider_override, model_override)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         flow_key, data["step_key"], data["from_role"], data["to_role"],
         deliverable_dir, deliverable_pattern,
@@ -4680,6 +4681,9 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
         error_msg, rule_key, max_so + 1,
         int(data.get("auto_chain_to_next", 0)),
         int(data.get("validation_required", 0)),
+        data.get("runtime_override"),
+        data.get("provider_override"),
+        data.get("model_override"),
     ))
     new_id = cursor.lastrowid
     conn.commit()
@@ -4727,6 +4731,9 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
         "sort_order": "sort_order",
         "auto_chain_to_next": "auto_chain_to_next",
         "validation_required": "validation_required",
+        "runtime_override": "runtime_override",
+        "provider_override": "provider_override",
+        "model_override": "model_override",
     }
 
     for field, column in field_map.items():
