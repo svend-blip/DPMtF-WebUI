@@ -1859,16 +1859,6 @@ function getTargetProject() {
   return "";
 }
 
-function buildAggregatedCmd(role, targetProject) {
-  // Always show the aggregated command — with placeholders when values are missing
-  // Format: tmux send-keys -t {session} 'cd {project} {suffix}' Enter
-  var session = role.tmux_session || "(no session)";
-  var project = targetProject || "(no project)";
-  var suffix = role.start_cmd_suffix || "(not configured)";
-  return "tmux send-keys -t " + session +
-         " 'cd " + project + " " + suffix + "' Enter";
-}
-
 function buildMachineProfileDisplay(role) {
   // Show Machine Profile logical fields as a readable command preview
   var runtime = role.default_runtime || "(ingen runtime)";
@@ -1907,14 +1897,9 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_tmux_session", "Tmux Session"), role.tmux_session],
     // 2. target_project — read-only, from Prompt Compiler
     [lbl("lbl_compiler_target_project", "Target Project"), targetProject || "(not set)"],
-    // 3. start_cmd_suffix — editable part after cd {project}
-    [lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix"), role.start_cmd_suffix || null],
-    // 4. Aggregeret streng (read-only, genereret)
-    [lbl("lbl_bridge_aggregated_cmd", "Aggregated Command"), buildAggregatedCmd(role, targetProject)],
-    // 4b. Machine Profile preview (read-only, viser logiske felter)
+    // Machine Profile preview (read-only, viser logiske felter)
     [lbl("lbl_bridge_mp_preview", "Machine Profile"), buildMachineProfileDisplay(role)],
     // Existing fields below
-    [lbl("lbl_bridge_start_cmd", "Start Command (fallback)"), role.start_cmd],
     [lbl("lbl_bridge_model_type", "Model Type"), role.model_type],
     [lbl("lbl_bridge_cloud_model", "Cloud Model"), role.cloud_model],
     [lbl("lbl_bridge_ollama_model", "Ollama Model"), role.ollama_model],
@@ -1927,15 +1912,11 @@ function renderRoleCard(role) {
     var row = el("div", null);
     var label = pair[0];
     // Set data-field for styling hooks
-    if (label === lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")) {
-      row.setAttribute("data-field", "aggregated_cmd");
-    }
     row.appendChild(el("span", "dpmtf-small", escapeHtml(label) + ": "));
     var valSpan = el("span", null, escapeHtml(String(pair[1])));
-    if (label === lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")) {
+    if (label === lbl("lbl_bridge_mp_preview", "Machine Profile")) {
       valSpan.style.fontFamily = "monospace";
       valSpan.style.fontSize = "11px";
-      valSpan.style.wordBreak = "break-all";
     }
     row.appendChild(valSpan);
     card.appendChild(row);
@@ -2200,9 +2181,6 @@ function addBridgeRole() {
     var ec = document.getElementById("bridge-input-enter_command");
     if (ec) body.enter_command = ec.value;
 
-    var scs = document.getElementById("bridge-input-start_cmd_suffix");
-    if (scs && scs.value.trim()) body.start_cmd_suffix = scs.value.trim();
-
     // Machine Profile Fase 2A — only save if not disabled
     var rtEl = document.getElementById("bridge-input-default-runtime");
     var pvEl = document.getElementById("bridge-input-default-provider");
@@ -2234,7 +2212,6 @@ function addBridgeRole() {
   var fields = [
     ["bridge-input-role_key", "text", lbl("lbl_bridge_role_key", "Role Key"), "role_key"],
     ["bridge-input-tmux_session", "text", lbl("lbl_bridge_tmux_session", "Tmux Session"), "claude_..."],
-    ["bridge-input-start_cmd", "text", lbl("lbl_bridge_start_cmd", "Start Command"), ""],
   ];
   fields.forEach(function (f) {
     var div = el("div", "dpmtf-form-group");
@@ -2287,16 +2264,6 @@ function addBridgeRole() {
   });
   ecDiv.appendChild(ecSelect);
   form.appendChild(ecDiv);
-
-  // H160: start_cmd_suffix input
-  var scsDiv = el("div", "dpmtf-form-group");
-  scsDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix")));
-  var scsInput = el("input", null);
-  scsInput.id = "bridge-input-start_cmd_suffix";
-  scsInput.type = "text";
-  scsInput.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...";
-  scsDiv.appendChild(scsInput);
-  form.appendChild(scsDiv);
 
   // Machine Profile Fase 2A — default_runtime, default_provider, default_model
   var mpSectionDiv = el("div", "dpmtf-form-group");
@@ -2419,8 +2386,6 @@ function addBridgeFlow() {
     if (desc && desc.value.trim()) body.description = desc.value.trim();
     var acInput = document.getElementById("bridge-input-auto_complete_enabled");
     if (acInput) body.auto_complete_enabled = acInput.checked ? 1 : 0;
-    var mpEl = document.getElementById("bridge-input-use-machine-profile");
-    if (mpEl && !mpEl.disabled) body.use_machine_profile = mpEl.checked ? 1 : 0;
     body.steps = [];
 
     fetch("/api/bridge-v2/flows", {
@@ -2466,48 +2431,6 @@ function addBridgeFlow() {
   acDiv.appendChild(acLabel);
   form.appendChild(acDiv);
 
-  // Machine Profile Fase 2A — use_machine_profile checkbox
-  var mpDiv = el("div", null);
-  var mpLabel = el("label", null);
-  var mpInput = el("input", null);
-  mpInput.type = "checkbox";
-  mpInput.id = "bridge-input-use-machine-profile";
-  mpInput.disabled = true;  // disabled until Machine Profile status is checked
-  mpLabel.appendChild(mpInput);
-  mpLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_use_machine_profile", "Brug Machine Profile til startkommandoer")));
-  mpDiv.appendChild(mpLabel);
-  var mpHelp = el("p", "dpmtf-small dpmtf-muted");
-  mpHelp.id = "mp-flow-help";
-  mpHelp.textContent = lbl("lbl_mp_checking", "Tjekker Machine Profile...");
-  mpDiv.appendChild(mpHelp);
-  form.appendChild(mpDiv);
-
-  // Check Machine Profile status for this flow form
-  fetch("/api/system/machine-profile")
-    .then(function (res) { return res.json(); })
-    .then(function (meta) {
-      var helpEl = document.getElementById("mp-flow-help");
-      if (!meta.exists) {
-        mpInput.disabled = true;
-        if (helpEl) helpEl.textContent = lbl("lbl_mp_missing",
-          "Machine Profile mangler — opret profil i System Setup før aktivering.");
-      } else if (meta.parse_error) {
-        mpInput.disabled = true;
-        if (helpEl) helpEl.textContent = lbl("lbl_mp_parse_error",
-          "Machine Profile har JSON-fejl — ret profilen før aktivering.");
-      } else if (meta.schema_version !== 1) {
-        mpInput.disabled = true;
-        if (helpEl) helpEl.textContent = lbl("lbl_mp_schema_mismatch",
-          "Machine Profile schema_version matcher ikke — opdater profilen før aktivering.");
-      } else {
-        mpInput.disabled = false;
-        if (helpEl) helpEl.textContent = "";
-      }
-    })
-    .catch(function () {
-      mpInput.disabled = true;
-    });
-
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
   btnRow.appendChild(cancelBtn);
@@ -2515,9 +2438,6 @@ function addBridgeFlow() {
 
   container.insertBefore(form, container.firstChild);
 }
-
-// Update flow save to include use_machine_profile
-var _origAddBridgeFlowSave = null;
 
 function deleteBridgeRole(roleKey) {
   if (!confirm(escapeHtml(roleKey) + "?")) return;
@@ -2603,9 +2523,6 @@ function editBridgeRoleFull(roleKey) {
         if (!ts) { alert(lbl("lbl_bridge_tmux_session", "Tmux Session") + " is required."); return; }
         body.tmux_session = ts;
 
-        var sc = document.getElementById("bridge-edit-input-start_cmd").value;
-        if (sc) body.start_cmd = sc;
-
         var mt = document.getElementById("bridge-edit-input-model_type");
         if (mt && mt.value) body.model_type = mt.value;
 
@@ -2633,10 +2550,6 @@ function editBridgeRoleFull(roleKey) {
         if (ec) {
           body.enter_command = ec.value;
         }
-
-        // H160: start_cmd_suffix
-        var scs = document.getElementById("bridge-edit-input-start_cmd_suffix");
-        if (scs) body.start_cmd_suffix = scs.value.trim();
 
         // Machine Profile Fase 2A — only save if not disabled
         var rtEl = document.getElementById("bridge-edit-input-default-runtime");
@@ -2690,16 +2603,6 @@ function editBridgeRoleFull(roleKey) {
       tsInput.value = role.tmux_session || "";
       tsDiv.appendChild(tsInput);
       form.appendChild(tsDiv);
-
-      // start_cmd
-      var scDiv = el("div", "dpmtf-form-group");
-      scDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_start_cmd", "Start Command")));
-      var scInput = el("input", null);
-      scInput.id = "bridge-edit-input-start_cmd";
-      scInput.type = "text";
-      scInput.value = role.start_cmd || "";
-      scDiv.appendChild(scInput);
-      form.appendChild(scDiv);
 
       // model_type select
       var mtDiv = el("div", "dpmtf-form-group");
@@ -2798,17 +2701,6 @@ function editBridgeRoleFull(roleKey) {
       ecDiv2.appendChild(ecSelect2);
       form.appendChild(ecDiv2);
 
-      // H160: start_cmd_suffix input
-      var scsDiv2 = el("div", "dpmtf-form-group");
-      scsDiv2.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_start_cmd_suffix", "Start Cmd Suffix")));
-      var scsInput2 = el("input", null);
-      scsInput2.id = "bridge-edit-input-start_cmd_suffix";
-      scsInput2.type = "text";
-      scsInput2.value = role.start_cmd_suffix || "";
-      scsInput2.placeholder = "&& OPENCODE_CONFIG_DIR=... opencode --model ollama/...";
-      scsDiv2.appendChild(scsInput2);
-      form.appendChild(scsDiv2);
-
       // Machine Profile Fase 2A — default_runtime, default_provider, default_model
       var mpSectionDiv = el("div", "dpmtf-form-group");
       mpSectionDiv.appendChild(el("h4", null, lbl("system_setup_machine_profile", "Machine Profile")));
@@ -2904,20 +2796,6 @@ function editBridgeRoleFull(roleKey) {
       tpDiv.appendChild(tpDisplay);
       form.appendChild(tpDiv);
 
-      // H160: Aggregated Command (read-only, generated)
-      var aggDiv = el("div", "dpmtf-form-group");
-      aggDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_aggregated_cmd", "Aggregated Command")));
-      var aggDisplay = el("div", null);
-      aggDisplay.style.padding = "8px";
-      aggDisplay.style.background = "#161b22";
-      aggDisplay.style.borderRadius = "4px";
-      aggDisplay.style.fontFamily = "monospace";
-      aggDisplay.style.fontSize = "11px";
-      aggDisplay.style.wordBreak = "break-all";
-      aggDisplay.textContent = buildAggregatedCmd(role, getTargetProject());
-      aggDiv.appendChild(aggDisplay);
-      form.appendChild(aggDiv);
-
       var container = document.getElementById("bridge-roles-list-container");
       if (container) {
         container.insertBefore(form, container.firstChild);
@@ -2989,9 +2867,6 @@ function editBridgeFlowFull(flowKey) {
         var acInput = document.getElementById("bridge-edit-input-auto_complete_enabled");
         if (acInput) body.auto_complete_enabled = acInput.checked ? 1 : 0;
 
-        var mpEl = document.getElementById("bridge-edit-input-use-machine-profile");
-        if (mpEl && !mpEl.disabled) body.use_machine_profile = mpEl.checked ? 1 : 0;
-
         fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -3052,45 +2927,6 @@ function editBridgeFlowFull(flowKey) {
       acLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_flow_auto_complete", "Auto-complete enabled")));
       acDiv.appendChild(acLabel);
       form.appendChild(acDiv);
-
-      // use_machine_profile checkbox
-      var mpDiv = el("div", null);
-      var mpLabel = el("label", null);
-      var mpInput = el("input", null);
-      mpInput.type = "checkbox";
-      mpInput.id = "bridge-edit-input-use-machine-profile";
-      mpInput.disabled = true;
-      if (flow.use_machine_profile) mpInput.checked = true;
-      mpLabel.appendChild(mpInput);
-      mpLabel.appendChild(document.createTextNode(" " + lbl("lbl_bridge_use_machine_profile", "Brug Machine Profile til startkommandoer")));
-      mpDiv.appendChild(mpLabel);
-      var mpHelp = el("p", "dpmtf-small dpmtf-muted");
-      mpHelp.id = "mp-flow-edit-help";
-      mpHelp.textContent = lbl("lbl_mp_checking", "Tjekker Machine Profile...");
-      mpDiv.appendChild(mpHelp);
-      form.appendChild(mpDiv);
-
-      fetch("/api/system/machine-profile")
-        .then(function (res) { return res.json(); })
-        .then(function (meta) {
-          var helpEl = document.getElementById("mp-flow-edit-help");
-          if (!meta.exists) {
-            mpInput.disabled = true;
-            if (helpEl) helpEl.textContent = lbl("lbl_mp_missing", "Machine Profile mangler — opret profil i System Setup før aktivering.");
-          } else if (meta.parse_error) {
-            mpInput.disabled = true;
-            if (helpEl) helpEl.textContent = lbl("lbl_mp_parse_error", "Machine Profile har JSON-fejl — ret profilen før aktivering.");
-          } else if (meta.schema_version !== 1) {
-            mpInput.disabled = true;
-            if (helpEl) helpEl.textContent = lbl("lbl_mp_schema_mismatch", "Machine Profile schema_version matcher ikke — opdater profilen før aktivering.");
-          } else {
-            mpInput.disabled = false;
-            if (helpEl) helpEl.textContent = "";
-          }
-        })
-        .catch(function () {
-          mpInput.disabled = true;
-        });
 
       var btnRow = el("div", null);
       btnRow.appendChild(saveBtn);
