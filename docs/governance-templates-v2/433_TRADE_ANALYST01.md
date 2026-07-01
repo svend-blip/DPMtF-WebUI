@@ -23,19 +23,42 @@ You combine trend and market data into candidate investment notes with concrete,
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
+  "schema_version": "trade_output_v001",
   "flow_run_id": "<same as prior steps>",
   "flow_key": "trade_cockpit_simulation_v001",
+  "flow_type": "daily_simulation",
   "role_key": "analyst01_trade",
+  "role_stage": "analysis",
   "model_name": "minimax/MiniMax-M3",
   "created_at": "<ISO-8601 with timezone>",
   "output_type": "candidate_analysis",
   "status": "completed",
+  "input_refs": [
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "trend01_trade", "output_type": "trend_note" },
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "market01_trade", "output_type": "market_snapshot" }
+  ],
+  "simulation_id": null,
+  "evaluates_simulation_ids": [],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them.
+- `input_refs`: list the upstream `trend01_trade` `trend_note` and `market01_trade` `market_snapshot` outputs you built on (same `flow_run_id`). You MUST list at least one upstream ref — the import Lineage Gate rejects non-first roles with empty `input_refs`.
+- `simulation_id`: `null` — simulations are created only by sim01_trade.
+- `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
+- `quality`: populate `confidence` (0.0-1.0) mirroring your payload `confidence` in the candidate; `data_quality` from market-data completeness; list weak-evidence caveats in `warnings`.
 
 ## Payload Fields
 
@@ -87,7 +110,7 @@ risk_reward_ratio = 46.76 / 10.24 = 4.57  (NOT an estimate like 2.3)
 
 ## Forbidden Actions
 
-- Do NOT output `risk_verdict`, `review_verdict`, `simulated_trade`
+- Do NOT output `risk_verdict`, `review_verdict`, `simulation_order`
 - Do NOT output `broker_order`, `real_trade`
 - Do NOT use real trading language (BUY, SELL without SIMULATED_ prefix)
 - Do NOT set score outside 0-100 range

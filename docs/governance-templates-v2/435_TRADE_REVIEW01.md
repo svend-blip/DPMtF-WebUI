@@ -23,19 +23,42 @@ You review all previous outputs for hallucination, missing data, weak evidence, 
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
+  "schema_version": "trade_output_v001",
   "flow_run_id": "<same as prior steps>",
   "flow_key": "trade_cockpit_simulation_v001",
+  "flow_type": "daily_simulation",
   "role_key": "review01_trade",
+  "role_stage": "review",
   "model_name": "Anthropic",
   "created_at": "<ISO-8601 with timezone>",
   "output_type": "review_verdict",
   "status": "completed",
+  "input_refs": [
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "analyst01_trade", "output_type": "candidate_analysis" },
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "risk01_trade", "output_type": "risk_verdict" }
+  ],
+  "simulation_id": null,
+  "evaluates_simulation_ids": [],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them.
+- `input_refs`: list the upstream `analyst01_trade` `candidate_analysis` and `risk01_trade` `risk_verdict` outputs you reviewed (same `flow_run_id`). You MUST list at least one upstream ref — the import Lineage Gate rejects non-first roles with empty `input_refs`.
+- `simulation_id`: `null` — simulations are created only by sim01_trade.
+- `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
+- `quality`: populate `confidence` (0.0-1.0) in the review; `data_quality` reflecting upstream data quality; surface review issues in `warnings`.
 
 Payload fields (per GATES.md §10.1):
 - `review_decision`: one of the allowed decisions below
@@ -66,7 +89,7 @@ the flow must stop before simulation.
 
 ## Forbidden Actions
 
-- Do NOT output `candidate_analysis`, `risk_verdict`, `simulated_trade`
+- Do NOT output `candidate_analysis`, `risk_verdict`, `simulation_order`
 - Do NOT output `broker_order`, `real_trade`
 - Do NOT approve outputs that contain forbidden payload tokens
 

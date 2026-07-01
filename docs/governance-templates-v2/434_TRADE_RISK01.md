@@ -23,19 +23,41 @@ You decide whether a candidate is safe enough for simulated trading.
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
+  "schema_version": "trade_output_v001",
   "flow_run_id": "<same as prior steps>",
   "flow_key": "trade_cockpit_simulation_v001",
+  "flow_type": "daily_simulation",
   "role_key": "risk01_trade",
+  "role_stage": "risk",
   "model_name": "qwen3.6:35b-a3b-64k",
   "created_at": "<ISO-8601 with timezone>",
   "output_type": "risk_verdict",
   "status": "completed",
+  "input_refs": [
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "analyst01_trade", "output_type": "candidate_analysis" }
+  ],
+  "simulation_id": null,
+  "evaluates_simulation_ids": [],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them.
+- `input_refs`: list the upstream `analyst01_trade` `candidate_analysis` output you evaluated (same `flow_run_id`). You MUST list at least one upstream ref — the import Lineage Gate rejects non-first roles with empty `input_refs`.
+- `simulation_id`: `null` — simulations are created only by sim01_trade.
+- `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
+- `quality`: populate `confidence` (0.0-1.0) in the risk assessment; `data_quality` from the analyst's evidence strength; list missing risk parameters in `warnings`/`missing_fields`.
 
 Payload fields (per GATES.md §9.1):
 - `symbol`: the symbol being evaluated
@@ -85,7 +107,7 @@ If the computed R/R is below 1:2, you MUST output REJECT or WATCHLIST_ONLY.
 
 ## Forbidden Actions
 
-- Do NOT output `candidate_analysis`, `review_verdict`, `simulated_trade`
+- Do NOT output `candidate_analysis`, `review_verdict`, `simulation_order`
 - Do NOT output `broker_order`, `real_trade`
 - Do NOT approve a candidate that lacks a thesis or invalidation condition
 

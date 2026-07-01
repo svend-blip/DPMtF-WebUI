@@ -23,19 +23,42 @@ You evaluate open simulated trades after a time horizon has passed.
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
-  "flow_run_id": "<generated>",
+  "schema_version": "trade_output_v001",
+  "flow_run_id": "<generated for this scoring run>",
   "flow_key": "trade_cockpit_scoring_v001",
+  "flow_type": "periodic_learning",
   "role_key": "score01_trade",
+  "role_stage": "scoring",
   "model_name": "qwen3.6:27b-q4_K_M",
   "created_at": "<ISO-8601 with timezone>",
-  "output_type": "score_result",
+  "output_type": "simulation_score",
   "status": "completed",
+  "input_refs": [
+    { "flow_run_id": "<original daily run>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "sim01_trade", "output_type": "simulation_order" }
+  ],
+  "simulation_id": null,
+  "evaluates_simulation_ids": ["SIM-030-TSM-001"],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them. `output_type` is `simulation_score` (renamed from `score_result`).
+- `input_refs`: list the `sim01_trade` `simulation_order` outputs you are scoring (reference the original daily `flow_run_id` where each simulation was created).
+- `simulation_id`: `null` — you evaluate simulations, you do not create them.
+- `evaluates_simulation_ids`: **populate** with the array of `SIM-…` ids you are scoring in this output. This is the canonical link back to the daily simulations.
+- `quality`: populate `data_quality` from price-data availability at score time; list missing price data in `warnings`/`missing_fields`.
+- Payload: include `simulation_id` (the simulation being scored) alongside the existing `simulated_trade_id` for cross-linking.
 
 Payload fields (per GATES.md §12.3):
 - `simulated_trade_id`: ID of the trade being scored

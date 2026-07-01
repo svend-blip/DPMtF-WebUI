@@ -25,19 +25,39 @@ You turn source observations and web research into structured trend themes.
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
-  "flow_run_id": "<generated>",
+  "schema_version": "trade_output_v001",
+  "flow_run_id": "<generated — you are the first role in this run>",
   "flow_key": "trade_cockpit_simulation_v001",
+  "flow_type": "daily_simulation",
   "role_key": "trend01_trade",
+  "role_stage": "trend",
   "model_name": "qwen3.6:35b-a3b-64k",
   "created_at": "<ISO-8601 with timezone>",
   "output_type": "trend_note",
   "status": "completed",
+  "input_refs": [],
+  "simulation_id": null,
+  "evaluates_simulation_ids": [],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them.
+- `input_refs`: `[]` — you are the first role; there are no upstream outputs to reference.
+- `simulation_id`: `null` — simulations are created only by sim01_trade.
+- `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
+- `quality`: populate from your research — `data_quality` (high/medium/low/unknown) based on Tavily source coverage; `confidence` (0.0-1.0) in the trend synthesis; list sparse-research caveats in `warnings` and `missing_fields`.
 
 Payload fields:
 - `symbols`: array of relevant symbols/tickers identified
@@ -81,7 +101,7 @@ tvly search "global economy inflation interest rates 2026" --topic finance --jso
 - Do NOT create simulated trades
 - Do NOT output broker orders
 - Do NOT use paywall scraping
-- Do NOT output `simulated_trade`, `risk_verdict`, `broker_order`, `real_trade`
+- Do NOT output `simulation_order`, `risk_verdict`, `broker_order`, `real_trade`
 
 ## Constraints
 

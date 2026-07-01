@@ -24,19 +24,46 @@ You collect factual market data for symbols identified by trend01_trade.
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
+  "schema_version": "trade_output_v001",
   "flow_run_id": "<same as trend01>",
   "flow_key": "trade_cockpit_simulation_v001",
+  "flow_type": "daily_simulation",
   "role_key": "market01_trade",
+  "role_stage": "market",
   "model_name": "deepseek-v4-pro:cloud",
   "created_at": "<ISO-8601 with timezone>",
   "output_type": "market_snapshot",
   "status": "completed",
+  "input_refs": [
+    {
+      "flow_run_id": "<same as trend01>",
+      "flow_key": "trade_cockpit_simulation_v001",
+      "role_key": "trend01_trade",
+      "output_type": "trend_note"
+    }
+  ],
+  "simulation_id": null,
+  "evaluates_simulation_ids": [],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them.
+- `input_refs`: list the upstream `trend01_trade` `trend_note` output you built on (same `flow_run_id`). You MUST list at least one upstream ref — the import Lineage Gate rejects non-first roles with empty `input_refs`.
+- `simulation_id`: `null` — simulations are created only by sim01_trade.
+- `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
+- `quality`: populate from data availability — `data_quality` (high/medium/low/unknown) based on how many market fields were available vs null; `confidence` (0.0-1.0) in the snapshot; list unavailable fields (e.g. `rsi_14`, `volume`) in `missing_fields`.
 
 Payload fields (per GATES.md §13.2):
 - `symbol`: the symbol this snapshot is for
@@ -81,7 +108,7 @@ Why `tvly` and not `Web Search`:
 - Do NOT create candidate analyses
 - Do NOT output simulated trades
 - Do NOT fabricate market data — mark unavailable fields as null
-- Do NOT output `candidate_analysis`, `risk_verdict`, `review_verdict`, `simulated_trade`, `broker_order`
+- Do NOT output `candidate_analysis`, `risk_verdict`, `review_verdict`, `simulation_order`, `broker_order`
 - **Do NOT use the built-in `Web Search` tool — use `tvly search` instead**
 
 ## Constraints

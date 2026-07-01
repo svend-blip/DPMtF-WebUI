@@ -23,19 +23,43 @@ You create simulated trade records ONLY if risk01_trade AND review01_trade both 
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
 
-Required wrapper:
+Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json
 {
+  "schema_version": "trade_output_v001",
   "flow_run_id": "<same as prior steps>",
   "flow_key": "trade_cockpit_simulation_v001",
+  "flow_type": "daily_simulation",
   "role_key": "sim01_trade",
+  "role_stage": "simulation",
   "model_name": "qwen3.6:27b-q4_K_M",
   "created_at": "<ISO-8601 with timezone>",
-  "output_type": "simulated_trade",
+  "output_type": "simulation_order",
   "status": "completed",
+  "input_refs": [
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "analyst01_trade", "output_type": "candidate_analysis" },
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "risk01_trade", "output_type": "risk_verdict" },
+    { "flow_run_id": "<same>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "review01_trade", "output_type": "review_verdict" }
+  ],
+  "simulation_id": "SIM-<flow_run_id>-<SYMBOL>-<seq>",
+  "evaluates_simulation_ids": [],
+  "quality": {
+    "confidence": null,
+    "data_quality": "unknown",
+    "warnings": [],
+    "missing_fields": []
+  },
   "payload": { ... }
 }
 ```
+
+Standard wrapper fields (pinned for this role):
+- `schema_version` is always `"trade_output_v001"`.
+- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them. `output_type` is `simulation_order` (renamed from `simulated_trade`).
+- `input_refs`: list the upstream `analyst01_trade`, `risk01_trade`, and `review01_trade` outputs the simulation is based on (same `flow_run_id`).
+- `simulation_id`: **you are the ONLY role that creates simulation_ids.** Generate it as `SIM-{flow_run_id}-{SYMBOL}-{seq}` (e.g. `SIM-030-TSM-001`), using the payload `symbol`. `seq` is a zero-padded 3-digit per-run counter starting at `001` (increment if you create more than one simulation in the same run). Set `simulation_id` to `null` ONLY when `action == NO_SIMULATION_CREATED`. This id is the canonical cross-flow link to `etoro_orders`, `score01_trade`, and `learn01_trade`.
+- `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
+- `quality`: populate `confidence` (0.0-1.0) in the simulation; `data_quality` inherited from upstream; list gate caveats in `warnings`.
 
 Payload fields (per GATES.md §11.2):
 - `symbol`: the symbol
@@ -51,7 +75,7 @@ Payload fields (per GATES.md §11.2):
 
 ## Approval Gate (GATES.md §11.1)
 
-You may create a simulated_trade ONLY if ALL of:
+You may create a `simulation_order` ONLY if ALL of:
 1. analyst01_trade produced SIMULATED_BUY_CANDIDATE or SIMULATED_SELL_CANDIDATE
 2. risk01_trade produced APPROVE_SIMULATION
 3. review01_trade produced APPROVED_FOR_SIMULATION
