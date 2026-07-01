@@ -1,0 +1,12 @@
+{
+  "last_handoff": 14,
+  "title": "i18n compliance + database-driven collapsible panel groups — APPROVED WITH NOTES",
+  "flow": "cloud_pay",
+  "active_role": "archi01pay",
+  "design_notes": "Handoff #14 APPROVED WITH NOTES. Alle 8 tekniske checks og 5 governance checks passed. Findings: 8 nye tabeller i egen DB, 7 API endpoints (3 i18n + 3 panel groups + 1 panel structure), lbl() helper med 7 user-facing strings, sprogvælger dropdown, collapsible panel state persisted i ai_user_panel_groups. Ingen remediation needed.",
+  "verification_checklist": [],
+  "open_gaps": [],
+  "branch": "master",
+  "commit": "",
+  "updated": "2026-07-01T00:00:00Z"
+}
