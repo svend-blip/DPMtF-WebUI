@@ -3405,6 +3405,14 @@ function _showStepForm(initialData) {
     var vreq = document.getElementById("bridge-input-validation_required");
     if (vreq) body.validation_required = vreq.checked ? 1 : 0;
 
+    // Machine Profile Fase 2B — overrides
+    var ro = document.getElementById("bridge-input-runtime_override");
+    var po = document.getElementById("bridge-input-provider_override");
+    var mo = document.getElementById("bridge-input-model_override");
+    if (ro && ro.value.trim()) body.runtime_override = ro.value.trim();
+    if (po && po.value.trim()) body.provider_override = po.value.trim();
+    if (mo && mo.value.trim()) body.model_override = mo.value.trim();
+
     _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body);
   };
 
@@ -3439,6 +3447,23 @@ function _showStepForm(initialData) {
     input.id = f[0];
     input.type = "text";
     input.value = f[2];
+    div.appendChild(input);
+    form.appendChild(div);
+  });
+
+  // Machine Profile Fase 2B — flow-role overrides
+  var mpOverrideLabel = el("h4", null, lbl("system_setup_machine_profile", "Machine Profile Overrides"));
+  form.appendChild(mpOverrideLabel);
+  [["bridge-input-runtime_override", "runtime_override", data.runtime_override || ""],
+   ["bridge-input-provider_override", "provider_override", data.provider_override || ""],
+   ["bridge-input-model_override", "model_override", data.model_override || ""]].forEach(function (f) {
+    var div = el("div", "dpmtf-form-group");
+    div.appendChild(el("label", "dpmtf-label", f[1]));
+    var input = el("input", null);
+    input.id = f[0];
+    input.type = "text";
+    input.value = f[2];
+    input.placeholder = "(valgfri — overstyrer rolle-default)";
     div.appendChild(input);
     form.appendChild(div);
   });
