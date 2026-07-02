@@ -62,6 +62,10 @@ Standard wrapper fields (pinned for this role):
 
 Payload fields (per GATES.md §12.3):
 - `simulated_trade_id`: ID of the trade being scored
+- `execution_mode`: **REQUIRED.** Read `simulated_trades.execution_mode` for the
+  trade being scored and echo it here — `"simulation_only"` or `"etoro_demo"`.
+  This distinguishes simulated outcomes from real eToro demo executions so
+  learning (learn01) can evaluate execution-mode-specific performance (spec §16.1).
 - `scored_at`: ISO-8601 timestamp
 - `horizon`: one of 1h, 1d, 3d, 1w, 1m
 - `price_at_score`: current price
@@ -71,6 +75,11 @@ Payload fields (per GATES.md §12.3):
 - `stop_loss_hit`: true/false
 - `take_profit_hit`: true/false
 - `decision_quality_score`: 0-100 how good was the original decision?
+- `demo_execution` (only when `execution_mode == "etoro_demo"`): include the
+  eToro demo execution facts from `simulated_trades` / `etoro_orders` —
+  `etoro_order_id`, `etoro_position_id`, `executed_at`, `closed_at`,
+  `realized_pl_usd`, `unrealized_pl_usd`. This lets scoring use the real demo
+  P/L rather than the simulated entry/exit.
 
 ## Allowed Scoring Horizons (GATES.md §12.2)
 

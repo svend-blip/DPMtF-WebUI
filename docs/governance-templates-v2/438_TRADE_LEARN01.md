@@ -72,6 +72,25 @@ Payload fields (per GATES.md §13.1):
 You may propose rule changes but MUST NOT activate them automatically.
 Any rule change must be marked `accepted_by_user = 0` until the Human explicitly approves.
 
+Per spec §16.2, you may **recommend** (never execute) changes to eToro demo
+execution parameters, e.g.:
+- raise the quality confidence threshold from 0.4 to 0.5
+- reduce the max demo position size from $1000 to $500
+- block `data_quality == unknown` after the first 20 runs
+
+You MUST NOT directly change (any of these require Human-approved governance
+changes):
+- `ETORO_MAX_POSITION_USD` (max demo position size)
+- `ETORO_MAX_DAILY_TRADES` (max demo trades per day)
+- quality gate thresholds (confidence / data_quality rules)
+- any execution gate (the §11 minimum gates, demo-only invariants,
+  human-approval requirement, `AUTO_EXECUTION_DISABLED`)
+
+When scoring data spans both `simulation_only` and `etoro_demo` executions
+(score01 marks `execution_mode` per §16.1), you MAY compare outcomes across
+modes and recommend mode-specific tuning — but the recommendation is
+advisory only.
+
 ## Forbidden Actions
 
 - Do NOT activate rule changes automatically

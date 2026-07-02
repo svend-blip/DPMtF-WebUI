@@ -1,16 +1,17 @@
 {
-  "last_handoff": 17,
-  "title": "V1.1 Phase 2 — eToro execution endpoints. APPROVED by review02pay (operated correctly in trade-ui this cycle — governance fix validated). Verdict landed in legacy path; await Human commit.",
+  "last_handoff": 20,
+  "title": "V1.1 Phase 5 (final) COMPLETE. Del A (trade-ui test runner + gap-tests + SCOPE/GATES audit) APPROVED + independently verified (85 tests pass). Del B (Father 437/438 §16) done. V1.1 eToro integration COMPLETE. Await Human commit.",
   "flow": "cloud_pay",
   "active_role": "humanpay",
-  "design_notes": "Phase 2 implementation APPROVED by review02pay. GOVERNANCE FIX VALIDATED: review02pay operated against /home/svend/trade-ui (target Child project) correctly this cycle — confirmed implementation files exist in trade-ui, all 8 checks PASS, 18 Phase 2 tests + 40 regression tests pass with zero network calls. The 423/424/425 target-project-aware fix (commit 3d65762) WORKS — no false-negative this cycle. trade-ui changes ready for Human commit: app.py (+214 lines, 2 endpoints), scripts/etoro_bridge.py (+272/-4, 4 bridge functions), scripts/verify_etoro_bridge_phase2.py (NEW, untracked). Commit message drafted at legacy path. LEGACY VERDICT PATH BUG — root cause found but NOT yet fixed: init_db.py seed data content_templates inject {bridge_dir}/implementertoreview/ into callback prompts (lines ~4404-4475), conflicting with 425 governance (cloud_pay/verdicts/) and the correct flow_steps.deliverable_dir. review02pay follows the injected prompt. 421_CLOUD_PAY_HUMANPAY also references the legacy path. Affects cloud_pay, cloud_llm, strict_review flows. Fix requires editing init_db.py seed content_templates + 421/411/401 + re-seeding DB. Reproduced on handoffs 15 and 17.",
+  "design_notes": "Phase 5 APPROVED by review02pay and INDEPENDENTLY VERIFIED by architect: unified runner scripts/run_etoro_tests.py runs all 5 verify scripts (phase1a 25 + phase1b 15 + phase2 18 + phase3 15 + phase5 12 = 85 tests, ALL PASS, exit 0). 12 new gap integration tests cover blocked_by_quality/risk/review/missing_data/daily_limit/position_size. SCOPE.md (+23) + GATES.md (+53) audited with §11 gates, no-auto-exec, kill switch, §16 note. Verdict at correct path cloud_pay/verdicts/20-verdict.md (legacy-path fix holding). Del B (Father 437/438 §16) done by architect this cycle, uncommitted. V1.1 eToro integration COMPLETE: Phase 1A (f1b97df) bridge core, 1B (b64d6c6) instrument mapping, 2 (04b64e4) execution endpoints, 3 (0d7b060) sync+monitoring, 4 (0b71ce1) WebUI, 5 (this) tests+governance. Two uncommitted sets await Human commit: trade-ui (run_etoro_tests.py + verify_etoro_bridge_phase5.py new, SCOPE/GATES modified) and Father (437/438 §16 + cycle-state).",
   "verification_checklist": [],
   "open_gaps": [
-    "RESOLVED — Legacy verdict path: review02pay wrote to /home/svend/flows/implementertoreview/ instead of cloud_pay/verdicts/. Root cause was init_db.py content_templates (technical_review/verdict/human_delivery conventions + the G2/G4 verdict migration block at line ~4650 + verdict_feedback) seeding {bridge_dir}/implementertoreview/ and wrong filename {ID}-review-verdict.md into callback prompts. FIXED: all content_templates now use {bridge_dir}/{flow_key}/<subdir>/ with canonical filenames per deliverable_pattern ({ID}-verdict.md etc.); 421/411/401 human-governance point to flow-specific verdicts/; re-seeded DB (0 implementertoreview refs). Changes uncommitted in Father (init_db.py + 421/411/401 + 424/425 from prior).",
-    "Minor: stray /home/svend/trade-ui/trade-ui.db at repo root is stale and not gitignored (real db is databases/trade-ui.db) — cleanup candidate",
-    "Phase 1A complete (f1b97df); Phase 1B complete (b64d6c6); Phase 2 implementation APPROVED awaiting Human commit; next phases: 3 (sync+monitoring), 4 (frontend), 5 (governance+tests)"
+    "UNCOMMITTED (await Human commit): trade-ui Phase 5 (2 new scripts + SCOPE/GATES) AND Father 437/438 §16 edits + cycle-state — batch commit recommended",
+    "Minor: stray /home/svend/trade-ui/trade-ui.db at repo root is stale and not gitignored — cleanup candidate",
+    "review02pay spurious 'next handoff 019' injection after handoff 19 — BridgeV002 dispatch oddity at flow end, not yet investigated (non-blocking)",
+    "V1.1 eToro integration COMPLETE after commit. Real demo execution against live eToro remains a separate Human-gated verification (ETORO_API_ENABLED=true + demo credentials + human approval per trade)."
   ],
   "branch": "master",
-  "commit": "trade-ui b64d6c6 (Phase 1B); Father 3d65762 (governance 421-425)",
-  "updated": "2026-07-02T13:25:00Z"
+  "commit": "trade-ui 0b71ce1 (Phase 4); Father 5d1324c — Phase 5 (trade-ui + Father 437/438) uncommitted",
+  "updated": "2026-07-02T14:35:00Z"
 }
