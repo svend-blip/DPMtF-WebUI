@@ -1,12 +1,16 @@
 {
-  "last_handoff": 14,
-  "title": "i18n compliance + database-driven collapsible panel groups — APPROVED WITH NOTES",
+  "last_handoff": 16,
+  "title": "V1.1 Phase 1B — eToro instrument mapping. APPROVED via Human override of false-negative FAIL (review01pay reviewed Father not trade-ui). Governance 423/424/425 fixed to target-project-aware.",
   "flow": "cloud_pay",
-  "active_role": "archi01pay",
-  "design_notes": "Handoff #14 APPROVED WITH NOTES. Alle 8 tekniske checks og 5 governance checks passed. Findings: 8 nye tabeller i egen DB, 7 API endpoints (3 i18n + 3 panel groups + 1 panel structure), lbl() helper med 7 user-facing strings, sprogvælger dropdown, collapsible panel state persisted i ai_user_panel_groups. Ingen remediation needed.",
+  "active_role": "humanpay",
+  "design_notes": "Phase 1B implementation by imple01pay is VERIFIED CORRECT per result: new resolver module scripts/etoro_instruments.py (cache-first lookup, network-injectable eToro search, manual mapping path, API-disabled guard, staleness check), wired into etoro_bridge.py gate evaluator (instrument_mapped + instrument_demo_tradeable now required gates, 'optional in Phase 1A' comment removed, stale-cache warning), config getter get_etoro_instrument_cache_ttl_hours() (24h default), verify_etoro_bridge_phase1b.py (15 tests incl. no-network monkeypatch guard). 15/15 Phase 1B tests pass + 25/25 Phase 1A regression tests pass + init_db idempotent. review01pay produced FAIL — FALSE-NEGATIVE: review01pay ran all checks in cwd=/home/svend/DPMtF-WebUI (Father) instead of target project /home/svend/trade-ui, found no implementation files (they are in trade-ui), and even instructed 'imple01 must backfill artifacts to /home/svend/DPMtF-WebUI/'. Exact same systemic failure as handoff 15. Human authorized override: implementation approved, FAIL disregarded. ROOT CAUSE FIXED this cycle: governance 423/424/425 were Father-centric with a dead {project_path} placeholder (dispatch.py never replaced it). All three files now have a 'Target Project Resolution — CRITICAL' section instructing roles to cd to the handoff's <project> path (cloud_pay = /home/svend/trade-ui) before ANY check, with sanity-check guards against landing in Father. Dead {project_path} placeholder removed. Check commands made target-project-aware. Governance changes are in FATHER project (uncommitted, await Human commit). Implementation changes are in trade-ui (uncommitted, await Human commit). review01pay did NOT signal to review02pay — clean override, no review02 verdict produced.",
   "verification_checklist": [],
-  "open_gaps": [],
+  "open_gaps": [
+    "RESOLVED: review01pay/review02pay Father-centric review — governance 423/424/425 now target-project-aware (uncommitted, await Human commit). NOTE: tmux session cwd is still /home/svend/DPMtF-WebUI; the governance fix instructs roles to cd to target project at runtime, which is sufficient. A future hardening could add a per-flow target_project_path column + dispatch placeholder replacement.",
+    "review02pay verdict-path issue (legacy /home/svend/flows/implementertoreview/ vs DB cloud_pay/verdicts/) — still open but moot for handoff 16 since no review02 verdict was produced.",
+    "Phase 1A complete (commit f1b97df); Phase 1B implementation complete awaiting Human commit; next phases: 2 (execution endpoints), 3 (sync), 4 (frontend), 5 (governance+tests)"
+  ],
   "branch": "master",
-  "commit": "",
-  "updated": "2026-07-01T00:00:00Z"
+  "commit": "f1b97df",
+  "updated": "2026-07-02T12:50:00Z"
 }
