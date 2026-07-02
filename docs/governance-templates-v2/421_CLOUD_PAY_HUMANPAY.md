@@ -19,8 +19,8 @@ is approved for commit.
 From review02pay, via the bridge directory:
 
 ```
-{bridge_dir}/implementertoreview/{ID}-verdict.md       ← final verdict
-{bridge_dir}/implementertoreview/{ID}-commit-message.md ← proposed commit message
+{bridge_dir}/cloud_pay/verdicts/{ID}-verdict.md       ← final verdict
+{bridge_dir}/cloud_pay/verdicts/{ID}-commit-message.md ← proposed commit message
 ```
 
 The verdict contains:
@@ -39,12 +39,18 @@ The verdict contains:
 
 ## Commit Procedure (APPROVE only)
 
+The `cloud_pay` flow operates on the **Child project `/home/svend/trade-ui`**
+(NOT the Father project). Commit there:
+
 ```bash
-cd {project_path}
+cd /home/svend/trade-ui    # cloud_pay target project (Child), NOT the Father project
 git add <specific files from verdict>    # NEVER git add -A
 git commit -m "<commit message from verdict>"
 git push  # optional, only if you want to push immediately
 ```
+
+If the verdict also touched Father governance files (e.g. `docs/governance-templates-v2/*`),
+commit those separately in `/home/svend/DPMtF-WebUI`.
 
 **Only you may commit.** No other role has commit authority.
 

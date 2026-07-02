@@ -4318,11 +4318,22 @@ cursor.execute(
     (
         "verdict_feedback",
         "VerdictFeedback",
-        "implementertoreview",
-        "{ID}-review-verdict.md",
+        "{flow_key}/verdicts",
+        "{ID}-verdict.md",
         "Failed to deliver verdict feedback. Present to Architect manually.",
-        "Read docs/StartUpNextSession.md first to restore design context. Then read {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md and evaluate whether the implementation matches the original design intent.",
+        "Read docs/StartUpNextSession.md first to restore design context. Then read {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md and evaluate whether the implementation matches the original design intent.",
     ),
+)
+
+# Migrate verdict_feedback live row from legacy implementertoreview/ to flow-specific
+# {flow_key}/verdicts/ (dormant convention — no flow step currently uses it, but
+# eliminate the legacy path for consistency). Idempotent, unconditional.
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET dir_template = '{flow_key}/verdicts',
+           pattern_template = '{ID}-verdict.md',
+           prompt_template = 'Read docs/StartUpNextSession.md first to restore design context. Then read {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md and evaluate whether the implementation matches the original design intent.'
+       WHERE rule_key = 'verdict_feedback'""",
 )
 
 # ── Handoff 131: DB-driven Callback, Escalation & Convention Content ───
@@ -4401,12 +4412,12 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "  {bridge_dir}/{flow_key}/results/{handoff_id}-result.md\n"
+        "  {bridge_dir}/{flow_key}/results/{handoff_id}-notification.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  technical_review: {bridge_dir}/implementertoreview/{handoff_id}-review01.md\n"
+        "  technical_review: {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_output>\n"
         "\n"
         "<dispatch_command>\n"
@@ -4447,12 +4458,12 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-review01.md\n"
+        "  {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "  verdict: {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
         "</deliverable_output>\n"
         "\n"
         "<dispatch_command>\n"
@@ -4471,8 +4482,8 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-verdict.md\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
+        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
@@ -4498,6 +4509,79 @@ cursor.execute(
         "- <feedback>: Verdict feedback details</task>\n"
         "<notification>Verdict feedback from {source_role} (ID: {handoff_id}) requires evaluation.</notification>\n"
         "</handoff>",
+    ),
+)
+
+# 3.2b Migrate content_templates from legacy implementertoreview/ to flow-specific
+# {flow_key}/<subdir>/ paths (idempotent, unconditional — fixes live DB rows that
+# were seeded with the legacy path; the IS NULL seed above only catches fresh DBs).
+# Reproduced bug: review02pay wrote verdicts to {bridge_dir}/implementertoreview/
+# instead of {bridge_dir}/{flow_key}/verdicts/ on handoffs 15 and 17.
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'technical_review'""",
+    (
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/{flow_key}/results/{handoff_id}-result.md\n"
+        "  {bridge_dir}/{flow_key}/results/{handoff_id}-notification.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  technical_review: {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "</deliverable_output>\n"
+        "\n"
+        "<dispatch_command>\n"
+        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
+        "</dispatch_command>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'verdict'""",
+    (
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  verdict: {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>\n"
+        "\n"
+        "<dispatch_command>\n"
+        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
+        "</dispatch_command>",
+    ),
+)
+
+cursor.execute(
+    """UPDATE bridge_convention_rules
+       SET content_template = ?
+       WHERE rule_key = 'human_delivery'""",
+    (
+        "<handoff_id>{handoff_id}</handoff_id>\n"
+        "\n"
+        "<source_role>{source_role}</source_role>\n"
+        "\n"
+        "<deliverable_input>\n"
+        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
+        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
+        "</deliverable_input>\n"
+        "\n"
+        "<deliverable_output>\n"
+        "  (none — Human is the endpoint, no further automated dispatch)\n"
+        "</deliverable_output>",
     ),
 )
 
@@ -4574,6 +4658,10 @@ cursor.execute(
 
 # G2/G4: Migrate existing verdict content_templates to minimal file refs
 # Unlike IS NULL seed above, these unconditionally update live databases.
+# Flow-specific paths ({flow_key}/<subdir>) + canonical filenames per
+# bridge_flow_steps.deliverable_pattern. Fixes legacy implementertoreview/ bug
+# where review02pay wrote {ID}-review-verdict.md to the legacy dir instead of
+# {ID}-verdict.md to {flow_key}/verdicts/.
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
@@ -4584,13 +4672,12 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-result.md\n"
-        "  {bridge_dir}/implementertoreview/{handoff_id}-notification.md\n"
+        "  {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/implementertoreview/{handoff_id}-review-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/implementertoreview/{handoff_id}-commit-message.md\n"
+        "  verdict: {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
         "</deliverable_output>",
     ),
 )

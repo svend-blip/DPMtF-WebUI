@@ -19,8 +19,8 @@ is approved for commit.
 From review02cloud, via the bridge directory:
 
 ```
-{bridge_dir}/implementertoreview/{ID}-verdict.md       ← final verdict
-{bridge_dir}/implementertoreview/{ID}-commit-message.md ← proposed commit message
+{bridge_dir}/cloud_llm/verdicts/{ID}-verdict.md       ← final verdict
+{bridge_dir}/cloud_llm/verdicts/{ID}-commit-message.md ← proposed commit message
 ```
 
 The verdict contains:
