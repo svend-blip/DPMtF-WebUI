@@ -102,38 +102,40 @@ def inject_via_send_keys(session_name, text, enter_command="default"):
 
         # Submit based on enter_command
         # = prefix: exact session match (prevents prefix-matching imple01→imple01pay)
+        # :0 suffix required — paste-buffer/send-keys need a window target
+        target = "=" + session_name + ":0"
         if enter_command == "c-m":
             # Two-step: paste text first, then separate C-m (Freebuff)
             subprocess.run(
-                ["tmux", "paste-buffer", "-t", "=" + session_name], check=True
+                ["tmux", "paste-buffer", "-t", target], check=True
             )
             time.sleep(0.3)
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "", "C-m"], check=True
+                ["tmux", "send-keys", "-t", target, "", "C-m"], check=True
             )
         elif enter_command == "c-j":
             subprocess.run(
-                ["tmux", "paste-buffer", "-t", "=" + session_name], check=True
+                ["tmux", "paste-buffer", "-t", target], check=True
             )
             time.sleep(0.3)
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "", "C-j"], check=True
+                ["tmux", "send-keys", "-t", target, "", "C-j"], check=True
             )
         elif enter_command == "c-d":
             subprocess.run(
-                ["tmux", "paste-buffer", "-t", "=" + session_name], check=True
+                ["tmux", "paste-buffer", "-t", target], check=True
             )
             time.sleep(0.3)
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "", "C-d"], check=True
+                ["tmux", "send-keys", "-t", target, "", "C-d"], check=True
             )
         else:  # "default" — paste text then Enter (Claude Code, standard)
             subprocess.run(
-                ["tmux", "paste-buffer", "-t", "=" + session_name], check=True
+                ["tmux", "paste-buffer", "-t", target], check=True
             )
             time.sleep(0.3)
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "Enter"], check=True
+                ["tmux", "send-keys", "-t", target, "Enter"], check=True
             )
     finally:
         if tmp and os.path.exists(tmp):
@@ -153,26 +155,28 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         subprocess.run(["tmux", "load-buffer", tmp_path], check=True)
-        subprocess.run(["tmux", "paste-buffer", "-t", "=" + session_name], check=True)
+        subprocess.run(["tmux", "paste-buffer", "-t", "=" + session_name + ":0"], check=True)
         time.sleep(0.3)
 
         # Submit based on enter_command
         # = prefix: exact session match (prevents prefix-matching imple01→imple01pay)
+        # :0 suffix required — paste-buffer/send-keys need a window target
+        target = "=" + session_name + ":0"
         if enter_command == "c-m":
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "", "C-m"], check=True
+                ["tmux", "send-keys", "-t", target, "", "C-m"], check=True
             )
         elif enter_command == "c-j":
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "", "C-j"], check=True
+                ["tmux", "send-keys", "-t", target, "", "C-j"], check=True
             )
         elif enter_command == "c-d":
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "", "C-d"], check=True
+                ["tmux", "send-keys", "-t", target, "", "C-d"], check=True
             )
         else:  # "default" — original behavior
             subprocess.run(
-                ["tmux", "send-keys", "-t", "=" + session_name, "Enter"], check=True
+                ["tmux", "send-keys", "-t", target, "Enter"], check=True
             )
         time.sleep(0.3)
     finally:
