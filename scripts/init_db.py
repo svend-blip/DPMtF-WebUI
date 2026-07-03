@@ -4863,6 +4863,7 @@ cursor.executemany(
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "learn01_trade"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "score01_trade"),
         ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "sim01_trade"),
+        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "portfolio01_trade"),
         # OpenCode + local_ollama (review rollers — faktisk runtime er opencode)
         ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01"),
         ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01cloud"),

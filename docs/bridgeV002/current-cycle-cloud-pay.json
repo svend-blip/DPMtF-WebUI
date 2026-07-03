@@ -1,17 +1,28 @@
 {
-  "last_handoff": 20,
-  "title": "V1.1 Phase 5 (final) COMPLETE. Del A (trade-ui test runner + gap-tests + SCOPE/GATES audit) APPROVED + independently verified (85 tests pass). Del B (Father 437/438 §16) done. V1.1 eToro integration COMPLETE. Await Human commit.",
+  "last_handoff": 28,
+  "title": "Phase 6 blocker #1 — activate portfolio01_trade role. Father-side DONE by Architect: 440_TRADE_PORTFOLIO01.md governance written + role/step seeded in live Father DB (step 7 sim01→portfolio01) + init_db.py model-config. tmux session portfolio01_trade created. Handoff 28 dispatched to imple01pay for the ONE trade-ui piece: __main__ CLI entrypoint in portfolio_allocator.py (--run <flow_run_id> loads candidates+stored snapshot, calls build/save_allocation_plan, wraps trade_output_v001, writes {ID}_portfolio01_trade.json to inbox).",
   "flow": "cloud_pay",
-  "active_role": "humanpay",
-  "design_notes": "Phase 5 APPROVED by review02pay and INDEPENDENTLY VERIFIED by architect: unified runner scripts/run_etoro_tests.py runs all 5 verify scripts (phase1a 25 + phase1b 15 + phase2 18 + phase3 15 + phase5 12 = 85 tests, ALL PASS, exit 0). 12 new gap integration tests cover blocked_by_quality/risk/review/missing_data/daily_limit/position_size. SCOPE.md (+23) + GATES.md (+53) audited with §11 gates, no-auto-exec, kill switch, §16 note. Verdict at correct path cloud_pay/verdicts/20-verdict.md (legacy-path fix holding). Del B (Father 437/438 §16) done by architect this cycle, uncommitted. V1.1 eToro integration COMPLETE: Phase 1A (f1b97df) bridge core, 1B (b64d6c6) instrument mapping, 2 (04b64e4) execution endpoints, 3 (0d7b060) sync+monitoring, 4 (0b71ce1) WebUI, 5 (this) tests+governance. Two uncommitted sets await Human commit: trade-ui (run_etoro_tests.py + verify_etoro_bridge_phase5.py new, SCOPE/GATES modified) and Father (437/438 §16 + cycle-state).",
-  "verification_checklist": [],
+  "active_role": "imple01pay",
+  "design_notes": "Activating portfolio01_trade (the role that produces allocation_plan, which 6.5 WebUI + 6.6 learning loop depend on). The role was never activated — no governance, no bridge_roles row, no flow step, no tmux session. ARCHITECT COMPLETED FATHER SIDE: (1) Wrote 440_TRADE_PORTFOLIO01.md — mirrors 436 structure; portfolio01_trade role, qwen3.6:27b-q4_K_M, output_type=allocation_plan, schema_version=trade_allocation_plan_v001, payload=spec §11 plan; MECHANISM: agent runs `python3 scripts/portfolio_allocator.py --run <flow_run_id>` (deterministic CLI, do not re-derive favorability/swap math); proposal-only close_then_open; no execution; needs_more_data when no candidates/snapshot. (2) Seeded role + step in LIVE Father DB (databases/dpmtf.db): copied sim01_trade role row → portfolio01_trade (governance_file=440, model=qwen3.6:27b-q4_K_M, start_cmd_suffix mirroring sim01); added flow step 7 sim01-portfolio01 (deliverable_dir=/home/svend/trade-ui/inbox/pending, pattern={ID}_{role_key}.json, post-dispatch-common, auto_chain_to_next=1, rule_key=json_output). (3) init_db.py: added portfolio01_trade to the model-config UPDATE list (line 4865 area — the one trade-role config init_db manages; role rows themselves are manual DB entries like the other 6 trade roles, not seeded by init_db.py — pre-existing asymmetry noted, not fixed). (4) tmux session portfolio01_trade created (bare; frontend launch deferred to live dispatch since CLI doesn't exist yet). VERIFIED: init_db.py runs idempotently; SELECT confirms role + step 7 in live DB; trade flow now 7 steps ending at portfolio01_trade. Handoff 28 = the ONE trade-ui piece: additive __main__ CLI in portfolio_allocator.py (build/save_allocation_plan already exist at lines 683/959). CLI is DB-only (no network — needs_more_data if no stored snapshot), no execution surface, idempotent. Output {ID}_portfolio01_trade.json in inbox. Counter bumped 28→29, dispatched with explicit --id 28. After CLI lands + Human commits: portfolio01_trade is fully activatable on the next live trade_cockpit_simulation_v001 dispatch (frontend launch via start_coding.py + Human/cron trigger). REMAINING after this: close-endpoint live verification (Human-gated, blocks 6.5 Execute control). LESSON from handoff 22: verify tmux pane after dispatch.",
+  "verification_checklist": [
+    "Father governance 440_TRADE_PORTFOLIO01.md written (mirrors 436, allocation_plan contract, CLI mechanism)",
+    "Live Father DB: portfolio01_trade role row exists (governance_file=440, model=qwen3.6:27b-q4_K_M) — VERIFIED",
+    "Live Father DB: flow step 7 sim01-portfolio01 exists, trade flow now 7 steps — VERIFIED",
+    "init_db.py: portfolio01_trade added to model-config UPDATE list; init_db.py runs idempotently — VERIFIED",
+    "tmux session portfolio01_trade created — VERIFIED",
+    "Handoff 28 dispatched: portfolio_allocator.py __main__ CLI (additive, no signature changes)",
+    "CLI DB-only (no network), no execute_close_then_open, idempotent, needs_more_data path",
+    "py_compile + run_etoro_tests.py pass incl. new CLI tests (pending imple01pay completion)",
+    "No hardcoded /home/svend in CLI (config getters only)"
+  ],
   "open_gaps": [
-    "UNCOMMITTED (await Human commit): trade-ui Phase 5 (2 new scripts + SCOPE/GATES) AND Father 437/438 §16 edits + cycle-state — batch commit recommended",
-    "Minor: stray /home/svend/trade-ui/trade-ui.db at repo root is stale and not gitignored — cleanup candidate",
-    "review02pay spurious 'next handoff 019' injection after handoff 19 — BridgeV002 dispatch oddity at flow end, not yet investigated (non-blocking)",
-    "V1.1 eToro integration COMPLETE after commit. Real demo execution against live eToro remains a separate Human-gated verification (ETORO_API_ENABLED=true + demo credentials + human approval per trade)."
+    "CLOSE-ENDPOINT LIVE VERIFICATION (Human-gated, blocks enabling live execute in 6.5 Execute control): close_demo_position path/method unverified; live test against TSM positionID 3557537632 with Human approval needed. Also requires resolving AUTO_EXECUTION_DISABLED gate for Human-triggered execution.",
+    "Live dispatch of portfolio01_trade (after CLI lands + commits): Human/cron triggers a trade_cockpit_simulation_v001 run; start_coding.py launches the portfolio01 frontend; the role runs the CLI to produce allocation_plan. Full live run also needs the upstream trend→…→sim01 chain + a stored portfolio snapshot (from a prior sync-positions).",
+    "Portfolio snapshot storage source (implementation unknown for handoff 28): the CLI must load a STORED snapshot (no network); implementer determines where sync-positions stores it. If none stored → needs_more_data.",
+    "Phase 6 status: 6.1-6.6 COMMITTED; portfolio01_trade role activation Father-side DONE, trade-ui CLI in progress (handoff 28). After commit, the loop is fully activatable.",
+    "Dispatch injection not reliable — verify tmux pane after signal-send; do not trust stdout."
   ],
   "branch": "master",
-  "commit": "trade-ui 0b71ce1 (Phase 4); Father 5d1324c — Phase 5 (trade-ui + Father 437/438) uncommitted",
-  "updated": "2026-07-02T14:35:00Z"
+  "commit": "Father 440+init_db.py unstaged (awaiting commit); trade-ui CLI handoff 28 dispatched to imple01pay",
+  "updated": "2026-07-03T01:00:00Z"
 }
