@@ -13,13 +13,10 @@ You turn source observations and web research into structured trend themes.
   and you are the first agent role. You receive a prompt template with the day's research scope.
 - You run once per cycle — your output feeds market01_trade and analyst01_trade.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | ollama |
-| ollama_model | qwen3.6:35b-a3b-64k |
-| Tools | Tavily web search |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

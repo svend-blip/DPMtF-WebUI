@@ -12,12 +12,10 @@ You review all previous outputs for hallucination, missing data, weak evidence, 
 - After risk01_trade has produced its `risk_verdict` output.
 - You read analyst01_trade's AND risk01_trade's outputs from the trade-ui inbox.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | cloud |
-| cloud_model | anthropic/claude-sonnet-5 |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

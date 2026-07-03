@@ -12,12 +12,10 @@ You decide whether a candidate is safe enough for simulated trading.
 - After analyst01_trade has produced its `candidate_note` output.
 - You read analyst01_trade's output from the trade-ui inbox.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | ollama |
-| ollama_model | qwen3.6:35b-a3b-64k |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

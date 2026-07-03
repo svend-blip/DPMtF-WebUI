@@ -342,7 +342,7 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
         payload["deliverable_dir"] = step["deliverable_dir"]
     elif rule_key:
         try:
-            convention = resolve_convention_from_db(rule_key)
+            convention = resolve_convention_from_db(rule_key, db_path=_db_path())
             payload["deliverable_dir"] = convention.get("dir_template", "")
         except (ValueError, sqlite3.OperationalError):
             payload["deliverable_dir"] = ""
@@ -354,7 +354,7 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
         payload["deliverable_pattern"] = step["deliverable_pattern"]
     elif rule_key:
         try:
-            convention = resolve_convention_from_db(rule_key)
+            convention = resolve_convention_from_db(rule_key, db_path=_db_path())
             payload["deliverable_pattern"] = convention.get("pattern_template", "")
         except (ValueError, sqlite3.OperationalError):
             payload["deliverable_pattern"] = ""
@@ -371,7 +371,7 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
         payload["error_msg"] = step["error_msg"]
     elif rule_key:
         try:
-            convention = resolve_convention_from_db(rule_key)
+            convention = resolve_convention_from_db(rule_key, db_path=_db_path())
             tmpl = convention.get("error_template", "")
             payload["error_msg"] = tmpl.format(
                 step_type=step.get("step_key", ""),
@@ -385,7 +385,7 @@ def build_step_payload(step, flow_key, handoff_id, bridge_dir):
     # prompt_template: convention-provided template for enriched injection (Phase 2)
     if rule_key:
         try:
-            convention = resolve_convention_from_db(rule_key)
+            convention = resolve_convention_from_db(rule_key, db_path=_db_path())
             payload["prompt_template"] = convention.get("prompt_template", "")
         except (ValueError, sqlite3.OperationalError):
             payload["prompt_template"] = ""
@@ -702,6 +702,83 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     return True
 
 
+def _ensure_session_ready(role_key, db_path=None):
+    """Ensure a role's tmux session exists and has its coding frontend started.
+
+    Creates the tmux session if missing, then sends the start command.
+    Used by auto-chain to recover when a target session has died.
+
+    Returns True if the session is ready after recovery, False otherwise.
+    """
+    if db_path is None:
+        db_path = _db_path()
+
+    try:
+        role = load_role_from_db(role_key, db_path=db_path)
+    except ValueError:
+        print(f"  _ensure_session_ready: role '{role_key}' not found in DB")
+        return False
+
+    session_name = role.get("tmux_session", role_key)
+
+    # Step 1: Create tmux session if it doesn't exist
+    if not session_alive(session_name):
+        print(f"  Creating tmux session '{session_name}'...")
+        result = subprocess.run(
+            ["tmux", "new-session", "-d", "-s", session_name],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            print(f"  ERROR: Failed to create session '{session_name}': {result.stderr.strip()}")
+            return False
+        time.sleep(0.3)
+
+    # Step 2: Start coding frontend if configured
+    start_cmd_suffix = role.get("start_cmd_suffix")
+    config_dir = role.get("config_dir")
+    default_runtime = role.get("default_runtime", "")
+    default_provider = role.get("default_provider", "")
+    default_model = role.get("default_model", "")
+
+    if start_cmd_suffix and config_dir:
+        # Build start command from decomposed fields (Machine Profile Fase 2A)
+        try:
+            import config as _cfg
+            from command_builder import build_start_command, render_tmux_shell_string
+            machine_profile = _cfg.get_machine_profile()
+            cmd_str = build_start_command(
+                runtime=default_runtime,
+                provider=default_provider,
+                model=default_model,
+                role_key=role_key,
+                machine_profile=machine_profile,
+                config_dir=config_dir,
+            )
+            if cmd_str:
+                shell_str = render_tmux_shell_string(cmd_str)
+                subprocess.run(
+                    ["tmux", "send-keys", "-t", f"={session_name}:0",
+                     shell_str, "Enter"],
+                    capture_output=True, text=True,
+                )
+                print(f"  Started coding frontend in '{session_name}' "
+                      f"(runtime={default_runtime}, provider={default_provider})")
+                time.sleep(1.0)  # Give the frontend time to initialize
+        except ImportError:
+            print(f"  WARNING: command_builder not available, skipping frontend start")
+    elif role.get("start_cmd"):
+        # Fallback: use legacy start_cmd
+        start_cmd = role["start_cmd"]
+        subprocess.run(
+            ["tmux", "send-keys", "-t", f"={session_name}:0", start_cmd, "Enter"],
+            capture_output=True, text=True,
+        )
+        print(f"  Started coding frontend in '{session_name}' (legacy start_cmd)")
+        time.sleep(1.0)
+
+    return session_alive(session_name)
+
+
 def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=None):
     """Signal that a role has completed its deliverable for a flow step.
 
@@ -927,24 +1004,17 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # Update cycle state for Architect cold-start
     _update_cycle_state(handoff_id, flow_key, payload["to_role"])
 
-    # Step 12: Auto-chain to next step if enabled.
-    # Uses signal_send (not run_flow_step_db) so the auto-chain waiting
-    # logic runs for every step in the chain.
+    # Step 12: Auto-chain — dispatch the CURRENT step via signal_send.
+    # signal_send waits for the TO role's output, then chains to the next step.
+    # This is called AFTER the callback was injected, so the TO role has already
+    # been told to start working.
     if auto_complete_enabled:
-        current_sort = current_step.get("sort_order", 0)
-        next_step = None
-        for s in steps:
-            if s.get("sort_order", 0) == current_sort + 1:
-                next_step = s
-                break
-        if next_step:
-            print(f"\n  Auto-chain enabled - dispatching next step: {next_step['step_key']}")
-            # Reuse the same handoff_id — all steps in a chain share one flow run ID
-            chained = signal_send(flow_key, next_step["from_role"], next_step["to_role"],
-                                  handoff_id, bridge_dir)
-            if not chained:
-                print(f"  ⚠️  Auto-chain FAILED at step '{next_step['step_key']}' — target session unavailable or error. "
-                      f"Run signal-complete manually when ready.")
+        print(f"\n  Auto-chain enabled — waiting for {payload['to_role']} to complete...")
+        chained = signal_send(flow_key, current_step["from_role"],
+                              current_step["to_role"], handoff_id, bridge_dir)
+        if not chained:
+            print(f"  ⚠️  Auto-chain FAILED — target session unavailable or error. "
+                  f"Run signal-complete manually when ready.")
 
     return True
 
@@ -1343,7 +1413,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             ctemplate = payload.get("prompt_template", "")
             if not ctemplate and rule_key:
                 try:
-                    convention = resolve_convention_from_db(rule_key)
+                    convention = resolve_convention_from_db(rule_key, db_path=_db_path())
                     ctemplate = convention.get("content_template", "")
                 except (ValueError, sqlite3.OperationalError):
                     ctemplate = ""

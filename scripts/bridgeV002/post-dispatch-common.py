@@ -98,6 +98,62 @@ def get_ollama_model_from_db(from_role_key, db_path):
         return None
 
 
+def get_next_role_ollama_model(step_key, db_path):
+    """Find the next role in the flow chain and return its ollama_model, if any.
+
+    Looks up the current step's flow_key and sort_order, finds the step with
+    sort_order + 1 in the same flow, and returns the to_role's ollama_model.
+    Returns None if there is no next step, the DB is unavailable, or the next
+    role is not an Ollama role.
+    """
+    if not db_path or not os.path.exists(db_path):
+        return None
+
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+
+        # Find current step's flow_key and sort_order
+        row = conn.execute(
+            "SELECT flow_key, sort_order FROM bridge_flow_steps WHERE step_key = ?",
+            (step_key,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        flow_key = row["flow_key"]
+        current_sort = row["sort_order"]
+
+        # Find next step in the same flow
+        next_row = conn.execute(
+            "SELECT to_role FROM bridge_flow_steps WHERE flow_key = ? AND sort_order = ?",
+            (flow_key, current_sort + 1)
+        ).fetchone()
+        if not next_row:
+            conn.close()
+            return None
+
+        next_role_key = next_row["to_role"]
+
+        # Look up next role's ollama_model
+        role_row = conn.execute(
+            "SELECT ollama_model FROM bridge_roles WHERE role_key = ?",
+            (next_role_key,)
+        ).fetchone()
+
+        conn.close()
+
+        if role_row and role_row["ollama_model"]:
+            return role_row["ollama_model"]
+        return None
+
+    except sqlite3.OperationalError as e:
+        print(f"  WARNING: Database lookup for next role failed ({e})")
+        return None
+
+
 def stop_ollama_model(model_name):
     """Stop an Ollama model to free VRAM. Returns True on success.
 
@@ -161,13 +217,20 @@ def main():
     if ollama_model:
         print(f"  From role '{args.from_role}' has Ollama model: {ollama_model}")
 
-    # Step 5: Stop the Ollama model (absolute last action — no stdout after this)
-    success = stop_ollama_model(ollama_model)
-    if not success:
-        print("  WARNING: Post-dispatch completed with ollama stop failure")
-        sys.exit(1)
+    # Step 5: Check if next role in chain uses the same model — if so, skip stop
+    # to avoid killing a model the next role is actively loading or using.
+    next_model = get_next_role_ollama_model(args.step_key, db_path)
+    if next_model and ollama_model and next_model == ollama_model:
+        print(f"  Skipping ollama stop — next role in chain also uses '{ollama_model}'")
+        success = True
+    else:
+        # Step 6: Stop the Ollama model (absolute last action — no stdout after this)
+        success = stop_ollama_model(ollama_model)
+        if not success:
+            print("  WARNING: Post-dispatch completed with ollama stop failure")
+            sys.exit(1)
 
-    # Step 6: Final status output (last printed line before exit)
+    # Step 7: Final status output (last printed line before exit)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"  [Post-Dispatch Common] Complete — {ts}Z\n")
 

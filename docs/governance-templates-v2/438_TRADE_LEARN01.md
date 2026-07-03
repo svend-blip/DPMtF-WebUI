@@ -12,12 +12,10 @@ You turn scored outcomes into reusable lessons and proposed rule changes.
 - After score01_trade has produced its `simulation_score` and/or `allocation_score` output(s).
 - You read score results from the trade-ui inbox.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | ollama |
-| ollama_model | qwen3.6:27b-q4_K_M |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

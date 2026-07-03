@@ -12,13 +12,10 @@ You collect factual market data for symbols identified by trend01_trade.
 - After trend01_trade has produced its `trend_note` JSON output.
 - You read trend01_trade's output from the trade-ui inbox to know which symbols to analyze.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | ollama |
-| ollama_model | deepseek-v4-pro:cloud |
-| Tools | Tavily web search |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

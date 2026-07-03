@@ -140,6 +140,7 @@ def build_claude_ollama_command(runtime, provider, model, role_key, mp):
         )
 
     env = dict(runtime_cfg.get("default_env", {}))
+    env.update(provider_cfg.get("env", {}))
     env["ANTHROPIC_BASE_URL"] = endpoint
     env["ANTHROPIC_AUTH_TOKEN"] = auth_token
 
@@ -181,6 +182,7 @@ def build_claude_openrouter_command(runtime, provider, model, role_key, mp):
         )
 
     env = dict(runtime_cfg.get("default_env", {}))
+    env.update(provider_cfg.get("env", {}))
     env["ANTHROPIC_BASE_URL"] = endpoint
     env["ANTHROPIC_AUTH_TOKEN"] = f"${env_key}"
     # Must be explicitly empty — otherwise Claude Code may fall back to
@@ -197,20 +199,24 @@ def build_claude_openrouter_command(runtime, provider, model, role_key, mp):
 def build_opencode_ollama_command(runtime, provider, model, config_dir, mp):
     """Build OpenCode + local Ollama command."""
     binaries = mp.get("binaries", {})
+    providers = mp.get("providers", {})
     runtimes = mp.get("runtimes", {})
     paths = mp.get("paths", {})
 
     opencode_bin = _resolve_binary("opencode", binaries, "opencode")
+    provider_cfg = _get_provider_config(provider, providers)
     runtime_cfg = _get_runtime_config("opencode", runtimes)
 
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
     full_config_dir = f"{config_base}/{config_dir}"
 
+    env = dict(runtime_cfg.get("default_env", {}))
+    env.update(provider_cfg.get("env", {}))
+    env["OPENCODE_CONFIG_DIR"] = full_config_dir
+    env["OPENCODE_CONFIG"] = f"{full_config_dir}/opencode.json"
+
     return {
-        "env": {
-            "OPENCODE_CONFIG_DIR": full_config_dir,
-            "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
-        },
+        "env": env,
         "argv": [opencode_bin, "--model", f"ollama/{model}"],
     }
 
@@ -222,19 +228,23 @@ def build_opencode_openrouter_command(runtime, provider, model, config_dir, mp):
     OpenRouter API key comes from environment — NOT included in command object.
     """
     binaries = mp.get("binaries", {})
+    providers = mp.get("providers", {})
     runtimes = mp.get("runtimes", {})
 
     opencode_bin = _resolve_binary("opencode", binaries, "opencode")
+    provider_cfg = _get_provider_config(provider, providers)
     runtime_cfg = _get_runtime_config("opencode", runtimes)
 
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
     full_config_dir = f"{config_base}/{config_dir}"
 
+    env = dict(runtime_cfg.get("default_env", {}))
+    env.update(provider_cfg.get("env", {}))
+    env["OPENCODE_CONFIG_DIR"] = full_config_dir
+    env["OPENCODE_CONFIG"] = f"{full_config_dir}/opencode.json"
+
     return {
-        "env": {
-            "OPENCODE_CONFIG_DIR": full_config_dir,
-            "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
-        },
+        "env": env,
         "argv": [opencode_bin, "--model", f"openrouter/{model}"],
     }
 
@@ -247,19 +257,23 @@ def build_opencode_builtin_command(runtime, provider, model, config_dir, mp):
     Model is passed as-is without openrouter:/ollama: prefix.
     """
     binaries = mp.get("binaries", {})
+    providers = mp.get("providers", {})
     runtimes = mp.get("runtimes", {})
 
     opencode_bin = _resolve_binary("opencode", binaries, "opencode")
+    provider_cfg = _get_provider_config(provider, providers)
     runtime_cfg = _get_runtime_config("opencode", runtimes)
 
     config_base = runtime_cfg.get("config_base", "$HOME/.config/opencode-roles")
     full_config_dir = f"{config_base}/{config_dir}"
 
+    env = dict(runtime_cfg.get("default_env", {}))
+    env.update(provider_cfg.get("env", {}))
+    env["OPENCODE_CONFIG_DIR"] = full_config_dir
+    env["OPENCODE_CONFIG"] = f"{full_config_dir}/opencode.json"
+
     return {
-        "env": {
-            "OPENCODE_CONFIG_DIR": full_config_dir,
-            "OPENCODE_CONFIG": f"{full_config_dir}/opencode.json",
-        },
+        "env": env,
         "argv": [opencode_bin, "--model", model],
     }
 

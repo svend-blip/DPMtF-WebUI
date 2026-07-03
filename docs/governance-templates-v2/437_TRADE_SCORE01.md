@@ -12,12 +12,10 @@ You evaluate open simulated trades after a time horizon has passed.
 - Periodically (weekly or manually triggered) in the `trade_cockpit_scoring_v001` flow.
 - You read existing simulated trades from the trade-ui database via the inbox.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | ollama |
-| ollama_model | qwen3.6:27b-q4_K_M |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

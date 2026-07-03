@@ -18,12 +18,10 @@ execution is Human-gated via the 6.5 WebUI, not this role.
 - You read `sim01_trade` outputs and the portfolio snapshot from the trade-ui
   inbox / database.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | ollama |
-| ollama_model | qwen3.6:27b-q4_K_M |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 

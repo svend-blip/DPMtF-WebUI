@@ -12,12 +12,10 @@ You combine trend and market data into candidate investment notes with concrete,
 - After trend01_trade AND market01_trade have produced their outputs.
 - You read both prior outputs from the trade-ui inbox.
 
-## Model Configuration
+## Model
 
-| Field | Value |
-|-------|-------|
-| model_type | cloud |
-| cloud_model | minimax/MiniMax-M3 |
+Model, provider og runtime konfigureres i databasen (bridge_roles) og
+injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 
