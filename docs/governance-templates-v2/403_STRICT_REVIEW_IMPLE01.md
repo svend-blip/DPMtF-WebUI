@@ -64,7 +64,25 @@ When all task steps are complete:
 
 Write to: `{bridge_dir}/strict_review/results/{ID}-result.md`
 
-Format:
+**CRITICAL: The file MUST start with these XML sections (dispatch validation rejects files without them):**
+
+```
+<handoff_id>{ID}</handoff_id>
+
+<source_role>imple01</source_role>
+
+<deliverable_input>
+  {bridge_dir}/strict_review/handoffs/{ID}-handoff.md
+</deliverable_input>
+
+<deliverable_output>
+  result: {bridge_dir}/strict_review/results/{ID}-result.md
+  notification: {bridge_dir}/strict_review/results/{ID}-notification.md
+</deliverable_output>
+```
+
+Then the result body:
+
 ```
 ## Summary
 {What was implemented, 1-2 sentences}

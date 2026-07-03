@@ -940,8 +940,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         if next_step:
             print(f"\n  Auto-chain enabled - dispatching next step: {next_step['step_key']}")
             # Reuse the same handoff_id — all steps in a chain share one flow run ID
-            signal_send(flow_key, next_step["from_role"], next_step["to_role"],
-                       handoff_id, bridge_dir)
+            chained = signal_send(flow_key, next_step["from_role"], next_step["to_role"],
+                                  handoff_id, bridge_dir)
+            if not chained:
+                print(f"  ⚠️  Auto-chain FAILED at step '{next_step['step_key']}' — target session unavailable or error. "
+                      f"Run signal-complete manually when ready.")
 
     return True
 
@@ -1543,8 +1546,11 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                     break
             if next_step:
                 print(f"  Chaining to: {next_step['step_key']}")
-                signal_send(flow_key, next_step["from_role"], next_step["to_role"],
-                          handoff_id, bridge_dir)
+                chained = signal_send(flow_key, next_step["from_role"], next_step["to_role"],
+                                      handoff_id, bridge_dir)
+                if not chained:
+                    print(f"  ⚠️  Auto-chain FAILED at step '{next_step['step_key']}' — target session unavailable or error. "
+                          f"Run signal-complete manually when ready.")
             else:
                 print(f"  ✅ Flow complete — no more steps in chain")
         else:

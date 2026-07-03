@@ -170,7 +170,7 @@ Escalate to Human when:
 
 ### Escalation Handoff Format
 
-For escalation to Architect, write to `{bridge_dir}/escalations/{ID}-{from_role}-question.md`:
+For escalation to Architect, write to `{bridge_dir}/{flow_key}/escalations/{ID}-{from_role}-question.md`:
 
 ```markdown
 <role>You are Architect in the DPMtF governance loop.</role>
@@ -206,7 +206,7 @@ Read and apply:
    {bridge_dir}/{flow_key}/escalations/{ID}-notification.md
 5. SIGNAL completion via BridgeV002:
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
-     --db-flow {flow_key} --signal-answer --from-role {from_role} --to-role {to_role}
+     --db-flow {flow_key} --signal-answer --from-role {from_role} --to-role {to_role} --id {ID}
 </task>
 
 <constraint>

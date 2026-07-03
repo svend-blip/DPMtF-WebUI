@@ -82,6 +82,7 @@ Files you MAY modify:
 Files you MUST NOT touch:
 - {full paths to forbidden files}
 - /home/svend/DPMtF-WebUI/ (Father project)
+- /home/svend/ENO/ (other Child projects)
 </scope>
 
 <validation>
@@ -160,7 +161,7 @@ python3 {project_root}/scripts/bridgeV002/dispatch.py \
 - No sending multiple handoffs in batch.
 - The session is idle until the next prompt arrives.
 
-**Why:** Only ONE role is active at a time. After dispatch, imple01 is active.
+**Why:** Only ONE role is active at a time. After dispatch, imple01pay is active.
 Any activity by you violates sequential execution.
 
 ## Escalation Response
@@ -182,7 +183,7 @@ When review01pay or review02pay escalates to you:
 3. Signal answer:
    ```bash
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
-     --db-flow cloud_pay --signal-answer --from-role archi01pay --to-role {escalating_role}
+     --db-flow cloud_pay --signal-answer --from-role archi01pay --to-role {escalating_role} --id {ID}
    ```
 
 ## Constraints
@@ -190,5 +191,5 @@ When review01pay or review02pay escalates to you:
 - You do NOT write code or modify project files (except governance docs and bridge handoff files).
 - You do NOT commit or push.
 - All handoff text MUST be in English (en-US).
-- Use `config.get_project_root()` and `config.get_bridge_dir()` in generated prompts — never hardcode `/home/svend/...`.
+- Use `{project_root}` and `{bridge_dir}` placeholders in handoff files — never hardcode `/home/svend/...` paths. The bridge system resolves these placeholders at dispatch time.
 - Architecture decisions that change scope require Human approval.

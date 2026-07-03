@@ -23,11 +23,11 @@ limits unless scope is explicitly changed through the documented process.
 
 ## In Scope Now
 
-- `30_FRONTEND_GOVERNANCE.md` — fælles frontend-governance
-- Frontend Impact som obligatorisk output-afsnit i designs og implementeringer
-- Review/verdict fejler ved manglende Frontend Impact
-- Opdatering af eksisterende governance templates med Frontend Impact referencer
-- Machine Profile: legacy-kode fjernet, døde frontend-felter fjernet
+- `30_FRONTEND_GOVERNANCE.md` — shared frontend governance
+- Frontend Impact as mandatory output section in designs and implementations
+- Review/verdict fails on missing Frontend Impact
+- Update existing governance templates with Frontend Impact references
+- Machine Profile: legacy code removed, dead frontend fields removed
 
 ## Out of Scope Now
 
@@ -36,7 +36,7 @@ limits unless scope is explicitly changed through the documented process.
 
 ## Key Principle
 
-Frontend Impact må aldrig udelades. Alle UI-ændringer skal følge panel-registreringsreglerne i `30_FRONTEND_GOVERNANCE.md`. "No frontend impact" skal begrundes.
+Frontend Impact must never be omitted. All UI changes must follow the panel registration rules in `30_FRONTEND_GOVERNANCE.md`. "No frontend impact" must be justified.
 
 ## Constraints
 
@@ -50,9 +50,9 @@ Frontend Impact må aldrig udelades. Alle UI-ændringer skal følge panel-regist
 
 ## Success Criteria
 
-- `30_FRONTEND_GOVERNANCE.md` oprettet og committet
-- Alle relevante governance templates opdateret med Frontend Impact referencer
-- Review/verdict fejler ved manglende Frontend Impact
+- `30_FRONTEND_GOVERNANCE.md` created and committed
+- All relevant governance templates updated with Frontend Impact references
+- Review/verdict fails on missing Frontend Impact
 
 ## Scope Change Process
 

@@ -17,7 +17,7 @@ You review all previous outputs for hallucination, missing data, weak evidence, 
 | Field | Value |
 |-------|-------|
 | model_type | cloud |
-| cloud_model | Anthropic |
+| cloud_model | anthropic/claude-sonnet-5 |
 
 ## Output Contract
 

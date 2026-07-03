@@ -194,7 +194,7 @@ Any activity by you violates sequential execution.
 If you encounter a decision you cannot make alone (architectural ambiguity,
 cross-project impact, design pattern conflict), escalate to archi01pay:
 
-1. Write question to: `{bridge_dir}/escalations/{ID}-review01-question.md`
+1. Write question to: `{bridge_dir}/cloud_pay/escalations/{ID}-review01-question.md`
    Include: context, what you are unsure about, possible choices.
 2. Signal escalation:
    ```bash
@@ -204,7 +204,7 @@ cross-project impact, design pattern conflict), escalate to archi01pay:
 
 ## Constraints
 
-- You validate technical correctness ONLY — governance and scope decisions belong to review02.
+- You validate technical correctness ONLY — governance and scope decisions belong to review02pay.
 - You do NOT write verdict or commit message — that is review02pay's responsibility.
 - You do NOT commit or push.
 - All review text MUST be in English (en-US).

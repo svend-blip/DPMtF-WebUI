@@ -119,69 +119,69 @@ CONSEQUENCE:
 ```
 TRIGGER: System Setup panel is opened OR healthcheck is run.
 
-QUESTION: "Findes aktiv Machine Profile?"
+QUESTION: "Is an active Machine Profile present?"
 
 CONSEQUENCE:
-  - Hvis NEJ → App må stadig starte. Eksisterende funktionalitet må ikke
-               påvirkes. System Setup viser warning. Machine Profile
-               features behandles som deaktiveret.
+  - If NO → App may still start. Existing functionality must not be
+            affected. System Setup shows warning. Machine Profile
+            features treated as disabled.
 ```
 
-### GATE-M2: Kritiske Stier
+### GATE-M2: Critical Paths
 
 ```
-TRIGGER: Healthcheck kører path checks.
+TRIGGER: Healthcheck runs path checks.
 
-QUESTION: "Findes required paths fra Machine Profile?"
+QUESTION: "Do required paths from Machine Profile exist?"
 
 Minimum:
   - paths.project_root
   - paths.bridge_dir
 
 CONSEQUENCE:
-  - Hvis NEJ → Healthcheck viser fail/error. Fase 1 må stadig ikke
-               blokere eksisterende app-start.
+  - If NO → Healthcheck shows fail/error. Phase 1 must still not
+            block existing app startup.
 ```
 
 ### GATE-M3: Required Binaries
 
 ```
-TRIGGER: Healthcheck kører binary checks.
+TRIGGER: Healthcheck runs binary checks.
 
-QUESTION: "Findes required binaries?"
+QUESTION: "Do required binaries exist?"
 
 Minimum:
   - python
   - tmux
 
 CONSEQUENCE:
-  - Hvis NEJ → Healthcheck viser fail/error. Fase 1 må stadig ikke
-               ændre eksisterende runtime-adfærd.
+  - If NO → Healthcheck shows fail/error. Phase 1 must still not
+            change existing runtime behavior.
 ```
 
 ### GATE-M4: Provider Availability
 
 ```
-TRIGGER: Healthcheck kører provider checks.
+TRIGGER: Healthcheck runs provider checks.
 
-QUESTION: "Er mindst én provider available=true?"
+QUESTION: "Is at least one provider available=true?"
 
 CONSEQUENCE:
-  - Hvis NEJ → Healthcheck viser warning. Ingen eksisterende flows må
-               ændres eller blokeres i Fase 1.
+  - If NO → Healthcheck shows warning. No existing flows may be
+            changed or blocked in Phase 1.
 ```
 
 ### GATE-M5: No Runtime Migration in Phase 1
 
 ```
-TRIGGER: Implementering foreslår ændring af flow-, rolle- eller
-         startkommando-logik.
+TRIGGER: Implementation proposes changes to flow, role, or
+         start command logic.
 
-QUESTION: "Ændrer implementationen eksisterende flow-, rolle- eller
-          startkommando-logik?"
+QUESTION: "Does the implementation change existing flow, role, or
+          start command logic?"
 
 CONSEQUENCE:
-  - Hvis JA → STOP. Det er Fase 2+ scope creep. Dokumentér og eskaler.
+  - If YES → STOP. This is Phase 2+ scope creep. Document and escalate.
 ```
 
 ## Gate Rules
@@ -212,7 +212,7 @@ If multiple gates trigger simultaneously, ask in this order:
 6. GATE-GOVERNANCE-SYNC Trigger B (project-specific staleness)
 7. GATE-M5 (no runtime migration in Phase 1 — stop-check)
 8. GATE-M1 (Machine Profile optional)
-9. GATE-M2 (kritiske stier)
+9. GATE-M2 (critical paths)
 10. GATE-M3 (required binaries)
 11. GATE-M4 (provider availability)
 12. GATE-FRONTEND (missing Frontend Impact)
@@ -229,39 +229,39 @@ New gates can be added as needed:
 ```
 TRIGGER: User enables use_machine_profile on a flow.
 
-QUESTION: "Er Machine Profile valid og mindst én provider available?"
+QUESTION: "Is Machine Profile valid and at least one provider available?"
 
 CONSEQUENCE:
-  - Hvis Machine Profile mangler → checkbox disabled, kan ikke aktiveres
-  - Hvis JSON invalid → checkbox disabled, kan ikke aktiveres
-  - Hvis schema_version mismatch → checkbox disabled, kan ikke aktiveres
-  - Hvis ingen provider available → advarsel men tillader aktivering
+  - If Machine Profile missing → checkbox disabled, cannot activate
+  - If JSON invalid → checkbox disabled, cannot activate
+  - If schema_version mismatch → checkbox disabled, cannot activate
+  - If no provider available → warning but allows activation
 ```
 
 ### GATE-M7: No Silent Fallback
 
 ```
-TRIGGER: Flow har use_machine_profile=1 men build_start_command() fejler.
+TRIGGER: Flow has use_machine_profile=1 but build_start_command() fails.
 
-QUESTION: "Skal fejlen rapporteres og rollen stoppes?"
+QUESTION: "Should the error be reported and the role stopped?"
 
 CONSEQUENCE:
-  - Fejl skal være synlig — ingen skjult fallback til start_cmd_suffix
-  - Rollen startes ikke
-  - Fejlbesked logges
+  - Error must be visible — no silent fallback to start_cmd_suffix
+  - Role is not started
+  - Error message is logged
 ```
 
 ### GATE-FRONTEND: Missing Frontend Impact
 
 ```
-TRIGGER: Design eller implementering mangler Frontend Impact-afsnit.
+TRIGGER: Design or implementation is missing the Frontend Impact section.
 
-QUESTION: "Mangler Frontend Impact i output?"
+QUESTION: "Is Frontend Impact missing from the output?"
 
 CONSEQUENCE:
-  - Review/verdict skal fejle
-  - Kan ikke godkendes før Frontend Impact er udfyldt
-  - "No frontend impact" skal være begrundet
+  - Review/verdict must fail
+  - Cannot be approved until Frontend Impact is filled in
+  - "No frontend impact" must be justified
 ```
 
 ---

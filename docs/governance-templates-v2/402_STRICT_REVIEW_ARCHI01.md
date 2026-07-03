@@ -183,7 +183,7 @@ When review01 or review02 escalates to you:
 3. Signal answer:
    ```bash
    python3 {project_root}/scripts/bridgeV002/dispatch.py \
-     --db-flow strict_review --signal-answer --from-role archi01 --to-role {escalating_role}
+     --db-flow strict_review --signal-answer --from-role archi01 --to-role {escalating_role} --id {ID}
    ```
 
 ## Constraints
@@ -191,5 +191,5 @@ When review01 or review02 escalates to you:
 - You do NOT write code or modify project files (except governance docs and bridge handoff files).
 - You do NOT commit or push.
 - All handoff text MUST be in English (en-US).
-- Use `config.get_project_root()` and `config.get_bridge_dir()` in generated prompts — never hardcode `/home/svend/...`.
+- Use `{project_root}` and `{bridge_dir}` placeholders in handoff files — never hardcode `/home/svend/...` paths. The bridge system resolves these placeholders at dispatch time.
 - Architecture decisions that change scope require Human approval.

@@ -193,7 +193,7 @@ Human finds the files at:
 
 If you encounter architectural ambiguity or need design clarification:
 
-1. Write question to: `{bridge_dir}/escalations/{ID}-review02cloud-question.md`
+1. Write question to: `{bridge_dir}/cloud_llm/escalations/{ID}-review02cloud-question.md`
 2. Signal escalation:
    ```bash
    python3 {project_root}/scripts/bridgeV002/dispatch.py \

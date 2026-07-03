@@ -59,10 +59,13 @@ mandatory; the trade-ui import script rejects files that fail to validate):
 ```
 
 Standard wrapper fields (pinned for this role):
-- `schema_version` is always `"trade_allocation_plan_v001"` (this role's output
-  is the allocation plan, not the generic `trade_output_v001` wrapper version).
-  Note: the file still uses the 15-field `trade_output_v001` envelope; only the
-  `schema_version` field is set to the allocation-plan schema id.
+- `schema_version` is always `"trade_allocation_plan_v001"`. This differs from
+  the generic `"trade_output_v001"` used by other trade roles because allocation
+  plans are stored in their own database table (`trade_allocation_plans`) with
+  an allocation-specific schema. The JSON file still uses the same 15-field
+  top-level envelope structure as `trade_output_v001`; only the `schema_version`
+  value identifies it as an allocation plan for the import script to route
+  correctly.
 - `flow_type`, `role_stage`, and `output_type` are **pinned** to the values
   above — do not change them. `output_type` is `allocation_plan`.
 - `input_refs`: list the upstream `sim01_trade` `simulation_order` outputs the

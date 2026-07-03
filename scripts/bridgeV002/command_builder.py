@@ -149,6 +149,50 @@ def build_claude_ollama_command(runtime, provider, model, role_key, mp):
     }
 
 
+@_register("claude", "openrouter")
+def build_claude_openrouter_command(runtime, provider, model, role_key, mp):
+    """Build Claude + OpenRouter command.
+
+    Verifies the API key exists at build time, but passes it as a shell
+    variable reference ($OPENROUTER_API_KEY) so the key is never hardcoded
+    in the tmux pane output. The shell in the tmux session resolves it.
+
+    Sets ANTHROPIC_API_KEY="" explicitly — otherwise Claude Code may fall
+    back to direct Anthropic auth instead of routing through OpenRouter.
+    """
+    binaries = mp.get("binaries", {})
+    providers = mp.get("providers", {})
+    runtimes = mp.get("runtimes", {})
+
+    claude_bin = _resolve_binary("claude", binaries, "claude")
+    provider_cfg = _get_provider_config(provider, providers)
+    runtime_cfg = _get_runtime_config("claude", runtimes)
+
+    endpoint = provider_cfg.get("endpoint", "https://openrouter.ai/api")
+
+    # Verify API key exists at build time, but pass as shell variable
+    # reference so the literal key never appears in the tmux pane.
+    env_key = provider_cfg.get("env_key", "OPENROUTER_API_KEY")
+    if not os.environ.get(env_key):
+        raise ValueError(
+            f"Environment variable '{env_key}' is not set. "
+            f"OpenRouter requires an API key. Set {env_key} in your shell "
+            f"before starting the role."
+        )
+
+    env = dict(runtime_cfg.get("default_env", {}))
+    env["ANTHROPIC_BASE_URL"] = endpoint
+    env["ANTHROPIC_AUTH_TOKEN"] = f"${env_key}"
+    # Must be explicitly empty — otherwise Claude Code may fall back to
+    # direct Anthropic auth instead of routing through OpenRouter.
+    env["ANTHROPIC_API_KEY"] = ""
+
+    return {
+        "env": env,
+        "argv": [claude_bin, "--model", model],
+    }
+
+
 @_register("opencode", "local_ollama")
 def build_opencode_ollama_command(runtime, provider, model, config_dir, mp):
     """Build OpenCode + local Ollama command."""

@@ -66,22 +66,22 @@ panel_subgroup_mappings — subgroup_key, subpattern_key, is_visible
 
 ## Machine Profile
 
-Machine Profiles gemmes som JSON-filer i `profiles/`.
+Machine Profiles are stored as JSON files in `profiles/`.
 
-De gemmes ikke i databasen i Fase 1.
+They are not stored in the database in Phase 1.
 
-Årsager:
-- Machine Profile skal kunne læses før databaseafhængig runtime-logik
-- Machine Profile er maskinspecifik
-- Lokale profiler skal kunne være git-ignored
-- Secrets må ikke gemmes i Machine Profile
+Reasons:
+- Machine Profile must be readable before database-dependent runtime logic
+- Machine Profile is machine-specific
+- Local profiles must be git-ignorable
+- Secrets must not be stored in Machine Profile
 
-Aktiv profil vælges via `.env`:
+The active profile is selected via `.env`:
 
 ```
 DPMTF_MACHINE_PROFILE=machine.ai-pc.json
 ```
 
-Machine Profile må i Fase 1 kun bruges til read-only healthcheck og System Setup-visning.
+In Phase 1, Machine Profile may only be used for read-only healthcheck and System Setup display.
 
 ---

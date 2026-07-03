@@ -159,7 +159,7 @@ Any activity by you violates sequential execution.
 If you encounter a decision you cannot make alone (architectural ambiguity,
 cross-project impact, design pattern conflict), escalate to archi01:
 
-1. Write question to: `{bridge_dir}/escalations/{ID}-review01-question.md`
+1. Write question to: `{bridge_dir}/strict_review/escalations/{ID}-review01-question.md`
    Include: context, what you are unsure about, possible choices.
 2. Signal escalation:
    ```bash

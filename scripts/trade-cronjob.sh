@@ -53,18 +53,9 @@ for model in "${TRADE_MODELS[@]}"; do
 done
 echo "  Ollama models cleared."
 
-# Kill old trade tmux sessions
-TRADE_SESSIONS=(
-    trend01_trade market01_trade analyst01_trade
-    risk01_trade review01_trade sim01_trade
-    score01_trade learn01_trade
-)
-for session in "${TRADE_SESSIONS[@]}"; do
-    if tmux has-session -t "$session" 2>/dev/null; then
-        tmux kill-session -t "$session" 2>/dev/null || true
-        echo "  Killed tmux session: $session"
-    fi
-done
+# Kill old trade tmux sessions — DB-driven (no hardcoding, always covers all roles)
+python3 "${PROJECT_ROOT}/scripts/bridgeV002/stop_tmuxflow.py" "$FLOW_KEY" 2>/dev/null || true
+
 echo "  Tmux sessions cleared."
 
 # ── 2. Create tmux sessions ───────────────────────────
@@ -72,14 +63,10 @@ echo "  Tmux sessions cleared."
 echo ""
 echo "[2/6] Creating tmux sessions..."
 
-SIM_SESSIONS=(
-    trend01_trade market01_trade analyst01_trade
-    risk01_trade review01_trade sim01_trade
-)
-for session in "${SIM_SESSIONS[@]}"; do
-    tmux new-session -d -s "$session"
-    echo "  Created: $session"
-done
+# DB-driven: start_tmuxflow.py queries bridge_flow_steps → bridge_roles for all
+# required session names. No hardcoding — new roles (e.g. portfolio01_trade) are
+# automatically covered as long as they exist in the database.
+python3 "${PROJECT_ROOT}/scripts/bridgeV002/start_tmuxflow.py" "$FLOW_KEY"
 
 # ── 3. Start coding frontends ─────────────────────────
 
