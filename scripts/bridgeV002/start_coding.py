@@ -103,7 +103,7 @@ def ensure_session_exists(session_name):
     """Check if a tmux session exists. Returns True if it does."""
     try:
         result = subprocess.run(
-            ["tmux", "has-session", "-t", session_name],
+            ["tmux", "has-session", "-t", "=" + session_name],
             capture_output=True,
             text=True,
         )
@@ -133,14 +133,14 @@ def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
         cmd_str = build_aggregated_cmd(resolved_target, resolved_suffix)
         print(f"  Aggregated: {cmd_str}")
         # Send as separate arguments — no shell quoting needed with subprocess
-        cmd = ["tmux", "send-keys", "-t", session_name, cmd_str, "Enter"]
+        cmd = ["tmux", "send-keys", "-t", "=" + session_name + ":0", cmd_str, "Enter"]
     elif start_cmd:
         # Fallback: use existing start_cmd as before
         resolved = resolve_placeholders(
             start_cmd, bridge_dir=bridge_dir, project_root=project_root
         )
         print(f"  Command: {resolved}")
-        cmd = ["tmux", "send-keys", "-t", session_name, resolved, "Enter"]
+        cmd = ["tmux", "send-keys", "-t", "=" + session_name + ":0", resolved, "Enter"]
     else:
         print(f"  ERROR: No start_cmd or start_cmd_suffix configured")
         return False
