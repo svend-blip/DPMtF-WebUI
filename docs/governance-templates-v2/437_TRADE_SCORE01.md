@@ -53,7 +53,10 @@ Required wrapper (`trade_output_v001` standard — all 15 top-level fields are m
 
 Standard wrapper fields (pinned for this role):
 - `schema_version` is always `"trade_output_v001"`.
-- `flow_type`, `role_stage`, and `output_type` are **pinned** to the values above — do not change them. `output_type` is `simulation_score` (renamed from `score_result`).
+- `flow_type` and `role_stage` are **pinned** to the values above — do not change them.
+- `output_type` is `simulation_score` (renamed from `score_result`) for individual
+  trade scoring, OR `allocation_score` for allocation/swap-outcome scoring
+  (see "Allocation Score Output (Phase 6.6)" below). Do not use other values.
 - `input_refs`: list the `sim01_trade` `simulation_order` outputs you are scoring (reference the original daily `flow_run_id` where each simulation was created).
 - `simulation_id`: `null` — you evaluate simulations, you do not create them.
 - `evaluates_simulation_ids`: **populate** with the array of `SIM-…` ids you are scoring in this output. This is the canonical link back to the daily simulations.
@@ -85,13 +88,78 @@ Payload fields (per GATES.md §12.3):
 
 - `1h`, `1d`, `3d`, `1w`, `1m`
 
+## Allocation Score Output (Phase 6.6)
+
+In addition to `simulation_score`, you produce an `allocation_score` output for
+each **executed** close_then_open (or open_new) allocation plan item, so that
+learn01_trade can evaluate allocation/swap outcomes historically (spec §16).
+
+The wrapper is the same `trade_output_v001` standard, with these pinned values:
+
+```json
+{
+  "schema_version": "trade_output_v001",
+  "flow_key": "trade_cockpit_scoring_v001",
+  "flow_type": "periodic_learning",
+  "role_key": "score01_trade",
+  "role_stage": "scoring",
+  "output_type": "allocation_score",
+  "status": "completed",
+  "input_refs": [
+    { "flow_run_id": "<original daily run>", "flow_key": "trade_cockpit_simulation_v001", "role_key": "portfolio01_trade", "output_type": "allocation_plan" }
+  ],
+  "simulation_id": null,
+  "evaluates_simulation_ids": ["<candidate sim id>", "<closed position sim id if any>"],
+  "quality": { "confidence": null, "data_quality": "unknown", "warnings": [], "missing_fields": [] }
+}
+```
+
+- `input_refs`: reference the original `portfolio01_trade` `allocation_plan`
+  output the scored item belongs to.
+- `evaluates_simulation_ids`: the candidate simulation AND (for close_then_open)
+  the closed position's simulation, so the link back to daily runs is preserved.
+
+Payload fields (per GATES.md §12.4):
+- `allocation_plan_id`: the plan the item belongs to
+- `plan_item_id`: the scored plan item
+- `action`: `"close_then_open"` or `"open_new"`
+- `candidate_symbol`: symbol opened
+- `position_symbol`: symbol closed (null for `open_new`)
+- `horizon`: one of `1h`, `1d`, `3d`, `1w`, `1m` (GATES §12.2)
+- `scored_at`: ISO-8601 timestamp
+- `candidate_actual_return_pct`: realized return of the opened candidate since
+  the swap/execution
+- `position_actual_return_pct`: counterfactual realized return of the closed
+  position had it been held over the same horizon (null for `open_new`)
+- `swap_outcome`: `"candidate_outperformed"` | `"position_outperformed"` |
+  `"neutral"` | `"inconclusive"` (null for `open_new`)
+- `predicted_swap_delta`: the `swap_delta` recorded on the plan item at decision
+  time (candidate_favorability − position_favorability)
+- `realized_swap_delta`: `candidate_actual_return_pct − position_actual_return_pct`
+- `prediction_accuracy`: qualitative label — `"well_predicted"` |
+  `"overpredicted"` | `"underpredicted"` | `"wrong_sign"` | `"inconclusive"`
+- `churn_flag`: boolean — true if the swap was reversed or proved unnecessary
+  within the horizon
+- `negative_pl_close_justified`: boolean (null for `open_new`) — true if the
+  closed position continued to underperform after the close
+- `near_tp_protection_helpful`: boolean or null — did near-TP protection prevent
+  a premature close / was it triggered appropriately
+- `decision_quality_score`: 0-100 how good was the allocation decision
+
+The allocation_outcome facts (returns, realized delta, churn, etc.) are computed
+by trade-ui's `allocation_scorer.py` from the database; you read those facts and
+emit the structured `allocation_score` payload. Do not invent prices or returns.
+
 ## Forbidden Actions
 
 - Do NOT create new trade candidates
 - Do NOT override risk or review decisions
 - Do NOT output `broker_order`
 - Score existing trades only — do not modify them
+- Do NOT invent prices, returns, or allocation outcomes — use the facts computed
+  by `allocation_scorer.py`; if the scorer has no data for an item, emit
+  `needs_more_data` rather than guessing
 
 ## Escalation
 
-If no open simulated trades exist, output `status: "needs_more_data"` with explanation.
+If no open simulated trades exist, output `status: "needs_more_data"` with explanation. The same applies when there are no executed allocation plan items to score.

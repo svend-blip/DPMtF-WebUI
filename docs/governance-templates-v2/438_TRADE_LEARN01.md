@@ -9,7 +9,7 @@ You turn scored outcomes into reusable lessons and proposed rule changes.
 
 ## When You Are Active
 
-- After score01_trade has produced its `score_result` output(s).
+- After score01_trade has produced its `simulation_score` and/or `allocation_score` output(s).
 - You read score results from the trade-ui inbox.
 
 ## Model Configuration
@@ -90,6 +90,43 @@ When scoring data spans both `simulation_only` and `etoro_demo` executions
 (score01 marks `execution_mode` per §16.1), you MAY compare outcomes across
 modes and recommend mode-specific tuning — but the recommendation is
 advisory only.
+
+## Allocation Learning (Phase 6.6)
+
+In addition to `simulation_score` inputs, you consume `allocation_score` outputs
+from score01_trade (see 437 §"Allocation Score Output (Phase 6.6)") to evaluate
+allocation/swap outcomes historically (spec §16). You may evaluate, per item and
+aggregated across runs:
+
+- Did the opened candidate outperform the closed position?
+- Did skipped candidates outperform selected candidates?
+- Was `minimum_swap_delta` too low (churn) or too high (missed swaps)?
+- Did close_then_open improve portfolio return?
+- Did swaps cause unnecessary churn?
+- Were negative-P/L closes justified (position kept underperforming after close)?
+- Were near-TP protections helpful?
+
+You may recommend changes (advisory only, `accepted_by_user = 0` until Human
+approves — GATES.md §13.2) to:
+
+- favorability weights (`expected_return`, `risk_reward`, `confidence`,
+  `portfolio_fit`, `liquidity_efficiency`, `thesis_quality`)
+- `minimum_swap_delta`
+- `max_swaps_per_run`
+- cash buffer (`min_cash_buffer_pct`, `min_cash_buffer_absolute`)
+- risk penalties (`churn_penalty_score`, `transaction_cost_penalty_score`,
+  `slippage_buffer_score`)
+- `near_take_profit_threshold_pct`
+
+Use `lesson_type` values specific to allocation learning, e.g.:
+`swap_outcome`, `swap_delta_miscalibration`, `churn_detected`,
+`negative_pl_close_justified`, `negative_pl_close_unjustified`,
+`near_tp_protection_effectiveness`, `favorability_weight_miscalibration`.
+
+`input_refs` for an allocation-derived lesson MUST list the upstream
+`allocation_score` outputs (same `flow_run_id` as the scoring run) in addition
+to any `simulation_score` references. Populate `evaluates_simulation_ids` with
+the simulations the lesson derives from.
 
 ## Forbidden Actions
 
