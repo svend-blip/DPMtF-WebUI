@@ -183,6 +183,7 @@ It is NOT an Architect flow — the Human or a cronjob triggers it directly.
 | `risk01_trade` | Risk Gate | qwen3.6:35b (Ollama) | 434_TRADE_RISK01.md |
 | `review01_trade` | Independent Reviewer | GLM 5.2 (OpenRouter) | 435_TRADE_REVIEW01.md |
 | `sim01_trade` | Simulation Executor | qwen3.6:27b (Ollama) | 436_TRADE_SIM01.md |
+| `portfolio01_trade` | Portfolio Allocator | qwen3.6:27b (Ollama) | 440_TRADE_PORTFOLIO01.md |
 
 ### Starting a Trade Cycle
 
@@ -190,11 +191,11 @@ It is NOT an Architect flow — the Human or a cronjob triggers it directly.
 cd /home/svend/DPMtF-WebUI
 
 # 1. Create tmux sessions
-for s in trend01_trade market01_trade analyst01_trade risk01_trade review01_trade sim01_trade; do
+for s in trend01_trade market01_trade analyst01_trade risk01_trade review01_trade sim01_trade portfolio01_trade; do
   tmux new-session -d -s "$s"
 done
 
-# 2. Start coding frontends (includes sim01_trade — start_coding.py fixed)
+# 2. Start coding frontends (includes sim01_trade + portfolio01_trade — start_coding.py fixed)
 python3 scripts/bridgeV002/start_coding.py trade_cockpit_simulation_v001
 
 # 3. Create trigger file (ID from database counter)
@@ -202,7 +203,7 @@ echo '<role>You are trend01_trade in the trade_cockpit_simulation_v001 flow.</ro
 <task>Execute your role according to the governance file. Produce JSON output to the inbox.</task>
 <constraint>SIMULATION_ONLY = TRUE. Follow GATES.md. Valid JSON only.</constraint>' > /home/svend/trade-ui/inbox/pending/{ID}_humantrade.json
 
-# 4. Dispatch — auto-chain runs all 6 steps
+# 4. Dispatch — auto-chain runs all 7 steps (trend→market→analyst→risk→review→sim01→portfolio01)
 python3 scripts/bridgeV002/dispatch.py \
   --db-flow trade_cockpit_simulation_v001 \
   --signal-send --from-role humantrade --to-role trend01_trade \
@@ -226,6 +227,62 @@ python3 scripts/bridgeV002/dispatch.py \
 - `OPENROUTER_API_KEY` in `~/.bashrc`
 - `MINIMAX_API_KEY` in environment
 - Ollama running with models: `qwen3.6:35b-a3b-64k`, `qwen3.6:27b-q4_K_M`, `deepseek-v4-pro:cloud`
+
+### Portfolio Allocation/Rebalancing Loop — Status & Next Step
+
+The portfolio allocation/rebalancing loop (spec
+`docs/superpowers/specs/2026-07-02-portfolio-allocation-rebalancing-design.md`)
+is **FULLY BUILT AND OPERATIONAL END-TO-END** as of 2026-07-03. All build
+phases are committed:
+
+- 6.1 read-only scoring → 6.2 allocation_plan JSON → 6.3 swap proposals →
+  6.4 bridge executor → 6.5 WebUI approval UI → 6.6 learning loop →
+  6.7 `portfolio_allocator.py` CLI → 6.8 close-endpoint fix →
+  6.9 DEMO Execute path with human-only approval gate.
+- `portfolio01_trade` role activated (governance `440_TRADE_PORTFOLIO01.md`,
+  live DB role + flow step 7, tmux session, CLI entrypoint).
+- Close-endpoint **verified live** against the real eToro demo API:
+  `POST /api/v1/trading/execution/demo/market-close-orders/positions/{id}`
+  with body `{"InstrumentID": <int>, "UnitsToDeduct": null}` →
+  200 + `{"orderForClose":{"orderID":...}}` (async close).
+- `AUTO_EXECUTION_DISABLED` gate resolved: `execute_close_then_open` takes a
+  `human_approval` param — autonomous calls blocked (`AUTONOMOUS_EXECUTION_BLOCKED`),
+  Human-triggered calls allowed, still subject to `human_review_status='approved'`
+  (step 1) + the 14 hard stops + idempotency + DEMO-only invariants.
+- Safety invariants (`ETORO_DEMO_ONLY`/`ETORO_LIVE_DISABLED`/`AUTO_EXECUTION_DISABLED`)
+  remain `True` (sacred, `etoro_bridge.py` untouched). 168 tests pass.
+
+Commits: trade-ui `bbbc188` (6.1-6.9), Father `d40ae9a` (governance 437/438/440 +
+seed). No remaining build blockers.
+
+**NEXT STEP — live end-to-end validation run (not a build step):**
+
+Validate the full chain live on the DEMO account. Either run a full
+`trade_cockpit_simulation_v001` cycle (needs the upstream trend→…→sim01 chain +
+a stored portfolio snapshot from a prior `sync-positions`), or reuse an existing
+`allocation_plan` with a `close_then_open` item:
+
+1. Open the trade-ui WebUI (port 9130, eToro panel → "Portfolio Allocation
+   Plan" section).
+2. Approve a `close_then_open` plan item (per-item Approve button → sets
+   `human_review_status='approved'`).
+3. Click the now-enabled **Execute** button → confirm dialog →
+   `POST /api/allocation/plans/{plan_id}/items/{plan_item_id}/execute`
+   (`human_approval=True`) → `execute_close_then_open` →
+   `close_demo_position` (verified market-close-orders endpoint) +
+   `place_demo_order` → real DEMO close-then-open.
+4. Observe the `execution_status` (succeeded / partial_sequence_failed / blocked)
+   and the close `orderID` / order result in the UI.
+
+Notes:
+- The close is **asynchronous** — the close order is accepted immediately
+  (200 + `orderForClose`); the position closes when the market processes it.
+  If the instrument's market is closed (e.g. TSM outside Asian session), the
+  order stays pending in `ordersForClose` and the position remains open until
+  market open. A portfolio refresh may be needed to confirm actual closure.
+- This is DEMO only — never live/real money (sacred invariants enforce).
+- The probe script used for the close-endpoint verification is at
+  `/tmp/close_probe.py` (not committed).
 
 ## 8. Quick Verification
 
