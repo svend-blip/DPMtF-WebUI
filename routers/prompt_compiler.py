@@ -110,14 +110,14 @@ def get_ui_labels_for_domain(label_domain: str, locale: str = "en-US") -> dict:
 
     cursor.execute("""
         SELECT s.slot_key, l.label_key, l.default_text,
-               COALESCE(t_en.translation, l.default_text, l.label_key) AS text_en,
-               COALESCE(t_req.translation, t_en.translation, l.default_text, l.label_key) AS text_req
+               COALESCE(t_en.translated_text, l.default_text, l.label_key) AS text_en,
+               COALESCE(t_req.translated_text, t_en.translated_text, l.default_text, l.label_key) AS text_req
         FROM ui_text_slots s
         JOIN ui_text_slot_labels sl ON s.slot_key = sl.slot_key
         JOIN ui_labels l ON sl.label_key = l.label_key
-        LEFT JOIN ui_label_translations t_en ON l.label_key = t_en.label_key AND t_en.locale = 'en-US'
-        LEFT JOIN ui_label_translations t_req ON l.label_key = t_req.label_key AND t_req.locale = ?
-        WHERE sl.label_domain = ?
+        LEFT JOIN ui_label_translations t_en ON l.label_id = t_en.label_id AND t_en.locale = 'en-US'
+        LEFT JOIN ui_label_translations t_req ON l.label_id = t_req.label_id AND t_req.locale = ?
+        WHERE l.label_domain = ?
     """, (locale, label_domain))
 
     labels = {}
