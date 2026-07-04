@@ -4127,163 +4127,7 @@ CREATE TABLE IF NOT EXISTS bridge_flow_steps (
 )
 """)
 
-cursor.executemany(
-    """INSERT OR IGNORE INTO bridge_roles
-       (role_key, tmux_session, model_type, cloud_model, ollama_model,
-        setup_script, teardown_script, deliver_error_msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-    [
-        ("archi01", "archi01", "ollama", "", "qwen3.6:35b-a3b",
-         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "archi01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("imple01", "imple01", "ollama", "", "qwen3.6:27b-q4_K_M",
-         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "imple01 session stopped unexpectedly. Start manually in tmux."),
-        ("review01", "review01", "ollama", "", "qwen3.6:35b-a3b",
-         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "review01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("review02", "review02", "ollama", "", "qwen3.6:27b-q4_K_M",
-         "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "review02 session stopped unexpectedly."),
-        ("human", "human", "ollama", None, None, None, None, None),
-        # ── Trade Cockpit roles (machine_profile pattern — command_builder uses
-        # default_runtime/default_provider/default_model + config_dir set by the
-        # UPDATEs below. Governance files: 431-440.) ──
-        ("humantrade", "humantrade", "human", None, None, None, None, None),
-        ("trend01_trade", "trend01_trade", "ollama", "", "qwen3.6:35b-a3b-64k",
-         None, None, "trend01_trade session stopped unexpectedly."),
-        ("market01_trade", "market01_trade", "ollama", "", "deepseek-v4-pro:cloud",
-         None, None, "market01_trade session stopped unexpectedly."),
-        ("analyst01_trade", "analyst01_trade", "opencode", "", "minimax/MiniMax-M3",
-         None, None, "analyst01_trade session stopped unexpectedly."),
-        ("risk01_trade", "risk01_trade", "ollama", "", "qwen3.6:35b-a3b-64k",
-         None, None, "risk01_trade session stopped unexpectedly."),
-        ("review01_trade", "review01_trade", "opencode", "", "z-ai/glm-5.2",
-         None, None, "review01_trade session stopped unexpectedly."),
-        ("sim01_trade", "sim01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
-         None, None, "sim01_trade session stopped unexpectedly."),
-        ("score01_trade", "score01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
-         None, None, "score01_trade session stopped unexpectedly."),
-        ("learn01_trade", "learn01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
-         None, None, "learn01_trade session stopped unexpectedly."),
-        ("portfolio01_trade", "portfolio01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
-         None, None, "portfolio01_trade session stopped unexpectedly."),
-    ],
-)
-
-cursor.executemany(
-    """INSERT OR IGNORE INTO bridge_flows
-       (flow_key, name, description, step_order, is_default) VALUES (?, ?, ?, ?, ?)""",
-    [
-        ("strict_review", "Standard development flow",
-         "human/archi01/imple01/review01/review02/human — full governance chain",
-         None,
-         1),
-        ("trade_cockpit_simulation_v001", "Trade Cockpit Simulation",
-         "Daily research-to-simulation chain: trend01→market01→analyst01→risk01→review01→sim01",
-         None, 0),
-        ("trade_cockpit_scoring_v001", "Trade Cockpit Scoring",
-         "Periodic scoring and learning: score01→learn01",
-         None, 0),
-    ],
-)
-# Trade Cockpit flows use auto-chain + machine profiles (set explicitly since
-# the INSERT above only sets the default columns).
-cursor.executemany(
-    "UPDATE bridge_flows SET auto_complete_enabled=1, use_machine_profile=1 WHERE flow_key=?",
-    [("trade_cockpit_simulation_v001",), ("trade_cockpit_scoring_v001",)],
-)
-
-cursor.executemany(
-    """INSERT OR IGNORE INTO bridge_flow_steps
-       (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
-        pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    [
-        ("strict_review", "archi01-imple01", "archi01", "imple01",
-         "strict_review/handoffs", "{ID}-handoff.md", None, "post-dispatch-common",
-         "Failed to deliver handoff to {to_role}.", 1),
-        ("strict_review", "imple01-review01", "imple01", "review01",
-         "strict_review/results", "{ID}-result.md", None, "post-dispatch-common",
-         "Failed to deliver callback to {to_role}.", 2),
-        ("strict_review", "review01-review02", "review01", "review02",
-         "strict_review/reviews", "{ID}-review01.md", None, "post-dispatch-common",
-         "Failed to deliver callback to {to_role}.", 3),
-        ("strict_review", "review02-human", "review02", "human",
-         "strict_review/verdicts", "{ID}-verdict.md", None, "post-dispatch-common",
-         "Failed to deliver verdict. Present to {to_role} manually.", 4),
-    ],
-)
-
-# cloud_pay flow steps — canonical 4-step review chain (archi01pay → imple01pay
-# → review01pay → review02pay → humanpay). DELETE first to remove any
-# non-canonical rows (e.g. a legacy single-step), then INSERT the canonical 4.
-cursor.execute(
-    "DELETE FROM bridge_flow_steps WHERE flow_key = 'cloud_pay'"
-)
-cursor.executemany(
-    """INSERT INTO bridge_flow_steps
-       (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
-        pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    [
-        ("cloud_pay", "archi01-imple01", "archi01pay", "imple01pay",
-         "cloud_pay/handoffs", "{ID}-handoff.md", None, "post-dispatch-common",
-         "Failed to deliver handoff to {to_role}.", 1),
-        ("cloud_pay", "imple01-review01", "imple01pay", "review01pay",
-         "cloud_pay/results", "{ID}-result.md", None, "post-dispatch-common",
-         "Failed to deliver callback to {to_role}.", 2),
-        ("cloud_pay", "review01-review02", "review01pay", "review02pay",
-         "cloud_pay/reviews", "{ID}-review01.md", None, "post-dispatch-common",
-         "Failed to deliver callback to {to_role}.", 3),
-        ("cloud_pay", "review02-human", "review02pay", "humanpay",
-         "cloud_pay/verdicts", "{ID}-verdict.md", None, "post-dispatch-common",
-         "Failed to deliver verdict. Present to {to_role} manually.", 4),
-    ],
-)
-
-# trade_cockpit flow steps — auto-chain runs each step sequentially.
-# deliverable_dir is the trade-ui inbox (config-derived, no hardcoded path).
-_trade_inbox = config.get_trade_inbox_dir()
-cursor.execute("DELETE FROM bridge_flow_steps WHERE flow_key = 'trade_cockpit_simulation_v001'")
-cursor.execute("DELETE FROM bridge_flow_steps WHERE flow_key = 'trade_cockpit_scoring_v001'")
-cursor.executemany(
-    """INSERT INTO bridge_flow_steps
-       (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
-        pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-    [
-        ("trade_cockpit_simulation_v001", "human-trend01", "humantrade", "trend01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 1),
-        ("trade_cockpit_simulation_v001", "trend01-market01", "trend01_trade", "market01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 2),
-        ("trade_cockpit_simulation_v001", "market01-analyst01", "market01_trade", "analyst01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 3),
-        ("trade_cockpit_simulation_v001", "analyst01-risk01", "analyst01_trade", "risk01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 4),
-        ("trade_cockpit_simulation_v001", "risk01-review01", "risk01_trade", "review01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 5),
-        ("trade_cockpit_simulation_v001", "review01-sim01", "review01_trade", "sim01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 6),
-        ("trade_cockpit_simulation_v001", "sim01-portfolio01", "sim01_trade", "portfolio01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 7),
-        ("trade_cockpit_scoring_v001", "human-score01", "humantrade", "score01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 1),
-        ("trade_cockpit_scoring_v001", "score01-learn01", "score01_trade", "learn01_trade",
-         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
-         "Failed to deliver to {to_role}.", 2),
-    ],
-)
-# Trade Cockpit steps auto-chain (unlike strict_review/cloud_pay which are manual).
-cursor.execute(
-    "UPDATE bridge_flow_steps SET auto_chain_to_next = 1 "
-    "WHERE flow_key IN ('trade_cockpit_simulation_v001', 'trade_cockpit_scoring_v001')"
-)
-
+# Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # ── Fase 2: Bridge Script Registry ────────────────────────
 
 cursor.execute("""
@@ -4804,44 +4648,7 @@ try:
 except sqlite3.OperationalError:
     pass
 
-# Seed governance_file for strict_review roles (400-series flow-specific templates)
-cursor.execute(
-    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("401_STRICT_REVIEW_HUMAN.md", "human"),
-)
-cursor.execute(
-    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("402_STRICT_REVIEW_ARCHI01.md", "archi01"),
-)
-cursor.execute(
-    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("403_STRICT_REVIEW_IMPLE01.md", "imple01"),
-)
-cursor.execute(
-    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("404_STRICT_REVIEW_REVIEW01.md", "review01"),
-)
-cursor.execute(
-    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    ("405_STRICT_REVIEW_REVIEW02.md", "review02"),
-)
-
-# Seed governance_file for Trade Cockpit roles (431-440 series)
-cursor.executemany(
-    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
-    [
-        ("431_TRADE_TREND01.md", "trend01_trade"),
-        ("432_TRADE_MARKET01.md", "market01_trade"),
-        ("433_TRADE_ANALYST01.md", "analyst01_trade"),
-        ("434_TRADE_RISK01.md", "risk01_trade"),
-        ("435_TRADE_REVIEW01.md", "review01_trade"),
-        ("436_TRADE_SIM01.md", "sim01_trade"),
-        ("437_TRADE_SCORE01.md", "score01_trade"),
-        ("438_TRADE_LEARN01.md", "learn01_trade"),
-        ("440_TRADE_PORTFOLIO01.md", "portfolio01_trade"),
-    ],
-)
-
+# Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # G1: role_type column on bridge_roles — distinguish human from agent recipients
 try:
     cursor.execute("""
@@ -4866,15 +4673,7 @@ try:
 except sqlite3.OperationalError:
     pass
 
-# enter_command normalization: only the freebuff role (imple01cloud) needs
-# the two-step 'c-m' Enter style. All other roles use 'default'. Older DB
-# restores (e.g. from June-28 backup) carry stale 'c-m' on imple01pay — this
-# idempotent UPDATE enforces the canonical state on every init_db run.
-cursor.execute("UPDATE bridge_roles SET enter_command = 'default'")
-cursor.execute(
-    "UPDATE bridge_roles SET enter_command = 'c-m' WHERE role_key = 'imple01cloud'"
-)
-
+# Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # H160: start_cmd_suffix column — REMOVED (dead config per principle).
 # Was a decomposed start-command field; Machine Profile (default_runtime/
 # default_provider/default_model + config_dir) is now the single source of
@@ -4920,27 +4719,7 @@ if not _column_exists(cursor, "bridge_roles", "config_dir"):
         ALTER TABLE bridge_roles ADD COLUMN config_dir TEXT DEFAULT NULL
     """)
 
-# Populate config_dir from legacy start_cmd_suffix for OpenCode roles
-# Extracts the directory name from OPENCODE_CONFIG_DIR=".../opencode-roles/<name>"
-# Only sets NULL fields — never overwrites manually configured values
-cursor.executemany(
-    """UPDATE bridge_roles
-       SET config_dir = ?
-       WHERE role_key = ? AND config_dir IS NULL""",
-    [
-        ("imple01", "imple01"),
-        ("glm52trade", "imple01pay"),
-        ("imple01", "analyst01_trade"),
-        ("review01", "review01"),
-        ("review01cloud", "review01"),
-        ("review01pay", "review01"),
-        ("review01_trade", "glm52trade"),
-        ("review02", "review02"),
-        ("review02cloud", "review02"),
-        ("review02pay", "review02"),
-    ],
-)
-
+# Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # Machine Profile Fase 2B — flow-role overrides on bridge_flow_steps
 if not _column_exists(cursor, "bridge_flow_steps", "runtime_override"):
     cursor.execute("""
@@ -4957,51 +4736,7 @@ if not _column_exists(cursor, "bridge_flow_steps", "model_override"):
         ALTER TABLE bridge_flow_steps ADD COLUMN model_override TEXT DEFAULT NULL
     """)
 
-# Seed default_runtime/default_provider/default_model from analyzed patterns
-# Only seeds when ALL THREE fields are NULL — never partially overwrites.
-# One entry per role_key — no duplicates.
-# review01_trade is seeded explicitly: opencode + openrouter + z-ai/glm-5.2
-# (config_dir='glm52trade' set above; command builder prepends openrouter/ prefix).
-cursor.executemany(
-    """UPDATE bridge_roles
-       SET default_runtime = ?, default_provider = ?, default_model = ?
-       WHERE role_key = ?
-         AND default_runtime IS NULL
-         AND default_provider IS NULL
-         AND default_model IS NULL""",
-    [
-        # Claude + local_ollama (35b-a3b-64k)
-        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01"),
-        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "archi01cloud"),
-        ("claude", "openrouter", "z-ai/glm-5.2", "archi01pay"),
-        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "trend01_trade"),
-        ("claude", "local_ollama", "qwen3.6:35b-a3b-64k", "risk01_trade"),
-        # Claude + cloud_ollama
-        ("claude", "cloud_ollama", "deepseek-v4-pro:cloud", "market01_trade"),
-        # Claude + local_ollama (27b-q4_K_M)
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "learn01_trade"),
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "score01_trade"),
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "sim01_trade"),
-        ("claude", "local_ollama", "qwen3.6:27b-q4_K_M", "portfolio01_trade"),
-        # OpenCode + local_ollama (review rollers — faktisk runtime er opencode)
-        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01"),
-        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01cloud"),
-        ("opencode", "local_ollama", "qwen3.6:27b-q4_K_M", "review01pay"),
-        ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02"),
-        ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02cloud"),
-        ("opencode", "local_ollama", "qwen3.6:35b-a3b", "review02pay"),
-        # OpenCode + local_ollama
-        ("opencode", "local_ollama", "qwen3.6-27b-coder:latest", "imple01"),
-        # OpenCode + built-in provider (no prefix — OpenCode handles directly)
-        ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "analyst01_trade"),
-        # imple01pay: OpenCode + OpenRouter (Kimi K2.7 Code, glm52trade config)
-        ("opencode", "openrouter", "moonshotai/kimi-k2.7-code", "imple01pay"),
-        # OpenCode + openrouter (review01_trade — GLM 5.2 via OpenRouter, glm52trade config)
-        ("opencode", "openrouter", "z-ai/glm-5.2", "review01_trade"),
-        # Freebuff
-        ("freebuff", None, "freebuff-default", "imple01cloud"),
-    ],
-)
+# Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
 
@@ -5529,28 +5264,7 @@ CREATE TABLE IF NOT EXISTS bridge_id_counters (
 )
 """)
 
-# Seed: one counter per active flow — auto-create via INSERT OR IGNORE.
-# Human updates next_id when starting a new flow cycle.
-cursor.execute(
-    """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
-       VALUES (?, ?)""",
-    ("strict_review", 139),
-)
-
-# Trade Cockpit flows — counters auto-increment via get_next_id_for_flow()
-# in bridge_lib.py (called by the cronjob scripts). Seeded here so the
-# first run finds a row; existing rows are never overwritten (INSERT OR IGNORE).
-cursor.execute(
-    """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
-       VALUES (?, ?)""",
-    ("trade_cockpit_simulation_v001", 1),
-)
-cursor.execute(
-    """INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)
-       VALUES (?, ?)""",
-    ("trade_cockpit_scoring_v001", 1),
-)
-
+# Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # Commit changes and close connection
 conn.commit()
 conn.close()
