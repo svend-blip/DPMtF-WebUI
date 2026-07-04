@@ -4158,6 +4158,39 @@ cursor.executemany(
          "ollama", None, None,
          None, None,
          None),
+        # ── Trade Cockpit roles (machine_profile pattern — start_cmd unused;
+        # command_builder uses default_runtime/default_provider/default_model +
+        # config_dir set by the UPDATEs below. Governance files: 431-440.) ──
+        ("humantrade", "humantrade",
+         None, "human", None, None,
+         None, None, None),
+        ("trend01_trade", "trend01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:35b-a3b-64k",
+         None, None, "trend01_trade session stopped unexpectedly."),
+        ("market01_trade", "market01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "deepseek-v4-pro:cloud",
+         None, None, "market01_trade session stopped unexpectedly."),
+        ("analyst01_trade", "analyst01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "opencode", "", "minimax/MiniMax-M3",
+         None, None, "analyst01_trade session stopped unexpectedly."),
+        ("risk01_trade", "risk01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:35b-a3b-64k",
+         None, None, "risk01_trade session stopped unexpectedly."),
+        ("review01_trade", "review01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "opencode", "", "z-ai/glm-5.2",
+         None, None, "review01_trade session stopped unexpectedly."),
+        ("sim01_trade", "sim01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+         None, None, "sim01_trade session stopped unexpectedly."),
+        ("score01_trade", "score01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+         None, None, "score01_trade session stopped unexpectedly."),
+        ("learn01_trade", "learn01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+         None, None, "learn01_trade session stopped unexpectedly."),
+        ("portfolio01_trade", "portfolio01_trade",
+         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+         None, None, "portfolio01_trade session stopped unexpectedly."),
     ],
 )
 
@@ -4169,7 +4202,19 @@ cursor.executemany(
          "human/archi01/imple01/review01/review02/human — full governance chain",
          None,
          1),
+        ("trade_cockpit_simulation_v001", "Trade Cockpit Simulation",
+         "Daily research-to-simulation chain: trend01→market01→analyst01→risk01→review01→sim01",
+         None, 0),
+        ("trade_cockpit_scoring_v001", "Trade Cockpit Scoring",
+         "Periodic scoring and learning: score01→learn01",
+         None, 0),
     ],
+)
+# Trade Cockpit flows use auto-chain + machine profiles (set explicitly since
+# the INSERT above only sets the default columns).
+cursor.executemany(
+    "UPDATE bridge_flows SET auto_complete_enabled=1, use_machine_profile=1 WHERE flow_key=?",
+    [("trade_cockpit_simulation_v001",), ("trade_cockpit_scoring_v001",)],
 )
 
 cursor.executemany(
@@ -4216,6 +4261,51 @@ cursor.executemany(
          "cloud_pay/verdicts", "{ID}-verdict.md", None, "post-dispatch-common",
          "Failed to deliver verdict. Present to {to_role} manually.", 4),
     ],
+)
+
+# trade_cockpit flow steps — auto-chain runs each step sequentially.
+# deliverable_dir is the trade-ui inbox (config-derived, no hardcoded path).
+_trade_inbox = config.get_trade_inbox_dir()
+cursor.execute("DELETE FROM bridge_flow_steps WHERE flow_key = 'trade_cockpit_simulation_v001'")
+cursor.execute("DELETE FROM bridge_flow_steps WHERE flow_key = 'trade_cockpit_scoring_v001'")
+cursor.executemany(
+    """INSERT INTO bridge_flow_steps
+       (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
+        pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+    [
+        ("trade_cockpit_simulation_v001", "human-trend01", "humantrade", "trend01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 1),
+        ("trade_cockpit_simulation_v001", "trend01-market01", "trend01_trade", "market01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 2),
+        ("trade_cockpit_simulation_v001", "market01-analyst01", "market01_trade", "analyst01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 3),
+        ("trade_cockpit_simulation_v001", "analyst01-risk01", "analyst01_trade", "risk01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 4),
+        ("trade_cockpit_simulation_v001", "risk01-review01", "risk01_trade", "review01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 5),
+        ("trade_cockpit_simulation_v001", "review01-sim01", "review01_trade", "sim01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 6),
+        ("trade_cockpit_simulation_v001", "sim01-portfolio01", "sim01_trade", "portfolio01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 7),
+        ("trade_cockpit_scoring_v001", "human-score01", "humantrade", "score01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 1),
+        ("trade_cockpit_scoring_v001", "score01-learn01", "score01_trade", "learn01_trade",
+         _trade_inbox, "{ID}_{role_key}.json", None, "post-dispatch-common",
+         "Failed to deliver to {to_role}.", 2),
+    ],
+)
+# Trade Cockpit steps auto-chain (unlike strict_review/cloud_pay which are manual).
+cursor.execute(
+    "UPDATE bridge_flow_steps SET auto_chain_to_next = 1 "
+    "WHERE flow_key IN ('trade_cockpit_simulation_v001', 'trade_cockpit_scoring_v001')"
 )
 
 # ── Fase 2: Bridge Script Registry ────────────────────────
@@ -4758,6 +4848,22 @@ cursor.execute(
 cursor.execute(
     "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
     ("405_STRICT_REVIEW_REVIEW02.md", "review02"),
+)
+
+# Seed governance_file for Trade Cockpit roles (431-440 series)
+cursor.executemany(
+    "UPDATE bridge_roles SET governance_file = ? WHERE role_key = ?",
+    [
+        ("431_TRADE_TREND01.md", "trend01_trade"),
+        ("432_TRADE_MARKET01.md", "market01_trade"),
+        ("433_TRADE_ANALYST01.md", "analyst01_trade"),
+        ("434_TRADE_RISK01.md", "risk01_trade"),
+        ("435_TRADE_REVIEW01.md", "review01_trade"),
+        ("436_TRADE_SIM01.md", "sim01_trade"),
+        ("437_TRADE_SCORE01.md", "score01_trade"),
+        ("438_TRADE_LEARN01.md", "learn01_trade"),
+        ("440_TRADE_PORTFOLIO01.md", "portfolio01_trade"),
+    ],
 )
 
 # G1: role_type column on bridge_roles — distinguish human from agent recipients
