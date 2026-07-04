@@ -295,6 +295,39 @@ curl -s http://localhost:9130/api/health
 curl -s http://localhost:9130/api/bridge-v2/status
 ```
 
+## 8.1. init_db.py — Keep Slim (Architectural Note)
+
+`scripts/init_db.py` should contain **only schema and canonical defaults** —
+not user-configured data. The file is currently oversized (5500+ lines) because
+role/flow/step definitions and model-provider choices were incrementally baked
+in by handoffs. This is a known debt — cleanup is planned but not started.
+
+**Principle:** Configuration must be visible & configurable (.env /
+`machine.json` / frontend) or deleted — never hardcoded as invisible seed
+data that overwrites user choices on restore.
+
+**init_db.py should contain:**
+- Schema: `CREATE TABLE`, `ALTER TABLE` — canonical structure.
+- Canonical defaults: i18n labels, convention rules, governance-file mappings
+  for standard roles.
+- Minimal seed: `INSERT OR IGNORE` for rows a fresh DB needs to boot.
+
+**init_db.py should NOT contain:**
+- User-configured role models/providers (e.g. `imple01pay` →
+  `moonshotai/kimi-k2.7-code`) — these belong in the DB (managed via frontend
+  + `machine.local.json`), not in init_db.py.
+- Flow/step definitions that are actively maintained via the UI.
+
+**When adding/changing a role config:** update the DB (via frontend or
+`sqlite3`) + commit `databases/dpmtf.db` to git (rollback safety). Only add to
+`init_db.py` if the value is a canonical default needed on a fresh DB — and
+use `INSERT OR IGNORE` / `WHERE field IS NULL` so it never overwrites
+user-configured values.
+
+**Planned refactor (not started):** move role/flow/step seed data out of
+`init_db.py` into a separate `seed_bridge.py` that only runs on fresh DBs,
+reducing `init_db.py` to ~2000 lines (schema + i18n + conventions).
+
 ## 9. PC-Specific Notes
 
 | Setting | Value |
