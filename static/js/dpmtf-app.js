@@ -400,9 +400,9 @@ function buildDrawerContent() {
       var table = el("table", "dpmtf-table");
       var thead = el("thead", null);
       var thr = el("tr", null);
-      thr.appendChild(el("th", null, "Panel"));
-      thr.appendChild(el("th", null, "Slot"));
-      thr.appendChild(el("th", null, "Type"));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_panel", "Panel")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_slot", "Slot")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_type", "Type")));
       thead.appendChild(thr);
       table.appendChild(thead);
       var tbody = el("tbody", null);
@@ -446,8 +446,8 @@ function buildDrawerContent() {
       var table = el("table", "dpmtf-table");
       var thead = el("thead", null);
       var thr = el("tr", null);
-      thr.appendChild(el("th", null, "Key"));
-      thr.appendChild(el("th", null, "Text"));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_label_key", "Key")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_label_text", "Text")));
       thead.appendChild(thr);
       table.appendChild(thead);
       var tbody = el("tbody", null);
@@ -488,9 +488,9 @@ function buildDrawerContent() {
       var table = el("table", "dpmtf-table");
       var thead = el("thead", null);
       var thr = el("tr", null);
-      thr.appendChild(el("th", null, "Method"));
-      thr.appendChild(el("th", null, "Path"));
-      thr.appendChild(el("th", null, "Purpose"));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_method", "Method")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_path", "Path")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_purpose", "Purpose")));
       thead.appendChild(thr);
       table.appendChild(thead);
       var tbody = el("tbody", null);
@@ -532,9 +532,9 @@ function buildDrawerContent() {
       var table = el("table", "dpmtf-table");
       var thead = el("thead", null);
       var thr = el("tr", null);
-      thr.appendChild(el("th", null, "Dataset"));
-      thr.appendChild(el("th", null, "Table"));
-      thr.appendChild(el("th", null, "Script"));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_dataset", "Dataset")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_table", "Table")));
+      thr.appendChild(el("th", null, lbl("lbl_bridge_th_script", "Script")));
       thead.appendChild(thr);
       table.appendChild(thead);
       var tbody = el("tbody", null);
@@ -555,7 +555,7 @@ function buildDrawerContent() {
 
   // ── Validation ───────────────────────────────────────
   var valCard = el("div", "dpmtf-card");
-  valCard.appendChild(el("h4", null, "Validation"));
+  valCard.appendChild(el("h4", null, lbl("lbl_system_h4_validation", "Validation")));
   var valBody = el("div", null);
   valBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
   valCard.appendChild(valBody);
@@ -593,7 +593,7 @@ function buildDrawerContent() {
 
   // ── Platform ─────────────────────────────────────────
   var platCard = el("div", "dpmtf-card");
-  platCard.appendChild(el("h4", null, "Platform"));
+  platCard.appendChild(el("h4", null, lbl("lbl_system_h4_platform", "Platform")));
   var platBody = el("div", null);
   platBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
   platCard.appendChild(platBody);
@@ -621,7 +621,7 @@ function buildDrawerContent() {
 
   // ── Claude Code Sessions ─────────────────────────────
   var sessCard = el("div", "dpmtf-card");
-  sessCard.appendChild(el("h4", null, "Claude Code Sessions"));
+  sessCard.appendChild(el("h4", null, lbl("lbl_system_h4_claude_sessions", "Claude Code Sessions")));
   var sessBody = el("div", null);
   sessBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
   sessCard.appendChild(sessBody);
@@ -655,7 +655,7 @@ function buildDrawerContent() {
 
   // ── Workflow (P→I→V loop) ────────────────────────────
   var wfCard = el("div", "dpmtf-card");
-  wfCard.appendChild(el("h4", null, "Workflow — P→I→V Loop"));
+  wfCard.appendChild(el("h4", null, lbl("lbl_system_h4_workflow_loop", "Workflow — P→I→V Loop")));
   var wfBody = el("div", null);
   wfBody.appendChild(el("p", "dpmtf-muted", lbl("lbl_status_loading", "Loading...")));
   wfCard.appendChild(wfBody);
