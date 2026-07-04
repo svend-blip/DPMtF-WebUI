@@ -4866,6 +4866,15 @@ try:
 except sqlite3.OperationalError:
     pass
 
+# enter_command normalization: only the freebuff role (imple01cloud) needs
+# the two-step 'c-m' Enter style. All other roles use 'default'. Older DB
+# restores (e.g. from June-28 backup) carry stale 'c-m' on imple01pay — this
+# idempotent UPDATE enforces the canonical state on every init_db run.
+cursor.execute("UPDATE bridge_roles SET enter_command = 'default'")
+cursor.execute(
+    "UPDATE bridge_roles SET enter_command = 'c-m' WHERE role_key = 'imple01cloud'"
+)
+
 # H160: start_cmd_suffix column — REMOVED (dead config per principle).
 # Was a decomposed start-command field; Machine Profile (default_runtime/
 # default_provider/default_model + config_dir) is now the single source of
