@@ -1818,15 +1818,18 @@ CREATE TABLE IF NOT EXISTS webui_migration_targets (
 """)
 
 # Seed webui_migration_targets data (no DELETE — upsert style)
+_ai_pc_ref_project = config.get_project_path("ai-pc-resource-webui")
+_ai_pc_v2_project = config.get_project_path("ai-pc-resource-webui-v2")
+
 webui_migration_targets_data = [
     (
         "WMT-7000001",
         "ai_pc_resource_webui_v2",
         "AI PC Resource WebUI v2",
-        "/home/svend/ai-pc-resource-webui-v2",
+        _ai_pc_v2_project,
         9121,
         "planned",
-        "/home/svend/ai-pc-resource-webui",
+        _ai_pc_ref_project,
         "new_clean_project_reuse_selected_panels",
         "ADR-6000001",
         "New clean AI PC Resource WebUI version on a different port. No project files created in this phase.",
@@ -1869,7 +1872,7 @@ reusable_panel_selections_data = [
     (
         "RPN-8000001",
         "ai_pc_resource_webui_v2",
-        "/home/svend/ai-pc-resource-webui",
+        _ai_pc_ref_project,
         "resources",
         "System Resources",
         "resources",
@@ -1883,7 +1886,7 @@ reusable_panel_selections_data = [
     (
         "RPN-8000002",
         "ai_pc_resource_webui_v2",
-        "/home/svend/ai-pc-resource-webui",
+        _ai_pc_ref_project,
         "pipeline-status-panel",
         "Pipeline Status Panel",
         "pipeline-status-panel",
@@ -1897,7 +1900,7 @@ reusable_panel_selections_data = [
     (
         "RPN-8000003",
         "ai_pc_resource_webui_v2",
-        "/home/svend/ai-pc-resource-webui",
+        _ai_pc_ref_project,
         "pipeline-action-mapping-panel",
         "Pipeline Action Mapping Panel",
         "pipeline-action-mapping-panel",
@@ -1911,7 +1914,7 @@ reusable_panel_selections_data = [
     (
         "RPN-8000004",
         "ai_pc_resource_webui_v2",
-        "/home/svend/ai-pc-resource-webui",
+        _ai_pc_ref_project,
         "manual-runbooks",
         "Manual Runbooks",
         "manual-runbooks",
@@ -1925,7 +1928,7 @@ reusable_panel_selections_data = [
     (
         "RPN-8000005",
         "ai_pc_resource_webui_v2",
-        "/home/svend/ai-pc-resource-webui",
+        _ai_pc_ref_project,
         "wrapper-confirmation-gates",
         "Wrapper Confirmation Gates",
         "wrapper-confirmation-gates",
@@ -1972,11 +1975,11 @@ webui_project_skeletons_data = [
     (
         "WSK-9000001",
         "ai_pc_resource_webui_v2",
-        "/home/svend/ai-pc-resource-webui-v2",
+        _ai_pc_v2_project,
         9121,
         "created",
         '["app.py","requirements.txt","README.md","templates/index.html","static/css/app.css","static/js/app.js","databases/.gitkeep"]',
-        "cd /home/svend/ai-pc-resource-webui-v2 && source venv/bin/activate && uvicorn app:app --host 0.0.0.0 --port 9121",
+        f"cd {_ai_pc_v2_project} && source venv/bin/activate && uvicorn app:app --host 0.0.0.0 --port 9121",
         "/api/health",
         "Skeleton only. No server started and no panels implemented in Phase 2C. Selected panel requirements must be clarified with the user before panel code is generated.",
         1,
@@ -2086,6 +2089,9 @@ CREATE TABLE IF NOT EXISTS v2_panel_requirements (
 """)
 
 # Seed v2_panel_requirements data (no DELETE — upsert style)
+_omitted_cards = config.get_omitted_card_paths()
+_ai_data_dir = os.path.join(config.get_home_dir(), "ai-data")
+
 v2_panel_requirements_data = [
     # VPR-1000001: CUDA0 - RTX5090 (gpu_gauge)
     (
@@ -2097,7 +2103,7 @@ v2_panel_requirements_data = [
         "CUDA0 - RTX5090",
         "gpu_gauge",
         1,
-        "/home/svend/ai-pc-resource-webui System Resources CUDA0 card",
+        f"{_ai_pc_ref_project} System Resources CUDA0 card",
         json.dumps({
             "data_source": "/api/status",
             "json_collection": "gpus",
@@ -2124,7 +2130,7 @@ v2_panel_requirements_data = [
             "no_post_actions": True,
             "refresh_interval_seconds": 30,
             "exact_display_order": True,
-            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+            "omitted_cards": _omitted_cards,
         }),
         "specified",
         1,
@@ -2140,7 +2146,7 @@ v2_panel_requirements_data = [
         "CUDA1 - RTX3060",
         "gpu_gauge",
         2,
-        "/home/svend/ai-pc-resource-webui System Resources CUDA1 card",
+        f"{_ai_pc_ref_project} System Resources CUDA1 card",
         json.dumps({
             "data_source": "/api/status",
             "json_collection": "gpus",
@@ -2167,28 +2173,28 @@ v2_panel_requirements_data = [
             "no_post_actions": True,
             "refresh_interval_seconds": 30,
             "exact_display_order": True,
-            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+            "omitted_cards": _omitted_cards,
         }),
         "specified",
         1,
         1,
     ),
-    # VPR-1000003: /home/svend (disk_usage)
+    # VPR-1000003: home_dir disk_usage card
     (
         "VPR-1000003",
         "ai_pc_resource_webui_v2",
         "system_resources",
         "System Resources",
         "home_svend_disk",
-        "/home/svend",
+        config.get_home_dir(),
         "disk_usage",
         3,
-        "/home/svend/ai-pc-resource-webui System Resources /home/svend disk card",
+        f"{_ai_pc_ref_project} System Resources {config.get_home_dir()} disk card",
         json.dumps({
             "data_source": "/api/status",
             "json_collection": "storage",
             "match_field": "path",
-            "match_values": ["/home/svend"],
+            "match_values": [config.get_home_dir()],
             "fields": ["path", "size", "used", "available", "use_percent"],
             "display_rows": ["Size", "Used", "Free", "Use"],
         }),
@@ -2209,28 +2215,28 @@ v2_panel_requirements_data = [
             "no_post_actions": True,
             "refresh_interval_seconds": 30,
             "exact_display_order": True,
-            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+            "omitted_cards": _omitted_cards,
         }),
         "specified",
         1,
         1,
     ),
-    # VPR-1000004: /home/svend/ai-data (disk_usage)
+    # VPR-1000004: home_dir/ai-data disk_usage card
     (
         "VPR-1000004",
         "ai_pc_resource_webui_v2",
         "system_resources",
         "System Resources",
         "ai_data_disk",
-        "/home/svend/ai-data",
+        _ai_data_dir,
         "disk_usage",
         4,
-        "/home/svend/ai-pc-resource-webui System Resources /home/svend/ai-data disk card",
+        f"{_ai_pc_ref_project} System Resources {_ai_data_dir} disk card",
         json.dumps({
             "data_source": "/api/status",
             "json_collection": "storage",
             "match_field": "path",
-            "match_values": ["/home/svend/ai-data"],
+            "match_values": [_ai_data_dir],
             "fields": ["path", "size", "used", "available", "use_percent"],
             "display_rows": ["Size", "Used", "Free", "Use"],
         }),
@@ -2251,7 +2257,7 @@ v2_panel_requirements_data = [
             "no_post_actions": True,
             "refresh_interval_seconds": 30,
             "exact_display_order": True,
-            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+            "omitted_cards": _omitted_cards,
         }),
         "specified",
         1,
@@ -2267,7 +2273,7 @@ v2_panel_requirements_data = [
         "Tailscale",
         "tailscale_status",
         5,
-        "/home/svend/ai-pc-resource-webui System Resources Tailscale card",
+        f"{_ai_pc_ref_project} System Resources Tailscale card",
         json.dumps({
             "data_source": "/api/status",
             "json_object": "tailscale",
@@ -2291,7 +2297,7 @@ v2_panel_requirements_data = [
             "no_post_actions": True,
             "refresh_interval_seconds": 30,
             "exact_display_order": True,
-            "omitted_cards": ["RAM", "/", "/home/svend/HermesOutput", "/home/svend/ComfyUI", "/home/svend/ComfyUI-LTX23"],
+            "omitted_cards": _omitted_cards,
         }),
         "specified",
         1,
@@ -3188,9 +3194,9 @@ compiler_fields_seed = [
     ("allowed_files", "Allowed files (one per line)", "textarea", 1, None,
      "scope", 12, f"{config.get_project_root()}/scripts/init_db.py",
      "Full paths to files the Implementor MAY modify", None),
-    ("forbidden_files", "Forbidden files (one per line)", "textarea", 1, None,
-     "scope", 13, f"/home/svend/{config.get_child_projects()[0]}/\n/home/svend/{config.get_reference_projects()[0]}/",
-     "Full paths to files the Implementor MUST NOT touch", None),
+     ("forbidden_files", "Forbidden files (one per line)", "textarea", 1, None,
+      "scope", 13, f"{config.get_project_path(config.get_child_projects()[0])}/\n{config.get_project_path(config.get_reference_projects()[0])}/",
+      "Full paths to files the Implementor MUST NOT touch", None),
     ("constraints", "Constraints (one per line)", "textarea", 1, None,
      "scope", 14, "no-innerHTML\nno-schema-migration\nno-new-dependencies",
      "Specific constraints extracted from governance", None),
@@ -3200,7 +3206,7 @@ compiler_fields_seed = [
      "Check if this task involves migrating from existing WebUI projects", None),
     ("migration_folders", "Migration folders — READ-ONLY (one per line)", "textarea", 1,
      '{"trigger":"is_migration_true","description":"is_migration checkbox is checked"}',
-     "migration", 16, "/home/svend/old-webui-v2/",
+     "migration", 16, f"{config.get_projects_base_dir()}/old-webui-v2/",
      "Full paths to existing WebUI folders for reference inspection only", None),
     ("migration_source_description", "Migration source description", "text", 1,
      '{"trigger":"is_migration_true","description":"is_migration checkbox is checked"}',
@@ -3312,8 +3318,8 @@ compiler_field_options_seed = [
     ("target_session", "claude_review", "Review — validation & coordination (claude_review)", 3, 0),
     # ── target_project options ──
     ("target_project", config.get_project_root(), "DPMtF-WebUI (Father, port 9130)", 1, 1),
-    ("target_project", f"/home/svend/{config.get_child_projects()[0]}", "ENO (Child, port 9131)", 2, 0),
-    ("target_project", f"/home/svend/{config.get_reference_projects()[0]}", "ai-pc-resource-webui-v3 (Reference, port 9123)", 3, 0),
+    ("target_project", config.get_project_path(config.get_child_projects()[0]), "ENO (Child, port 9131)", 2, 0),
+    ("target_project", config.get_project_path(config.get_reference_projects()[0]), "ai-pc-resource-webui-v3 (Reference, port 9123)", 3, 0),
     # ── father_project options ──
     ("father_project", "DPMtF-WebUI", "DPMtF-WebUI", 1, 1),
     # ── deployment_strategy options ──
@@ -4132,17 +4138,17 @@ cursor.executemany(
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "archi01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
         ("imple01", "imple01",
-         "tmux send-keys -t imple01 'cd {PROJECT_ROOT} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/imple01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/imple01/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:27b-q4_K_M' Enter",
+         f"tmux send-keys -t imple01 'cd {{PROJECT_ROOT}} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/imple01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/imple01/opencode.json\" {config.get_opencode_bin()} --model ollama/qwen3.6:27b-q4_K_M' Enter",
          "ollama", "", "qwen3.6:27b-q4_K_M",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "imple01 session stopped unexpectedly. Start manually in tmux."),
         ("review01", "review01",
-         "tmux send-keys -t review01 'cd {PROJECT_ROOT} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review01/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:35b-a3b' Enter",
+         f"tmux send-keys -t review01 'cd {{PROJECT_ROOT}} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review01/opencode.json\" {config.get_opencode_bin()} --model ollama/qwen3.6:35b-a3b' Enter",
          "ollama", "", "qwen3.6:35b-a3b",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "review01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
         ("review02", "review02",
-         "tmux send-keys -t review02 'cd {PROJECT_ROOT} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review02\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review02/opencode.json\" /home/svend/.opencode/bin/opencode --model ollama/qwen3.6:27b-q4_K_M' Enter",
+         f"tmux send-keys -t review02 'cd {{PROJECT_ROOT}} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review02\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review02/opencode.json\" {config.get_opencode_bin()} --model ollama/qwen3.6:27b-q4_K_M' Enter",
          "ollama", "", "qwen3.6:27b-q4_K_M",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "review02 session stopped unexpectedly. Start manually."),

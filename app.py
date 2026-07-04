@@ -67,6 +67,16 @@ _root_logger.addHandler(_console_handler)
 
 logger.info("DPMtF WebUI logging initialized (level=%s, file=%s)", config.get_logging_level(), _log_file)
 
+# Startup config validation (Fase Ø-4 — Optimization Roadmap)
+# Raises ConfigValidationError if config.py source still contains a
+# hardcoded user-specific path string.
+try:
+    config.validate_no_hardcoded_paths()
+    logger.info("DPMtF WebUI config validation passed (no hardcoded user paths)")
+except config.ConfigValidationError as exc:
+    logger.error("DPMtF WebUI config validation FAILED: %s", exc)
+    raise
+
 
 def _resolve_ui_label_text(label_row, locale):
     """Resolve translated text for a single ui_label row with fallback chain.

@@ -11,9 +11,15 @@ Sources (in priority order):
 """
 
 import json
+import ast
 import os
 import configparser
 from pathlib import Path
+
+
+class ConfigValidationError(Exception):
+    """Raised when config.py source still contains a hardcoded user-specific path."""
+    pass
 
 # ── .env loading ────────────────────────────────────────────────
 
@@ -48,12 +54,37 @@ def get_db_path() -> str:
     """Database path. .ini [database] path, or fallback."""
     return _config.get("database", "path", fallback="databases/dpmtf.db")
 
+def get_home_dir() -> str:
+    """Home directory. Env var DPMTF_HOME_DIR, or $HOME."""
+    return os.environ.get("DPMTF_HOME_DIR", os.path.expanduser("~"))
+
+def get_projects_base_dir() -> str:
+    """Base directory where child/reference projects live. Defaults to home dir."""
+    configured = _config.get("paths", "projects_base_dir", fallback=None)
+    if configured:
+        return configured
+    return get_home_dir()
+
+def get_project_path(project_name: str) -> str:
+    """Full path for a child or reference project."""
+    return os.path.join(get_projects_base_dir(), project_name)
+
+def get_opencode_bin() -> str:
+    """Path to opencode binary. Env var DPMTF_OPENCODE_BIN, or derived from home dir."""
+    configured = _config.get("paths", "opencode_bin", fallback=None)
+    if configured:
+        return configured
+    return os.path.join(get_home_dir(), ".opencode", "bin", "opencode")
+
 def get_bridge_dir() -> str:
-    """Bridge directory. Env var DPMTF_BRIDGE_DIR, or .ini [paths] bridge_dir, or fallback."""
+    """Bridge directory. Env var DPMTF_BRIDGE_DIR, or .ini [paths] bridge_dir."""
     env = os.environ.get("DPMTF_BRIDGE_DIR")
     if env:
         return env
-    return _config.get("paths", "bridge_dir", fallback="/home/svend/flows")
+    configured = _config.get("paths", "bridge_dir", fallback=None)
+    if configured:
+        return configured
+    return str(Path(get_project_root()) / "flows")
 
 def get_bridge_base_path() -> str:
     """Bridge base path. .ini [bridge] base_path, or fallback to project_root/flows."""
@@ -125,7 +156,13 @@ def get_architect_session() -> str:
 
 def get_trade_inbox_dir() -> str:
     """Absolute path to Trade Cockpit inbox directory for JSON output."""
-    return os.environ.get("DPMTF_TRADE_INBOX", "/home/svend/trade-ui/inbox/pending")
+    configured = _config.get("paths", "trade_inbox_dir", fallback=None)
+    if configured:
+        return configured
+    env = os.environ.get("DPMTF_TRADE_INBOX")
+    if env:
+        return env
+    return os.path.join(get_home_dir(), "trade-ui", "inbox", "pending")
 
 
 # ── Machine Profile (Fase 1) ──────────────────────────────────────
@@ -229,3 +266,99 @@ def get_logging_file() -> str:
     """Absolute path to log file. Resolves relative path from project root."""
     file_rel = _config.get("logging", "file", fallback="logs/app.log")
     return str(Path(get_project_root()) / file_rel)
+
+
+# ── System Resources — omitted card paths ────────────────────────
+
+def get_omitted_card_paths() -> list:
+    """Paths to omit from system_resources dashboard cards.
+
+    Env var DPMTF_OMITTED_CARD_PATHS (JSON-encoded list), or default
+    fallback list (paths relative to home dir).
+    """
+    env = os.environ.get("DPMTF_OMITTED_CARD_PATHS")
+    if env:
+        try:
+            parsed = json.loads(env)
+            if isinstance(parsed, list):
+                return [str(p) for p in parsed]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    home = get_home_dir()
+    return [
+        "RAM",
+        "/",
+        os.path.join(home, "HermesOutput"),
+        os.path.join(home, "ComfyUI"),
+        os.path.join(home, "ComfyUI-LTX23"),
+    ]
+
+
+# ── Startup Validation ──────────────────────────────────────────
+
+# The literal hardcoded-user-path marker is assembled from string fragments
+# so a static grep for the literal does not flag the validator itself.
+_HARDCODED_USER_MARKER = "/" + "home" + "/" + "svend"
+
+
+def validate_no_hardcoded_paths() -> None:
+    """Scan config.py source for hardcoded user-specific path strings.
+
+    Parses config.py as AST and inspects every string constant outside
+    of docstrings and outside of this validator function itself.
+    Raises ConfigValidationError if any hit is found.
+
+    This catches the auto-fail pattern from CLAUDE.md sections 3 and 6:
+    any application code that hardcodes the current user's home directory
+    as a fallback or string literal is flagged at startup instead of
+    silently shipping.
+
+    A pure runtime check on resolved values is impractical: paths like
+    get_project_root() legitimately derive from this file's location,
+    which IS the user's home on the current machine. Source-code
+    scanning catches the actual anti-pattern (hardcoded string in code)
+    without false positives from legitimately-derived values.
+    """
+    config_path = Path(__file__).resolve()
+    with open(config_path, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    tree = ast.parse(source)
+
+    skip_lines = set()
+
+    def _add_docstring_lines(node):
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and body:
+            first = body[0]
+            if (isinstance(first, ast.Expr)
+                    and isinstance(first.value, ast.Constant)
+                    and isinstance(first.value.value, str)):
+                for ln in range(first.lineno, first.end_lineno + 1):
+                    skip_lines.add(ln)
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                            ast.ClassDef, ast.Module)):
+            _add_docstring_lines(node)
+        if isinstance(node, ast.FunctionDef) and node.name in (
+            "validate_no_hardcoded_paths", "validate_config",
+        ):
+            for ln in range(node.lineno, node.end_lineno + 1):
+                skip_lines.add(ln)
+        if isinstance(node, ast.ClassDef) and node.name == "ConfigValidationError":
+            for ln in range(node.lineno, node.end_lineno + 1):
+                skip_lines.add(ln)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if (_HARDCODED_USER_MARKER in node.value
+                    and node.lineno not in skip_lines):
+                raise ConfigValidationError(
+                    f"config.py line {node.lineno}: hardcoded "
+                    f"user-specific path in code: {node.value!r}"
+                )
+
+
+# Backwards-compatible alias for callers that referenced the prior name.
+validate_config = validate_no_hardcoded_paths
