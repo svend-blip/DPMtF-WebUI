@@ -4929,8 +4929,8 @@ cursor.executemany(
        WHERE role_key = ? AND config_dir IS NULL""",
     [
         ("imple01", "imple01"),
-        ("imple01pay", "imple01"),
-        ("analyst01_trade", "imple01"),
+        ("glm52trade", "imple01pay"),
+        ("imple01", "analyst01_trade"),
         ("review01", "review01"),
         ("review01cloud", "review01"),
         ("review01pay", "review01"),
@@ -4994,7 +4994,8 @@ cursor.executemany(
         ("opencode", "local_ollama", "qwen3.6-27b-coder:latest", "imple01"),
         # OpenCode + built-in provider (no prefix — OpenCode handles directly)
         ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "analyst01_trade"),
-        ("opencode", "opencode_builtin", "minimax/MiniMax-M3", "imple01pay"),
+        # imple01pay: OpenCode + OpenRouter (Kimi K2.7 Code, glm52trade config)
+        ("opencode", "openrouter", "moonshotai/kimi-k2.7-code", "imple01pay"),
         # OpenCode + openrouter (review01_trade — GLM 5.2 via OpenRouter, glm52trade config)
         ("opencode", "openrouter", "z-ai/glm-5.2", "review01_trade"),
         # Freebuff
