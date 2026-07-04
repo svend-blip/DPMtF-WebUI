@@ -131,5 +131,27 @@ These patterns are prohibited based on project history:
 4. **Silent failures** — catch blocks MUST log or report errors.
 5. **New dependencies without Human approval** — auto-fail.
 6. **More than 2 failed patching attempts** — stop, document, escalate.
+7. **Destructive database operations on production data** — auto-fail. This
+   includes `DROP TABLE`, `DELETE FROM <table>` (without a WHERE on a temp
+   table), `rm` on any path containing `databases/` or a production `.db`
+   file, and `CREATE TABLE` that recreates a production table from memory.
+   **Production DB = `databases/dpmtf.db` (Father) and
+   `databases/trade-ui.db` (trade-ui).** Rules:
+   - Never `rm` a production `.db` path — even inside a multi-path `rm -f`.
+     Only `rm` paths under `/tmp/` or an explicit test-fixture dir.
+   - If a production DB is corrupted/deleted: **restore from backup** (see
+     `docs/bridgeV002/BACKUP-STRATEGY.md`) or escalate to Human. NEVER
+     recreate tables from memory — hallucinated schemas (e.g. `last_id` vs
+     `next_id`) silently corrupt the bridge and break dispatch.
+   - Test against a **temp DB** (`/tmp/test_*.db` or `tmp_path`), never the
+     production DB. If a test must touch production schema, copy first:
+     `cp databases/dpmtf.db /tmp/test.db`.
+   - `signal-complete` / dispatch failures are NOT a reason to mutate the
+     production DB. Investigate the cause; do not INSERT minimal rows to
+     make the command succeed.
+   - Added 2026-07-04 after handoff 43 (B-4): imple01pay ran
+     `rm -f /tmp/test_b4_father.db databases/dpmtf.db` (deleted the Father
+     DB by mistake), then recreated bridge tables from memory with a
+     hallucinated `last_id` schema, losing 4 flows / 22 roles / all counters.
 
 ---

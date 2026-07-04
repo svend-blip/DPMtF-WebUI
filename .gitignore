@@ -9,6 +9,9 @@ __pycache__/
 databases/*.db
 databases/*.bak.*
 databases/*.preh99.*
+# Exception: commit the Father DB (databases/dpmtf.db) for rollback safety.
+# Private repo, no secrets (verified — .env holds secrets separately).
+!databases/dpmtf.db
 .playwright-mcp/
 screenshot-*.png
 
