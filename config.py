@@ -216,3 +216,16 @@ def get_machine_profile_metadata() -> dict:
         }
 
     return result
+
+
+# ── Logging ─────────────────────────────────────────────────────
+
+def get_logging_level() -> str:
+    """Logging level. .ini [logging] level, or fallback to INFO."""
+    return _config.get("logging", "level", fallback="INFO").upper()
+
+
+def get_logging_file() -> str:
+    """Absolute path to log file. Resolves relative path from project root."""
+    file_rel = _config.get("logging", "file", fallback="logs/app.log")
+    return str(Path(get_project_root()) / file_rel)

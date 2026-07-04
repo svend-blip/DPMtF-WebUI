@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+import logging
 import os
 import io
 import json
@@ -39,6 +40,32 @@ DB_PATH = config.get_db_path()
 
 # Fallback locale for i18n
 FALLBACK_LOCALE = config.get_default_locale()
+
+# Logging configuration (Fase 0 - Optimization Roadmap)
+logger = logging.getLogger(__name__)
+
+_log_file = config.get_logging_file()
+try:
+    os.makedirs(os.path.dirname(_log_file), exist_ok=True)
+except OSError:
+    pass
+
+log_formatter = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+
+_file_handler = logging.FileHandler(_log_file, encoding="utf-8")
+_file_handler.setFormatter(log_formatter)
+
+_console_handler = logging.StreamHandler(sys.stderr)
+_console_handler.setFormatter(log_formatter)
+
+_root_logger = logging.getLogger()
+_root_logger.setLevel(config.get_logging_level())
+_root_logger.addHandler(_file_handler)
+_root_logger.addHandler(_console_handler)
+
+logger.info("DPMtF WebUI logging initialized (level=%s, file=%s)", config.get_logging_level(), _log_file)
 
 
 def _resolve_ui_label_text(label_row, locale):
@@ -188,8 +215,10 @@ async def read_root(request: Request):
 @app.get("/api/health")
 async def health_check():
     database_exists = os.path.exists(DB_PATH)
+    status = "healthy" if database_exists else "unhealthy"
+    logger.info("Health check: %s (db_path=%s)", status, DB_PATH)
     return {
-        "status": "healthy" if database_exists else "unhealthy",
+        "status": status,
         "app": "DPMtF WebUI",
         "database_path": DB_PATH,
         "database_exists": database_exists
@@ -802,7 +831,8 @@ async def get_user_language():
         if row:
             return {"user_id": user_id, "locale": row["locale"]}
         return {"user_id": user_id, "locale": "en-US"}
-    except Exception:
+    except Exception as exc:
+        logger.error("get_user_language failed: %s", exc)
         try:
             conn.close()
         except Exception:
@@ -839,8 +869,8 @@ async def set_user_language(request: Request):
             )
     except HTTPException:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("set_user_language locale validation error (continuing): %s", exc)
 
     try:
         user_id = os.getlogin()
@@ -991,6 +1021,7 @@ async def set_user_panel_group(request: Request):
         conn.close()
         return {"user_id": user_id, "group_name": group_name, "state": state, "status": "stored"}
     except Exception as exc:
+        logger.error("Failed to store panel group state for %s: %s", group_name, exc)
         raise HTTPException(status_code=500, detail=f"Failed to store panel group state: {exc}")
 
 
@@ -1012,7 +1043,8 @@ async def get_user_preferences():
         conn.close()
         prefs = {row["pref_key"]: row["pref_value"] for row in rows}
         return {"user_id": user_id, "preferences": prefs}
-    except Exception:
+    except Exception as exc:
+        logger.warning("get_user_preferences failed (returning empty): %s", exc)
         try:
             conn.close()
         except Exception:
