@@ -3268,28 +3268,6 @@ if not _target_session_exists:
         WHERE field_key = 'target_role'
     """)
 
-# Update option values and labels for the migrated rows
-cursor.execute("""
-    UPDATE prompt_compiler_field_options
-    SET option_value = 'claude_implementer',
-        option_label = 'Implementor — code execution (claude_implementer)'
-    WHERE field_key = 'target_session' AND option_value = 'Implementor'
-""")
-
-cursor.execute("""
-    UPDATE prompt_compiler_field_options
-    SET option_value = 'claude_architect',
-        option_label = 'Architect — design & analysis (claude_architect)'
-    WHERE field_key = 'target_session' AND option_value = 'Architect'
-""")
-
-cursor.execute("""
-    UPDATE prompt_compiler_field_options
-    SET option_value = 'claude_review',
-        option_label = 'Review — validation & coordination (claude_review)'
-    WHERE field_key = 'target_session' AND option_value = 'Review'
-""")
-
 # ── Handoff 015: Database-driven field options ──────────────────────
 
 # Create table for select-field options (database-driven dropdowns)
@@ -3332,6 +3310,29 @@ for opt in compiler_field_options_seed:
         (field_key, option_value, option_label, sort_order, is_default)
         VALUES (?, ?, ?, ?, ?)
     """, opt)
+
+# Migrate any legacy target_role option rows → target_session (handoff 021).
+# Runs AFTER the table is created + seeded, so it is a safe no-op on fresh
+# data (DELETE above cleared old rows; seed inserted claude_* values).
+# Kept for idempotent upgrade of pre-existing databases.
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET option_value = 'claude_implementer',
+        option_label = 'Implementor — code execution (claude_implementer)'
+    WHERE field_key = 'target_session' AND option_value = 'Implementor'
+""")
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET option_value = 'claude_architect',
+        option_label = 'Architect — design & analysis (claude_architect)'
+    WHERE field_key = 'target_session' AND option_value = 'Architect'
+""")
+cursor.execute("""
+    UPDATE prompt_compiler_field_options
+    SET option_value = 'claude_review',
+        option_label = 'Review — validation & coordination (claude_review)'
+    WHERE field_key = 'target_session' AND option_value = 'Review'
+""")
 
 # Register compiler fields endpoints
 endpoint_registry_2i_v2 = [
@@ -4187,6 +4188,32 @@ cursor.executemany(
          "Failed to deliver callback to {to_role}.", 3),
         ("strict_review", "review02-human", "review02", "human",
          "strict_review/verdicts", "{ID}-verdict.md", None, "post-dispatch-common",
+         "Failed to deliver verdict. Present to {to_role} manually.", 4),
+    ],
+)
+
+# cloud_pay flow steps — canonical 4-step review chain (archi01pay → imple01pay
+# → review01pay → review02pay → humanpay). DELETE first to remove any
+# non-canonical rows (e.g. a legacy single-step), then INSERT the canonical 4.
+cursor.execute(
+    "DELETE FROM bridge_flow_steps WHERE flow_key = 'cloud_pay'"
+)
+cursor.executemany(
+    """INSERT INTO bridge_flow_steps
+       (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
+        pre_dispatch_script, post_dispatch_script, error_msg, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+    [
+        ("cloud_pay", "archi01-imple01", "archi01pay", "imple01pay",
+         "cloud_pay/handoffs", "{ID}-handoff.md", None, "post-dispatch-common",
+         "Failed to deliver handoff to {to_role}.", 1),
+        ("cloud_pay", "imple01-review01", "imple01pay", "review01pay",
+         "cloud_pay/results", "{ID}-result.md", None, "post-dispatch-common",
+         "Failed to deliver callback to {to_role}.", 2),
+        ("cloud_pay", "review01-review02", "review01pay", "review02pay",
+         "cloud_pay/reviews", "{ID}-review01.md", None, "post-dispatch-common",
+         "Failed to deliver callback to {to_role}.", 3),
+        ("cloud_pay", "review02-human", "review02pay", "humanpay",
+         "cloud_pay/verdicts", "{ID}-verdict.md", None, "post-dispatch-common",
          "Failed to deliver verdict. Present to {to_role} manually.", 4),
     ],
 )
