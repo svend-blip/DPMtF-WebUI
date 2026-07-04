@@ -1577,7 +1577,11 @@ async def get_bootstrap_dataset_status():
             continue
 
         # Count records in the referenced table
-        cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+        # Safe: table_name was validated against ALLOWED_BOOTSTRAP_TABLES
+        # (literal allow-list constant) and sqlite_master (live schema check)
+        # above. SQLite does not support `?` placeholders for table names;
+        # the validated literal is concatenated.
+        cursor.execute("SELECT COUNT(*) FROM " + table_name)
         actual_count = cursor.fetchone()[0]
 
         if actual_count >= min_expected_count:
@@ -3530,11 +3534,16 @@ async def run_validation(request: Request):
         """)
     else:
         placeholders = ",".join("?" for _ in rule_keys)
-        cursor.execute(f"""
-            SELECT * FROM validation_rules
-            WHERE rule_key IN ({placeholders}) AND is_active = 1
-            ORDER BY rule_key
-        """, rule_keys)
+        # Safe: placeholders contains only literal "?" markers joined by ",".
+        # All actual rule_key values are still parameterized via the
+        # `rule_keys` tuple argument below.
+        sql = (
+            "SELECT * FROM validation_rules "
+            "WHERE rule_key IN (" + placeholders + ") "
+            "AND is_active = 1 "
+            "ORDER BY rule_key"
+        )
+        cursor.execute(sql, rule_keys)
     rules = [dict(r) for r in cursor.fetchall()]
 
     if not rules:
