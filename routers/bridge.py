@@ -36,6 +36,7 @@ Endpoints (27 total):
 """
 
 import io
+import logging
 import os
 import sqlite3
 import subprocess
@@ -69,6 +70,9 @@ import config  # noqa: E402
 from routers.shared import get_db_path  # noqa: E402
 
 router = APIRouter(prefix="/api/bridge-v2", tags=["bridge"])
+
+
+logger = logging.getLogger(__name__)
 
 
 # ── Spor I: BridgeV002 Database Integration API ────────────────
@@ -634,8 +638,8 @@ async def bridge_v2_rename_role(role_key: str, request: Request):
                     "UPDATE bridge_flow_steps SET to_role = ?, updated_at = CURRENT_TIMESTAMP WHERE to_role = ?",
                     (new_role_key, role_key)
                 )
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as exc:
+            logger.warning("TBD: bridge_flow_steps table not available for role rename: %s", exc)
 
         cursor.execute(
             "UPDATE bridge_roles SET role_key = ?, updated_at = CURRENT_TIMESTAMP WHERE role_key = ?",
@@ -1005,10 +1009,10 @@ async def bridge_v2_export(request: Request):
                     for s in (fd.get("steps") or []):
                         s["flow_key"] = flow["flow_key"]
                         all_steps.append(s)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as exc:
+                    logger.warning("TBD: failed to load flow %s for export: %s", flow.get("flow_key"), exc)
+        except Exception as exc:
+            logger.warning("TBD: failed to list flows for export: %s", exc)
         result["all_steps"] = all_steps
 
     return {"export_type": export_type, "data": result}
@@ -1034,12 +1038,12 @@ async def bridge_v2_db_backup():
         finally:
             try:
                 dst_conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("TBD: failed to close in-memory db-backup destination: %s", exc)
             try:
                 src_conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("TBD: failed to close db-backup source connection: %s", exc)
 
         app_name = config.get_father_project() or "dpmtf-webui"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

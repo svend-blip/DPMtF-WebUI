@@ -47,8 +47,8 @@ logger = logging.getLogger(__name__)
 _log_file = config.get_logging_file()
 try:
     os.makedirs(os.path.dirname(_log_file), exist_ok=True)
-except OSError:
-    pass
+except OSError as exc:
+    logger.warning("TBD: could not create log directory %s: %s", os.path.dirname(_log_file), exc)
 
 log_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] %(name)s: %(message)s"

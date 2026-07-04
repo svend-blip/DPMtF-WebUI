@@ -114,8 +114,8 @@ async def get_user_language():
         logger.error("get_user_language failed: %s", exc)
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as exc_close:
+            logger.warning("TBD: failed to close user-language connection: %s", exc_close)
         return {"user_id": user_id, "locale": "en-US"}
 
 
@@ -246,8 +246,8 @@ async def get_user_preferences():
         logger.warning("get_user_preferences failed (returning empty): %s", exc)
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as exc_close:
+            logger.warning("TBD: failed to close user-preferences connection: %s", exc_close)
         return {"user_id": user_id, "preferences": {}}
 
 

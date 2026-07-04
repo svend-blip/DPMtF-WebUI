@@ -1998,8 +1998,8 @@ async def assign_handoff_id(request: Request):
                     deliverable_dir_val = s.get("deliverable_dir", "")
                     deliverable_pattern = s.get("deliverable_pattern", deliverable_pattern)
                     break
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("TBD: flow %s not found for assign-handoff-id deliverable lookup: %s", flow_key, exc)
 
     # Fall back to pre-resolved from compile if DB lookup didn't yield a dir
     if not deliverable_dir_val:
@@ -2039,8 +2039,8 @@ async def assign_handoff_id(request: Request):
                     from_role_for_send = s.get("from_role", from_role_for_send)
                     to_role_for_send = s.get("to_role", to_role_for_send)
                     break
-        except ValueError:
-            pass
+        except ValueError as exc:
+            logger.warning("TBD: flow %s not found for assign-handoff-id role lookup: %s", flow_key, exc)
 
     dispatch_command: str = (
         f"python3 {config.get_project_root()}/scripts/bridgeV002/dispatch.py "

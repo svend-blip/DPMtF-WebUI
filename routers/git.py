@@ -187,8 +187,8 @@ async def get_git_status(project_key: str | None = None):
                     capture_output=True, text=True, timeout=5,
                 )
                 s["branch"] = proc.stdout.strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("TBD: failed to enrich git status for %s: %s", path, exc)
 
     conn.close()
     return {"projects": statuses}

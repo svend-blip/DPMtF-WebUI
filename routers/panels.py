@@ -245,8 +245,8 @@ async def get_user_panel_groups():
     except Exception:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("TBD: failed to close user-panel-groups connection: %s", exc)
         return {"user_id": user_id, "groups": {}}
 
 
