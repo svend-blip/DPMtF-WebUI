@@ -324,11 +324,13 @@ def load_role_from_db(role_name, db_path=None):
         db_path: Optional path to SQLite database. Uses config.get_db_path() if not given.
 
     Returns:
-        dict with keys matching bridge_roles columns, plus resolved start_cmd.
-        Keys: role_key, tmux_session, start_cmd, model_type, cloud_model,
+        dict with keys matching bridge_roles columns, plus resolved
+        setup_script and teardown_script.
+        Keys: role_key, tmux_session, model_type, cloud_model,
               ollama_model, setup_script, teardown_script, deliver_error_msg,
               is_active, created_at, updated_at, restart_policy,
-              governance_file, role_type, enter_command, start_cmd_suffix
+              governance_file, role_type, enter_command, default_runtime,
+              default_provider, default_model, config_dir
 
     Raises:
         ValueError: If table doesn't exist or role not found.
@@ -359,8 +361,8 @@ def load_role_from_db(role_name, db_path=None):
 
     role = dict(row)
 
-    # Resolve placeholders in start_cmd, setup_script, teardown_script
-    for field in ["start_cmd", "setup_script", "teardown_script"]:
+    # Resolve placeholders in setup_script and teardown_script
+    for field in ["setup_script", "teardown_script"]:
         if role[field] is not None:
             role[field] = resolve_placeholders(
                 role[field], project_root=project_root

@@ -4083,7 +4083,6 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS bridge_roles (
     role_key TEXT PRIMARY KEY,
     tmux_session TEXT NOT NULL,
-    start_cmd TEXT,
     model_type TEXT DEFAULT 'ollama',
     cloud_model TEXT,
     ollama_model TEXT,
@@ -4130,66 +4129,43 @@ CREATE TABLE IF NOT EXISTS bridge_flow_steps (
 
 cursor.executemany(
     """INSERT OR IGNORE INTO bridge_roles
-       (role_key, tmux_session, start_cmd, model_type, cloud_model, ollama_model,
-        setup_script, teardown_script, deliver_error_msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+       (role_key, tmux_session, model_type, cloud_model, ollama_model,
+        setup_script, teardown_script, deliver_error_msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
     [
-        ("archi01", "archi01",
-         "tmux send-keys -t archi01 'cd {PROJECT_ROOT} && CLAUDE_CODE_MAX_OUTPUT_TOKENS=131072 ANTHROPIC_BASE_URL=http://127.0.0.1:11434 ANTHROPIC_AUTH_TOKEN=ollama claude --model qwen3.6:35b-a3b' Enter",
-         "ollama", "", "qwen3.6:35b-a3b",
+        ("archi01", "archi01", "ollama", "", "qwen3.6:35b-a3b",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "archi01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("imple01", "imple01",
-         f"tmux send-keys -t imple01 'cd {{PROJECT_ROOT}} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/imple01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/imple01/opencode.json\" {config.get_opencode_bin()} --model ollama/qwen3.6:27b-q4_K_M' Enter",
-         "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("imple01", "imple01", "ollama", "", "qwen3.6:27b-q4_K_M",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "imple01 session stopped unexpectedly. Start manually in tmux."),
-        ("review01", "review01",
-         f"tmux send-keys -t review01 'cd {{PROJECT_ROOT}} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review01\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review01/opencode.json\" {config.get_opencode_bin()} --model ollama/qwen3.6:35b-a3b' Enter",
-         "ollama", "", "qwen3.6:35b-a3b",
+        ("review01", "review01", "ollama", "", "qwen3.6:35b-a3b",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "review01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("review02", "review02",
-         f"tmux send-keys -t review02 'cd {{PROJECT_ROOT}} && OPENCODE_CONFIG_DIR=\"$HOME/.config/opencode-roles/review02\" OPENCODE_CONFIG=\"$HOME/.config/opencode-roles/review02/opencode.json\" {config.get_opencode_bin()} --model ollama/qwen3.6:27b-q4_K_M' Enter",
-         "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("review02", "review02", "ollama", "", "qwen3.6:27b-q4_K_M",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
-         "review02 session stopped unexpectedly. Start manually."),
-        ("human", "human",
-         None,
-         "ollama", None, None,
-         None, None,
-         None),
-        # ── Trade Cockpit roles (machine_profile pattern — start_cmd unused;
-        # command_builder uses default_runtime/default_provider/default_model +
-        # config_dir set by the UPDATEs below. Governance files: 431-440.) ──
-        ("humantrade", "humantrade",
-         None, "human", None, None,
-         None, None, None),
-        ("trend01_trade", "trend01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:35b-a3b-64k",
+         "review02 session stopped unexpectedly."),
+        ("human", "human", "ollama", None, None, None, None, None),
+        # ── Trade Cockpit roles (machine_profile pattern — command_builder uses
+        # default_runtime/default_provider/default_model + config_dir set by the
+        # UPDATEs below. Governance files: 431-440.) ──
+        ("humantrade", "humantrade", "human", None, None, None, None, None),
+        ("trend01_trade", "trend01_trade", "ollama", "", "qwen3.6:35b-a3b-64k",
          None, None, "trend01_trade session stopped unexpectedly."),
-        ("market01_trade", "market01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "deepseek-v4-pro:cloud",
+        ("market01_trade", "market01_trade", "ollama", "", "deepseek-v4-pro:cloud",
          None, None, "market01_trade session stopped unexpectedly."),
-        ("analyst01_trade", "analyst01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "opencode", "", "minimax/MiniMax-M3",
+        ("analyst01_trade", "analyst01_trade", "opencode", "", "minimax/MiniMax-M3",
          None, None, "analyst01_trade session stopped unexpectedly."),
-        ("risk01_trade", "risk01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:35b-a3b-64k",
+        ("risk01_trade", "risk01_trade", "ollama", "", "qwen3.6:35b-a3b-64k",
          None, None, "risk01_trade session stopped unexpectedly."),
-        ("review01_trade", "review01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "opencode", "", "z-ai/glm-5.2",
+        ("review01_trade", "review01_trade", "opencode", "", "z-ai/glm-5.2",
          None, None, "review01_trade session stopped unexpectedly."),
-        ("sim01_trade", "sim01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("sim01_trade", "sim01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
          None, None, "sim01_trade session stopped unexpectedly."),
-        ("score01_trade", "score01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("score01_trade", "score01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
          None, None, "score01_trade session stopped unexpectedly."),
-        ("learn01_trade", "learn01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("learn01_trade", "learn01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
          None, None, "learn01_trade session stopped unexpectedly."),
-        ("portfolio01_trade", "portfolio01_trade",
-         "NOT USED USING AGGREGATED COMMAND", "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("portfolio01_trade", "portfolio01_trade", "ollama", "", "qwen3.6:27b-q4_K_M",
          None, None, "portfolio01_trade session stopped unexpectedly."),
     ],
 )
@@ -4890,16 +4866,11 @@ try:
 except sqlite3.OperationalError:
     pass
 
-# H160: start_cmd_suffix column on bridge_roles — decomposed start command
-# When set, the aggregated start command is built from:
-#   tmux send-keys -t {tmux_session} 'cd {target_project} {start_cmd_suffix}
-# When NULL, falls back to existing start_cmd field.
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN start_cmd_suffix TEXT DEFAULT NULL
-    """)
-except sqlite3.OperationalError:
-    pass
+# H160: start_cmd_suffix column — REMOVED (dead config per principle).
+# Was a decomposed start-command field; Machine Profile (default_runtime/
+# default_provider/default_model + config_dir) is now the single source of
+# truth. The column was dropped from bridge_roles; this ALTER is no longer
+# applied.
 
 # ── Machine Profile Fase 2A — idempotente runtime-kolonner ──────────────
 

@@ -54,7 +54,6 @@ def main():
 
     role_config = load_role_from_db(args.role)
     tmux_session = role_config["tmux_session"]
-    start_cmd = role_config.get("start_cmd", "")
     model_type = role_config.get("model_type", "")
     ollama_model = role_config.get("ollama_model", "")
 

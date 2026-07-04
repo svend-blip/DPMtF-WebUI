@@ -734,13 +734,12 @@ def _ensure_session_ready(role_key, db_path=None):
         time.sleep(0.3)
 
     # Step 2: Start coding frontend if configured
-    start_cmd_suffix = role.get("start_cmd_suffix")
     config_dir = role.get("config_dir")
     default_runtime = role.get("default_runtime", "")
     default_provider = role.get("default_provider", "")
     default_model = role.get("default_model", "")
 
-    if start_cmd_suffix and config_dir:
+    if default_runtime:
         # Build start command from decomposed fields (Machine Profile Fase 2A)
         try:
             import config as _cfg
@@ -766,15 +765,11 @@ def _ensure_session_ready(role_key, db_path=None):
                 time.sleep(1.0)  # Give the frontend time to initialize
         except ImportError:
             print(f"  WARNING: command_builder not available, skipping frontend start")
-    elif role.get("start_cmd"):
-        # Fallback: use legacy start_cmd
-        start_cmd = role["start_cmd"]
-        subprocess.run(
-            ["tmux", "send-keys", "-t", f"={session_name}:0", start_cmd, "Enter"],
-            capture_output=True, text=True,
-        )
-        print(f"  Started coding frontend in '{session_name}' (legacy start_cmd)")
-        time.sleep(1.0)
+    else:
+        # No Machine Profile runtime configured — fail loud.
+        print(f"  ERROR: role '{role_key}' has no default_runtime configured. "
+              f"Set default_runtime in the role's Machine Profile fields "
+              f"or via machine.local.json.")
 
     return session_alive(session_name)
 

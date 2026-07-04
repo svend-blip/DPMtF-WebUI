@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""start_coding.py — Execute start_cmd for all roles in a BridgeV002 flow.
+"""start_coding.py — Send the Machine-Profile-built start command to each role.
 
 Usage:
     python3 scripts/bridgeV002/start_coding.py <flow_key>
 
 Iterates through all active steps in the given flow, looks up each step's
-FROM-ROLE and executes its start_cmd in the role's dedicated tmux session.
+TO-ROLE, builds the start command via command_builder.build_start_command
+(from the role's default_runtime / default_provider / default_model /
+config_dir), and injects it into the role's dedicated tmux session via
+send-keys.
 
 **Assumes sessions are already created** (use start_tmuxflow.py first).
-If a role has no start_cmd defined, it is skipped with a warning.
+Roles without a default_runtime are skipped with a warning.
 
 Example:
     python3 scripts/bridgeV002/start_coding.py strict_review
@@ -32,7 +35,8 @@ def get_flow_roles(db_path, flow_key):
     """Fetch all role data for active steps in a flow (both from_role and to_role).
 
     Returns a list of dicts sorted by sort_order:
-        [{role_key, tmux_session, start_cmd}, ...]
+        [{role_key, tmux_session, default_runtime, default_provider,
+          default_model, config_dir}, ...]
     Duplicate roles are deduplicated (first occurrence wins).
 
     Includes the last step's to_role so the final role in the chain
@@ -112,58 +116,24 @@ def ensure_session_exists(session_name):
         return False
 
 
-def run_cmd_in_session(session_name, start_cmd, bridge_dir, project_root,
-                       start_cmd_suffix=None, target_project=None):
-    """Run a start command in an existing tmux session via send-keys.
+def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
+    """Send the start command string to an existing tmux session via send-keys.
 
-    If start_cmd_suffix is set, builds aggregated command from:
-      cd {target_project} {suffix}
-    Otherwise falls back to the existing start_cmd field.
-
-    Returns True on success, False on failure.
+    The cmd_str is expected to be a fully-formed shell command (typically
+    built by the Machine Profile command_builder). Returns True on success,
+    False on failure.
     """
-    if start_cmd_suffix and target_project:
-        # New decomposed mode: build aggregated command
-        resolved_suffix = resolve_placeholders(
-            start_cmd_suffix, bridge_dir=bridge_dir, project_root=project_root
-        )
-        resolved_target = resolve_placeholders(
-            target_project, bridge_dir=bridge_dir, project_root=project_root
-        )
-        cmd_str = build_aggregated_cmd(resolved_target, resolved_suffix)
-        print(f"  Aggregated: {cmd_str}")
-        # Send as separate arguments — no shell quoting needed with subprocess
-        cmd = ["tmux", "send-keys", "-t", "=" + session_name + ":0", cmd_str, "Enter"]
-    elif start_cmd:
-        # Fallback: use existing start_cmd as before
-        resolved = resolve_placeholders(
-            start_cmd, bridge_dir=bridge_dir, project_root=project_root
-        )
-        print(f"  Command: {resolved}")
-        cmd = ["tmux", "send-keys", "-t", "=" + session_name + ":0", resolved, "Enter"]
-    else:
-        print(f"  ERROR: No start_cmd or start_cmd_suffix configured")
+    if not cmd_str:
+        print(f"  ERROR: No command string to send")
         return False
 
+    resolved = resolve_placeholders(
+        cmd_str, bridge_dir=bridge_dir, project_root=project_root
+    )
+    print(f"  Command: {resolved}")
+    cmd = ["tmux", "send-keys", "-t", "=" + session_name + ":0", resolved, "Enter"]
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode == 0
-
-
-def build_aggregated_cmd(target_project, start_cmd_suffix):
-    """Build the aggregated start command from decomposed fields.
-
-    Returns the command string to send to the tmux session, or None if
-    required fields are missing.
-
-    Format: cd {target_project} {suffix}
-    The closing quote and Enter are added by run_cmd_in_session.
-    Suffix should NOT include ' Enter — only the command itself.
-    """
-    if not start_cmd_suffix:
-        return None
-    if not target_project:
-        return None
-    return f"cd {target_project} {start_cmd_suffix}"
 
 
 def main():
@@ -205,7 +175,7 @@ def main():
         print("  Create profiles/machine.local.json or set DPMTF_MACHINE_PROFILE in .env.")
         return 1
 
-    # 2. Process each role — execute start_cmd in existing tmux session
+    # 2. Process each role — send the built start command to its tmux session
     started = []
     skipped = []
     errors = []
@@ -263,8 +233,6 @@ def main():
                 cmd_str,
                 bridge_dir,
                 project_root,
-                start_cmd_suffix=None,
-                target_project=project_root,
             )
 
         except ValueError as e:
@@ -283,13 +251,13 @@ def main():
     # Summary
     parts = []
     if started:
-        parts.append(f"{len(started)} start_cmd(s) executed")
+        parts.append(f"{len(started)} start command(s) executed")
     if skipped:
-        parts.append(f"{len(skipped)} role(s) skipped (no start_cmd)")
+        parts.append(f"{len(skipped)} role(s) skipped (no default_runtime)")
     if errors:
         parts.append(f"{len(errors)} error(s)")
     if not parts:
-        print(f"\nDone: no roles with start_cmd in flow '{args.flow_key}'.")
+        print(f"\nDone: no roles with default_runtime in flow '{args.flow_key}'.")
     else:
         print(f"\nDone: {'; '.join(parts)}.")
 
