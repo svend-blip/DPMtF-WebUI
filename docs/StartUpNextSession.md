@@ -59,6 +59,7 @@ Read these files in order to reconstruct project state for `cloud_pay` flow:
 | 8 | **Stop after 2 failed patching attempts** — document, escalate. |
 | 9 | **BridgeV002 no-kill dispatch** — ZERO tmux kill/new-session. Context cleared by `ollama stop`. |
 | 10 | **400-series precedence** — flow-specific governance templates override general 01-04 files. |
+| 11 | **mcp-light context-first** — query mcp-light (`http://127.0.0.1:9135/mcp`) before grep'ing the repo when the task touches governance, frontend layout, panels, bridge roles/flow, or review verdicts. See the 400-series role files' "Context-First Rule (mcp-light)" section for required calls by task type. If unavailable, proceed from repo files and report it. |
 
 ## 4. Save-State Procedure
 
@@ -293,6 +294,8 @@ python3 -m py_compile app.py && echo "app.py OK"
 node --check static/js/dpmtf-app.js && echo "dpmtf-app.js OK"
 curl -s http://localhost:9130/api/health
 curl -s http://localhost:9130/api/bridge-v2/status
+systemctl is-active mcp-light   # MCP context server (read-only, 18 tools)
+ss -ltnp | grep 9135            # mcp-light MCP HTTP endpoint on 127.0.0.1
 ```
 
 ## 8.1. init_db.py — Keep Slim (Architectural Note)
@@ -375,4 +378,5 @@ first for current status + remaining recommendations.
 | Bridge deliverable_dir | **BridgeV002 uses database-driven `deliverable_dir`** from `bridge_flow_steps.deliverable_dir` — *not* legacy `/home/svend/claude-bridge`. Current values: `/home/svend/flows/cloud_pay/{handoffs,results,reviews,verdicts}` |
 | Trade deliverable_dir | `/home/svend/trade-ui/inbox/pending` (absolute path in bridge_flow_steps.deliverable_dir) |
 | Ollama endpoint | http://127.0.0.1:11434 |
+| mcp-light endpoint | http://127.0.0.1:9135/mcp — MCP streamable-http, read-only context server (18 tools). systemd `mcp-light.service` runs `/home/svend/mcp-light/venv/bin/python server.py`. Repo: `/home/svend/mcp-light` (separate). Configs: `~/.config/opencode-roles/*/opencode.json` `mcp.mcp-light` block. |
 | Runtime | `/home/svend/.local/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |
