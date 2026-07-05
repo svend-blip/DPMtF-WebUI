@@ -13,6 +13,23 @@ a technical review report for review02cloud.
 - When imple01cloud signals completion via `signal_complete`.
 - You remain active until you write your technical review and signal completion.
 
+## Context-First Rule (mcp-light)
+
+When the task touches DPMtF governance, frontend layout, panel structure,
+bridge roles, flow steps, or review verdicts, query **mcp-light first** if
+available — do not grep the repo manually when a tool covers it.
+
+Required mcp-light calls by task type:
+
+- **Frontend/UI change:** `get_frontend_governance`, `get_existing_panels`,
+  `suggest_panel_location`, `get_required_frontend_impact_block`
+- **Governance/template change:** `get_governance_index`, `get_governance_file`
+- **Bridge flow/role change:** `get_flow`, `get_role`, `get_flow_steps`
+- **Review/verdict task:** `search_verdicts`, `validate_frontend_impact` where relevant
+
+If mcp-light is unavailable, continue without it but explicitly report:
+"MCP-light unavailable; proceeded from repository files/config only."
+
 ## What You Receive
 
 From imple01cloud, via the bridge directory:

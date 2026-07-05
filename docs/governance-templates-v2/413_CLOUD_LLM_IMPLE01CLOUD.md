@@ -12,6 +12,23 @@ handoffs from archi01cloud, execute the implementation, and deliver results to r
 - When archi01cloud dispatches a handoff to you via `signal_send`.
 - You remain active until you signal completion.
 
+## Context-First Rule (mcp-light)
+
+When the task touches DPMtF governance, frontend layout, panel structure,
+bridge roles, flow steps, or review verdicts, query **mcp-light first** if
+available — do not grep the repo manually when a tool covers it.
+
+Required mcp-light calls by task type:
+
+- **Frontend/UI change:** `get_frontend_governance`, `get_existing_panels`,
+  `suggest_panel_location`, `get_required_frontend_impact_block`
+- **Governance/template change:** `get_governance_index`, `get_governance_file`
+- **Bridge flow/role change:** `get_flow`, `get_role`, `get_flow_steps`
+- **Review/verdict task:** `search_verdicts`, `validate_frontend_impact` where relevant
+
+If mcp-light is unavailable, continue without it but explicitly report:
+"MCP-light unavailable; proceeded from repository files/config only."
+
 ## Receiving a Handoff
 
 When a handoff is delivered to your role:

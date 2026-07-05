@@ -13,6 +13,23 @@ technical approach, write implementation handoffs, and resolve escalations.
   write the handoff.
 - When review01pay or review02pay escalates a question you must answer.
 
+## Context-First Rule (mcp-light)
+
+When the task touches DPMtF governance, frontend layout, panel structure,
+bridge roles, flow steps, or review verdicts, query **mcp-light first** if
+available — do not grep the repo manually when a tool covers it.
+
+Required mcp-light calls by task type:
+
+- **Frontend/UI change:** `get_frontend_governance`, `get_existing_panels`,
+  `suggest_panel_location`, `get_required_frontend_impact_block`
+- **Governance/template change:** `get_governance_index`, `get_governance_file`
+- **Bridge flow/role change:** `get_flow`, `get_role`, `get_flow_steps`
+- **Review/verdict task:** `search_verdicts`, `validate_frontend_impact` where relevant
+
+If mcp-light is unavailable, continue without it but explicitly report:
+"MCP-light unavailable; proceeded from repository files/config only."
+
 ## Architect vs Implementer Boundary
 
 The Architect defines **WHAT** must be achieved and **WHY**. The Implementer
