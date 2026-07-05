@@ -238,15 +238,17 @@ cursor.executemany(
 cursor.executemany(
     "UPDATE bridge_roles SET config_dir = ? WHERE role_key = ? AND config_dir IS NULL",
     [
+        # Tuple order is (config_dir, role_key) — SQL is "SET config_dir = ? WHERE role_key = ?".
+        # Each opencode role gets its own per-role config dir under ~/.config/opencode-roles/.
         ("imple01", "imple01"),
         ("review01", "review01"),
-        ("review01cloud", "review01"),
-        ("review01pay", "review01"),
+        ("review01cloud", "review01cloud"),
+        ("review01pay", "review01pay"),
         ("review02", "review02"),
-        ("review02cloud", "review02"),
-        ("review02pay", "review02"),
+        ("review02cloud", "review02cloud"),
+        ("review02pay", "review02pay"),
         ("glm52trade", "review01_trade"),
-        ("glm52trade", "imple01pay"),
+        ("imple01pay", "imple01pay"),
         ("imple01", "analyst01_trade"),
     ],
 )
