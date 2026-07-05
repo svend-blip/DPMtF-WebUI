@@ -324,9 +324,43 @@ data that overwrites user choices on restore.
 use `INSERT OR IGNORE` / `WHERE field IS NULL` so it never overwrites
 user-configured values.
 
-**Planned refactor (not started):** move role/flow/step seed data out of
-`init_db.py` into a separate `seed_bridge.py` that only runs on fresh DBs,
-reducing `init_db.py` to ~2000 lines (schema + i18n + conventions).
+**Refactor status (2026-07-05):** `seed_bridge.py` is created (337 lines,
+idempotent — `INSERT OR IGNORE` / `WHERE IS NULL`). Bridge seed data
+(roles, flows, steps, Machine Profile, governance, config_dir,
+enter_command, counters) is extracted from `init_db.py` (5557→5271 lines).
+Run order: `init_db.py` (schema) → `seed_bridge.py` (bridge seed, fresh DB
+only). After seeding, all changes via frontend or DB edits + git commit.
+
+**Remaining init_db.py debt:** the file is still 5271 lines (schema + i18n +
+conventions + ALTER TABLE migrations). A versioned SQL-migration system
+(`scripts/db/*.sql` + `schema_migrations` + `migrate.py`) is recommended as
+the next refactor — see `~/Dokumenter/Optimeringer.md` §4.2 (Fase E).
+
+## 8.2. Optimization Status + Recommendations
+
+The Optimization Roadmap (Fase Ø/A/B/C) + post-roadmap cleanup is
+**complete**. See `~/Dokumenter/Optimeringer.md` for full status.
+
+**Completed (committed to master):**
+- app.py 5473→145 lines, 10 routers (Fase B)
+- Logging both apps, hardcoded paths removed, SQL f-string fixed (Fase Ø)
+- pytest: Father 7 tests, trade-ui 168 tests (Fase A)
+- i18n: 15 th-headers→lbl(), i18n SQL-bug fixed (Fase C + post)
+- Dead config: start_cmd/start_cmd_suffix columns DROPPED, dispatch gate
+  fixed to `if default_runtime:` (post)
+- DB-safety rule #7 in `12_CODING_STANDARD.md`, Father DB in git
+
+**Remaining (all low priority — system is operational):**
+- Fase D: Central model/interface-schema (model_providers/models/interfaces
+  tables + cascading UI) — Machine Profile covers the need today.
+- Fase E: Versionerede SQL-migrationer — recommended next (largest
+  maintenance risk as init_db.py grows).
+- Fase F: Legacy-tabel-oprydning (data-migration of overlapping tables).
+- Fase G: Cascading model-selector UI panel.
+- Fase H: trade-ui label/version cleanup (v01_→ domain prefix).
+
+**When starting a new optimization:** read `~/Dokumenter/Optimeringer.md`
+first for current status + remaining recommendations.
 
 ## 9. PC-Specific Notes
 
