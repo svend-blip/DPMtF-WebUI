@@ -6,6 +6,7 @@ Reads config dynamically from bridge_lib. No hardcoded roles, sessions, or paths
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -240,15 +241,38 @@ def unload_ollama_model(model_name):
     return False
 
 
+def _resolve_existing_target(bridge_dir, subdir, target):
+    """Return the target filename to symlink, preferring the original.
+
+    If the requested file does not exist but a zero-padded variant does
+    (e.g. 42_trend01_trade.json vs 042_trend01_trade.json), use the
+    existing variant so current.md never dangles after a filename
+    normalization performed by a downstream role/tool.
+    """
+    candidates = [target]
+    m = re.match(r"^(\d+)_(.+)$", target)
+    if m:
+        candidates.append(f"{int(m.group(1)):03d}_{m.group(2)}")
+    for candidate in candidates:
+        if os.path.exists(os.path.join(bridge_dir, subdir, candidate)):
+            return candidate
+    return target
+
+
 def update_symlink(bridge_dir, subdir, target):
-    """Update current.md symlink for timeline navigation."""
+    """Update current.md symlink for timeline navigation.
+
+    The symlink target is resolved to an existing file when possible so the
+    current.md cursor remains a reliable pointer across filename changes.
+    """
     link_path = os.path.join(bridge_dir, subdir, "current.md")
+    resolved_target = _resolve_existing_target(bridge_dir, subdir, target)
     try:
         if os.path.islink(link_path) or os.path.exists(link_path):
             os.unlink(link_path)
     except FileNotFoundError:
         pass
-    os.symlink(target, link_path)
+    os.symlink(resolved_target, link_path)
 
 
 def log(direction, handoff_id, status, message, source="manual"):
@@ -1503,8 +1527,15 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     output_pattern = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
     output_file = output_pattern.replace("{ID}", handoff_id).replace("{role_key}", to_role_key)
 
+    # Resolve primary output_type for {output_type} placeholder (json_output
+    # convention, spec §5.2 + §8). Sourced from bridge_roles.primary_output_type
+    # so the convention stays generic — no role-specific mapping in dispatch.
+    target_output_type = to_role_data.get("primary_output_type") or ""
+
     if ctemplate:
         prompt_text = ctemplate.replace("{handoff_id}", handoff_id)
+        # {flow_run_id} is the spec §5.2 alias for {handoff_id} (the flow run id).
+        prompt_text = prompt_text.replace("{flow_run_id}", handoff_id)
         prompt_text = prompt_text.replace("{source_role}", from_role_key)
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
@@ -1513,6 +1544,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
         prompt_text = prompt_text.replace("{output_file}", output_file)
         prompt_text = prompt_text.replace("{model_name}", target_model_name)
+        prompt_text = prompt_text.replace("{output_type}", target_output_type)
         prompt_text = prompt_text.replace("{previous_deliverable_path}", handoff_abs)
         # Append explicit dispatch instruction with absolute path
         prompt_text += (

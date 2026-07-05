@@ -4719,6 +4719,16 @@ if not _column_exists(cursor, "bridge_roles", "config_dir"):
         ALTER TABLE bridge_roles ADD COLUMN config_dir TEXT DEFAULT NULL
     """)
 
+# json_output convention — primary output_type per role, for {output_type}
+# placeholder substitution in content_template (spec §5.2 + §8). Generic
+# mechanism: any role may declare its primary output_type. Trade-role values
+# are populated by seed_bridge.py and must match trade-ui's import-validated
+# ROLE_OUTPUT_TYPE_PERMISSION (first/primary type per role).
+if not _column_exists(cursor, "bridge_roles", "primary_output_type"):
+    cursor.execute("""
+        ALTER TABLE bridge_roles ADD COLUMN primary_output_type TEXT DEFAULT NULL
+    """)
+
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # Machine Profile Fase 2B — flow-role overrides on bridge_flow_steps
 if not _column_exists(cursor, "bridge_flow_steps", "runtime_override"):
