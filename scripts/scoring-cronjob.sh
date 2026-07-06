@@ -10,6 +10,13 @@
 set -euo pipefail
 
 PROJECT_ROOT="/home/svend/DPMtF-WebUI"
+
+# cd FIRST — cron runs with CWD=$HOME (/home/svend), so a relative
+# config.get_db_path() ("databases/dpmtf.db") would resolve to
+# /home/svend/databases/dpmtf.db and break stop_tmuxflow/start_tmuxflow.
+# All child scripts must inherit the project root as CWD.
+cd "$PROJECT_ROOT"
+
 TRADE_INBOX=$(python3 -c "import sys; sys.path.insert(0, '${PROJECT_ROOT}'); import config; print(config.get_trade_inbox_dir())")
 LOG_DIR="${PROJECT_ROOT}/logs"
 FLOW_KEY="trade_cockpit_scoring_v001"
@@ -71,7 +78,6 @@ done
 
 echo ""
 echo "[3/6] Starting coding frontends..."
-cd "$PROJECT_ROOT"
 python3 scripts/bridgeV002/start_coding.py "$FLOW_KEY"
 
 # ── 4. Create trigger file ────────────────────────────
