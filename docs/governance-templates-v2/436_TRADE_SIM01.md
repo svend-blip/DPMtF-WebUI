@@ -63,13 +63,48 @@ Payload fields (per GATES.md §11.2):
 - `symbol`: the symbol
 - `action`: SIMULATED_BUY, SIMULATED_SELL, or NO_SIMULATION_CREATED
 - `entry_price`: entry price
-- `simulated_size_usd`: position size in USD
+- `simulated_size_usd`: position size in USD — MUST be derived from risk01_trade's
+  `max_position_pct` (see Position Sizing below); NEVER null for SIMULATED_BUY/
+  SIMULATED_SELL (the import §11.2 gate rejects a null size as a missing required
+  field).
 - `stop_loss`: stop loss price
 - `take_profit`: take profit price
 - `thesis`: why this trade
 - `invalidation_condition`: what would invalidate the thesis
 - `status`: "open"
 - `opened_at`: ISO-8601 timestamp
+
+## Position Sizing — CRITICAL (GATES.md §11.2)
+
+`simulated_size_usd` is the **notional USD size** of the simulated position.
+It MUST be derived from risk01_trade's `max_position_pct` (the portfolio-level
+position cap risk01 set when it approved the candidate), NOT guessed or left
+null. Formula:
+
+```
+simulated_size_usd = (max_position_pct / 100) × virtual_starting_balance
+```
+
+- `max_position_pct` comes from risk01_trade's `risk_verdict` payload for the
+  same `symbol` and `flow_run_id` (the verdict with `risk_decision ==
+  APPROVE_SIMULATION`). risk01 back-calculates this so that
+  `max_loss_pct ≤ 1.0` of the portfolio (see 434_TRADE_RISK01.md
+  §Position Sizing) — do NOT override or increase it.
+- `virtual_starting_balance` is the trade-ui virtual portfolio starting
+  balance (configured in trade-ui `config.py`, `get_virtual_starting_balance`;
+  default 5000 USD). Use this constant value.
+
+Worked example (flow 048 AMD): risk01 APPROVE_SIMULATION with
+`max_position_pct = 0.22` (back-calculated from a 4.54% stop distance so
+`max_loss_pct = 0.22 × 4.54 = 1.0` ≤ 1.0).
+→ `simulated_size_usd = (0.22 / 100) × 5000 = 11.0` USD.
+
+For `action == NO_SIMULATION_CREATED`, set `simulated_size_usd` to null
+(the §11.2 required-fields gate is not applied to NO_SIMULATION_CREATED).
+
+**If risk01_trade's verdict is missing `max_position_pct` (or the verdict is
+not APPROVE_SIMULATION), you MUST output `action: "NO_SIMULATION_CREATED"` —
+do NOT create a SIMULATED_BUY with a null or fabricated size.**
 
 ## Approval Gate (GATES.md §11.1)
 
