@@ -62,17 +62,47 @@ Standard wrapper fields (pinned for this role):
 - `evaluates_simulation_ids`: `[]` — this is a daily flow, not a scoring flow.
 - `quality`: populate from data availability — `data_quality` (high/medium/low/unknown) based on how many market fields were available vs null; `confidence` (0.0-1.0) in the snapshot; list unavailable fields (e.g. `rsi_14`, `volume`) in `missing_fields`.
 
-Payload fields (per GATES.md §13.2):
-- `symbol`: the symbol this snapshot is for
-- `price`: current price (if available)
-- `volume`: current volume (if available)
-- `ma_20`, `ma_50`, `ma_200`: moving averages (if available)
-- `rsi_14`: RSI value (if available)
-- `volatility_20d`: 20-day volatility (if available)
-- `trend_score`: composite trend score
-- `snapshot_at`: ISO-8601 timestamp of the data
-- `sources`: array of `{url, description, retrieved_at}` for each data point
-- `methodology`: object with `tavily_used` (boolean), `tavily_note` (if tavily_used is false)
+Payload fields (multi-symbol aggregate, per SCOPE.md §13.2):
+
+The `market_snapshot` payload is a **multi-symbol aggregate** — ONE payload
+covering every symbol trend01_trade identified, with a `symbols[]` array of
+per-symbol snapshots. Do NOT emit one file per symbol; emit one aggregate
+file. The trade-ui import splits the aggregate into per-symbol DB rows at
+insert time.
+
+Top-level payload fields:
+- `snapshot_at`: ISO-8601 timestamp of the snapshot (the batch timestamp).
+- `data_as_of`: ISO-8601 timestamp of the underlying market data (may differ
+  from `snapshot_at` if data is stale).
+- `symbols`: **non-empty array** of per-symbol snapshot objects (see below).
+- `sector_summary`: object (optional) — cross-symbol sector observations.
+- `cross_asset_observations`: array (optional) — cross-asset context.
+- `methodology`: object with `tavily_used` (boolean), `tavily_note` (if
+  `tavily_used` is false).
+
+Each `symbols[]` item is a per-symbol snapshot:
+- `symbol`: the ticker this item is for (required).
+- `name`: company / instrument name.
+- `sector`: sector classification.
+- `price`: current price (number, or `null` if unavailable).
+- `price_as_of`: ISO-8601 timestamp of this symbol's price.
+- `volume`: current volume (or `null`).
+- `avg_volume_90d`: 90-day average volume (or `null`).
+- `ma_20`, `ma_50`, `ma_200`: moving averages (or `null`).
+- `rsi_14`: RSI value (or `null`).
+- `macd`: MACD value (or `null`).
+- `atr_14`: ATR value (or `null`).
+- `volatility_20d`: 20-day volatility (or `null`).
+- `trend_score`: composite trend score (number).
+- `trend_notes`: short qualitative trend summary.
+- `support_levels`: array of price levels.
+- `resistance_levels`: array of price levels.
+- `sources`: array of `{url, description, retrieved_at}` for this symbol's
+  data points.
+
+Unavailability rule: for any per-symbol field that could not be obtained, set
+the field to `null` — do NOT fabricate numbers. List the unavailable fields
+in the top-level `quality.missing_fields` array.
 
 ## Allowed Actions
 
