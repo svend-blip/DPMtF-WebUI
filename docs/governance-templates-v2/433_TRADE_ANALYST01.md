@@ -77,7 +77,7 @@ Standard wrapper fields (pinned for this role):
 - `entry_price`: concrete entry price with justification (number, not a range)
 - `stop_loss`: actionable stop loss price (number, not a range or description)
 - `take_profit`: take profit target price (number)
-- `max_position_pct`: max position as % of virtual portfolio (number, typically 0.5-2.0)
+- `max_position_pct`: your proposed position size as % of virtual portfolio (number, typically 0.5-2.0). This is a *proposal* — risk01_trade may reduce it downward to satisfy the §9.4 portfolio-loss cap (`max_loss_pct = max_position_pct × stop_distance_pct ≤ 1.0`), e.g. to 0.2-0.3% for typical 2-5% stop distances. See 434_TRADE_RISK01.md §Position Sizing.
 - `risk_reward_ratio`: computed R/R ratio (number, must be >= 1:2 per GATES.md §9.4)
 - `thesis`: investment thesis — why this trade makes sense (2-4 sentences)
 - `invalidation_condition`: specific, measurable condition(s) that would invalidate the thesis

@@ -61,10 +61,10 @@ Payload fields (per GATES.md §9.1):
 - `symbol`: the symbol being evaluated
 - `risk_decision`: one of the allowed decisions below
 - `risk_score`: 0-100 risk score
-- `max_position_pct`: max position as % of virtual portfolio (required if APPROVE_SIMULATION)
-- `max_loss_pct`: max acceptable loss % (required if APPROVE_SIMULATION)
+- `max_position_pct`: max position size as % of virtual portfolio (required if APPROVE_SIMULATION)
+- `max_loss_pct`: **max portfolio loss % if stop is hit** = `max_position_pct × stop_distance_pct`, where `stop_distance_pct = (entry_price − stop_loss_suggestion) / entry_price × 100`. MUST be ≤ 1.0 (GATES.md §9.4). Required if APPROVE_SIMULATION.
 - `risk_reward_ratio`: risk/reward ratio (required if APPROVE_SIMULATION, must be >= 1:2)
-- `stop_loss_suggestion`: suggested stop loss (required if APPROVE_SIMULATION)
+- `stop_loss_suggestion`: suggested stop loss price (required if APPROVE_SIMULATION)
 - `veto_reason`: explanation if vetoing
 
 ## Allowed Decisions (GATES.md §5.6)
@@ -85,6 +85,38 @@ If you output REJECT, WATCHLIST_ONLY, or NEEDS_MORE_DATA, sim01_trade MUST NOT c
 - No simulated trade if stop_loss is missing
 - No simulated trade if entry_price is missing
 - No simulated trade if thesis is missing
+
+## Position Sizing — CRITICAL (GATES.md §9.4)
+
+`max_loss_pct` is the **portfolio-level** max loss % if the stop is hit, NOT
+the per-share stop distance. It MUST be computed as:
+
+```
+stop_distance_pct = (entry_price − stop_loss_suggestion) / entry_price × 100
+max_loss_pct      = max_position_pct × stop_distance_pct
+```
+
+The §9.4 threshold (`max_loss_pct ≤ 1.0%` of virtual portfolio) is a HARD
+LIMIT, enforced by the trade-ui import gate
+(`import_flow_output.py`, `V10_MAX_LOSS_PCT_THRESHOLD = 1.0`). A risk_verdict
+with `APPROVE_SIMULATION` and `max_loss_pct > 1.0` is rejected at import.
+
+When you output `APPROVE_SIMULATION`, you MUST back-calculate
+`max_position_pct` so that `max_loss_pct ≤ 1.0`:
+
+```
+max_position_pct = 1.0 / stop_distance_pct     (capped so max_loss_pct ≤ 1.0)
+```
+
+Worked example (flow 045 NVDA): entry=194.83, stop=188.00
+→ stop_distance_pct = (194.83 − 188.00) / 194.83 × 100 = 3.51%
+→ max_position_pct must be ≤ 1.0 / 3.51 = 0.285% of portfolio
+→ set max_position_pct=0.28, max_loss_pct=0.99 (≤ 1.0 ✓), then APPROVE_SIMULATION.
+
+If no meaningful position size satisfies `max_loss_pct ≤ 1.0` (e.g. a stop so
+tight it would be impractical, or a stop so wide that even a tiny position is
+meaningless), you MUST output `REJECT` or `WATCHLIST_ONLY` — never
+`APPROVE_SIMULATION` with `max_loss_pct > 1.0`.
 
 ## Risk/Reward Calculation — CRITICAL
 
