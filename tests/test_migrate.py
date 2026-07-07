@@ -38,12 +38,12 @@ def _table_names(db_path: str) -> set[str]:
 
 def test_migrate_idempotent(temp_db_path):
     first = migrate.run_migrations(temp_db_path)
-    assert first["applied"] == ["001_baseline.sql"]
+    assert first["applied"] == ["001_baseline.sql", "002_drop_dead_tables.sql"]
     assert first["skipped"] == 0
 
     second = migrate.run_migrations(temp_db_path)
     assert second["applied"] == []
-    assert second["skipped"] == 1
+    assert second["skipped"] == 2
 
 
 def test_baseline_creates_all_tables(temp_db_path):
@@ -101,12 +101,34 @@ def test_schema_migrations_tracks_baseline(temp_db_path):
         rows = conn.execute(
             "SELECT filename, applied_at FROM schema_migrations"
         ).fetchall()
-        assert len(rows) == 1
-        filename, applied_at = rows[0]
-        assert filename == "001_baseline.sql"
-        assert applied_at is not None and len(applied_at) > 0
+        assert len(rows) == 2
+        filenames = {row[0] for row in rows}
+        assert filenames == {"001_baseline.sql", "002_drop_dead_tables.sql"}
+        for _, applied_at in rows:
+            assert applied_at is not None and len(applied_at) > 0
     finally:
         conn.close()
+
+
+def test_002_drops_dead_tables(temp_db_path):
+    migrate.run_migrations(temp_db_path)
+    tables = _table_names(temp_db_path)
+    dead_tables = {
+        "prompt_runs",
+        "prompt_templates",
+        "prompt_hitrates",
+        "template_model_hitrates",
+        "implementation_patterns",
+        "prompt_compiler_fields",
+        "prompt_compiler_field_options",
+        "prompt_sequences",
+        "prompt_sequence_steps",
+        "generated_prompts",
+        "project_plans",
+        "projects",
+        "reference_projects",
+    }
+    assert dead_tables.isdisjoint(tables)
 
 
 def test_init_db_end_to_end(temp_db_path):
