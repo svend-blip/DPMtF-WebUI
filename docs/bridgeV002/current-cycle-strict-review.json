@@ -1,21 +1,22 @@
 {
-  "last_handoff": 213,
-  "title": "i18n: fix el-GR display name + replace hardcoded strings with lbl()",
-  "flow": "strict_review",
-  "active_role": "archi01",
-  "design_notes": "Three issues in one handoff: (1) locale_names dict missing el-GR → dropdown shows 'el-GR' instead of 'Ελληνικά', (2) ~6 hardcoded textContent/placeholder strings in dpmtf-app.js should use lbl(), (3) seed data adds 4 new labels across all 5 locales bringing el-GR to full 220/220 coverage.",
+  "last_handoff": 227,
+  "title": "Remove hardcoded /home/svend paths — config.py fallbacks + init_db 32 seed paths + dpmtf.ini + startup validation (Optimization Roadmap Fase Ø-4)",
+  "active_role": "imple01",
+  "design_notes": "Fase Ø-4 of docs/superpowers/plans/2026-07-04-optimization-roadmap.md. Governance auto-fail fix: config.py line 56 (fallback=/home/svend/flows) + line 128 (/home/svend/trade-ui/inbox/pending) hardcoded fallbacks; dpmtf.ini hardcoded bridge_dir/project_root; init_db.py 32 /home/svend in seed data (handoff 027 fixed 7, these 32 remain). Remove all → env vars (DPMTF_BRIDGE_DIR etc.) or config-derived, NO hardcoded user paths. Add validate_no_hardcoded_paths() in config.py raising ConfigValidationError, called at app startup. Behavioral change: app now requires env vars instead of silent hardcoded fallback. Handoff 226 (Ø-1 logging) was committed directly by Human (6eac669) bypassing review — imple01 never signal-completed 226, so this 227 cycle starts fresh. Counter: 226 used (Ø-1), 227 used (Ø-4, this), next=228.",
   "verification_checklist": [
-    "app.py locale_names dict has 'el-GR': 'Ελληνικά'",
-    "All hardcoded textContent replaced with lbl()",
-    "All placeholders replaced with lbl()",
-    "4 new labels seeded in all 5 locales (220 each)",
-    "4 previously missing el-GR translations now complete",
-    "No innerHTML anywhere in static/ or templates/",
-    "node --check static/js/dpmtf-app.js passes",
-    "python3 -m py_compile app.py scripts/init_db.py passes"
+    "grep 'home/svend' config.py / scripts/init_db.py / dpmtf.ini — empty in code+seed",
+    "py_compile app.py config.py init_db.py OK",
+    "python3 scripts/init_db.py idempotent — no error",
+    "python3 -c 'import app' — imports cleanly (startup validation passes)",
+    "/api/health returns healthy",
+    "git diff --stat — only config.py, init_db.py, dpmtf.ini, app.py changed"
   ],
-  "open_gaps": [],
-  "branch": "hardening/bridgev002-phase1-config",
-  "commit": "7ef7622",
-  "updated": "2026-06-24T00:00:00Z"
+  "open_gaps": [
+    "Handoff 226 (Ø-1 logging) committed directly (6eac669) — review bypassed; imple01 never signal-completed.",
+    "Ø-5 (SQL f-string fix, app.py:1538/3491) still pending — next strict_review handoff after 227.",
+    "Dispatch injection not reliable — verify tmux pane via session-ID after signal-send."
+  ],
+  "branch": "master",
+  "commit": "Father 6eac669 (Ø-1 logging, prior); this handoff 227 unstaged",
+  "updated": "2026-07-04T17:30:00Z"
 }

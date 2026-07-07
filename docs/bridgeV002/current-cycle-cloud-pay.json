@@ -1,27 +1,29 @@
 {
-  "last_handoff": 48,
-  "title": "Combined: init_db.py seed-row arity fix (47-rework) + current.md dangling-symlink fix from trade-flow run 42 live verification",
+  "last_handoff": 58,
+  "title": "Fase E-1 — Versioned SQL-migration system pilot (trade-ui: migrate.py + schema_migrations + 001_baseline + slim init_db.py)",
   "flow": "cloud_pay",
-  "active_role": "humanpay",
-  "design_notes": "Handoff 48 APPROVED WITH NOTES by review02pay. Issue A required NO code change (already resolved by earlier refactor that moved bridge_roles seed to seed_bridge.py with correct 8-value arity). Issue B fixed: Father dispatch.py _resolve_existing_target() zero-pad fallback (42->042) + trade-ui import_flow_output.py move_file() repoints current.md on move + run_import() skips dangling forwarder symlinks. All tests pass (Father 7, trade-ui 168). init_db.py runs clean. review02pay GATE-SCOPE + GATE-SCHEMA flagged MINOR deviations outside approved scope (all defensible): (1) Father dispatch.py {output_type}/{flow_run_id} template vars in signal_send; (2) trade-ui data_quality enum expansion ('partial','insufficient'); (3) trade-ui removed BROKER_ORDER/ETORO_ORDER from FORBIDDEN_PAYLOAD_TOKENS; (4) trade-ui schema role_output.schema.json enum; (5) Father init_db.py primary_output_type column on bridge_roles (idempotent); (6) trade-ui init_db.py score_results.horizon nullable. Human action items: (a) one commit vs split; (b) consider separate scoped handoffs for data_quality/primary_output_type; (c) review scope deviations before commit. Counter: 48 APPROVED, next=49.",
+  "active_role": "archi01pay",
+  "design_notes": "Fase E establishes a versioned SQL-migration system replacing init_db.py's inline CREATE/ALTER monolith. Problem: no schema_migrations table means the system can't tell which schema version a DB is at — caused the 2026-07-04 DB-loss incident (restore resurrected dead start_cmd/start_cmd_suffix columns that had been DROPped, because init_db.py re-added them on re-run, causing a live dispatch.py regression). Fase E: scripts/db/*.sql numbered migrations + schema_migrations table + scripts/migrate.py idempotent runner. Makes schema evolution tracked/replayable/rollback-able, and makes Fase F legacy-table cleanup SAFE (drops become reviewed migrations). Pilot scope: trade-ui ONLY (init_db.py 2236 lines, 22 tables, 7 ALTER, 44 INSERTs) — smaller than Father (5281 lines, 48 tables), cloud_pay flow warmed up. Father replication = Fase E-2 via strict_review (separate later handoff). Design: (1) migrate.py resolves DB via config.get_db_path(), creates schema_migrations table, applies pending scripts/db/*.sql in numeric order transactionally with applied_at tracking, idempotent; (2) 001_baseline.sql = current 22-table schema as CREATE TABLE IF NOT EXISTS (collapses historical CREATE+ALTER churn into one baseline; no-op on existing DB, creates on fresh); (3) init_db.py slimmed to call migrate.py (schema) + keep idempotent INSERT OR IGNORE for canonical data seed (i18n labels, conventions — the 44 data INSERTs); remove inline CREATE/ALTER (now in baseline). Backward-compatible: python3 scripts/init_db.py still works (app.py:317 message + run_etoro_tests.py:47 call valid). init_db.py invoked MANUALLY (not at app startup) — no app-startup wiring needed. Baseline = current state (not historical replay) — the 7 ALTERs are collapsed into baseline. schema_migrations is metadata (no app code reads it; only migrate.py). No data loss (IF NOT EXISTS). Sacred invariants untouched. Handoff 58 dispatched to imple01pay; NOT committed until Human verdict. Fase F (legacy cleanup) follows after E-1 lands — drops become 002_drop_*.sql migrations.",
   "verification_checklist": [
-    "APPROVED BY review02pay — no rework needed",
-    "py_compile all changed files PASS (both projects)",
-    "python3 scripts/init_db.py PASS (no arity error)",
-    "seed_bridge.py PASS",
-    "start_cmd/start_cmd_suffix grep EMPTY (no regression)",
-    "innerHTML grep EMPTY (only a comment line)",
-    "pytest Father 7 GREEN + trade-ui 168 GREEN",
-    "readlink current.md && test -e PASS (live, no dangling)"
+    "Handoff #58 dispatched to imple01pay — tmux capture-pane confirms injection (do NOT trust 'injected' log line alone)",
+    "python3 -m py_compile scripts/migrate.py scripts/init_db.py PASS",
+    "migrate.py: creates schema_migrations table, applies pending scripts/db/*.sql in numeric order transactionally, idempotent (re-run = no-op)",
+    "001_baseline.sql: all 22 current trade-ui tables as CREATE TABLE IF NOT EXISTS (no-op on existing DB, creates on fresh)",
+    "init_db.py slimmed: calls migrate.py for schema + keeps idempotent INSERT OR IGNORE for data seed (i18n/conventions); inline CREATE/ALTER removed",
+    "Backward-compatible: python3 scripts/init_db.py still works; app.py:317 + run_etoro_tests.py:47 valid",
+    "config.get_db_path() used (no hardcoded paths in migrate.py)",
+    "New tests/test_migrate.py: idempotency (run twice = 001 applied once); fresh DB gets all 22 tables; schema_migrations tracks 001 with timestamp; init_db.py end-to-end on fresh DB",
+    "Run migrate.py against existing databases/trade-ui.db → schema_migrations created, 001 recorded, existing tables+data unchanged",
+    "Full trade-ui suite no regressions (168+ baseline); app starts healthy (curl /api/health)"
   ],
   "open_gaps": [
-    "GATE-SCOPE: 4 scope deviations (dispatch.py template vars, trade-ui data_quality enum, FORBIDDEN_PAYLOAD_TOKENS, schema) — Human must acknowledge at commit",
-    "GATE-SCHEMA: 2 schema migrations outside scope (bridge_roles.primary_output_type, score_results.horizon nullable) — Human must acknowledge",
-    "Human decision: one commit vs split (core fix vs auxiliary improvements)",
-    "Consider separate scoped handoffs for data_quality enum expansion + primary_output_type column for future review",
-    "trade-ui app.js line ~1556 'Running import…' i18n leak (tiny, not in scope)"
+    "Fase F (legacy-table cleanup) — deferred until E-1 lands. A table-usage audit (grep code + row counts) identifies dead tables; drops become 002_drop_*.sql migrations. Candidate dead tables from earlier scan: panel_subgroups/panel_subgroup_mappings (0 rows), etoro_instruments/etoro_order_events/etoro_orders (0 rows), trade_allocation_plan_items/trade_allocation_plans (0 rows) — but need code-reference audit to confirm unused.",
+    "Fase E-2 (Father replication) — separate later handoff via strict_review flow. Same pattern, bigger scope (5281 lines, 48 tables, 20 ALTER).",
+    "cloud_pay bridge_id_counters.next_id still 48 (bookkeeping bug) — handoff 58 uses --id 58 explicitly.",
+    "avg_volume_20d vs avg_volume_90d column rename — becomes a trivial numbered migration once Fase E lands (e.g. 003_rename_avg_volume.sql).",
+    "Systemic config.get_db_path() relative-path issue — fixed per-script in commit 75fb666; Fase E-2 on Father would revisit via migrate.py using config getter."
   ],
   "branch": "master",
-  "commit": "Father 3b8f04e(C-3) prior; handoff 48 APPROVED unstaged awaiting Human commit decision",
-  "updated": "2026-07-05T16:35:00Z"
+  "commit": "f484274",
+  "updated": "2026-07-07T10:52:37Z"
 }
