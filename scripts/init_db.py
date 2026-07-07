@@ -4,6 +4,7 @@ import json
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+import migrate
 
 # Database path
 DB_PATH = config.get_db_path()
@@ -11,107 +12,18 @@ DB_PATH = config.get_db_path()
 # Create database directory if it doesn't exist
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# Connect to database
+# Create/upgrade schema via versioned migrations
+migrate.run_migrations(DB_PATH)
+
+# Connect to database for canonical data seeding
 conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
-# Create tables
-# Create or modify frontend_panels table to include all required columns
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS frontend_panels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_file TEXT NOT NULL,
-    panel_key TEXT NOT NULL,
-    panel_title TEXT,
-    html_id TEXT,
-    sort_order INTEGER,
-    raw_opening_tag TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
-
-# Add updated_at column if it doesn't exist (for backward compatibility)
-try:
-    cursor.execute("ALTER TABLE frontend_panels ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS panel_classifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    panel_id INTEGER,
-    classification TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (panel_id) REFERENCES frontend_panels (id)
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS app_profiles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS app_profile_panels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile_id INTEGER,
-    panel_id INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (profile_id) REFERENCES app_profiles (id),
-    FOREIGN KEY (panel_id) REFERENCES frontend_panels (id)
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS phase_status (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phase_key TEXT UNIQUE NOT NULL,
-    phase_title TEXT NOT NULL,
-    phase_description TEXT,
-    phase_state TEXT NOT NULL,
-    sort_order INTEGER NOT NULL,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
+# Canonical data seed (schema is maintained by scripts/db/*.sql migrations)
 
 # Create layout_slots table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS layout_slots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slot_id TEXT UNIQUE NOT NULL,
-    parent_slot_id TEXT,
-    slot_name TEXT NOT NULL,
-    slot_description TEXT,
-    display_order INTEGER NOT NULL,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Create layout_panels table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS layout_panels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    panel_id TEXT UNIQUE NOT NULL,
-    slot_id TEXT NOT NULL,
-    panel_key TEXT NOT NULL,
-    panel_title TEXT NOT NULL,
-    panel_description TEXT,
-    panel_type TEXT NOT NULL,
-    display_order INTEGER NOT NULL,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed layout_slots data
 layout_slots_data = [
@@ -216,55 +128,12 @@ for phase in phase_data:
 
 # ── Phase 2F-bis: i18n four-layer architecture ─────────────────────
 # Layer 1: ui_text_slots — stable frontend text placement IDs
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS ui_text_slots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slot_key TEXT UNIQUE NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Layer 2: ui_text_slot_labels — binds slots to labels
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS ui_text_slot_labels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    slot_key TEXT NOT NULL,
-    label_key TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(slot_key, label_key)
-)
-""")
 
 # Create ui_labels table for i18n label registry
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS ui_labels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    label_id TEXT UNIQUE NOT NULL,
-    label_key TEXT UNIQUE NOT NULL,
-    label_domain TEXT NOT NULL,
-    default_text TEXT NOT NULL,
-    description TEXT,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Create ui_label_translations table for locale-specific translations
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS ui_label_translations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    label_id TEXT NOT NULL,
-    locale TEXT NOT NULL,
-    translated_text TEXT NOT NULL,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(label_id, locale)
-)
-""")
 
 # Seed baseline ui_labels data (existing + 45 new for 2F-bis)
 ui_labels_data = [
@@ -1588,22 +1457,6 @@ for slot_key, label_key in ui_text_slot_labels_data:
     """, (slot_key, label_key))
 
 # Create endpoint_registry table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS endpoint_registry (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    endpoint_id TEXT UNIQUE NOT NULL,
-    endpoint_key TEXT UNIQUE NOT NULL,
-    route_path TEXT NOT NULL,
-    http_method TEXT NOT NULL,
-    endpoint_purpose TEXT NOT NULL,
-    response_shape TEXT,
-    frontend_consumer TEXT,
-    is_read_only INTEGER DEFAULT 1,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed baseline endpoint_registry data
 endpoint_registry_data = [
@@ -1630,21 +1483,6 @@ for endpoint in endpoint_registry_data:
     """, endpoint)
 
 # Create bootstrap_dataset_registry table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bootstrap_dataset_registry (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    dataset_id TEXT UNIQUE NOT NULL,
-    dataset_key TEXT UNIQUE NOT NULL,
-    table_name TEXT NOT NULL,
-    dataset_purpose TEXT NOT NULL,
-    source_script TEXT NOT NULL,
-    min_expected_count INTEGER DEFAULT 1,
-    is_required INTEGER DEFAULT 1,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed baseline bootstrap_dataset_registry data
 bootstrap_dataset_data = [
@@ -1671,24 +1509,6 @@ for dataset in bootstrap_dataset_data:
 
 # Create architecture_decision_records table
 # Create webui_migration_targets table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS webui_migration_targets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    target_id TEXT UNIQUE NOT NULL,
-    target_project_key TEXT UNIQUE NOT NULL,
-    target_project_name TEXT NOT NULL,
-    target_project_path TEXT NOT NULL,
-    target_port INTEGER NOT NULL,
-    target_status TEXT NOT NULL,
-    source_project_path TEXT NOT NULL,
-    migration_strategy TEXT NOT NULL,
-    related_adr_id TEXT,
-    notes TEXT,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed webui_migration_targets data (no DELETE — upsert style)
 _ai_pc_ref_project = config.get_project_path("ai-pc-resource-webui")
@@ -1720,25 +1540,6 @@ for target in webui_migration_targets_data:
     """, target)
 
 # Create reusable_panel_selections table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS reusable_panel_selections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    reusable_panel_id TEXT UNIQUE NOT NULL,
-    target_project_key TEXT NOT NULL,
-    source_project_path TEXT NOT NULL,
-    panel_key TEXT NOT NULL,
-    panel_title TEXT NOT NULL,
-    source_html_id TEXT,
-    source_panel_kind TEXT NOT NULL,
-    selection_status TEXT NOT NULL,
-    selection_reason TEXT NOT NULL,
-    migration_priority INTEGER NOT NULL,
-    is_required INTEGER DEFAULT 1,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed reusable_panel_selections data (no DELETE — upsert style)
 reusable_panel_selections_data = [
@@ -1825,23 +1626,6 @@ for panel in reusable_panel_selections_data:
     """, panel)
 
 # Create webui_project_skeletons table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS webui_project_skeletons (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    skeleton_id TEXT UNIQUE NOT NULL,
-    target_project_key TEXT NOT NULL,
-    target_project_path TEXT NOT NULL,
-    target_port INTEGER NOT NULL,
-    skeleton_status TEXT NOT NULL,
-    created_files_json TEXT NOT NULL,
-    server_start_command TEXT,
-    health_endpoint TEXT NOT NULL,
-    notes TEXT,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed webui_project_skeletons data (no DELETE — upsert style)
 webui_project_skeletons_data = [
@@ -1868,22 +1652,6 @@ for skeleton in webui_project_skeletons_data:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, skeleton)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS architecture_decision_records (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    adr_id TEXT UNIQUE NOT NULL,
-    adr_key TEXT UNIQUE NOT NULL,
-    adr_title TEXT NOT NULL,
-    decision_status TEXT NOT NULL,
-    decision_context TEXT NOT NULL,
-    decision_text TEXT NOT NULL,
-    consequences TEXT,
-    related_phase_key TEXT,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed baseline architecture_decision_records data
 adr_data = [
@@ -1938,28 +1706,6 @@ for adr in adr_data:
     """, adr)
 
 # Create v2_panel_requirements table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS v2_panel_requirements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    requirement_id TEXT UNIQUE NOT NULL,
-    target_project_key TEXT NOT NULL,
-    panel_key TEXT NOT NULL,
-    panel_title TEXT NOT NULL,
-    card_key TEXT NOT NULL,
-    card_title TEXT NOT NULL,
-    card_type TEXT NOT NULL,
-    display_order INTEGER NOT NULL,
-    source_reference TEXT,
-    required_data_json TEXT NOT NULL,
-    visual_requirements_json TEXT NOT NULL,
-    behavior_requirements_json TEXT NOT NULL,
-    implementation_status TEXT NOT NULL,
-    is_required INTEGER DEFAULT 1,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed v2_panel_requirements data (no DELETE — upsert style)
 _omitted_cards = config.get_omitted_card_paths()
@@ -2634,45 +2380,8 @@ cursor.execute("""
 """, ("2H", "Prompt Template Manager", "Database-driven parametrisable templates with complexity tiers, capture sources, and per-model hitrate tracking. Redesigned based on Excel data analysis of 8 prompt runs.", "completed", 32))
 
 # ── Phase 2J: Validation Automation ────────────────────────────────
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS validation_rules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rule_key TEXT UNIQUE NOT NULL,
-    rule_name TEXT NOT NULL,
-    command TEXT NOT NULL,
-    expected_output TEXT,
-    severity TEXT NOT NULL DEFAULT 'error',
-    applies_to TEXT NOT NULL DEFAULT 'all',
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS validation_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT UNIQUE NOT NULL,
-    phase_key TEXT,
-    target_project TEXT,
-    overall_verdict TEXT,
-    rules_total INTEGER DEFAULT 0,
-    rules_passed INTEGER DEFAULT 0,
-    rules_failed INTEGER DEFAULT 0,
-    run_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS validation_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL,
-    rule_key TEXT NOT NULL,
-    passed INTEGER NOT NULL DEFAULT 0,
-    actual_output TEXT,
-    notes TEXT,
-    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed the 7 baseline validation rules from 06_VALIDATION.md
 validation_rules_seed = [
@@ -2738,33 +2447,7 @@ cursor.execute("""
 """, ("2J", "Validation Automation", "Database-driven validation: validation_rules, validation_runs, validation_results tables.", "next", 34))
 
 # ── Phase 2K: Git Sync Management ────────────────────────────────
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS git_sync_status (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_key TEXT UNIQUE NOT NULL,
-    project_path TEXT NOT NULL,
-    branch TEXT NOT NULL DEFAULT 'master',
-    unpushed_commits INTEGER DEFAULT 0,
-    last_push_timestamp TIMESTAMP,
-    last_push_success INTEGER,
-    last_checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS git_operations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    operation_id TEXT UNIQUE NOT NULL,
-    project_key TEXT NOT NULL,
-    operation_type TEXT NOT NULL,
-    details TEXT,
-    success INTEGER NOT NULL DEFAULT 1,
-    error_log TEXT,
-    operator TEXT,
-    operation_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed DPMtF-WebUI's own git status
 cursor.execute("""
@@ -2824,20 +2507,6 @@ cursor.execute("""
 """, ("2L", "Platform Adapter Framework", "PlatformAdapter base class for Linux/Windows abstraction. Linux implementation. Windows stub.", "next", 36))
 
 # ── Phase 2M: Local Claude Code Session Manager ──────────────────
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS claude_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT UNIQUE NOT NULL,
-    model_used TEXT,
-    project_context TEXT,
-    status TEXT NOT NULL DEFAULT 'active',
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ended_at TIMESTAMP,
-    last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    notes TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Register new endpoints
 endpoint_registry_2m = [
@@ -2874,33 +2543,8 @@ cursor.execute("""
 """, ("2M", "Local Claude Code Session Manager", "Start/stop/monitor local Claude Code session via Ollama. Session status tracking in database.", "completed", 37))
 
 # ── Phase 2N: Prompt→Implementer→Validator loop ─────────────────
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS workflow_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT UNIQUE NOT NULL,
-    phase_key TEXT NOT NULL,
-    target_project TEXT NOT NULL,
-    template_key TEXT,
-    prompt_text TEXT,
-    session_id TEXT,
-    status TEXT NOT NULL DEFAULT 'prompt_compiled',
-    validation_run_id TEXT,
-    hitrate_run_id TEXT,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
-    notes TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # ── Phase 3C: User language preference ─────────────────
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS user_language (
-        user_id    TEXT    NOT NULL PRIMARY KEY,
-        locale     TEXT    NOT NULL DEFAULT 'en-US',
-        updated_at TEXT    DEFAULT (datetime('now'))
-    )
-""")
 
 # Register new endpoints
 endpoint_registry_2n = [
@@ -2942,43 +2586,9 @@ cursor.execute("""
 """)
 
 # Panel group collapse/expand user preferences
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS user_panel_groups (
-    user_id    TEXT NOT NULL,
-    group_name TEXT NOT NULL,
-    state      TEXT NOT NULL DEFAULT 'expanded',
-    is_visible INTEGER DEFAULT 1,
-    updated_at TEXT DEFAULT (datetime('now')),
-    PRIMARY KEY (user_id, group_name)
-)
-""")
-
-# Tilføj is_visible kolonne hvis den ikke findes (for eksisterende DB'er)
-cursor.execute("PRAGMA table_info(user_panel_groups)")
-_columns = [col[1] for col in cursor.fetchall()]
-if "is_visible" not in _columns:
-    cursor.execute("ALTER TABLE user_panel_groups ADD COLUMN is_visible INTEGER DEFAULT 1")
 
 # ── Fase 3A: Panel Subgroups — Design subpatterns ──────────────────────
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS panel_subgroups (
-    subgroup_key  TEXT PRIMARY KEY NOT NULL,
-    group_name    TEXT NOT NULL,
-    title_da      TEXT NOT NULL,
-    title_en      TEXT NOT NULL,
-    sort_order    INTEGER DEFAULT 0,
-    is_visible    INTEGER DEFAULT 1,
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS panel_subgroup_mappings (
-    slot_key      TEXT NOT NULL,
-    subgroup_key  TEXT NOT NULL,
-    PRIMARY KEY (slot_key, subgroup_key)
-)
-""")
 
 # Seed data — DPMtF subgroups
 panel_subgroups_seed = [
@@ -3108,32 +2718,6 @@ cursor.execute("""
 # ── Phase tracking: 2O-b → completed, 3A → next (Panel Subgroups) ────────
 
 # ── Phase 2O-b: Comparison Runs ────────────────────────
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS comparison_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    comparison_id TEXT UNIQUE NOT NULL,
-    prompt_template_key TEXT,
-    task_type TEXT NOT NULL,
-    complexity_tier INTEGER NOT NULL,
-    cloud_run_id TEXT,
-    local_run_id TEXT,
-    cloud_model TEXT NOT NULL,
-    local_model TEXT NOT NULL,
-    cloud_verdict TEXT,
-    local_verdict TEXT,
-    cloud_output_quality INTEGER,
-    local_output_quality INTEGER,
-    cloud_gov_compliance INTEGER,
-    local_gov_compliance INTEGER,
-    cloud_duration_seconds INTEGER,
-    local_duration_seconds INTEGER,
-    cloud_cost_eur REAL,
-    local_cost_eur REAL,
-    winner TEXT,
-    conclusion TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 # Seed comparison data (from 2O comparisons)
 comparison_runs_seed = [
@@ -3262,70 +2846,12 @@ cursor.execute("""
 
 # ── Spor I: BridgeV002 Database Integration ────────────────
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bridge_roles (
-    role_key TEXT PRIMARY KEY,
-    tmux_session TEXT NOT NULL,
-    model_type TEXT DEFAULT 'ollama',
-    cloud_model TEXT,
-    ollama_model TEXT,
-    setup_script TEXT,
-    teardown_script TEXT,
-    deliver_error_msg TEXT,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bridge_flows (
-    flow_key TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    step_order TEXT,
-    is_default INTEGER DEFAULT 0,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bridge_flow_steps (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    flow_key TEXT NOT NULL,
-    step_key TEXT NOT NULL,
-    from_role TEXT NOT NULL,
-    to_role TEXT NOT NULL,
-    deliverable_dir TEXT,
-    deliverable_pattern TEXT,
-    pre_dispatch_script TEXT,
-    post_dispatch_script TEXT,
-    error_msg TEXT,
-    sort_order INTEGER DEFAULT 0,
-    is_active INTEGER DEFAULT 1,
-    FOREIGN KEY (flow_key) REFERENCES bridge_flows(flow_key),
-    UNIQUE(flow_key, step_key)
-)
-""")
 
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # ── Fase 2: Bridge Script Registry ────────────────────────
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bridge_scripts (
-    script_key TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    path TEXT NOT NULL,
-    stage TEXT CHECK(stage IN ('pre', 'post', 'both')),
-    params_required TEXT,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 cursor.executemany(
     """INSERT OR IGNORE INTO bridge_scripts
@@ -3363,17 +2889,6 @@ cursor.execute(
 
 # ── Fase 3: Bridge Convention Rules ────────────────────
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bridge_convention_rules (
-    rule_key TEXT PRIMARY KEY,
-    step_type TEXT NOT NULL,
-    dir_template TEXT NOT NULL,
-    pattern_template TEXT NOT NULL,
-    error_template TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
 
 cursor.executemany(
     """INSERT OR IGNORE INTO bridge_convention_rules
@@ -3399,12 +2914,6 @@ cursor.executemany(
 )
 
 # Add rule_key FK column to bridge_flow_steps (idempotent — ignore if exists)
-try:
-    cursor.execute("""
-    ALTER TABLE bridge_flow_steps ADD COLUMN rule_key TEXT REFERENCES bridge_convention_rules(rule_key)
-    """)
-except sqlite3.OperationalError:
-    pass  # Column already exists
 
 # Map strict_review steps to convention rules
 cursor.executemany(
@@ -3429,12 +2938,6 @@ cursor.executemany(
 )
 
 # Add prompt_template column to bridge_convention_rules (idempotent)
-try:
-    cursor.execute("""
-    ALTER TABLE bridge_convention_rules ADD COLUMN prompt_template TEXT DEFAULT ''
-    """)
-except sqlite3.OperationalError:
-    pass  # Column already exists
 
 # Seed verdict_feedback convention with enriched prompt_template
 cursor.execute(
@@ -3465,54 +2968,18 @@ cursor.execute(
 # ── Handoff 131: DB-driven Callback, Escalation & Convention Content ───
 
 # 2.1 bridge_flows — auto_complete_enabled
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_flows ADD COLUMN auto_complete_enabled INTEGER DEFAULT 0
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # 2.2 bridge_flow_steps — auto_chain_to_next
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_flow_steps ADD COLUMN auto_chain_to_next INTEGER DEFAULT 0
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # 2.3 bridge_flow_steps — validation_required
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_flow_steps ADD COLUMN validation_required INTEGER DEFAULT 0
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # 2.4 removed (restart_policy dropped H132)
 
 # 2.5 bridge_convention_rules — content_template
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_convention_rules ADD COLUMN content_template TEXT
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # 2.6 bridge_convention_rules — validation_schema
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_convention_rules ADD COLUMN validation_schema TEXT
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # 3.1 bridge_convention_rules — rule_type
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_convention_rules ADD COLUMN rule_type TEXT DEFAULT 'generic'
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # 3.2 Update rule_type on existing convention rows (idempotent)
 cursor.executemany(
@@ -3824,21 +3291,9 @@ cursor.execute(
 )
 
 # H140: governance_file column on bridge_roles — role-specific governance reference
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN governance_file TEXT DEFAULT NULL
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # G1: role_type column on bridge_roles — distinguish human from agent recipients
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN role_type TEXT DEFAULT 'agent'
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # Seed human role as type 'human' (all other roles default to 'agent')
 cursor.execute(
@@ -3849,12 +3304,6 @@ cursor.execute(
 # H150: enter_command column on bridge_roles — how Enter is sent for tmux injection
 # Values: 'default' (Enter in same command), 'c-m' (two-step: text then separate C-m),
 #         'c-j' (two-step with C-j), 'c-d' (two-step with C-d)
-try:
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN enter_command TEXT DEFAULT 'default'
-    """)
-except sqlite3.OperationalError:
-    pass
 
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # H160: start_cmd_suffix column — REMOVED (dead config per principle).
@@ -3865,70 +3314,16 @@ except sqlite3.OperationalError:
 
 # ── Machine Profile Fase 2A — idempotente runtime-kolonner ──────────────
 
-def _column_exists(cursor, table_name, column_name):
-    """Check if a column exists in a known table (idempotent schema helper)."""
-    allowed_tables = {"bridge_flows", "bridge_roles", "bridge_flow_steps"}
-    if table_name not in allowed_tables:
-        raise ValueError(f"Unsupported table for column check: {table_name}")
-    rows = cursor.execute(f"PRAGMA table_info({table_name})").fetchall()
-    return any(row[1] == column_name for row in rows)
-
-
 # use_machine_profile on bridge_flows
-if not _column_exists(cursor, "bridge_flows", "use_machine_profile"):
-    cursor.execute("""
-        ALTER TABLE bridge_flows ADD COLUMN use_machine_profile INTEGER DEFAULT 0
-    """)
-
 # default_runtime, default_provider, default_model on bridge_roles
-if not _column_exists(cursor, "bridge_roles", "default_runtime"):
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN default_runtime TEXT DEFAULT NULL
-    """)
-
-if not _column_exists(cursor, "bridge_roles", "default_provider"):
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN default_provider TEXT DEFAULT NULL
-    """)
-
-if not _column_exists(cursor, "bridge_roles", "default_model"):
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN default_model TEXT DEFAULT NULL
-    """)
-
 # Machine Profile Fase 2A — config_dir for OpenCode roles
-if not _column_exists(cursor, "bridge_roles", "config_dir"):
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN config_dir TEXT DEFAULT NULL
-    """)
-
 # json_output convention — primary output_type per role, for {output_type}
 # placeholder substitution in content_template (spec §5.2 + §8). Generic
 # mechanism: any role may declare its primary output_type. Trade-role values
 # are populated by seed_bridge.py and must match trade-ui's import-validated
 # ROLE_OUTPUT_TYPE_PERMISSION (first/primary type per role).
-if not _column_exists(cursor, "bridge_roles", "primary_output_type"):
-    cursor.execute("""
-        ALTER TABLE bridge_roles ADD COLUMN primary_output_type TEXT DEFAULT NULL
-    """)
-
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # Machine Profile Fase 2B — flow-role overrides on bridge_flow_steps
-if not _column_exists(cursor, "bridge_flow_steps", "runtime_override"):
-    cursor.execute("""
-        ALTER TABLE bridge_flow_steps ADD COLUMN runtime_override TEXT DEFAULT NULL
-    """)
-
-if not _column_exists(cursor, "bridge_flow_steps", "provider_override"):
-    cursor.execute("""
-        ALTER TABLE bridge_flow_steps ADD COLUMN provider_override TEXT DEFAULT NULL
-    """)
-
-if not _column_exists(cursor, "bridge_flow_steps", "model_override"):
-    cursor.execute("""
-        ALTER TABLE bridge_flow_steps ADD COLUMN model_override TEXT DEFAULT NULL
-    """)
-
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 
 # ── Spor J: Bridge Setup UI i18n labels ────────────────────────────────
@@ -4450,12 +3845,6 @@ for slot_key, label_key in _bridge_setup_slot_labels:
 
 # ── Bridge ID Counters (DB-driven, flow-isolated) ────────────────────
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS bridge_id_counters (
-    flow_key TEXT PRIMARY KEY,
-    next_id  INTEGER NOT NULL DEFAULT 1
-)
-""")
 
 # Bridge seed data moved to scripts/seed_bridge.py (see StartUpNextSession §8.1)
 # Commit changes and close connection
