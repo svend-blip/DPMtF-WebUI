@@ -1,34 +1,45 @@
-"""C-3 migration: drop audited zero-row dead tables from the project DB.
+"""C-3 migration: drop audited dead tables from the project DB.
 
 Handoff 46 audit verdict (2026-07-04): 8 zero-row candidate tables were
 originally KEPT because several were still referenced by code.
+
 Fase F cleanup (handoff 59) removed the Prompt Sequence and Project Plan
-endpoints, making the following 6 tables unreferenced hard-dead code:
+sub-features, making 6 tables unreferenced hard-dead code.  Those 6 tables
+were dropped with 0 rows:
 
   - prompt_sequences
   - prompt_sequence_steps
   - generated_prompts
   - project_plans
-  - frontend_panels
-  - panel_classifications
+  - projects
+  - reference_projects
 
-After the code cleanup these tables still had zero rows.  This migration
-backs up the database, re-runs the 3 safety checks (0 rows, no code refs,
-no FK dependents), and drops only the tables that still PASS all checks.
+Fase F-2 cleanup (handoff 60) removed a second dead cluster: the legacy
+prompt-run / hitrate / template / pattern / compiler-field sub-features.
+A 6-agent reachability audit confirmed these 7 tables are dead (no frontend
+caller, no live route, no mcp-light/bridge/scripts consumer).  They are
+removed regardless of row count — most contain only seed rows or stale
+dev-test rows:
 
-Two additional 0-row tables from the original audit, projects and
-reference_projects, were already unreferenced in code; they remain in
-the candidate list so this script can drop them if the re-audit confirms
-they are empty and have no FK dependents.
+  - prompt_runs
+  - prompt_templates
+  - prompt_hitrates
+  - template_model_hitrates
+  - implementation_patterns
+  - prompt_compiler_fields
+  - prompt_compiler_field_options
 
 DB-safety (rule #7 in 12_CODING_STANDARD.md): the only destructive
 operation is `DROP TABLE IF EXISTS`, executed only for tables that (1)
-appear in SAFE_TO_DROP, (2) currently have 0 rows, and (3) have no FK
-dependents.  A timestamped backup is written next to the DB file before
-any drops.
+appear in SAFE_TO_DROP and (2) have no FK dependents outside the drop list.
+Tables are dropped in dependency order so children are removed before
+parents.  A timestamped backup is written next to the DB file before any
+drops.
+
+Permanent exclusions (NEVER-DROP): i18n 4-layer tables, all bridge_*
+tables, all UI/Frontend tables, and workflow_runs.
 """
 
-import os
 import shutil
 import sqlite3
 import sys
@@ -40,16 +51,26 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 import config  # noqa: E402
 
-# Tables approved for conditional drop after handoff 59 code cleanup.
-# A table is dropped only if it is CURRENTLY empty, has no FK dependents
-# outside this list, and the migration can order children before parents.
+# Tables approved for conditional drop after handoff 59 + handoff 60 cleanup.
+# A table is dropped only if it has no FK dependents outside this list;
+# the migration orders children before parents.  Row count is NOT a blocker
+# for this approved list (some tables contain seed/dev-test rows).
 SAFE_TO_DROP = [
+    # Handoff 59 (prompt-sequence / project-plan cluster)
     "prompt_sequences",
     "prompt_sequence_steps",
     "generated_prompts",
     "project_plans",
     "projects",
     "reference_projects",
+    # Handoff 60 (prompt-run / hitrate / template / pattern cluster)
+    "prompt_runs",
+    "prompt_templates",
+    "prompt_hitrates",
+    "template_model_hitrates",
+    "implementation_patterns",
+    "prompt_compiler_fields",
+    "prompt_compiler_field_options",
 ]
 
 
@@ -75,10 +96,9 @@ def _get_fk_references_to(cursor: sqlite3.Cursor, table: str) -> list[str]:
     return dependents
 
 
-def _check_zero_rows(cursor: sqlite3.Cursor, table: str) -> tuple[bool, int]:
+def _get_row_count(cursor: sqlite3.Cursor, table: str) -> int:
     cursor.execute(f"SELECT COUNT(*) FROM {table}")
-    count = cursor.fetchone()[0]
-    return count == 0, count
+    return cursor.fetchone()[0]
 
 
 def _build_drop_order(cursor: sqlite3.Cursor, selected: set[str]) -> list[str]:
@@ -119,21 +139,19 @@ def main():
             print(f"  skip: {table} does not exist")
             continue
 
-        zero_rows, row_count = _check_zero_rows(cursor, table)
+        row_count = _get_row_count(cursor, table)
         external_dependents = [
             d for d in _get_fk_references_to(cursor, table) if d not in SAFE_TO_DROP
         ]
 
-        if zero_rows and not external_dependents:
+        if not external_dependents:
             candidates.add(table)
-            print(f"  select: {table} (rows={row_count}, no external FK dependents)")
+            print(f"  select: {table} (rows={row_count})")
         else:
-            reason = []
-            if not zero_rows:
-                reason.append(f"rows={row_count}")
-            if external_dependents:
-                reason.append(f"has external FK dependents: {external_dependents}")
-            print(f"  reject: {table} ({', '.join(reason)})")
+            print(
+                f"  reject: {table} (rows={row_count}, "
+                f"has external FK dependents: {external_dependents})"
+            )
 
     if not candidates:
         conn.close()
