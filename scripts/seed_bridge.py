@@ -40,13 +40,13 @@ cursor.executemany(
         setup_script, teardown_script, deliver_error_msg) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
     [
         # ── strict_review flow ──
-        ("archi01", "archi01", "ollama", "", "qwen3.6:35b-a3b",
+        ("archi01", "archi01", "ollama", "", "qwen3.6:35b-a3b-64k",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "archi01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
-        ("imple01", "imple01", "ollama", "", "qwen3.6:27b-q4_K_M",
+        ("imple01", "imple01", "ollama", "", "qwen3-coder:30b-256k",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "imple01 session stopped unexpectedly. Start manually in tmux."),
-        ("review01", "review01", "ollama", "", "qwen3.6:35b-a3b",
+        ("review01", "review01", "ollama", "", "ornith35b-q5-64k",
          "scripts/bridgeV002/role_setup.py", "scripts/bridgeV002/role_teardown.py",
          "review01 session stopped unexpectedly. Check tmux status with 'tmux ls'."),
         ("review02", "review02", "ollama", "", "qwen3.6:27b-q4_K_M",
