@@ -323,6 +323,80 @@ cursor.executemany(
 )
 
 # ═══════════════════════════════════════════════════════════════════════
+# 9. json_output CONVENTION — chain-advancement fix (idempotent UPDATE)
+# ═══════════════════════════════════════════════════════════════════════
+# The convention is injected into every trade role's prompt. Adding the
+# <chain_advancement> block here fixes all trade roles at once.
+
+_JSON_OUTPUT_CONTENT_TEMPLATE = r"""<json_output>
+<role>{next_role}</role>
+<flow_run_id>{flow_run_id}</flow_run_id>
+<flow_key>{flow_key}</flow_key>
+<output_type>{output_type}</output_type>
+
+<task>
+You are {next_role} in the {flow_key} flow (run {flow_run_id}).
+
+The previous role {source_role} has written its output to:
+  {previous_deliverable_path}
+
+Read that file, then execute your role exactly as defined in your governance
+file (provided separately by the dispatch system).
+
+Write YOUR output to this exact path:
+  {deliverable_dir}/{output_file}
+
+Required JSON wrapper fields (trade_output_v001, or your flow's schema):
+  flow_run_id: "{flow_run_id}"
+  flow_key: "{flow_key}"
+  role_key: "{next_role}"
+  model_name: "{model_name}"
+  created_at: (ISO-8601 datetime with timezone, e.g. 2026-06-28T08:57:00+02:00)
+  output_type: "{output_type}"
+  status: "completed"   (or "needs_more_data" if a required prior output is missing)
+  payload: (role-specific — see your governance file for required fields)
+</task>
+
+<constraint>
+- Honor your flow's safety invariants (for trade flows: SIMULATION_ONLY = TRUE — no real orders, no broker execution)
+- Follow your role-specific gates from your governance file
+- If a required prior output is missing, emit status "needs_more_data"
+- Write valid JSON only — the import pipeline rejects malformed files
+- Allowed decisions only — see your governance file for your role's allowed decisions
+</constraint>
+
+<notification>
+Your JSON output will be imported and used by the next role in the chain.
+</notification>
+
+<chain_advancement>
+After writing your output JSON to the path above, you MUST signal completion
+so the bridge dispatches the next role in the chain. Run this exact command:
+
+    timeout 30 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/dispatch.py \
+      --db-flow {flow_key} \
+      --signal-complete --from-role {next_role} \
+      --id {flow_run_id}
+
+{flow_key}, {next_role}, and {flow_run_id} are already resolved for you —
+substitute nothing. The `timeout 30` is required because dispatch.py's
+post-dispatch step can hang; the signal lands before the timeout kills it.
+Do NOT skip this step — without signal-complete, the next role is never
+dispatched and the chain stalls. (If you are the final role in the flow,
+signal-complete marks the run complete.)
+</chain_advancement>
+</json_output>"""
+
+cursor.execute(
+    """
+    UPDATE bridge_convention_rules
+    SET content_template = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE rule_key = 'json_output'
+    """,
+    (_JSON_OUTPUT_CONTENT_TEMPLATE,),
+)
+
+# ═══════════════════════════════════════════════════════════════════════
 # Commit + summary
 # ═══════════════════════════════════════════════════════════════════════
 
