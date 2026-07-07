@@ -16,24 +16,6 @@ conn = sqlite3.connect(DB_PATH)
 cursor = conn.cursor()
 
 # Create tables
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS reference_projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
-
 # Create or modify frontend_panels table to include all required columns
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS frontend_panels (
@@ -84,94 +66,6 @@ CREATE TABLE IF NOT EXISTS app_profile_panels (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (profile_id) REFERENCES app_profiles (id),
     FOREIGN KEY (panel_id) REFERENCES frontend_panels (id)
-)
-""")
-
-# Create prompt_sequences table with all required columns
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS prompt_sequences (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    goal TEXT,
-    status TEXT DEFAULT 'planned',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)
-""")
-
-# Add missing columns if they don't exist (for backward compatibility)
-try:
-    cursor.execute("ALTER TABLE prompt_sequences ADD COLUMN goal TEXT")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-try:
-    cursor.execute("ALTER TABLE prompt_sequences ADD COLUMN status TEXT DEFAULT 'planned'")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-try:
-    cursor.execute("ALTER TABLE prompt_sequences ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS prompt_sequence_steps (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sequence_id INTEGER,
-    step_number INTEGER,
-    step_title TEXT,
-    target_layer TEXT,
-    status TEXT DEFAULT 'planned',
-    prompt_text TEXT,
-    result_note TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (sequence_id) REFERENCES prompt_sequences (id)
-)
-""")
-
-# Add missing columns for prompt_sequence_steps if they don't exist
-try:
-    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN step_title TEXT")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-try:
-    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN target_layer TEXT")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-try:
-    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN status TEXT DEFAULT 'planned'")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-try:
-    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN result_note TEXT")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-try:
-    cursor.execute("ALTER TABLE prompt_sequence_steps ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-except sqlite3.OperationalError:
-    # Column already exists
-    pass
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS generated_prompts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sequence_step_id INTEGER,
-    prompt_text TEXT,
-    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (sequence_step_id) REFERENCES prompt_sequence_steps (id)
 )
 """)
 
@@ -320,23 +214,6 @@ for phase in phase_data:
         VALUES (?, ?, ?, ?, ?)
     """, phase)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS project_plans (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_name TEXT NOT NULL,
-    target_folder TEXT NOT NULL,
-    app_port INTEGER,
-    app_profile_id INTEGER,
-    prompt_sequence_id INTEGER,
-    notes TEXT,
-    status TEXT DEFAULT 'planned',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (app_profile_id) REFERENCES app_profiles (id),
-    FOREIGN KEY (prompt_sequence_id) REFERENCES prompt_sequences (id)
-)
-""")
-
 # ── Phase 2F-bis: i18n four-layer architecture ─────────────────────
 # Layer 1: ui_text_slots — stable frontend text placement IDs
 cursor.execute("""
@@ -404,7 +281,7 @@ ui_labels_data = [
     ("LBL-1000009", "lbl_panel_db_status", "main", "Database Status", "Database Status panel heading"),
     ("LBL-1000010", "lbl_panel_phase_status", "main", "Phase Status", "Phase Status panel heading"),
     ("LBL-1000011", "lbl_panel_hitrates", "main", "Prompt Hitrates", "Prompt Hitrates panel heading"),
-    ("LBL-1000012", "lbl_panel_prompt_sequences", "main", "Prompt Sequence Planner", "Prompt Sequence Planner panel heading"),
+
     ("LBL-1000013", "lbl_panel_project_planning", "main", "New Project Planning", "New Project Planning panel heading"),
     ("LBL-1000014", "lbl_btn_system_setup", "main", "System Setup", "System Setup button"),
     ("LBL-1000015", "lbl_btn_refresh", "main", "Refresh", "Refresh button"),
@@ -413,7 +290,7 @@ ui_labels_data = [
     ("LBL-1000018", "lbl_btn_generate_prompt", "main", "Generate Next Prompt Preview", "Generate Next Prompt Preview button"),
     ("LBL-1000019", "lbl_btn_copy_prompt", "main", "Copy Prompt", "Copy Prompt button"),
     ("LBL-1000020", "lbl_btn_save_prompt", "main", "Save Generated Prompt", "Save Generated Prompt button"),
-    ("LBL-1000021", "lbl_btn_create_project_plan", "main", "Create Project Plan", "Create Project Plan button"),
+
     ("LBL-1000022", "lbl_btn_close_drawer", "main", "Close", "Close drawer button"),
     # ── 2F-bis: Status labels ──
     ("LBL-1000023", "lbl_status_loading", "main", "Loading...", "Loading indicator"),
@@ -1395,7 +1272,6 @@ ui_text_slots_data = [
     ("lbl_panel_db_status", "Database Status panel heading"),
     ("lbl_panel_phase_status", "Phase Status panel heading"),
     ("lbl_panel_hitrates", "Prompt Hitrates panel heading"),
-    ("lbl_panel_prompt_sequences", "Prompt Sequence Planner panel heading"),
     ("lbl_panel_project_planning", "New Project Planning panel heading"),
     ("lbl_btn_system_setup", "System Setup button"),
     ("lbl_btn_refresh", "Refresh button"),
@@ -1404,7 +1280,6 @@ ui_text_slots_data = [
     ("lbl_btn_generate_prompt", "Generate Next Prompt Preview button"),
     ("lbl_btn_copy_prompt", "Copy Prompt button"),
     ("lbl_btn_save_prompt", "Save Generated Prompt button"),
-    ("lbl_btn_create_project_plan", "Create Project Plan button"),
     ("lbl_btn_close_drawer", "Close drawer button"),
     ("lbl_status_loading", "Loading indicator"),
     ("lbl_status_no_data", "No data message"),
@@ -1558,7 +1433,6 @@ ui_text_slot_labels_data = [
     ("lbl_panel_db_status", "lbl_panel_db_status"),
     ("lbl_panel_phase_status", "lbl_panel_phase_status"),
     ("lbl_panel_hitrates", "lbl_panel_hitrates"),
-    ("lbl_panel_prompt_sequences", "lbl_panel_prompt_sequences"),
     ("lbl_panel_project_planning", "lbl_panel_project_planning"),
     ("lbl_btn_system_setup", "lbl_btn_system_setup"),
     ("lbl_btn_refresh", "lbl_btn_refresh"),
@@ -1567,7 +1441,6 @@ ui_text_slot_labels_data = [
     ("lbl_btn_generate_prompt", "lbl_btn_generate_prompt"),
     ("lbl_btn_copy_prompt", "lbl_btn_copy_prompt"),
     ("lbl_btn_save_prompt", "lbl_btn_save_prompt"),
-    ("lbl_btn_create_project_plan", "lbl_btn_create_project_plan"),
     ("lbl_btn_close_drawer", "lbl_btn_close_drawer"),
     ("lbl_status_loading", "lbl_status_loading"),
     ("lbl_status_no_data", "lbl_status_no_data"),
