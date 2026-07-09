@@ -273,12 +273,93 @@ function renderAllocatorStatus(container, alias, client) {
   refresh();
 }
 
-/* renderAllocatorDetail dispatches by type; role branch added in Task 7. */
+function _aliasSelect(value, includeBlank) {
+  const s = el("select");
+  s.className = "dpmtf-input";
+  if (includeBlank) { const o = el("option", null, "—"); o.value = ""; s.appendChild(o); }
+  Object.keys(window.allocatorState.config.aliases).sort().forEach(function (a) {
+    const o = el("option", null, a);
+    o.value = a;
+    if (a === value) o.selected = true;
+    s.appendChild(o);
+  });
+  return s;
+}
+
+function renderRoleForm(name) {
+  const detail = document.getElementById("allocator-detail");
+  clear(detail);
+  const existing = name ? (window.allocatorState.config.roles[name] || {}) : {};
+  const ca = existing.client_aliases || {};
+
+  const nameInput = _textInput(name || "");
+  nameInput.disabled = !!name;
+  _field(detail, "lbl_alloc_field_name", "Name", nameInput);
+
+  const configDirInput = _textInput(existing.config_dir || "");
+  _field(detail, "lbl_alloc_field_config_dir", "Config dir", configDirInput);
+
+  const defaultAliasSel = _aliasSelect(existing.default_alias, true);
+  _field(detail, "lbl_alloc_field_default_alias", "Default alias", defaultAliasSel);
+
+  const ocSel = _aliasSelect(ca.opencode, true);
+  _field(detail, "lbl_alloc_field_client_aliases", "Client aliases (opencode)", ocSel);
+  const ccSel = _aliasSelect(ca["claude-code"], true);
+  _field(detail, "lbl_alloc_field_client_aliases", "Client aliases (claude-code)", ccSel);
+
+  const msg = el("div", "dpmtf-small");
+  msg.style.marginTop = "8px";
+
+  const saveBtn = el("button", "dpmtf-btn", lbl("lbl_alloc_save", "Save"));
+  saveBtn.onclick = function () {
+    const key = (name || nameInput.value).trim();
+    if (!key) { msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = lbl("lbl_alloc_name_required", "Name required"); return; }
+    const definition = {};
+    if (defaultAliasSel.value) definition.default_alias = defaultAliasSel.value;
+    if (configDirInput.value.trim()) definition.config_dir = configDirInput.value.trim();
+    const clientAliases = {};
+    if (ocSel.value) clientAliases.opencode = ocSel.value;
+    if (ccSel.value) clientAliases["claude-code"] = ccSel.value;
+    if (Object.keys(clientAliases).length) definition.client_aliases = clientAliases;
+    saveBtn.disabled = true;
+    fetch("/api/bridge-v2/allocator/config/role", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: key, definition: definition })
+    })
+      .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+      .then(function (r) {
+        saveBtn.disabled = false;
+        if (!r.ok) { msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = r.body.detail || lbl("lbl_alloc_error", "Error"); return; }
+        reloadAllocatorConfig().then(function () { selectAllocatorItem("role", key); });
+      })
+      .catch(function (e) { saveBtn.disabled = false; msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = e.message; });
+  };
+  detail.appendChild(saveBtn);
+
+  if (name) {
+    const delBtn = el("button", "dpmtf-btn", lbl("lbl_alloc_delete", "Delete"));
+    delBtn.style.marginLeft = "8px";
+    delBtn.onclick = function () {
+      if (!confirm(lbl("lbl_alloc_confirm_delete", "Delete '{name}'?").replace("{name}", name))) return;
+      fetch("/api/bridge-v2/allocator/config/role/" + encodeURIComponent(name), { method: "DELETE" })
+        .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+        .then(function (r) {
+          if (!r.ok) { msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = r.body.detail || lbl("lbl_alloc_error", "Error"); return; }
+          selectAllocatorItem(null, null);
+          reloadAllocatorConfig();
+        });
+    };
+    detail.appendChild(delBtn);
+  }
+  detail.appendChild(msg);
+}
+
 function renderAllocatorDetail() {
   const detail = document.getElementById("allocator-detail");
   if (!detail) return;
   const sel = window.allocatorState.selected;
   if (sel.type === "alias") { renderAliasForm(sel.name); return; }
+  if (sel.type === "role") { renderRoleForm(sel.name); return; }
   clear(detail);
   detail.appendChild(el("div", "dpmtf-muted", lbl("lbl_alloc_select_hint", "Select an alias or role to edit")));
 }
