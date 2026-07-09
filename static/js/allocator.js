@@ -95,10 +95,190 @@ function selectAllocatorItem(type, name) {
   renderAllocatorDetail();
 }
 
-/* renderAllocatorDetail is completed in Task 6 (alias) and Task 7 (role). */
+function _field(parent, labelKey, labelFallback, inputEl) {
+  const row = el("div", null);
+  row.style.marginTop = "8px";
+  const lab = el("label", "dpmtf-small dpmtf-muted", lbl(labelKey, labelFallback));
+  lab.style.display = "block";
+  row.appendChild(lab);
+  row.appendChild(inputEl);
+  parent.appendChild(row);
+  return inputEl;
+}
+
+function _textInput(value) {
+  const i = el("input");
+  i.type = "text";
+  i.className = "dpmtf-input";
+  if (value !== undefined && value !== null) i.value = String(value);
+  return i;
+}
+
+function _profileSelect(value) {
+  const s = el("select");
+  s.className = "dpmtf-input";
+  Object.keys(window.allocatorState.config.profiles).sort().forEach(function (p) {
+    const o = el("option", null, p);
+    o.value = p;
+    if (p === value) o.selected = true;
+    s.appendChild(o);
+  });
+  return s;
+}
+
+function _checkbox(checked) {
+  const c = el("input");
+  c.type = "checkbox";
+  c.checked = !!checked;
+  return c;
+}
+
+function renderAliasForm(name) {
+  const detail = document.getElementById("allocator-detail");
+  clear(detail);
+  const existing = name ? (window.allocatorState.config.aliases[name] || {}) : {};
+
+  const nameInput = _textInput(name || "");
+  nameInput.disabled = !!name; // renaming = delete+create; keep key stable while editing
+  _field(detail, "lbl_alloc_field_name", "Name", nameInput);
+
+  const profileSel = _profileSelect(existing.runtime_profile);
+  _field(detail, "lbl_alloc_field_profile", "Runtime profile", profileSel);
+
+  const modelInput = _textInput(existing.real_model || "");
+  _field(detail, "lbl_alloc_field_model", "Real model", modelInput);
+
+  const modelPathInput = _textInput(existing.model_path || "");
+  _field(detail, "lbl_alloc_field_model_path", "Model path", modelPathInput);
+
+  const contextInput = _textInput(existing.context !== undefined ? existing.context : "");
+  _field(detail, "lbl_alloc_field_context", "Context", contextInput);
+
+  const lifecycleInput = _textInput(existing.lifecycle_policy || "");
+  _field(detail, "lbl_alloc_field_lifecycle", "Lifecycle policy", lifecycleInput);
+
+  const clientsWrap = el("div", null);
+  const clients = existing.clients || {};
+  const ocCb = _checkbox(clients.opencode);
+  const ccCb = _checkbox(clients["claude-code"]);
+  clientsWrap.appendChild(ocCb); clientsWrap.appendChild(el("span", null, " opencode  "));
+  clientsWrap.appendChild(ccCb); clientsWrap.appendChild(el("span", null, " claude-code"));
+  _field(detail, "lbl_alloc_field_clients", "Clients", clientsWrap);
+
+  const msg = el("div", "dpmtf-small");
+  msg.style.marginTop = "8px";
+
+  const saveBtn = el("button", "dpmtf-btn", lbl("lbl_alloc_save", "Save"));
+  saveBtn.onclick = function () {
+    const key = (name || nameInput.value).trim();
+    if (!key) { msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = lbl("lbl_alloc_name_required", "Name required"); return; }
+    const definition = {};
+    if (profileSel.value) definition.runtime_profile = profileSel.value;
+    if (modelInput.value.trim()) definition.real_model = modelInput.value.trim();
+    if (modelPathInput.value.trim()) definition.model_path = modelPathInput.value.trim();
+    if (contextInput.value.trim()) {
+      const n = parseInt(contextInput.value.trim(), 10);
+      definition.context = isNaN(n) ? contextInput.value.trim() : n;
+    }
+    if (lifecycleInput.value.trim()) definition.lifecycle_policy = lifecycleInput.value.trim();
+    definition.clients = { opencode: ocCb.checked, "claude-code": ccCb.checked };
+    saveBtn.disabled = true;
+    fetch("/api/bridge-v2/allocator/config/alias", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: key, definition: definition })
+    })
+      .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+      .then(function (r) {
+        saveBtn.disabled = false;
+        if (!r.ok) { msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = r.body.detail || lbl("lbl_alloc_error", "Error"); return; }
+        reloadAllocatorConfig().then(function () { selectAllocatorItem("alias", key); });
+      })
+      .catch(function (e) { saveBtn.disabled = false; msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = e.message; });
+  };
+  detail.appendChild(saveBtn);
+
+  if (name) {
+    const delBtn = el("button", "dpmtf-btn", lbl("lbl_alloc_delete", "Delete"));
+    delBtn.style.marginLeft = "8px";
+    delBtn.onclick = function () {
+      if (!confirm(lbl("lbl_alloc_confirm_delete", "Delete '{name}'?").replace("{name}", name))) return;
+      fetch("/api/bridge-v2/allocator/config/alias/" + encodeURIComponent(name), { method: "DELETE" })
+        .then(function (res) { return res.json().then(function (b) { return { ok: res.ok, body: b }; }); })
+        .then(function (r) {
+          if (!r.ok) { msg.className = "dpmtf-small dpmtf-text-danger"; msg.textContent = r.body.detail || lbl("lbl_alloc_error", "Error"); return; }
+          selectAllocatorItem(null, null);
+          reloadAllocatorConfig();
+        });
+    };
+    detail.appendChild(delBtn);
+  }
+  detail.appendChild(msg);
+
+  if (name) {
+    const statusBox = el("div", "dpmtf-card");
+    statusBox.style.marginTop = "12px";
+    detail.appendChild(statusBox);
+    const client = (existing.clients && existing.clients.opencode) ? "opencode" : "claude-code";
+    renderAllocatorStatus(statusBox, name, client);
+  }
+}
+
+function renderAllocatorStatus(container, alias, client) {
+  clear(container);
+  container.appendChild(el("h5", null, lbl("lbl_bridge_runtime_status", "Runtime Status")));
+  const info = el("div", "dpmtf-small");
+  container.appendChild(info);
+
+  function setInfo(text, cls) { clear(info); info.appendChild(el("span", cls || null, text)); }
+
+  const btns = el("div", null);
+  btns.style.marginTop = "8px";
+  const valBtn = el("button", "dpmtf-btn", lbl("lbl_bridge_validate_allocator", "Validate"));
+  const startBtn = el("button", "dpmtf-btn", lbl("lbl_bridge_start", "Start"));
+  const stopBtn = el("button", "dpmtf-btn", lbl("lbl_bridge_stop", "Stop"));
+  startBtn.style.marginLeft = "6px"; stopBtn.style.marginLeft = "6px";
+  btns.appendChild(valBtn); btns.appendChild(startBtn); btns.appendChild(stopBtn);
+  container.appendChild(btns);
+
+  function post(path) {
+    return fetch(path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alias: alias, client: client })
+    }).then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); });
+  }
+
+  valBtn.onclick = function () {
+    setInfo("…");
+    post("/api/bridge-v2/allocator/validate")
+      .then(function (r) { setInfo(lbl("lbl_bridge_validation_status", "Validation") + ": " + (r.validation_status || "?"),
+        r.validation_status === "OK" ? "dpmtf-text-success" : "dpmtf-text-warning"); })
+      .catch(function (e) { setInfo(e.message, "dpmtf-text-danger"); });
+  };
+  startBtn.onclick = function () { setInfo("…"); post("/api/bridge-v2/allocator/start").then(function () { refresh(); }).catch(function (e) { setInfo(e.message, "dpmtf-text-danger"); }); };
+  stopBtn.onclick = function () {
+    if (!confirm(lbl("lbl_bridge_confirm_stop", "Stop the allocator runtime for '{alias}'?").replace("{alias}", alias))) return;
+    setInfo("…"); post("/api/bridge-v2/allocator/stop").then(function () { refresh(); }).catch(function (e) { setInfo(e.message, "dpmtf-text-danger"); });
+  };
+
+  function refresh() {
+    post("/api/bridge-v2/allocator/status")
+      .then(function (d) {
+        const running = d && d.running;
+        setInfo((running ? lbl("lbl_bridge_running", "Running") : lbl("lbl_bridge_not_running", "Not running")) +
+          (d && d.pid ? "  pid " + d.pid : "") + (d && d.port ? "  :" + d.port : ""),
+          running ? "dpmtf-text-success" : "dpmtf-text-muted");
+      })
+      .catch(function (e) { setInfo(e.message, "dpmtf-text-danger"); });
+  }
+  refresh();
+}
+
+/* renderAllocatorDetail dispatches by type; role branch added in Task 7. */
 function renderAllocatorDetail() {
   const detail = document.getElementById("allocator-detail");
   if (!detail) return;
+  const sel = window.allocatorState.selected;
+  if (sel.type === "alias") { renderAliasForm(sel.name); return; }
   clear(detail);
   detail.appendChild(el("div", "dpmtf-muted", lbl("lbl_alloc_select_hint", "Select an alias or role to edit")));
 }
