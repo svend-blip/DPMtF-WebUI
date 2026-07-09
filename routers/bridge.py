@@ -1241,6 +1241,85 @@ async def bridge_v2_allocator_stop(request: Request):
         raise HTTPException(status_code=502, detail=f"model-allocator stop error: {exc}")
 
 
+def _allocator_script() -> str:
+    return os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+
+
+def _run_allocator(cmd_args: list) -> subprocess.CompletedProcess:
+    """Run the allocator CLI, raising HTTPException on failure.
+
+    A nonzero exit is treated as a validation/usage error (HTTP 400) whose
+    detail is the CLI's error message (JSON {"error": ...} on stderr, or raw text).
+    """
+    try:
+        result = subprocess.run(
+            [_allocator_script()] + cmd_args,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=502, detail="model-allocator timed out after 30s")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator error: {exc}")
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        try:
+            detail = json.loads(detail).get("error", detail)
+        except json.JSONDecodeError:
+            pass
+        raise HTTPException(status_code=400, detail=detail or "model-allocator config command failed")
+    return result
+
+
+@router.get("/allocator/config")
+async def bridge_v2_allocator_config():
+    """Return the full allocator config (aliases, roles, profiles)."""
+    result = _run_allocator(["config", "show"])
+    try:
+        return json.loads(result.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator config show returned invalid JSON: {exc}")
+
+
+@router.post("/allocator/config/alias")
+async def bridge_v2_allocator_set_alias(request: Request):
+    data = await request.json()
+    name = data.get("name")
+    definition = data.get("definition")
+    if not name or not isinstance(definition, dict):
+        raise HTTPException(status_code=400, detail="name and definition (object) are required")
+    _run_allocator(["config", "set-alias", "--name", name, "--json", json.dumps(definition)])
+    return {"ok": True}
+
+
+@router.delete("/allocator/config/alias/{name}")
+async def bridge_v2_allocator_delete_alias(name: str):
+    _run_allocator(["config", "delete-alias", "--name", name])
+    return {"ok": True}
+
+
+@router.post("/allocator/config/role")
+async def bridge_v2_allocator_set_role(request: Request):
+    data = await request.json()
+    name = data.get("name")
+    definition = data.get("definition")
+    if not name or not isinstance(definition, dict):
+        raise HTTPException(status_code=400, detail="name and definition (object) are required")
+    _run_allocator(["config", "set-role", "--name", name, "--json", json.dumps(definition)])
+    return {"ok": True}
+
+
+@router.delete("/allocator/config/role/{name}")
+async def bridge_v2_allocator_delete_role(name: str):
+    _run_allocator(["config", "delete-role", "--name", name])
+    return {"ok": True}
+
+
 @router.post("/export")
 async def bridge_v2_export(request: Request):
     """Export BridgeV002 configuration as JSON for backup/restoration."""
