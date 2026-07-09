@@ -457,3 +457,29 @@ h4 { color: #8b949e; font-size: 0.9em; margin: 12px 0 6px 0; }
 .panel-group.dpmtf-hidden {
     display: none;
 }
+
+/* ── Model Allocator dashboard ── */
+.allocator-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.6fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .allocator-grid { grid-template-columns: 1fr; }
+}
+.allocator-col {
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px;
+  background: #0d1117;
+}
+.allocator-list-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #c9d1d9;
+}
+.allocator-list-item:hover { background: #161b22; }
+.allocator-list-item.selected { background: #1f6feb33; color: #58a6ff; }
+.allocator-profiles { margin-top: 12px; font-size: 0.85em; color: #8b949e; }
