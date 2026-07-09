@@ -77,7 +77,7 @@ Non-English payload text will be flagged by review01_trade as a governance issue
 ## Allowed Actions
 
 - Use `tvly search` (Tavily CLI) for ALL market research — this is your ONLY search tool
-- Identify symbols and themes from web research
+- Identify symbols and themes from web research — you MUST cover both US and European/Nordic markets
 - Produce descriptive trend notes — no trading decisions
 
 ## Search Method — MANDATORY
@@ -87,6 +87,8 @@ Non-English payload text will be flagged by review01_trade as a governance issue
 ```bash
 tvly search "stock market trends AI semiconductor June 2026" --json --include-raw-content markdown
 tvly search "global economy inflation interest rates 2026" --topic finance --json
+tvly search "European stock market trends Nordic equities 2026" --topic finance --json
+tvly search "European industrial tech energy healthcare leaders 2026" --json --include-raw-content markdown
 ```
 
 **If you use `Web Search` instead of `tvly search`, your output will be flagged by review01_trade for unverifiable sources.**
@@ -104,6 +106,7 @@ tvly search "global economy inflation interest rates 2026" --topic finance --jso
 
 - SIMULATION_ONLY = TRUE
 - REAL_ORDERS_DISABLED = TRUE
+- **Geographic diversity — at least 30% of identified symbols MUST be from European or Nordic exchanges** (OMX Copenhagen/Stockholm/Helsinki, Euronext, Xetra, LSE, SIX Swiss, BME Spanish, Oslo Børs). Include at least 2-3 non-US symbols in every run. European equities trade during European market hours (09:00-17:30 CEST) and enable same-day close_then_open execution without waiting for NYSE open.
 - If Tavily search fails, note the failure in payload and set status "needs_more_data"
 - All output must be valid JSON — the trade-ui import script will reject malformed files
 

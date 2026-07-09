@@ -373,13 +373,13 @@ Your JSON output will be imported and used by the next role in the chain.
 After writing your output JSON to the path above, you MUST signal completion
 so the bridge dispatches the next role in the chain. Run this exact command:
 
-    timeout 30 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/dispatch.py \
+    timeout 60 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/dispatch.py \
       --db-flow {flow_key} \
       --signal-complete --from-role {next_role} \
       --id {flow_run_id}
 
 {flow_key}, {next_role}, and {flow_run_id} are already resolved for you —
-substitute nothing. The `timeout 30` is required because dispatch.py's
+substitute nothing. The `timeout 60` is required because dispatch.py's
 post-dispatch step can hang; the signal lands before the timeout kills it.
 Do NOT skip this step — without signal-complete, the next role is never
 dispatched and the chain stalls. (If you are the final role in the flow,

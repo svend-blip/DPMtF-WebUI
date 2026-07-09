@@ -1050,7 +1050,7 @@ function buildCompilerForm() {
   var nameInput = el("input", null);
   nameInput.type = "text";
   nameInput.id = "compile-accel-name";
-  nameInput.maxLength = 10;
+  nameInput.maxLength = 20;
   nameInput.placeholder = lbl("lbl_placeholder_new_webui_name", "mywebui");
   nameDiv.appendChild(nameInput);
   container.appendChild(nameDiv);
