@@ -18,6 +18,7 @@ Example:
 """
 
 import argparse
+import json
 import os
 import sqlite3
 import subprocess
@@ -25,7 +26,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-from bridge_lib import resolve_placeholders, get_effective_model_source  # noqa: E402
+from bridge_lib import (  # noqa: E402
+    ensure_opencode_model_field,
+    get_effective_model_source,
+    resolve_placeholders,
+)
 
 # Machine Profile Fase 2A — command builder
 from command_builder import build_start_command, render_tmux_shell_string  # noqa: E402
@@ -299,6 +304,27 @@ def main():
                 if provider_models and role.get("default_model") not in provider_models:
                     print(f"  WARNING: model '{role.get('default_model')}' not in "
                           f"Machine Profile provider '{provider_key}' model list")
+
+            # V2.3: direct opencode roles need the top-level `model` field in
+            # their opencode.json because `opencode --model <model>` is ignored
+            # by the OpenCode TUI. Extract the model-field string from the argv
+            # element immediately following "--model" and merge it into the role's
+            # opencode.json atomically. Preserve all existing keys.
+            if runtime == "opencode":
+                config_dir = role.get("config_dir") or role["role_key"]
+                opencode_json_path = os.path.expanduser(
+                    f"~/.config/opencode-roles/{config_dir}/opencode.json"
+                )
+                try:
+                    argv = cmd_obj.get("argv", [])
+                    if "--model" in argv:
+                        model_field = argv[argv.index("--model") + 1]
+                        if ensure_opencode_model_field(opencode_json_path, model_field):
+                            print(f"    Updated opencode.json model field: {model_field}")
+                        else:
+                            print(f"    opencode.json model field already correct")
+                except (OSError, json.JSONDecodeError, IndexError) as exc:
+                    print(f"    WARNING: opencode.json model-field write failed; continuing: {exc}")
 
             cmd_str = render_tmux_shell_string(cmd_obj)
             # cwd: Prompt Compiler's target_project (project_root) takes precedence.

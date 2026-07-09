@@ -9,11 +9,56 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import configparser
+import json
 import os
 import re
 import sqlite3
+from pathlib import Path
 
 import config
+
+
+DEFAULT_OPENCODE_SCHEMA = "https://opencode.ai/config.json"
+
+
+def ensure_opencode_model_field(opencode_json_path, model_field):
+    """Atomically write/merge a top-level `model` field into opencode.json.
+
+    Preserves existing top-level keys (`$schema`, `permission`, `mcp`, other
+    providers, etc.) while setting/updating the top-level ``model`` field. Uses
+    a temporary file + rename in the same directory for atomicity.
+
+    Args:
+        opencode_json_path: Path to the role's opencode.json file.
+        model_field: The model identifier string, e.g. "ollama/qwen3-coder:30b-256k".
+
+    Returns:
+        True if the file was written, False if no change was needed.
+
+    Raises:
+        OSError, json.JSONDecodeError: on file-system or parse errors.
+    """
+    path = Path(opencode_json_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    config_data = {}
+    if path.exists():
+        config_data = json.loads(path.read_text(encoding="utf-8"))
+
+    if config_data.get("model") == model_field:
+        return False
+
+    config_data["model"] = model_field
+    if "$schema" not in config_data:
+        config_data["$schema"] = DEFAULT_OPENCODE_SCHEMA
+
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(
+        json.dumps(config_data, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    tmp_path.replace(path)
+    return True
 
 
 def resolve_placeholders(text, bridge_dir=None, project_root=None):
