@@ -983,6 +983,7 @@ def _parse_allocator_validate_text(raw_output: str) -> dict:
     status = "UNKNOWN"
     backend = None
     real_model = None
+    gpu_policy = None
     warnings = []
     errors = []
     current_section = None
@@ -1000,6 +1001,8 @@ def _parse_allocator_validate_text(raw_output: str) -> dict:
             status = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("Backend:"):
             backend = stripped.split(":", 1)[1].strip()
+        elif stripped.lower().startswith("gpu policy:"):
+            gpu_policy = stripped.split(":", 1)[1].strip()
         elif stripped.startswith("Real model:") or stripped.startswith("Logical model:"):
             value = stripped.split(":", 1)[1].strip()
             if stripped.startswith("Real model:"):
@@ -1028,6 +1031,7 @@ def _parse_allocator_validate_text(raw_output: str) -> dict:
         "validation_status": status,
         "resolved_backend": backend,
         "resolved_real_model": real_model,
+        "gpu_policy": gpu_policy,
         "warnings": warnings,
         "errors": errors,
     }
@@ -1104,12 +1108,137 @@ async def bridge_v2_allocator_validate(request: Request):
             "resolved_real_model": parsed.get("resolved_real_model"),
             "warnings": parsed.get("warnings", []),
             "errors": parsed.get("errors", []),
+            "gpu_policy": parsed.get("gpu_policy"),
             "raw_output": raw_output,
         }
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=502, detail="model-allocator validate timed out after 30s")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"model-allocator validate error: {exc}")
+
+
+@router.post("/allocator/status")
+async def bridge_v2_allocator_status(request: Request):
+    """Get runtime status for an allocator alias."""
+    data = await request.json()
+    alias = data.get("alias")
+    if not alias:
+        raise HTTPException(status_code=400, detail="alias is required")
+
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "status", "--alias", alias],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        raw_output = result.stdout.strip() or result.stderr.strip()
+        parsed = {}
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            pass
+
+        status_info = parsed.get("runtime") or parsed or {}
+        return {
+            "running": status_info.get("running", False),
+            "reachable": parsed.get("reachable", {}).get("reachable", False),
+            "model_available": parsed.get("model_available", {}).get("available", False),
+            "backend": parsed.get("backend"),
+            "api_base": parsed.get("api_base"),
+            "pid": status_info.get("pid"),
+            "port": parsed.get("port") or status_info.get("port"),
+            "models": status_info.get("models", []),
+            "error": status_info.get("error") or result.stderr.strip() or None,
+            "raw_output": raw_output,
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=502, detail="model-allocator status timed out after 30s")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator status error: {exc}")
+
+
+@router.post("/allocator/start")
+async def bridge_v2_allocator_start(request: Request):
+    """Warm up the backend runtime for an allocator alias."""
+    data = await request.json()
+    alias = data.get("alias")
+    if not alias:
+        raise HTTPException(status_code=400, detail="alias is required")
+
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "start", "--alias", alias],
+            capture_output=True,
+            text=True,
+            timeout=200,
+        )
+        raw_output = result.stdout.strip() or result.stderr.strip()
+        parsed = {}
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            pass
+
+        return {
+            "started": parsed.get("started", result.returncode == 0),
+            "pid": parsed.get("pid"),
+            "port": parsed.get("port"),
+            "error": parsed.get("error") or (result.stderr.strip() or None),
+            "raw_output": raw_output,
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=502, detail="model-allocator start timed out after 200s")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator start error: {exc}")
+
+
+@router.post("/allocator/stop")
+async def bridge_v2_allocator_stop(request: Request):
+    """Stop the backend runtime for an allocator alias."""
+    data = await request.json()
+    alias = data.get("alias")
+    if not alias:
+        raise HTTPException(status_code=400, detail="alias is required")
+
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "stop", "--alias", alias],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        raw_output = result.stdout.strip() or result.stderr.strip()
+        parsed = {}
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            pass
+
+        return {
+            "stopped": parsed.get("stopped", result.returncode == 0),
+            "error": parsed.get("error") or (result.stderr.strip() or None),
+            "raw_output": raw_output,
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=502, detail="model-allocator stop timed out after 60s")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator stop error: {exc}")
 
 
 @router.post("/export")

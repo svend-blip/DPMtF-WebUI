@@ -454,6 +454,212 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   };
 }
 
+// V3B: Model Allocator status card helpers
+function _maStorageKey(alias) {
+  return "ma_validate_" + alias;
+}
+
+function _saveValidateResult(alias, result) {
+  try {
+    localStorage.setItem(_maStorageKey(alias), JSON.stringify({ result: result, timestamp: new Date().toISOString() }));
+  } catch (e) {
+    console.warn("Failed to save validation result:", e);
+  }
+}
+
+function _loadValidateResult(alias) {
+  try {
+    var raw = localStorage.getItem(_maStorageKey(alias));
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn("Failed to load validation result:", e);
+  }
+  return null;
+}
+
+function _fmtTimestamp(iso) {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
+}
+
+function _renderInfoRow(container, label, value, valueClass) {
+  var row = el("div", "dpmtf-small");
+  row.style.marginTop = "4px";
+  row.appendChild(el("span", "dpmtf-muted", label + ": "));
+  var v = el("span", valueClass || null, value || "—");
+  row.appendChild(v);
+  container.appendChild(row);
+}
+
+function renderAllocatorStatusCard(role) {
+  var alias = role.default_model_alias;
+  var client = role.default_runtime || "opencode";
+  var card = el("div", "dpmtf-card");
+  card.style.marginTop = "12px";
+  card.style.borderLeft = "4px solid #58a6ff";
+  card.appendChild(el("h5", null, lbl("lbl_bridge_allocator_status", "Allocator Status")));
+
+  var validationSection = el("div", null);
+  card.appendChild(validationSection);
+
+  var runtimeSection = el("div", null);
+  runtimeSection.style.marginTop = "8px";
+  card.appendChild(runtimeSection);
+
+  function updateValidationSection(result, timestamp) {
+    clear(validationSection);
+    var status = (result && result.validation_status) ? result.validation_status : "UNKNOWN";
+    var statusClass = status === "OK" ? "dpmtf-text-success" :
+                      status === "WARNING" ? "dpmtf-text-warning" : "dpmtf-text-danger";
+    _renderInfoRow(validationSection,
+      lbl("lbl_bridge_validation_status", "Validation"),
+      status, statusClass);
+    _renderInfoRow(validationSection,
+      lbl("lbl_bridge_gpu_policy", "GPU Policy"),
+      (result && result.gpu_policy) ? result.gpu_policy : "N/A", null);
+    if (result && result.resolved_backend && result.resolved_real_model) {
+      _renderInfoRow(validationSection,
+        lbl("lbl_bridge_default_model", "Model"),
+        result.resolved_backend + " / " + result.resolved_real_model, null);
+    }
+    (result && result.warnings || []).forEach(function (w) {
+      validationSection.appendChild(el("div", "dpmtf-text-warning dpmtf-small",
+        lbl("lbl_bridge_validation_warning", "Warning") + ": " + w));
+    });
+    (result && result.errors || []).forEach(function (e) {
+      validationSection.appendChild(el("div", "dpmtf-text-danger dpmtf-small",
+        lbl("lbl_bridge_validation_error", "Error") + ": " + e));
+    });
+    _renderInfoRow(validationSection,
+      lbl("lbl_bridge_last_validated", "Last Validated"),
+      _fmtTimestamp(timestamp), null);
+  }
+
+  function updateRuntimeSection(data) {
+    clear(runtimeSection);
+    var runtimeStatus = "—";
+    var runtimeClass = null;
+    if (data && typeof data.running === "boolean") {
+      runtimeStatus = data.running
+        ? lbl("lbl_bridge_running", "Running")
+        : lbl("lbl_bridge_not_running", "Not running");
+      runtimeClass = data.running ? "dpmtf-text-success" : "dpmtf-text-muted";
+    }
+    _renderInfoRow(runtimeSection,
+      lbl("lbl_bridge_runtime_status", "Runtime Status"),
+      runtimeStatus, runtimeClass);
+    _renderInfoRow(runtimeSection,
+      lbl("lbl_bridge_pid", "PID"),
+      data && data.pid ? String(data.pid) : "—", null);
+    _renderInfoRow(runtimeSection,
+      lbl("lbl_bridge_port", "Port"),
+      data && data.port ? String(data.port) : "—", null);
+    startBtn.disabled = !!(data && data.running);
+    stopBtn.disabled = !(data && data.running);
+  }
+
+  var buttons = el("div", null);
+  buttons.style.marginTop = "8px";
+
+  var validateBtn = el("button", "dpmtf-btn");
+  validateBtn.textContent = lbl("lbl_bridge_validate_allocator", "Validate");
+  validateBtn.onclick = function () {
+    validateBtn.disabled = true;
+    fetch("/api/bridge-v2/allocator/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alias: alias, client: client })
+    })
+      .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+      .then(function (result) {
+        _saveValidateResult(alias, result);
+        updateValidationSection(result, new Date().toISOString());
+      })
+      .catch(function (err) {
+        var errorResult = { validation_status: "ERROR", errors: [err.message], gpu_policy: null };
+        _saveValidateResult(alias, errorResult);
+        updateValidationSection(errorResult, new Date().toISOString());
+      })
+      .finally(function () { validateBtn.disabled = false; });
+  };
+  buttons.appendChild(validateBtn);
+
+  var startBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  startBtn.textContent = lbl("lbl_bridge_start", "Start");
+  startBtn.onclick = function () {
+    startBtn.disabled = true;
+    fetch("/api/bridge-v2/allocator/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alias: alias })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.error) throw new Error(data.error);
+        alert(lbl("lbl_bridge_start", "Start") + ": OK");
+        refreshStatus();
+      })
+      .catch(function (err) {
+        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+        startBtn.disabled = false;
+      });
+  };
+  buttons.appendChild(startBtn);
+
+  var stopBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
+  stopBtn.textContent = lbl("lbl_bridge_stop", "Stop");
+  stopBtn.onclick = function () {
+    if (!confirm(lbl("lbl_bridge_confirm_stop", "Stop the allocator runtime for '{alias}'?").replace("{alias}", alias))) return;
+    stopBtn.disabled = true;
+    fetch("/api/bridge-v2/allocator/stop", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alias: alias })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data.error) throw new Error(data.error);
+        alert(lbl("lbl_bridge_stop", "Stop") + ": OK");
+        refreshStatus();
+      })
+      .catch(function (err) {
+        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
+        stopBtn.disabled = false;
+      });
+  };
+  buttons.appendChild(stopBtn);
+
+  var refreshBtn = el("button", "dpmtf-btn");
+  refreshBtn.textContent = lbl("lbl_bridge_refresh", "Refresh");
+  refreshBtn.onclick = refreshStatus;
+  buttons.appendChild(refreshBtn);
+
+  card.appendChild(buttons);
+
+  function refreshStatus() {
+    fetch("/api/bridge-v2/allocator/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alias: alias })
+    })
+      .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
+      .then(updateRuntimeSection)
+      .catch(function (err) {
+        updateRuntimeSection({ running: false, error: err.message });
+      });
+  }
+
+  var cached = _loadValidateResult(alias);
+  if (cached && cached.result) {
+    updateValidationSection(cached.result, cached.timestamp);
+  } else {
+    updateValidationSection(null, null);
+  }
+  refreshStatus();
+
+  return card;
+}
+
 /* ── 3. Database Status ────────────────────────────── */
 function loadDbStatus() {
   var container = document.getElementById("db-status-content");
@@ -2089,6 +2295,12 @@ function renderRoleCard(role) {
   actions.appendChild(delBtn);
 
   card.appendChild(actions);
+
+  // V3B: Allocator-managed roles get a runtime/status card
+  if (role.default_model_source === "model_allocator" && role.default_model_alias) {
+    card.appendChild(renderAllocatorStatusCard(role));
+  }
+
   return card;
 }
 
