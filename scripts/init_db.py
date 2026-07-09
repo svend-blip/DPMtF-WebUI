@@ -3447,6 +3447,9 @@ _bridge_setup_labels = [
     ("LBL-1000419", "lbl_alloc_delete", "main", "Delete", "Delete button"),
     ("LBL-1000420", "lbl_alloc_saved", "main", "Saved", "Saved confirmation message"),
     ("LBL-1000421", "lbl_alloc_confirm_delete", "main", "Delete '{name}'?", "Confirm delete dialog message"),
+    ("LBL-1000422", "lbl_alloc_load_error", "main", "Failed to load allocator config", "Allocator config load error banner"),
+    ("LBL-1000423", "lbl_alloc_name_required", "main", "Name required", "Name field required validation message"),
+    ("LBL-1000424", "lbl_alloc_error", "main", "Error", "Generic allocator error message"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -3863,6 +3866,9 @@ _bridge_setup_translations = [
     ("LBL-1000419", "en-US", "Delete"), ("LBL-1000419", "da-DK", "Slet"),
     ("LBL-1000420", "en-US", "Saved"), ("LBL-1000420", "da-DK", "Gemt"),
     ("LBL-1000421", "en-US", "Delete '{name}'?"), ("LBL-1000421", "da-DK", "Slet '{name}'?"),
+    ("LBL-1000422", "en-US", "Failed to load allocator config"), ("LBL-1000422", "da-DK", "Kunne ikke indlæse allocator-konfiguration"),
+    ("LBL-1000423", "en-US", "Name required"), ("LBL-1000423", "da-DK", "Navn påkrævet"),
+    ("LBL-1000424", "en-US", "Error"), ("LBL-1000424", "da-DK", "Fejl"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""
@@ -3978,6 +3984,9 @@ _bridge_setup_slots = [
     ("lbl_alloc_delete", "Delete button"),
     ("lbl_alloc_saved", "Saved confirmation message"),
     ("lbl_alloc_confirm_delete", "Confirm delete dialog message"),
+    ("lbl_alloc_load_error", "Allocator config load error banner"),
+    ("lbl_alloc_name_required", "Name field required validation message"),
+    ("lbl_alloc_error", "Generic allocator error message"),
 ]
 for slot_key, description in _bridge_setup_slots:
     cursor.execute("""
@@ -4099,6 +4108,9 @@ _bridge_setup_slot_labels = [
     ("lbl_alloc_delete", "lbl_alloc_delete"),
     ("lbl_alloc_saved", "lbl_alloc_saved"),
     ("lbl_alloc_confirm_delete", "lbl_alloc_confirm_delete"),
+    ("lbl_alloc_load_error", "lbl_alloc_load_error"),
+    ("lbl_alloc_name_required", "lbl_alloc_name_required"),
+    ("lbl_alloc_error", "lbl_alloc_error"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""

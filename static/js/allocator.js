@@ -16,7 +16,7 @@ function reloadAllocatorConfig() {
     })
     .catch(function (err) {
       const mount = document.getElementById("allocator-dashboard");
-      if (mount) { clear(mount); mount.appendChild(el("div", "dpmtf-text-danger", "Allocator: " + err.message)); }
+      if (mount) { clear(mount); mount.appendChild(el("div", "dpmtf-text-danger", lbl("lbl_alloc_load_error", "Failed to load allocator config") + ": " + err.message)); }
     });
 }
 
