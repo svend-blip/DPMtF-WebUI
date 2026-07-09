@@ -310,6 +310,150 @@ function lbl(key, fallback) {
   return labelMap[key] || fallback || key;
 }
 
+/**
+ * Factory for a model_source + model_alias control pair (V3A).
+ *
+ * @param {string} prefix - Unique ID prefix for the form (e.g. "bridge-role").
+ * @param {string|null} sourceValue - Initial model_source value.
+ * @param {string|null} aliasValue - Initial model_alias value.
+ * @param {string|function():string} clientValue - Client key used to fetch aliases / validate.
+ * @param {object} labels - lbl() keys for {source, alias, validate}.
+ * @param {Array<Array<string>>} sourceOptions - List of [value, label] pairs for the source dropdown.
+ * @returns {object} { container, getSource, getAlias, setClient }
+ */
+function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, labels, sourceOptions) {
+  var container = el("div", "dpmtf-form-group");
+
+  // model_source dropdown
+  var srcDiv = el("div", "dpmtf-form-group");
+  var srcLabel = el("label", "dpmtf-label", lbl(labels.source, "Model Source"));
+  srcLabel.htmlFor = prefix + "-model-source";
+  var srcSelect = el("select", null);
+  srcSelect.id = prefix + "-model-source";
+  sourceOptions.forEach(function (pair) {
+    var opt = document.createElement("option");
+    opt.value = pair[0];
+    opt.textContent = pair[1];
+    if (pair[0] === (sourceValue || "")) opt.selected = true;
+    srcSelect.appendChild(opt);
+  });
+  srcDiv.appendChild(srcLabel);
+  srcDiv.appendChild(srcSelect);
+  container.appendChild(srcDiv);
+
+  // model_alias text input with datalist
+  var aliasDiv = el("div", "dpmtf-form-group");
+  var aliasLabel = el("label", "dpmtf-label", lbl(labels.alias, "Model Alias"));
+  aliasLabel.htmlFor = prefix + "-model-alias";
+  var aliasInput = el("input", null);
+  aliasInput.type = "text";
+  aliasInput.id = prefix + "-model-alias";
+  aliasInput.value = aliasValue || "";
+  aliasInput.placeholder = lbl(labels.alias, "Model Alias");
+  aliasInput.setAttribute("list", prefix + "-model-alias-options");
+  aliasInput.disabled = srcSelect.value !== "model_allocator";
+  var aliasList = el("datalist", null);
+  aliasList.id = prefix + "-model-alias-options";
+  aliasDiv.appendChild(aliasLabel);
+  aliasDiv.appendChild(aliasInput);
+  aliasDiv.appendChild(aliasList);
+  container.appendChild(aliasDiv);
+
+  // Validate button
+  var validateBtn = el("button", "dpmtf-btn");
+  validateBtn.type = "button";
+  validateBtn.textContent = lbl(labels.validate, "Validate");
+  validateBtn.disabled = srcSelect.value !== "model_allocator";
+  container.appendChild(validateBtn);
+
+  var resultDiv = el("div", "dpmtf-form-group");
+  resultDiv.id = prefix + "-model-validation-result";
+  container.appendChild(resultDiv);
+
+  function resolveClient() {
+    return (typeof clientValue === "function") ? clientValue() : (clientValue || "opencode");
+  }
+
+  function updateState() {
+    var isAllocator = srcSelect.value === "model_allocator";
+    aliasInput.disabled = !isAllocator;
+    validateBtn.disabled = !isAllocator;
+    if (!isAllocator) {
+      aliasInput.value = "";
+      clear(resultDiv);
+    }
+  }
+  srcSelect.onchange = updateState;
+
+  function populateAliasOptions() {
+    var client = resolveClient();
+    if (!client) return;
+    fetch("/api/bridge-v2/allocator/aliases?client=" + encodeURIComponent(client))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        clear(aliasList);
+        (data.aliases || []).forEach(function (item) {
+          var opt = document.createElement("option");
+          opt.value = item.alias || item;
+          opt.textContent = (item.alias || item) + (item.status ? " (" + item.status + ")" : "");
+          aliasList.appendChild(opt);
+        });
+      })
+      .catch(function (err) {
+        console.warn("Failed to load allocator aliases:", err);
+      });
+  }
+
+  aliasInput.onfocus = function () {
+    if (aliasList.children.length === 0) populateAliasOptions();
+  };
+
+  validateBtn.onclick = function () {
+    clear(resultDiv);
+    var alias = aliasInput.value.trim();
+    var client = resolveClient();
+    if (!alias || !client) return;
+    fetch("/api/bridge-v2/allocator/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alias: alias, client: client })
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (result) {
+        var status = result.validation_status || "UNKNOWN";
+        var msg = lbl("lbl_bridge_validation_status", "Validation") + ": " + status;
+        if (result.resolved_real_model) {
+          msg += " — " + (result.resolved_backend || "") + "/" + result.resolved_real_model;
+        }
+        resultDiv.appendChild(el("div", null, msg));
+        (result.warnings || []).forEach(function (w) {
+          resultDiv.appendChild(el("div", "dpmtf-text-warning",
+            lbl("lbl_bridge_validation_warning", "Warning") + ": " + w));
+        });
+        (result.errors || []).forEach(function (e) {
+          resultDiv.appendChild(el("div", "dpmtf-text-danger",
+            lbl("lbl_bridge_validation_error", "Error") + ": " + e));
+        });
+      })
+      .catch(function (err) {
+        resultDiv.appendChild(el("div", "dpmtf-text-danger",
+          lbl("lbl_status_error_prefix", "Error") + ": " + escapeHtml(err.message)));
+      });
+  };
+
+  return {
+    container: container,
+    getSource: function () { return srcSelect.value || null; },
+    getAlias: function () {
+      return srcSelect.value === "model_allocator" ? (aliasInput.value.trim() || null) : null;
+    },
+    setClient: function (c) { clientValue = c; }
+  };
+}
+
 /* ── 3. Database Status ────────────────────────────── */
 function loadDbStatus() {
   var container = document.getElementById("db-status-content");
@@ -2189,6 +2333,12 @@ function addBridgeRole() {
     if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
     if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
 
+    // V3A: Model Allocator source / alias
+    var msEl = document.getElementById("bridge-role-model-source");
+    var maEl = document.getElementById("bridge-role-model-alias");
+    if (msEl) body.default_model_source = msEl.value || null;
+    if (maEl && !maEl.disabled) body.default_model_alias = maEl.value.trim() || null;
+
     fetch("/api/bridge-v2/roles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2310,6 +2460,30 @@ function addBridgeRole() {
   mpSectionDiv.appendChild(mdDiv);
 
   form.appendChild(mpSectionDiv);
+
+  // V3A: Model Allocator source / alias
+  var allocatorControl = createModelSourceControl(
+    "bridge-role",
+    null,
+    null,
+    function () {
+      var rt = document.getElementById("bridge-input-default-runtime");
+      return rt ? rt.value : "opencode";
+    },
+    {
+      source: "lbl_bridge_default_model_source",
+      alias: "lbl_bridge_default_model_alias",
+      validate: "lbl_bridge_validate_allocator"
+    },
+    [
+      ["", lbl("lbl_bridge_model_source_default", "Default / inherit")],
+      ["direct_ollama", "direct_ollama"],
+      ["direct_cloud", "direct_cloud"],
+      ["direct_llama_cpp", "direct_llama_cpp"],
+      ["model_allocator", "model_allocator"]
+    ]
+  );
+  form.appendChild(allocatorControl.container);
 
   // Populate Machine Profile fields
   fetch("/api/system/machine-profile")
@@ -2559,6 +2733,12 @@ function editBridgeRoleFull(roleKey) {
         if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
         if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
 
+        // V3A: Model Allocator source / alias
+        var msEl = document.getElementById("bridge-edit-role-model-source");
+        var maEl = document.getElementById("bridge-edit-role-model-alias");
+        if (msEl) body.default_model_source = msEl.value || null;
+        if (maEl && !maEl.disabled) body.default_model_alias = maEl.value.trim() || null;
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2744,6 +2924,30 @@ function editBridgeRoleFull(roleKey) {
       mpSectionDiv.appendChild(mdDiv);
 
       form.appendChild(mpSectionDiv);
+
+      // V3A: Model Allocator source / alias
+      var allocatorControl = createModelSourceControl(
+        "bridge-edit-role",
+        role.default_model_source,
+        role.default_model_alias,
+        function () {
+          var rt = document.getElementById("bridge-edit-input-default-runtime");
+          return rt ? rt.value : "opencode";
+        },
+        {
+          source: "lbl_bridge_default_model_source",
+          alias: "lbl_bridge_default_model_alias",
+          validate: "lbl_bridge_validate_allocator"
+        },
+        [
+          ["", lbl("lbl_bridge_model_source_default", "Default / inherit")],
+          ["direct_ollama", "direct_ollama"],
+          ["direct_cloud", "direct_cloud"],
+          ["direct_llama_cpp", "direct_llama_cpp"],
+          ["model_allocator", "model_allocator"]
+        ]
+      );
+      form.appendChild(allocatorControl.container);
 
       // Populate Machine Profile fields for edit form
       fetch("/api/system/machine-profile")
@@ -3263,6 +3467,12 @@ function _showStepForm(initialData) {
     if (po && po.value.trim()) body.provider_override = po.value.trim();
     if (mo && mo.value.trim()) body.model_override = mo.value.trim();
 
+    // V3A: Model Allocator step-level source / alias
+    var msEl = document.getElementById("bridge-step-model-source");
+    var maEl = document.getElementById("bridge-step-model-alias");
+    if (msEl) body.model_source = msEl.value || null;
+    if (maEl && !maEl.disabled) body.model_alias = maEl.value.trim() || null;
+
     _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body);
   };
 
@@ -3317,6 +3527,30 @@ function _showStepForm(initialData) {
     div.appendChild(input);
     form.appendChild(div);
   });
+
+  // V3A: Model Allocator step-level source / alias
+  var stepAllocatorControl = createModelSourceControl(
+    "bridge-step",
+    data.model_source,
+    data.model_alias,
+    function () {
+      var ro = document.getElementById("bridge-input-runtime_override");
+      return ro && ro.value.trim() ? ro.value.trim() : "opencode";
+    },
+    {
+      source: "lbl_bridge_step_model_source",
+      alias: "lbl_bridge_step_model_alias",
+      validate: "lbl_bridge_validate_allocator"
+    },
+    [
+      ["inherit_from_role", lbl("lbl_bridge_step_model_source_inherit", "Inherit from role")],
+      ["direct_ollama", "direct_ollama"],
+      ["direct_cloud", "direct_cloud"],
+      ["direct_llama_cpp", "direct_llama_cpp"],
+      ["model_allocator", "model_allocator"]
+    ]
+  );
+  form.appendChild(stepAllocatorControl.container);
 
   // From role dropdown
   var frDiv = el("div", "dpmtf-form-group");

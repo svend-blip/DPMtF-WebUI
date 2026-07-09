@@ -3399,6 +3399,18 @@ _bridge_setup_labels = [
     ("LBL-1000296", "lbl_bridge_validation_schema", "main", "Validation Schema (JSON array)", "Convention validation schema textarea label"),
     ("LBL-1000297", "lbl_bridge_conventions_title", "main", "Conventions", "Bridge conventions admin section title"),
     ("LBL-1000298", "lbl_bridge_governance_file", "main", "Governance File", "Governance file reference field label"),
+    # ── V3A: Model Allocator UI labels ──
+    ("LBL-1000355", "lbl_bridge_default_model_source", "main", "Default Model Source", "Role default model source dropdown"),
+    ("LBL-1000356", "lbl_bridge_default_model_alias", "main", "Default Model Alias", "Role default model alias input"),
+    ("LBL-1000357", "lbl_bridge_step_model_source", "main", "Step Model Source", "Step model source dropdown"),
+    ("LBL-1000358", "lbl_bridge_step_model_alias", "main", "Step Model Alias", "Step model alias input"),
+    ("LBL-1000359", "lbl_bridge_validate_allocator", "main", "Validate", "Validate allocator alias button"),
+    ("LBL-1000360", "lbl_bridge_validation_status", "main", "Validation", "Allocator validation status label"),
+    ("LBL-1000361", "lbl_bridge_validation_ok", "main", "OK", "Allocator validation OK status"),
+    ("LBL-1000362", "lbl_bridge_validation_warning", "main", "Warning", "Allocator validation warning label"),
+    ("LBL-1000363", "lbl_bridge_validation_error", "main", "Error", "Allocator validation error label"),
+    ("LBL-1000364", "lbl_bridge_model_source_default", "main", "Default / inherit", "Default/inherit model source option"),
+    ("LBL-1000365", "lbl_bridge_step_model_source_inherit", "main", "Inherit from role", "Step model source inherit option"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -3696,6 +3708,53 @@ _bridge_setup_translations = [
     ("LBL-1000296", "sv-SE", "Valideringsschema (JSON-array)"),
     ("LBL-1000297", "sv-SE", "Konventioner"),
     ("LBL-1000298", "sv-SE", "Styrdokumentfil"),
+    # ── V3A: Model Allocator translations ──
+    ("LBL-1000355", "en-US", "Default Model Source"),
+    ("LBL-1000355", "da-DK", "Standard model-kilde"),
+    ("LBL-1000356", "en-US", "Default Model Alias"),
+    ("LBL-1000356", "da-DK", "Standard model-alias"),
+    ("LBL-1000357", "en-US", "Step Model Source"),
+    ("LBL-1000357", "da-DK", "Trin model-kilde"),
+    ("LBL-1000358", "en-US", "Step Model Alias"),
+    ("LBL-1000358", "da-DK", "Trin model-alias"),
+    ("LBL-1000359", "en-US", "Validate"),
+    ("LBL-1000359", "da-DK", "Valider"),
+    ("LBL-1000360", "en-US", "Validation"),
+    ("LBL-1000360", "da-DK", "Validering"),
+    ("LBL-1000361", "en-US", "OK"),
+    ("LBL-1000361", "da-DK", "OK"),
+    ("LBL-1000362", "en-US", "Warning"),
+    ("LBL-1000362", "da-DK", "Advarsel"),
+    ("LBL-1000363", "en-US", "Error"),
+    ("LBL-1000363", "da-DK", "Fejl"),
+    ("LBL-1000364", "en-US", "Default / inherit"),
+    ("LBL-1000364", "da-DK", "Standard / nedarv"),
+    ("LBL-1000365", "en-US", "Inherit from role"),
+    ("LBL-1000365", "da-DK", "Nedarv fra rolle"),
+    # de-DE
+    ("LBL-1000355", "de-DE", "Standardmodell-Quelle"),
+    ("LBL-1000356", "de-DE", "Standardmodell-Alias"),
+    ("LBL-1000357", "de-DE", "Schrittmodell-Quelle"),
+    ("LBL-1000358", "de-DE", "Schrittmodell-Alias"),
+    ("LBL-1000359", "de-DE", "Validieren"),
+    ("LBL-1000360", "de-DE", "Validierung"),
+    ("LBL-1000361", "de-DE", "OK"),
+    ("LBL-1000362", "de-DE", "Warnung"),
+    ("LBL-1000363", "de-DE", "Fehler"),
+    ("LBL-1000364", "de-DE", "Standard / erben"),
+    ("LBL-1000365", "de-DE", "Von Rolle erben"),
+    # sv-SE
+    ("LBL-1000355", "sv-SE", "Standard modellkälla"),
+    ("LBL-1000356", "sv-SE", "Standard modellalias"),
+    ("LBL-1000357", "sv-SE", "Steg modellkälla"),
+    ("LBL-1000358", "sv-SE", "Steg modellalias"),
+    ("LBL-1000359", "sv-SE", "Validera"),
+    ("LBL-1000360", "sv-SE", "Validering"),
+    ("LBL-1000361", "sv-SE", "OK"),
+    ("LBL-1000362", "sv-SE", "Varning"),
+    ("LBL-1000363", "sv-SE", "Fel"),
+    ("LBL-1000364", "sv-SE", "Standard / ärv"),
+    ("LBL-1000365", "sv-SE", "Ärv från roll"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""
@@ -3763,6 +3822,18 @@ _bridge_setup_slots = [
     ("lbl_bridge_start_tmux", "Start tmux button for flow"),
     ("lbl_bridge_starting", "Label shown while starting tmux"),
     ("lbl_bridge_governance_file", "Governance file reference field label"),
+    # ── V3A: Model Allocator slots ──
+    ("lbl_bridge_default_model_source", "Role default model source dropdown"),
+    ("lbl_bridge_default_model_alias", "Role default model alias input"),
+    ("lbl_bridge_step_model_source", "Step model source dropdown"),
+    ("lbl_bridge_step_model_alias", "Step model alias input"),
+    ("lbl_bridge_validate_allocator", "Validate allocator alias button"),
+    ("lbl_bridge_validation_status", "Allocator validation status label"),
+    ("lbl_bridge_validation_ok", "Allocator validation OK status"),
+    ("lbl_bridge_validation_warning", "Allocator validation warning label"),
+    ("lbl_bridge_validation_error", "Allocator validation error label"),
+    ("lbl_bridge_model_source_default", "Default/inherit model source option"),
+    ("lbl_bridge_step_model_source_inherit", "Step model source inherit option"),
 ]
 for slot_key, description in _bridge_setup_slots:
     cursor.execute("""
@@ -3836,6 +3907,18 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_governance_file", "lbl_bridge_governance_file"),
     # ── G1: role_type slot label ──
     ("lbl_bridge_role_type", "lbl_bridge_role_type"),
+    # ── V3A: Model Allocator slot labels ──
+    ("lbl_bridge_default_model_source", "lbl_bridge_default_model_source"),
+    ("lbl_bridge_default_model_alias", "lbl_bridge_default_model_alias"),
+    ("lbl_bridge_step_model_source", "lbl_bridge_step_model_source"),
+    ("lbl_bridge_step_model_alias", "lbl_bridge_step_model_alias"),
+    ("lbl_bridge_validate_allocator", "lbl_bridge_validate_allocator"),
+    ("lbl_bridge_validation_status", "lbl_bridge_validation_status"),
+    ("lbl_bridge_validation_ok", "lbl_bridge_validation_ok"),
+    ("lbl_bridge_validation_warning", "lbl_bridge_validation_warning"),
+    ("lbl_bridge_validation_error", "lbl_bridge_validation_error"),
+    ("lbl_bridge_model_source_default", "lbl_bridge_model_source_default"),
+    ("lbl_bridge_step_model_source_inherit", "lbl_bridge_step_model_source_inherit"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""

@@ -36,6 +36,7 @@ Endpoints (27 total):
 """
 
 import io
+import json
 import logging
 import os
 import sqlite3
@@ -336,8 +337,9 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
             (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
              pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order,
              auto_chain_to_next, validation_required,
-             runtime_override, provider_override, model_override)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             runtime_override, provider_override, model_override,
+             model_source, model_alias)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         flow_key, data["step_key"], data["from_role"], data["to_role"],
         deliverable_dir, deliverable_pattern,
@@ -348,6 +350,8 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
         data.get("runtime_override"),
         data.get("provider_override"),
         data.get("model_override"),
+        data.get("model_source"),
+        data.get("model_alias"),
     ))
     new_id = cursor.lastrowid
     conn.commit()
@@ -396,6 +400,8 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
         "runtime_override": "runtime_override",
         "provider_override": "provider_override",
         "model_override": "model_override",
+        "model_source": "model_source",
+        "model_alias": "model_alias",
     }
 
     for field, column in field_map.items():
@@ -496,8 +502,9 @@ async def bridge_v2_create_role(request: Request):
             INSERT INTO bridge_roles
             (role_key, tmux_session, model_type, cloud_model, ollama_model,
              setup_script, teardown_script, deliver_error_msg, enter_command,
-             default_runtime, default_provider, default_model, config_dir)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             default_runtime, default_provider, default_model, config_dir,
+             default_model_source, default_model_alias)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["role_key"],
             data["tmux_session"],
@@ -512,6 +519,8 @@ async def bridge_v2_create_role(request: Request):
             data.get("default_provider"),
             data.get("default_model"),
             data.get("config_dir"),
+            data.get("default_model_source"),
+            data.get("default_model_alias"),
         ))
     else:
         # Role exists (active or soft-deleted) — reactivate/update it
@@ -523,7 +532,7 @@ async def bridge_v2_create_role(request: Request):
                       "ollama_model", "setup_script", "teardown_script",
                       "deliver_error_msg", "enter_command",
                       "default_runtime", "default_provider", "default_model",
-                      "config_dir"]:
+                      "config_dir", "default_model_source", "default_model_alias"]:
             if field in data:
                 sets.append(f"{field} = ?")
                 params.append(data[field])
@@ -564,6 +573,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "enter_command",  # H150: per-role Enter key configuration
         "default_runtime", "default_provider", "default_model",  # Machine Profile Fase 2A
         "config_dir",  # Machine Profile Fase 2A — OpenCode config directory override
+        "default_model_source", "default_model_alias",  # V3A: Model Allocator source / alias
     ]
     sets = []
     params = []
@@ -963,6 +973,143 @@ async def bridge_v2_attach_tmux_for_flow(flow_key: str):
         raise HTTPException(status_code=500, detail="attach_tmux timed out after 30s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── V3A: Model Allocator proxy endpoints ───────────────────────
+
+
+def _parse_allocator_validate_text(raw_output: str) -> dict:
+    """Parse text output from `model-allocator validate` into structured fields."""
+    status = "UNKNOWN"
+    backend = None
+    real_model = None
+    warnings = []
+    errors = []
+    current_section = None
+
+    lines = raw_output.splitlines()
+    # First line is often the status word (OK / WARNING / ERROR).
+    if lines:
+        first = lines[0].strip().upper()
+        if first in {"OK", "WARNING", "ERROR"}:
+            status = first
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("Status:"):
+            status = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Backend:"):
+            backend = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Real model:") or stripped.startswith("Logical model:"):
+            value = stripped.split(":", 1)[1].strip()
+            if stripped.startswith("Real model:"):
+                real_model = value
+        elif stripped.lower().startswith("warnings:"):
+            current_section = "warnings"
+            content = stripped.split(":", 1)[1].strip()
+            if content and content.lower() != "none":
+                warnings.append(content.lstrip("- "))
+            continue
+        elif stripped.lower().startswith("errors:"):
+            current_section = "errors"
+            content = stripped.split(":", 1)[1].strip()
+            if content and content.lower() != "none":
+                errors.append(content.lstrip("- "))
+            continue
+        elif stripped and current_section:
+            if stripped.lower() == "none":
+                continue
+            if current_section == "warnings":
+                warnings.append(stripped.lstrip("- "))
+            elif current_section == "errors":
+                errors.append(stripped.lstrip("- "))
+
+    return {
+        "validation_status": status,
+        "resolved_backend": backend,
+        "resolved_real_model": real_model,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+
+@router.get("/allocator/aliases")
+async def bridge_v2_allocator_aliases(client: str):
+    """List allocator aliases for a client by shelling out to model-allocator."""
+    if not client:
+        raise HTTPException(status_code=400, detail="client query parameter is required")
+
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "list", "--client", client],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=502,
+                detail=f"model-allocator list failed: {result.stderr.strip() or result.stdout.strip()}",
+            )
+        aliases = json.loads(result.stdout.strip())
+        return {"aliases": aliases}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"model-allocator list returned invalid JSON: {exc}",
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=502, detail="model-allocator list timed out after 30s")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator list error: {exc}")
+
+
+@router.post("/allocator/validate")
+async def bridge_v2_allocator_validate(request: Request):
+    """Validate an allocator alias/client by shelling out to model-allocator."""
+    data = await request.json()
+    alias = data.get("alias")
+    client = data.get("client")
+    if not alias or not client:
+        raise HTTPException(status_code=400, detail="alias and client are required")
+
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "validate", "--alias", alias, "--client", client],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        # model-allocator validate prints formatted text; parse JSON if available.
+        raw_output = result.stdout.strip()
+        parsed = {}
+        try:
+            parsed = json.loads(raw_output)
+        except json.JSONDecodeError:
+            parsed = _parse_allocator_validate_text(raw_output)
+
+        return {
+            "validation_status": parsed.get("validation_status", "UNKNOWN"),
+            "resolved_backend": parsed.get("resolved_backend"),
+            "resolved_real_model": parsed.get("resolved_real_model"),
+            "warnings": parsed.get("warnings", []),
+            "errors": parsed.get("errors", []),
+            "raw_output": raw_output,
+        }
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=502, detail="model-allocator validate timed out after 30s")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"model-allocator validate error: {exc}")
 
 
 @router.post("/export")
