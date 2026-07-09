@@ -205,6 +205,35 @@ def main():
                 "scripts",
                 "model-allocator",
             )
+
+            # V2.2: regenerate role-specific opencode.json so the OpenCode TUI
+            # uses the allocator-selected model. This is only needed/correct for
+            # the opencode client; other clients follow the existing path.
+            if role["default_runtime"] == "opencode":
+                config_dir = role.get("config_dir") or role["role_key"]
+                opencode_json_path = os.path.expanduser(
+                    f"~/.config/opencode-roles/{config_dir}/opencode.json"
+                )
+                try:
+                    subprocess.run(
+                        [
+                            model_allocator_path,
+                            "render-config",
+                            "--role", role["role_key"],
+                            "--client", "opencode",
+                            "--output", opencode_json_path,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                        timeout=60,
+                    )
+                    print(f"    Regenerated opencode.json at {opencode_json_path}")
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                    print(f"    WARNING: render-config failed; continuing with start command")
+                    if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+                        print(f"      stderr: {exc.stderr.strip()}")
+
             try:
                 result = subprocess.run(
                     [
