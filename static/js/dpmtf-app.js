@@ -4,7 +4,7 @@ var currentLocale = "en-US";  // fallback indtil API svarer
 
 function loadLabels() {
   // Hent brugerens gemte sprog fra API
-  fetch("/api/user-language")
+  return fetch("/api/user-language")
     .then(function (res) {
       if (!res.ok) throw new Error("HTTP " + res.status);
       return res.json();
@@ -4072,7 +4072,9 @@ function loadUserPreferences() {
 
 /* ── 10. Init ──────────────────────────────────────── */
 function onReady() {
-  loadLabels();
+  loadLabels().then(function () {
+    if (window.initAllocator) window.initAllocator();
+  });
   // Language dropdown handler
   var langDropdown = document.getElementById("lang-dropdown");
   if (langDropdown) {
