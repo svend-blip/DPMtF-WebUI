@@ -1,0 +1,111 @@
+---
+name: cloud-pay
+description: Reconstruct the Architect's full context after a cold start or ollama stop cycle in the cloud_pay flow. Use when resuming work in the cloud_pay BridgeV002 flow, after a restart, or when the Architect session has lost context and needs to rebuild its state from durable files.
+---
+
+# CLOUDPAY — Architect Cold-Start
+
+Invoke with `/CLOUDPAY` to reconstruct the Architect's full context after
+a cold start or `ollama stop` cycle in the `cloud_pay` flow.
+
+## Procedure
+
+Execute these steps in order. Do not skip any step.
+
+### Step 1: Resolve Bridge Directory
+
+The bridge directory is configured by `DPMTF_BRIDGE_DIR` (env var, default `/home/svend/flows`).
+Resolve it:
+```bash
+echo $DPMTF_BRIDGE_DIR   # should be /home/svend/flows
+```
+If empty or pointing to `/home/svend/claude-bridge`, the environment is stale —
+`export DPMTF_BRIDGE_DIR=/home/svend/flows` before proceeding.
+
+All bridge paths below use `{bridge_dir}` as shorthand for this resolved directory.
+
+### Step 2: Read Cycle State
+
+Read `docs/bridgeV002/current-cycle-cloud-pay.json`. Extract:
+- `last_handoff` — the most recent handoff ID (null if none)
+- `title` — what the last handoff was about
+- `active_role` — which role is currently active
+- `design_notes` — key design decisions from the last cycle
+- `verification_checklist` — what to verify when the verdict returns
+- `open_gaps` — any unresolved issues
+- `branch` and `commit` — current git state
+
+Confirm the current counter value (next handoff will use this number):
+```bash
+python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(conn.execute(\"SELECT next_id FROM bridge_id_counters WHERE flow_key='cloud_pay'\").fetchone()[0]); conn.close()"
+```
+The counter is authoritative — gaps from incomplete handoffs are normal.
+Do not investigate gaps or compare against files on disk.
+
+### Step 3: Read Durable Reference
+
+Read `docs/StartUpNextSession.md`. Confirm:
+- Your role (Architect / Handoff Writer)
+- The 10 hard rules
+- Tmux session layout
+- PC-specific paths and ports
+
+### Step 4: Read Flow-Specific Role Definition
+
+Read `docs/governance-templates-v2/422_CLOUD_PAY_ARCHI01PAY.md`. Confirm:
+- Handoff format (required XML sections)
+- Dispatch command (`signal_send`)
+- Post-handoff stop rule
+- Escalation response format
+
+### Step 5: Verify Environment
+
+Run these checks:
+```bash
+cd /home/svend/DPMtF-WebUI
+python3 -m py_compile app.py && echo "app.py OK"
+curl -s http://localhost:9130/api/health
+curl -s http://localhost:9130/api/bridge-v2/status
+curl -s http://localhost:9130/api/bridge-v2/flows
+
+# Verify all 4 cloud_pay tmux sessions are running
+for s in archi01pay imple01pay review01pay review02pay; do
+  tmux has-session -t "$s" 2>/dev/null && echo "  $s: running" || echo "  $s: NOT RUNNING"
+done
+```
+
+### Step 6: Determine Next Action
+
+Based on `active_role` in current-cycle-cloud-pay.json:
+
+| active_role | Action |
+|-------------|--------|
+| `archi01pay` | You are active. If `last_handoff` is set and `verification_checklist` has items, a verdict may have returned — check `{bridge_dir}/cloud_pay/verdicts/{last_handoff}-verdict.md`. Otherwise, wait for Human instruction or start next handoff. |
+| `imple01pay` | Implementer is active. Wait — do NOT start new work. |
+| `review01pay` | Review layer 1 is active. Wait. |
+| `review02pay` | Review layer 2 is active. Wait. |
+| `humanpay` | Human has the verdict. Wait for Human instruction. |
+
+### Step 7: Report to Human
+
+Summarize in a compact table:
+
+| Field | Value |
+|-------|-------|
+| Flow | cloud_pay |
+| Active role | {from current-cycle-cloud-pay.json} |
+| Last handoff | {ID + title from current-cycle-cloud-pay.json} |
+| Next handoff ID | {from database counter} |
+| tmux sessions | all 4 running / NOT RUNNING: {list} |
+| Assessment | ready / waiting for verdict / waiting for Human |
+
+Do NOT list gaps, missing files, or discrepancies — the counter is authoritative.
+Then wait for Human to give the next instruction.
+
+## Rules
+
+- **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**
+  The procedure is complete when Step 7 is done — stop there.
+- **NEVER start work if another role is active** (Rule 1 — NO parallel work).
+- **NEVER dispatch without updating current-cycle-cloud-pay.json first** (§4 save-state procedure).
+- **All communication in English (en-US)** except direct Human interaction.
