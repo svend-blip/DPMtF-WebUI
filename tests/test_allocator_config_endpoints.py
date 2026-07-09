@@ -52,3 +52,19 @@ def test_delete_role_ok(client, monkeypatch):
     resp = client.delete("/api/bridge-v2/allocator/config/role/r1")
     assert resp.status_code == 200
     assert "delete-role" in captured["cmd"]
+
+
+def test_post_alias_non_dict_error_json_is_400(client, monkeypatch):
+    monkeypatch.setattr(bridge.subprocess, "run",
+                        lambda *a, **k: _completed(stderr=json.dumps("just a string"), rc=1))
+    resp = client.post("/api/bridge-v2/allocator/config/alias",
+                       json={"name": "bad", "definition": {"runtime_profile": "ghost"}})
+    assert resp.status_code == 400
+
+
+def test_post_alias_non_string_name_is_400(client, monkeypatch):
+    monkeypatch.setattr(bridge.subprocess, "run",
+                        lambda *a, **k: _completed(stdout=json.dumps({"ok": True})))
+    resp = client.post("/api/bridge-v2/allocator/config/alias",
+                       json={"name": 123, "definition": {"runtime_profile": "p1"}})
+    assert resp.status_code == 400

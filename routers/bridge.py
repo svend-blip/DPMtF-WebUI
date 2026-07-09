@@ -1269,7 +1269,9 @@ def _run_allocator(cmd_args: list) -> subprocess.CompletedProcess:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         try:
-            detail = json.loads(detail).get("error", detail)
+            parsed = json.loads(detail)
+            if isinstance(parsed, dict):
+                detail = parsed.get("error", detail)
         except json.JSONDecodeError:
             pass
         raise HTTPException(status_code=400, detail=detail or "model-allocator config command failed")
@@ -1291,7 +1293,7 @@ async def bridge_v2_allocator_set_alias(request: Request):
     data = await request.json()
     name = data.get("name")
     definition = data.get("definition")
-    if not name or not isinstance(definition, dict):
+    if not name or not isinstance(name, str) or not isinstance(definition, dict):
         raise HTTPException(status_code=400, detail="name and definition (object) are required")
     _run_allocator(["config", "set-alias", "--name", name, "--json", json.dumps(definition)])
     return {"ok": True}
@@ -1308,7 +1310,7 @@ async def bridge_v2_allocator_set_role(request: Request):
     data = await request.json()
     name = data.get("name")
     definition = data.get("definition")
-    if not name or not isinstance(definition, dict):
+    if not name or not isinstance(name, str) or not isinstance(definition, dict):
         raise HTTPException(status_code=400, detail="name and definition (object) are required")
     _run_allocator(["config", "set-role", "--name", name, "--json", json.dumps(definition)])
     return {"ok": True}
