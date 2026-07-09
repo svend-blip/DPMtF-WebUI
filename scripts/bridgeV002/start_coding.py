@@ -25,7 +25,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-from bridge_lib import resolve_placeholders  # noqa: E402
+from bridge_lib import resolve_placeholders, get_effective_model_source  # noqa: E402
 
 # Machine Profile Fase 2A — command builder
 from command_builder import build_start_command, render_tmux_shell_string  # noqa: E402
@@ -195,7 +195,59 @@ def main():
             errors.append(role["role_key"])
             continue
 
-        # Build command from Machine Profile
+        # V1B pilot: use Model Allocator when role opts in.
+        model_source, model_alias = get_effective_model_source(
+            role["role_key"], db_path=db_path
+        )
+        if model_source == "model_allocator":
+            model_allocator_path = os.path.join(
+                config_mod.get_project_path("model-allocator"),
+                "scripts",
+                "model-allocator",
+            )
+            try:
+                result = subprocess.run(
+                    [
+                        model_allocator_path,
+                        "run",
+                        "--role", role["role_key"],
+                        "--client", role["default_runtime"],
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=60,
+                )
+                shell_str = result.stdout.strip()
+                # cwd: same fallback as the Machine-Profile path.
+                cwd = project_root
+                mp_paths = machine_profile.get("paths", {})
+                cwd = mp_paths.get("project_root", project_root)
+                cmd_str = f"cd {cwd} && {shell_str}"
+                print(f"  {role['role_key']:15s} → '{session_name}'  (model_allocator) ...")
+                ok = run_cmd_in_session(
+                    session_name,
+                    cmd_str,
+                    bridge_dir,
+                    project_root,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR calling model-allocator: {exc}")
+                if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+                    print(f"    stderr: {exc.stderr.strip()}")
+                errors.append(role["role_key"])
+                continue
+
+            if ok:
+                started.append(session_name)
+                print(f"    Command sent to session.")
+            else:
+                print(f"    ERROR running command in '{session_name}'.", file=sys.stderr)
+                errors.append(role["role_key"])
+            continue
+
+        # Build command from Machine Profile (direct_* path — unchanged)
         try:
             # Fase 2B: override chain — step override > role default
             runtime = role.get("runtime_override") or role.get("default_runtime")

@@ -7,7 +7,7 @@ __pycache__/
 
 # Bridge runtime artifacts
 databases/*.db
-databases/*.bak.*
+databases/*.bak*
 databases/*.preh99.*
 # Exception: commit the Father DB (databases/dpmtf.db) for rollback safety.
 # Private repo, no secrets (verified — .env holds secrets separately).

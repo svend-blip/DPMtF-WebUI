@@ -30,6 +30,7 @@ from bridge_lib import (
     ensure_subdir,
     resolve_placeholders,
     list_scripts_from_db,
+    get_effective_model_source,
 )
 
 # ── Constants ──────────────────────────────────────────────
@@ -50,6 +51,44 @@ def _db_path():
     if not os.path.isabs(p):
         p = os.path.join(PROJECT_ROOT, p)
     return p
+
+
+def _model_allocator_path():
+    """Return the absolute path to the model-allocator wrapper script."""
+    import config as _cfg
+    return os.path.join(
+        _cfg.get_project_path("model-allocator"),
+        "scripts",
+        "model-allocator",
+    )
+
+
+def _run_allocator_stop(model_alias, timeout=45):
+    """Stop an allocator-managed model without hanging.
+
+    Runs `model-allocator stop --alias <model_alias>` with an outer timeout.
+    Returns True on success/already-unloaded, False on real failure.
+    """
+    stop_cmd = [_model_allocator_path(), "stop", "--alias", model_alias]
+    try:
+        result = subprocess.run(
+            stop_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip() if result.stderr else ""
+            print(f"  WARNING: model-allocator stop returned {result.returncode}: {stderr}")
+            return False
+        print(f"  Stopped allocator model '{model_alias}'")
+        return True
+    except subprocess.TimeoutExpired:
+        print(f"  WARNING: model-allocator stop timed out for '{model_alias}'")
+        return False
+    except Exception as exc:
+        print(f"  WARNING: model-allocator stop failed: {exc}")
+        return False
 
 
 def wait_session_ready(session_name, timeout=5):
@@ -704,7 +743,15 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     # Post-dispatch: offload predecessor's model to free VRAM
     from_role = load_role_from_db(payload["from_role"],
                                   db_path=_db_path())
-    if from_role.get("model_type") == "ollama" and from_role.get("ollama_model"):
+    from_source, from_alias = get_effective_model_source(
+        from_role["role_key"],
+        step_key=target_step.get("step_key"),
+        flow_key=flow_key,
+        db_path=_db_path(),
+    )
+    if from_source == "model_allocator" and from_alias:
+        _run_allocator_stop(from_alias)
+    elif from_role.get("model_type") == "ollama" and from_role.get("ollama_model"):
         unload_ollama_model(from_role["ollama_model"])
 
     post_script = target_step.get("post_dispatch_script")
@@ -817,7 +864,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
       9. Post-dispatch: stop from_role's Ollama model (VRAM cleanup)
       10. Update symlink in deliverable_dir
       11. Log completion event to trace.log
-      12. If auto_complete_enabled: chain to next step via run_flow_step_db()
+
+    Chain advancement is handled by the role itself via the <chain_advancement>
+    block in the json_output content_template — the role runs signal-complete
+    after writing its output. No code-level auto-chain here (removed — it
+    duplicated the prompt-driven mechanism and caused multi-injections).
     """
     import config as dpmtf_config
 
@@ -834,7 +885,6 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         return False
 
     steps = flow_data["steps"]
-    auto_complete_enabled = flow_data["flow"].get("auto_complete_enabled", 0)
 
     # Step 2: Find current step (by step_key or by matching from_role)
     current_step = None
@@ -916,6 +966,16 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # Ensure deliverable subdirectory exists (for symlink)
     ensure_subdir(bridge_dir, payload["deliverable_dir"])
 
+    # Run pre_dispatch_script if configured (e.g. import before portfolio01)
+    pre_script = current_step.get("pre_dispatch_script")
+    if pre_script:
+        resolved_path = resolve_script_key(pre_script, bridge_dir=bridge_dir)
+        if resolved_path:
+            print(f"  Running pre-dispatch script: {resolved_path}")
+            if not execute_script_with_params(resolved_path, payload):
+                print(f"  Pre-dispatch script failed -- aborting")
+                return False
+
     # Step 7: Build callback prompt from convention content_template
     step_validation_required = current_step.get("validation_required", 0)
     if step_validation_required and rule_key:
@@ -987,7 +1047,15 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     try:
         from_role_data = load_role_from_db(payload["from_role"],
                                            db_path=_db_path())
-        if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
+        from_source, from_alias = get_effective_model_source(
+            from_role_data["role_key"],
+            step_key=current_step.get("step_key"),
+            flow_key=flow_key,
+            db_path=_db_path(),
+        )
+        if from_source == "model_allocator" and from_alias:
+            _run_allocator_stop(from_alias)
+        elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
             unload_ollama_model(from_role_data["ollama_model"])
     except ValueError:
         pass  # from_role not in DB - not an ollama role, skip
@@ -1022,18 +1090,6 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     # Update cycle state for Architect cold-start
     _update_cycle_state(handoff_id, flow_key, payload["to_role"])
-
-    # Step 12: Auto-chain — dispatch the CURRENT step via signal_send.
-    # signal_send waits for the TO role's output, then chains to the next step.
-    # This is called AFTER the callback was injected, so the TO role has already
-    # been told to start working.
-    if auto_complete_enabled:
-        print(f"\n  Auto-chain enabled — waiting for {payload['to_role']} to complete...")
-        chained = signal_send(flow_key, current_step["from_role"],
-                              current_step["to_role"], handoff_id, bridge_dir)
-        if not chained:
-            print(f"  ⚠️  Auto-chain FAILED — target session unavailable or error. "
-                  f"Run signal-complete manually when ready.")
 
     return True
 
@@ -1167,7 +1223,14 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
 
     # Step 7: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
     try:
-        if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
+        from_source, from_alias = get_effective_model_source(
+            from_role_key,
+            flow_key=flow_key,
+            db_path=_db_path(),
+        )
+        if from_source == "model_allocator" and from_alias:
+            _run_allocator_stop(from_alias)
+        elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
             unload_ollama_model(from_role_data["ollama_model"])
     except Exception:
         pass  # Not an ollama role or model already stopped
@@ -1304,7 +1367,14 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
 
     # Step 5: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
     try:
-        if from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
+        from_source, from_alias = get_effective_model_source(
+            from_role_key,
+            flow_key=flow_key,
+            db_path=_db_path(),
+        )
+        if from_source == "model_allocator" and from_alias:
+            _run_allocator_stop(from_alias)
+        elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
             unload_ollama_model(from_role_data["ollama_model"])
     except Exception:
         pass  # Not an ollama role or model already stopped
@@ -1355,6 +1425,11 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
       8. Inject prompt into target role's tmux session
       9. Update symlink in handoff directory
       10. Log dispatch event to trace.log
+
+    Chain advancement is handled by the role itself via the <chain_advancement>
+    block in the json_output content_template — the role runs signal-complete
+    after writing its output. No code-level auto-chain here (removed — it
+    duplicated the prompt-driven mechanism and caused multi-injections).
     """
     import config as dpmtf_config
 
@@ -1500,7 +1575,15 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     ensure_subdir(bridge_dir, deliverable_dir)
 
     # Step 4: Stop target role's Ollama model — clear VRAM and context
-    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
+    to_source, to_alias = get_effective_model_source(
+        to_role_data["role_key"],
+        step_key=target_step.get("step_key"),
+        flow_key=flow_key,
+        db_path=_db_path(),
+    )
+    if to_source == "model_allocator" and to_alias:
+        _run_allocator_stop(to_alias)
+    elif to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
         unload_ollama_model(to_role_data["ollama_model"])
 
     # Step 5: Prepend governance file reference if target role has one
@@ -1596,63 +1679,6 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     # Update cycle state for Architect cold-start
     _update_cycle_state(handoff_id, flow_key, to_role_key)
-
-    # Step 11: Auto-chain — if flow has auto_complete_enabled, wait for the
-    # target role's output and chain directly to the next step via signal_send.
-    flow_auto = flow_data.get("flow", {}).get("auto_complete_enabled", 0)
-    if flow_auto:
-        # Determine the output file the target role will produce.
-        output_pattern = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
-        output_file = output_pattern.replace("{ID}", handoff_id).replace("{role_key}", to_role_key)
-        output_path = os.path.join(bridge_dir, deliverable_dir, output_file)
-
-        print(f"\n  ⛓️  Auto-chain enabled — waiting for {to_role_key} to complete...")
-        print(f"  Watching for: {output_path}")
-
-        # Record timestamp before polling — only files modified AFTER this
-        # timestamp trigger the chain. Prevents old output files from
-        # previous flow runs from immediately triggering auto-chain.
-        import time as time_mod
-        start_wait = time_mod.time()
-
-        # If output file already exists from a previous run, log and wait for overwrite
-        if os.path.exists(output_path):
-            old_mtime = os.path.getmtime(output_path)
-            age_s = int(start_wait - old_mtime)
-            print(f"  ⚠️  Output file already exists (age: {age_s}s) — waiting for fresh output...")
-
-        # Poll for the output file (max 30 minutes)
-        waited = 0
-        while waited < 1800:
-            time_mod.sleep(10)
-            waited += 10
-            if os.path.exists(output_path) and os.path.getmtime(output_path) > start_wait:
-                break
-            if waited % 60 == 0:
-                print(f"  ... still waiting ({waited // 60}m)")
-
-        if os.path.exists(output_path) and os.path.getmtime(output_path) > start_wait:
-            print(f"  Output detected after {waited}s")
-            # Find the next step and chain via signal_send recursively.
-            # signal_send's own auto-chain will handle further steps.
-            current_sort = target_step.get("sort_order", 0)
-            next_step = None
-            for s in steps:
-                if s.get("sort_order", 0) == current_sort + 1:
-                    next_step = s
-                    break
-            if next_step:
-                print(f"  Chaining to: {next_step['step_key']}")
-                chained = signal_send(flow_key, next_step["from_role"], next_step["to_role"],
-                                      handoff_id, bridge_dir)
-                if not chained:
-                    print(f"  ⚠️  Auto-chain FAILED at step '{next_step['step_key']}' — target session unavailable or error. "
-                          f"Run signal-complete manually when ready.")
-            else:
-                print(f"  ✅ Flow complete — no more steps in chain")
-        else:
-            print(f"  ⚠️  Timeout waiting for {to_role_key} output after 30min")
-            print(f"  Chain stopped. Run signal-complete manually when ready.")
 
     return True
 

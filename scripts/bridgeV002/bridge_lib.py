@@ -372,6 +372,75 @@ def load_role_from_db(role_name, db_path=None):
     return role
 
 
+def get_effective_model_source(role_key, step_key=None, flow_key=None, db_path=None):
+    """Return the effective (model_source, model_alias) for a role/step.
+
+    Resolution priority:
+      1. Step override (bridge_flow_steps.model_source / model_alias)
+      2. Role default (bridge_roles.default_model_source / default_model_alias)
+      3. System default (None)
+
+    Step semantics:
+      - "inherit_from_role" or NULL at step level → use role default.
+      - Any other non-empty step value → use step value.
+
+    Role semantics:
+      - NULL at role level → system default (None).
+      - "inherit_from_role" is invalid at role level (rule #15) and is treated
+        as None.
+
+    Args:
+        role_key: The role key to look up.
+        step_key: Optional step key to check for step-level override.
+        flow_key: Required when step_key is provided.
+        db_path: Optional database path override.
+
+    Returns:
+        tuple[str | None, str | None]: (model_source, model_alias).
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Role-level values
+    role_source = None
+    role_alias = None
+    row = cursor.execute(
+        "SELECT default_model_source, default_model_alias "
+        "FROM bridge_roles WHERE role_key = ? AND is_active = 1",
+        (role_key,),
+    ).fetchone()
+    if row:
+        role_source = row["default_model_source"] or None
+        role_alias = row["default_model_alias"] or None
+        if role_source == "inherit_from_role":
+            role_source = None
+            role_alias = None
+
+    # Step-level values
+    if step_key and flow_key:
+        step_row = cursor.execute(
+            "SELECT model_source, model_alias "
+            "FROM bridge_flow_steps "
+            "WHERE flow_key = ? AND step_key = ? AND is_active = 1",
+            (flow_key, step_key),
+        ).fetchone()
+        if step_row:
+            step_source = step_row["model_source"] or None
+            step_alias = step_row["model_alias"] or None
+            if step_source in ("inherit_from_role", None):
+                conn.close()
+                return (role_source, role_alias)
+            conn.close()
+            return (step_source, step_alias)
+
+    conn.close()
+    return (role_source, role_alias)
+
+
 def load_flow_from_db(flow_name, db_path=None):
     """Load a flow definition and its steps from database tables.
 
