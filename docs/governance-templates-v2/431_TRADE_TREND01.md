@@ -93,6 +93,22 @@ tvly search "European industrial tech energy healthcare leaders 2026" --json --i
 
 **If you use `Web Search` instead of `tvly search`, your output will be flagged by review01_trade for unverifiable sources.**
 
+## Deterministic Market Context (PILOT)
+
+Your dispatch prompt may include a `<deterministic_market_context
+source="trade-mcp" mode="watchlist">` block: a precomputed digest of every
+registry asset (price, 1/5/20-day change, trend classification, RSI, ATR%,
+volatility regime) from the trade-mcp service.
+
+Rules:
+- Treat these values as AUTHORITATIVE price/trend anchors. Do NOT
+  web-search for current prices, moving averages, or RSI for assets the
+  block already covers — spend your searches on news, catalysts, and
+  qualitative trend drivers instead.
+- The block is deterministic EOD/delayed data; check each row's `quality`
+  field and note degraded rows in `missing_data`.
+- If the block is absent, work as before (the service may be down).
+
 ## Forbidden Actions
 
 - Do NOT produce buy/sell recommendations

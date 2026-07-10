@@ -36,6 +36,103 @@ from bridge_lib import (
 # ── Constants ──────────────────────────────────────────────
 _STARTUP_FILE = "docs/StartUpNextSession.md"
 
+# ── Trade-MCP push contexts (PILOT) ────────────────────────
+# Deterministic pre-fetched contexts injected into selected trade-role
+# prompts at dispatch time (architecture spec sections 14/16 push path).
+# Graceful degradation: any failure dispatches WITHOUT the block and
+# prints a warning — the flow never blocks on trade-mcp availability.
+_TRADE_MCP_BASE_URL = os.environ.get(
+    "TRADE_MCP_BASE_URL", "http://127.0.0.1:9145"
+)
+_TRADE_MCP_PUSH = {
+    ("trade_cockpit_simulation_v001", "trend01_trade"): "watchlist",
+    ("trade_cockpit_simulation_v001", "risk01_trade"): "risk",
+}
+
+
+def _trade_mcp_get(path, timeout=30):
+    """GET a trade-mcp REST endpoint, returning parsed JSON."""
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{_TRADE_MCP_BASE_URL}{path}",
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _extract_candidate_proposal(deliverable_path):
+    """Pull symbol + proposed entry/stop from the analyst deliverable."""
+    with open(deliverable_path, encoding="utf-8") as f:
+        data = json.load(f)
+    payload = data.get("payload") or {}
+    symbol = payload.get("symbol")
+    if not symbol or not isinstance(symbol, str):
+        return None
+    return {
+        "symbol": symbol.strip().upper(),
+        "entry": payload.get("entry_price"),
+        "stop": payload.get("stop_loss"),
+    }
+
+
+def append_trade_mcp_context(prompt_text, flow_key, to_role,
+                             previous_deliverable_path):
+    """Append a deterministic trade-mcp context block for push-path roles."""
+    mode = _TRADE_MCP_PUSH.get((flow_key, to_role))
+    if not mode:
+        return prompt_text
+    try:
+        if mode == "watchlist":
+            context = _trade_mcp_get("/api/context/watchlist")
+        else:  # risk
+            proposal = _extract_candidate_proposal(previous_deliverable_path)
+            if not proposal:
+                print("  Trade-MCP push: no candidate symbol in previous "
+                      "deliverable; dispatching without context")
+                return prompt_text
+            from urllib.parse import quote, urlencode
+            found = _trade_mcp_get(
+                f"/api/assets?q={quote(proposal['symbol'])}"
+            ).get("assets", [])
+            exact = [a for a in found
+                     if a.get("canonical_symbol", "").upper()
+                     == proposal["symbol"]]
+            if not exact:
+                print(f"  Trade-MCP push: symbol {proposal['symbol']!r} not "
+                      "in registry; dispatching without context")
+                return prompt_text
+            params = {}
+            if proposal["entry"] is not None:
+                params["entry"] = proposal["entry"]
+            if proposal["stop"] is not None:
+                params["stop"] = proposal["stop"]
+            query = f"?{urlencode(params)}" if params else ""
+            context = _trade_mcp_get(
+                f"/api/context/risk/{exact[0]['id']}{query}"
+            )
+        block = (
+            f"\n\n<deterministic_market_context source=\"trade-mcp\" "
+            f"mode=\"{mode}\">\n"
+            + json.dumps(context, indent=1)
+            + "\n</deterministic_market_context>\n"
+            "<context_rule>The block above contains precomputed, versioned, "
+            "deterministic facts from trade-mcp. Treat them as authoritative "
+            "for prices, indicators, portfolio exposure, and risk arithmetic "
+            "— do NOT recompute these values and do NOT web-search for "
+            "values already provided. If a needed value is absent or marked "
+            "degraded, say so in missing_data instead of estimating it."
+            "</context_rule>"
+        )
+        print(f"  Trade-MCP push: injected {mode} context "
+              f"(~{len(block) // 4} est. tokens)")
+        return prompt_text + block
+    except Exception as exc:
+        print(f"  Trade-MCP push: unavailable ({exc}); "
+              "dispatching without deterministic context")
+        return prompt_text
+
 
 def _bridge_dir():
     """Return the configured bridge directory."""
@@ -1647,6 +1744,10 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
             f"{prompt_text}"
         )
+
+    # Trade-MCP push path (PILOT): deterministic context for selected roles
+    prompt_text = append_trade_mcp_context(
+        prompt_text, flow_key, to_role_key, handoff_abs)
 
     # Step 8: Inject prompt into target role's tmux session
     inject_prompt(tmux_session, prompt_text,
