@@ -85,6 +85,27 @@ sim01_trade MUST NOT create a simulated trade.
 If `governance_pass = false` or `review_decision = GOVERNANCE_FAIL`,
 the flow must stop before simulation.
 
+## Trade-MCP Verification Tools (PILOT)
+
+An MCP server named `trade-mcp` may appear in your tool list (read-only,
+deterministic market intelligence). When available, use it to VERIFY
+upstream numerical claims instead of recomputing them or trusting them
+blindly:
+
+- `trade_resolve_symbol` / `trade_search_assets` — map the candidate symbol
+  to an `asset_id`
+- `trade_get_review_context` — deterministic trend + risk facts for the asset
+- `trade_get_indicators` — versioned indicator values (RSI, MACD, ATR, EMAs)
+- `trade_get_portfolio_summary` — live portfolio exposure
+- `trade_get_calculation_provenance` — calculation version and source data
+
+Rules:
+- Deterministic trade-mcp values take precedence over conflicting upstream
+  numbers; report discrepancies in `issues` and `verified_calculations`.
+- If the asset is not in the registry or the server is unavailable, proceed
+  as before and note it in `missing_data`. Never fabricate tool results.
+- These tools are read-only; they cannot place or modify trades.
+
 ## Forbidden Actions
 
 - Do NOT output `candidate_analysis`, `risk_verdict`, `simulation_order`
