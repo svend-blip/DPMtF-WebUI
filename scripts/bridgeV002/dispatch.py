@@ -62,19 +62,50 @@ def _trade_mcp_get(path, timeout=30):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _extract_candidate_proposal(deliverable_path):
-    """Pull symbol + proposed entry/stop from the analyst deliverable."""
+_MAX_RISK_CANDIDATES = 5
+
+
+def _extract_candidate_proposals(deliverable_path):
+    """Pull symbol + proposed entry/stop from the analyst deliverable.
+
+    Supports both payload shapes:
+    - legacy single-candidate: payload.symbol / entry_price / stop_loss
+    - concentrated-growth multi-candidate: payload.candidates[] with the
+      same per-candidate fields (only SIMULATED_BUY_CANDIDATE entries are
+      risk-relevant; WATCHLIST_ONLY entries carry no entry/stop)
+    Returns a list of proposals (possibly empty), capped at
+    _MAX_RISK_CANDIDATES.
+    """
     with open(deliverable_path, encoding="utf-8") as f:
         data = json.load(f)
     payload = data.get("payload") or {}
-    symbol = payload.get("symbol")
-    if not symbol or not isinstance(symbol, str):
-        return None
-    return {
-        "symbol": symbol.strip().upper(),
-        "entry": payload.get("entry_price"),
-        "stop": payload.get("stop_loss"),
-    }
+
+    def proposal(entry_dict):
+        symbol = entry_dict.get("symbol")
+        if not symbol or not isinstance(symbol, str):
+            return None
+        return {
+            "symbol": symbol.strip().upper(),
+            "entry": entry_dict.get("entry_price"),
+            "stop": entry_dict.get("stop_loss"),
+        }
+
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list):
+        proposals = []
+        for c in candidates:
+            if not isinstance(c, dict):
+                continue
+            action = (c.get("candidate_action") or "").upper()
+            if action and "BUY" not in action:
+                continue  # WATCHLIST_ONLY etc. carry no actionable risk
+            p = proposal(c)
+            if p:
+                proposals.append(p)
+        return proposals[:_MAX_RISK_CANDIDATES]
+
+    single = proposal(payload)
+    return [single] if single else []
 
 
 def append_trade_mcp_context(prompt_text, flow_key, to_role,
@@ -87,31 +118,43 @@ def append_trade_mcp_context(prompt_text, flow_key, to_role,
         if mode == "watchlist":
             context = _trade_mcp_get("/api/context/watchlist")
         else:  # risk
-            proposal = _extract_candidate_proposal(previous_deliverable_path)
-            if not proposal:
+            proposals = _extract_candidate_proposals(
+                previous_deliverable_path)
+            if not proposals:
                 print("  Trade-MCP push: no candidate symbol in previous "
                       "deliverable; dispatching without context")
                 return prompt_text
             from urllib.parse import quote, urlencode
-            found = _trade_mcp_get(
-                f"/api/assets?q={quote(proposal['symbol'])}"
-            ).get("assets", [])
-            exact = [a for a in found
-                     if a.get("canonical_symbol", "").upper()
-                     == proposal["symbol"]]
-            if not exact:
-                print(f"  Trade-MCP push: symbol {proposal['symbol']!r} not "
-                      "in registry; dispatching without context")
+            contexts = []
+            for proposal in proposals:
+                found = _trade_mcp_get(
+                    f"/api/assets?q={quote(proposal['symbol'])}"
+                ).get("assets", [])
+                exact = [a for a in found
+                         if a.get("canonical_symbol", "").upper()
+                         == proposal["symbol"]]
+                if not exact:
+                    print(f"  Trade-MCP push: symbol "
+                          f"{proposal['symbol']!r} not in registry; skipped")
+                    continue
+                params = {}
+                if proposal["entry"] is not None:
+                    params["entry"] = proposal["entry"]
+                if proposal["stop"] is not None:
+                    params["stop"] = proposal["stop"]
+                query = f"?{urlencode(params)}" if params else ""
+                ctx = _trade_mcp_get(
+                    f"/api/context/risk/{exact[0]['id']}{query}"
+                )
+                ctx["candidate_symbol"] = proposal["symbol"]
+                contexts.append(ctx)
+            if not contexts:
+                print("  Trade-MCP push: no candidates resolvable in "
+                      "registry; dispatching without context")
                 return prompt_text
-            params = {}
-            if proposal["entry"] is not None:
-                params["entry"] = proposal["entry"]
-            if proposal["stop"] is not None:
-                params["stop"] = proposal["stop"]
-            query = f"?{urlencode(params)}" if params else ""
-            context = _trade_mcp_get(
-                f"/api/context/risk/{exact[0]['id']}{query}"
-            )
+            context = (contexts[0] if len(contexts) == 1
+                       else {"context_type": "risk_multi",
+                             "candidates": contexts})
         block = (
             f"\n\n<deterministic_market_context source=\"trade-mcp\" "
             f"mode=\"{mode}\">\n"
