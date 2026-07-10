@@ -87,17 +87,17 @@ simulated_size_usd = (max_position_pct / 100) × virtual_starting_balance
 
 - `max_position_pct` comes from risk01_trade's `risk_verdict` payload for the
   same `symbol` and `flow_run_id` (the verdict with `risk_decision ==
-  APPROVE_SIMULATION`). risk01 back-calculates this so that
-  `max_loss_pct ≤ 1.0` of the portfolio (see 434_TRADE_RISK01.md
-  §Position Sizing) — do NOT override or increase it.
+  APPROVE_SIMULATION`), in the policy band **5.0–10.0** (e.g. 7.5 → $375 on
+  the $5,000 virtual_starting_balance). risk01_trade sizes this within the band so
+  that `max_loss_pct = max_position_pct × stop_distance_pct / 100 ≤ 0.75`
+  (see 434_TRADE_RISK01.md §Position Sizing) — do NOT override or increase it.
 - `virtual_starting_balance` is the trade-ui virtual portfolio starting
   balance (configured in trade-ui `config.py`, `get_virtual_starting_balance`;
   default 5000 USD). Use this constant value.
 
-Worked example (flow 048 AMD): risk01 APPROVE_SIMULATION with
-`max_position_pct = 0.22` (back-calculated from a 4.54% stop distance so
-`max_loss_pct = 0.22 × 4.54 = 1.0` ≤ 1.0).
-→ `simulated_size_usd = (0.22 / 100) × 5000 = 11.0` USD.
+Worked example: risk01 APPROVE_SIMULATION with `max_position_pct = 7.5`
+(policy band, 6% stop distance so `max_loss_pct = 7.5 × 6 / 100 = 0.45` ≤ 0.75).
+→ `simulated_size_usd = (7.5 / 100) × 5000 = 375.0` USD.
 
 For `action == NO_SIMULATION_CREATED`, set `simulated_size_usd` to null
 (the §11.2 required-fields gate is not applied to NO_SIMULATION_CREATED).
@@ -122,6 +122,9 @@ If ANY condition is not met, output `action: "NO_SIMULATION_CREATED"`.
 - `SIMULATED_BUY`
 - `SIMULATED_SELL`
 - `NO_SIMULATION_CREATED`
+- Create **one SIMULATED_BUY per approved candidate** from risk01_trade's
+  verdicts (typically 3–8 per run under the concentrated-growth policy).
+  Do NOT collapse multiple approved candidates into a single simulation.
 
 ## Forbidden Actions
 

@@ -106,6 +106,10 @@ tvly search "European industrial tech energy healthcare leaders 2026" --json --i
 
 - SIMULATION_ONLY = TRUE
 - REAL_ORDERS_DISABLED = TRUE
+- **Breadth — identify 10–15 distinct symbols per run (minimum 10).**
+  The portfolio-building policy needs 5–8 qualified candidates per day;
+  a thin symbol list starves the whole chain. Fewer than 10 symbols is a
+  governance issue flagged by review01_trade.
 - **Geographic diversity — at least 30% of identified symbols MUST be from European or Nordic exchanges** (OMX Copenhagen/Stockholm/Helsinki, Euronext, Xetra, LSE, SIX Swiss, BME Spanish, Oslo Børs). Include at least 2-3 non-US symbols in every run. European equities trade during European market hours (09:00-17:30 CEST) and enable same-day close_then_open execution without waiting for NYSE open.
 - If Tavily search fails, note the failure in payload and set status "needs_more_data"
 - All output must be valid JSON — the trade-ui import script will reject malformed files

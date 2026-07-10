@@ -77,7 +77,13 @@ Standard wrapper fields (pinned for this role):
 - `entry_price`: concrete entry price with justification (number, not a range)
 - `stop_loss`: actionable stop loss price (number, not a range or description)
 - `take_profit`: take profit target price (number)
-- `max_position_pct`: your proposed position size as % of virtual portfolio (number, typically 0.5-2.0). This is a *proposal* — risk01_trade may reduce it downward to satisfy the §9.4 portfolio-loss cap (`max_loss_pct = max_position_pct × stop_distance_pct ≤ 1.0`), e.g. to 0.2-0.3% for typical 2-5% stop distances. See 434_TRADE_RISK01.md §Position Sizing.
+- `max_position_pct`: your proposed position size as % of virtual portfolio
+  (number, in the policy band **5.0–10.0** — concentrated-growth policy).
+  Use conviction tiers from your `candidate_score`: ≥ 80 → 10.0;
+  65–79 → 7.5; 50–64 → 5.0. This is a *proposal* — risk01_trade validates
+  the portfolio-loss cap (`max_loss_pct = max_position_pct ×
+  stop_distance_pct / 100 ≤ 0.75`) and may reduce the size or require a
+  tighter stop. See 434_TRADE_RISK01.md §Position Sizing.
 - `risk_reward_ratio`: computed R/R ratio (number, must be >= 1:2 per GATES.md §9.4)
 - `thesis`: investment thesis — why this trade makes sense (2-4 sentences)
 - `invalidation_condition`: specific, measurable condition(s) that would invalidate the thesis
@@ -105,6 +111,10 @@ risk_reward_ratio = 46.76 / 10.24 = 4.57  (NOT an estimate like 2.3)
 - `SIMULATED_BUY_CANDIDATE` — potential simulated buy (MANDATORY fields required)
 - `SIMULATED_SELL_CANDIDATE` — potential simulated sell (MANDATORY fields required)
 - `NEEDS_MORE_DATA` — insufficient information
+
+- Analyze ALL qualified symbols from trend01/market01 — deliver **5–8
+  candidate analyses per run**. A single-candidate output starves the
+  portfolio builder; produce one payload entry per analyzed symbol.
 
 ## Forbidden Actions
 
