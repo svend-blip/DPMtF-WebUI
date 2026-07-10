@@ -1178,6 +1178,13 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             f"{prompt_text}"
         )
 
+    # Trade-MCP push path (PILOT): chain advancement delivers the next
+    # role's work prompt through THIS injection (not signal_send), so the
+    # deterministic context must be appended here as well.
+    prompt_text = append_trade_mcp_context(
+        prompt_text, payload["flow_key"], payload["to_role"],
+        full_deliverable_path)
+
     # Step 8: Inject callback prompt into to_role's tmux session
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
