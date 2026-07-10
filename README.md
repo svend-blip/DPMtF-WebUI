@@ -9,7 +9,9 @@ dispatch system for AI role-to-role communication.
 
 ```bash
 pip install -r requirements.txt
-python3 scripts/init_db.py
+python3 scripts/init_db.py      # schema + canonical defaults (idempotent)
+python3 scripts/seed_bridge.py  # bridge seed data (fresh DB only)
+python3 scripts/migrate.py      # apply versioned SQL migrations
 uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 ```
 
@@ -45,6 +47,51 @@ delivery to AI roles.
 for all DPMtF projects. General templates define universal rules.
 Flow-specific templates (400-series) take precedence when operating within a
 BridgeV002 flow.
+
+### Model Allocator Integration
+
+The [model-allocator](https://github.com/svend-blip/model-allocator) is a
+standalone CLI that resolves stable model aliases (e.g. `imple-fast`,
+`review-cloud`) to concrete backends (Ollama, llama.cpp/TurboQuant,
+OpenAI-compatible cloud APIs) and manages runtime lifecycle. The WebUI
+integrates it via proxy endpoints under `/api/bridge-v2/allocator/*`:
+
+- **Role/step editors** — `model_source` dropdown + alias picker + validate
+  button (aliases, validate)
+- **Runtime control** — status cards with Start/Stop/Refresh on
+  allocator-managed role cards (status, start, stop)
+- **Config dashboard** — full alias/role CRUD with detail forms and runtime
+  status controls (config show/set/delete)
+
+All endpoints shell out to the allocator CLI — the Father never talks to
+model backends directly.
+
+### Trade Cockpit Orchestration
+
+The Father hosts the cronjobs that drive the trade-ui's automated flows:
+
+| Cron | Script | Flow |
+|------|--------|------|
+| Weekdays 09:00 | `scripts/trade-cronjob.sh` | `trade_cockpit_simulation_v001` |
+| Sunday 10:00 | `scripts/scoring-cronjob.sh` | `trade_cockpit_scoring_v001` |
+
+Both dispatch into the trade-ui's inbox via BridgeV002. They produce research
+and allocation plans — they never execute trades.
+
+## Architecture
+
+- **`app.py`** (~145 lines) — thin FastAPI entrypoint; all endpoints live in
+  domain routers under `routers/` (bridge, governance, prompt_compiler,
+  panels, sessions, git, validation, system, webui, app_profiles).
+- **Database migrations** — versioned SQL migrations in `scripts/db/*.sql`
+  applied by `scripts/migrate.py` (tracked in `schema_migrations`). Schema
+  changes are new `00X_*.sql` files — never edits to `init_db.py`.
+- **`scripts/init_db.py`** — schema + canonical defaults (i18n labels,
+  conventions) only. User-configured data lives in the DB, managed via the
+  frontend.
+- **mcp-light** — read-only MCP context server (separate repo) exposing
+  governance, panels, flows, roles, and verdicts as tools on
+  `http://127.0.0.1:9135/mcp`.
 
 ## Configuration
 
