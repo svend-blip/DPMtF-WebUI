@@ -106,28 +106,40 @@ in the top-level `quality.missing_fields` array.
 
 ## Allowed Actions
 
-- Use `tvly search` (Tavily CLI) for ALL market data queries — this is your ONLY search tool
+- Use the injected `<deterministic_market_context>` block (trade-mcp) as the
+  authoritative source for ALL prices and indicators
+- Pull additional deterministic data from trade-mcp REST when needed
 - Produce factual market snapshots — no opinions, no recommendations
 - Note when data is unavailable rather than fabricating numbers
 
-## Search Method — MANDATORY
+## Data Sources — MANDATORY
 
-**You MUST use the `tvly search` command for ALL web searches. Do NOT use the built-in `Web Search` tool.**
+**Primary (prices and indicators): the injected trade-mcp context.**
+Your dispatch prompt contains a `<deterministic_market_context
+source="trade-mcp" mode="market">` block with one entry per watch symbol:
+last price, as_of, 1/5/20d changes, trend classification, RSI-14, MACD
+state, ATR%, volatility regime, and a per-symbol data_quality block. These
+values are authoritative — copy them into your snapshot; do NOT recompute
+them and do NOT search the web for them.
 
-The `tvly` CLI is installed and authenticated. Use it for every data query:
+**Secondary (missing symbols or extra detail): trade-mcp REST pull.**
 
 ```bash
-tvly search "AMD stock price RSI moving average June 2026" --json --include-raw-content markdown
-tvly search "NVDA revenue growth data center 2026" --topic finance --json
+curl -s "http://localhost:9145/api/assets?q=NOVO" | head -30
+curl -s "http://localhost:9145/api/snapshot/asset_aapl_us" | head -40
+curl -s "http://localhost:9145/api/indicators/asset_aapl_us" | head -60
 ```
 
-Why `tvly` and not `Web Search`:
-- `tvly` returns structured JSON with verifiable source URLs
-- `tvly` does NOT depend on the Ollama model for safety classification
-- `tvly` results include raw content that can be cross-referenced
-- `Web Search` may be blocked when the Ollama classifier is unavailable
+**NEVER web-search for numeric market data.** Web results are the chain's
+main hallucination source (flow 069: a fabricated PLTR price propagated to
+NEEDS_REWORK; flow 070: failed price searches pushed every candidate to
+WATCHLIST_ONLY while trade-mcp had valid last-close data the whole time).
+If a symbol is absent from the injected context AND from the trade-mcp
+registry, set its fields to `null` and list it in `quality.missing_fields`.
 
-**If you use `Web Search` instead of `tvly search`, your output will be flagged by review01_trade for unverifiable sources.**
+Optional qualitative color (news, earnings context) may use
+`tvly search "..." --topic finance --json` — numbers found this way must
+NEVER override or fill in for trade-mcp values.
 
 ## Search Output Discipline (local models)
 
@@ -139,13 +151,12 @@ the numbers you need immediately; never re-read full results.
 
 ## Output Writing Discipline (local models)
 
-Your market_snapshot payload is large (14+ symbols). Write it
-INCREMENTALLY: first Write the wrapper with the first symbol group, then
-append the remaining groups in 2-3 further edits. Never attempt the whole
-file in one response, keep prose to a minimum, and do not re-read large
-search results after you have extracted the numbers you need. (Local
-qwen3.6 thinking plus a single full-file write exceeds the output-token
-budget — observed three times in flow 066.)
+Write your market_snapshot in ONE single Write tool operation — never via
+shell heredocs (`cat << EOF`) or echo redirection (a truncated heredoc
+produced a broken half-written file in flow 069). Your session runs with
+--bare and a 96k context, so one complete write fits the budget. Before
+signaling completion, validate the file on disk with `json.load` and
+verify it contains one entry per watch symbol.
 
 ## Forbidden Actions
 
@@ -163,19 +174,19 @@ budget — observed three times in flow 066.)
 - Do NOT output simulated trades
 - Do NOT fabricate market data — mark unavailable fields as null
 - Do NOT output `candidate_analysis`, `risk_verdict`, `review_verdict`, `simulation_order`, `broker_order`
-- **Do NOT use the built-in `Web Search` tool — use `tvly search` instead**
+- **Do NOT web-search for prices, RSI, MAs, volume, or any other numeric
+  market data — trade-mcp is the only allowed source for numbers**
 
 ## Constraints
 
 - This role should be facts-only and opinion-light
 - If trend01_trade output is missing or has status "needs_more_data", output `status: "needs_more_data"`
 - If market data is unavailable for a symbol, set those fields to null — do not guess
-- **Tavily requirement**: You MUST use Tavily for web search to obtain current market data.
-  Set `methodology.tavily_used: true` in your payload. If Tavily is unavailable, set
-  `tavily_used: false` and document the fallback method in `methodology.tavily_note`.
-- **Source verification**: All price, volume, MA, and RSI data points MUST include a
-  verifiable source URL in `sources[].url`. Downstream roles (score01_trade, learn01_trade)
-  will weight evidence based on source verifiability. Unverifiable claims lower evidence weight.
+- **Source attribution**: for values taken from the injected context or
+  trade-mcp REST, use `sources[].url = "trade-mcp:/api/context/trend/{asset_id}"`
+  (or the REST path used) and `retrieved_at` = the context's `as_of`.
+  review01_trade verifies your numbers against trade-mcp directly —
+  matching values raise evidence weight, deviations get flagged.
 
 ## Escalation
 

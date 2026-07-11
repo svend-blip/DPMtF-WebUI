@@ -106,6 +106,29 @@ def _extract_candidate_proposals(deliverable_path):
     return [single] if single else []
 
 
+_MAX_MARKET_SYMBOLS = 25  # matches trade-mcp watchlist digest cap
+
+
+def _extract_watch_symbols(deliverable_path):
+    """Pull watch symbols from the trend deliverable.
+
+    Supports payload.symbols[] and top-level symbols[]; items are dicts
+    with a 'symbol' key or plain strings. Returns an upper-cased,
+    de-duplicated, order-preserving list."""
+    with open(deliverable_path, encoding="utf-8") as f:
+        data = json.load(f)
+    items = ((data.get("payload") or {}).get("symbols")
+             or data.get("symbols") or [])
+    symbols = []
+    for item in items:
+        sym = item.get("symbol") if isinstance(item, dict) else item
+        if isinstance(sym, str) and sym.strip():
+            s = sym.strip().upper()
+            if s not in symbols:
+                symbols.append(s)
+    return symbols[:_MAX_MARKET_SYMBOLS]
+
+
 def append_trade_mcp_context(prompt_text, flow_key, to_role,
                              previous_deliverable_path, mode=None):
     """Append a deterministic trade-mcp context block for push-path roles.
@@ -116,6 +139,39 @@ def append_trade_mcp_context(prompt_text, flow_key, to_role,
     try:
         if mode == "watchlist":
             context = _trade_mcp_get("/api/context/watchlist")
+        elif mode == "market":
+            # market01: one deterministic per-symbol fact block for every
+            # watch symbol in the trend deliverable — prices/indicators come
+            # from trade-mcp, never from web search (flow 070: Tavily price
+            # failures pushed every candidate to WATCHLIST_ONLY).
+            from urllib.parse import quote
+            symbols = _extract_watch_symbols(previous_deliverable_path)
+            if not symbols:
+                print("  Trade-MCP push: no symbols in previous "
+                      "deliverable; dispatching without context")
+                return prompt_text
+            contexts = []
+            for symbol in symbols:
+                found = _trade_mcp_get(
+                    f"/api/assets?q={quote(symbol)}").get("assets", [])
+                exact = [a for a in found
+                         if a.get("canonical_symbol", "").upper() == symbol]
+                if not exact:
+                    print(f"  Trade-MCP push: symbol {symbol!r} not in "
+                          f"registry; skipped")
+                    continue
+                ctx = _trade_mcp_get(
+                    f"/api/context/trend/{exact[0]['id']}")
+                ctx["symbol"] = symbol
+                contexts.append(ctx)
+            if not contexts:
+                print("  Trade-MCP push: no symbols resolvable in "
+                      "registry; dispatching without context")
+                return prompt_text
+            context = {"context_type": "market_multi",
+                       "symbols_requested": len(symbols),
+                       "symbols_resolved": len(contexts),
+                       "assets": contexts}
         else:  # risk
             proposals = _extract_candidate_proposals(
                 previous_deliverable_path)
