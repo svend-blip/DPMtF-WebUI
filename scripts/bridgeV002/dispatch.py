@@ -414,7 +414,7 @@ def _pane_tail(session_name, lines=25):
     return "\n".join(result.stdout.splitlines()[-lines:]).lower()
 
 
-def verify_injection_submitted(session_name, attempts=3, settle_seconds=4):
+def verify_injection_submitted(session_name, attempts=4, settle_seconds=8):
     """Verify the injected prompt was actually SUBMITTED, not left sitting
     in the client's input buffer (observed: 'paste again to expand' state,
     silent unsubmitted pastes — flows 062/064 required manual Enter).
