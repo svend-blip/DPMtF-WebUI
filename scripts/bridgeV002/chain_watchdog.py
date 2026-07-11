@@ -148,6 +148,32 @@ def nudge(role, run_id):
         return True
 
 
+def recent_signal_delivered(role, next_role, run_id, within_minutes):
+    """True when trace.log shows a signal_complete for this step recently —
+    the callback WAS delivered; the next role is just slow (model load /
+    long generation). Prevents duplicate-callback nudges (flow 066)."""
+    bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR",
+                                os.path.expanduser("~/.bridge"))
+    trace = Path(bridge_dir) / "trace.log"
+    try:
+        lines = trace.read_text(encoding="utf-8").splitlines()[-200:]
+    except OSError:
+        return False
+    needle = f"| {role}->{next_role} | {run_id} | signal_complete |"
+    cutoff = time.time() - within_minutes * 60
+    for line in reversed(lines):
+        if needle not in line:
+            continue
+        try:
+            ts = datetime.strptime(line.split(" | ")[0],
+                                   "%Y-%m-%dT%H:%M:%SZ")
+            ts = ts.replace(tzinfo=timezone.utc)
+            return ts.timestamp() >= cutoff
+        except ValueError:
+            return True  # unparseable timestamp: assume recent, stay safe
+    return False
+
+
 def check_once(run_id, stall_minutes, state):
     """One watchdog pass. Returns 'complete' | 'active' | 'nudged' | 'idle'."""
     sample_ollama()
@@ -165,6 +191,8 @@ def check_once(run_id, stall_minutes, state):
         age_min = (time.time() - out.stat().st_mtime) / 60.0
         if pane_active(next_role):
             return "active"  # next role already working (signal made it)
+        if recent_signal_delivered(role, next_role, run_id, stall_minutes):
+            return "active"  # callback delivered; role is loading/slow
         if age_min < stall_minutes:
             return "active"
         key = f"{run_id}:{role}"
