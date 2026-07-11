@@ -146,7 +146,7 @@ def build_claude_ollama_command(runtime, provider, model, role_key, mp):
 
     return {
         "env": env,
-        "argv": [claude_bin, "--model", model],
+        "argv": [claude_bin, "--bare", "--model", model],
     }
 
 
@@ -191,7 +191,7 @@ def build_claude_openrouter_command(runtime, provider, model, role_key, mp):
 
     return {
         "env": env,
-        "argv": [claude_bin, "--model", model],
+        "argv": [claude_bin, "--bare", "--model", model],
     }
 
 
