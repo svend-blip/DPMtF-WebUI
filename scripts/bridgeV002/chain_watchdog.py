@@ -96,9 +96,14 @@ def log(msg):
 
 
 def inbox_dirs():
+    # rejected/ is included on purpose: a role that delivered output which
+    # the import gate rejected HAS advanced the chain (flow 070: risk01's
+    # rejected file made the watchdog re-nudge an already-completed step,
+    # double-dispatching risk01 mid-run). The watchdog tracks chain
+    # progression, not import success.
     inbox = Path(config.get_trade_inbox_dir())
     base = inbox.parent if inbox.name == "pending" else inbox
-    return [base / "pending", base / "processed"]
+    return [base / "pending", base / "processed", base / "rejected"]
 
 
 def find_output(role, run_id):

@@ -1320,6 +1320,19 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
                   enter_command=to_role.get("enter_command", "default"))
     time.sleep(0.5)
 
+    # Step 8b: Log the completion event IMMEDIATELY after injection.
+    # The roles' chain_advancement command wraps dispatch.py in
+    # `timeout 60`; when post-dispatch (ollama stop) hangs, the process
+    # is killed before a trailing trace write — leaving delivered
+    # signals invisible to the watchdog's duplicate-nudge guard
+    # (flow 069 double-nudge, flow 070 missing review->sim line).
+    log(
+        f"{payload['from_role']}->{payload['to_role']}",
+        handoff_id,
+        "signal_complete",
+        f"Callback dispatched to {tmux_session} (DB-driven)",
+    )
+
     # Step 9: Post-dispatch - stop from_role's Ollama model (VRAM cleanup)
     try:
         from_role_data = load_role_from_db(payload["from_role"],
@@ -1353,14 +1366,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         pass
     os.symlink(payload["deliverable_file"], link_path)
 
-    # Step 11: Log completion event
-    log(
-        f"{payload['from_role']}->{payload['to_role']}",
-        handoff_id,
-        "signal_complete",
-        f"Callback dispatched to {tmux_session} (DB-driven)",
-    )
-
+    # Step 11: Completion event already logged at Step 8b (pre-hang).
     print(f"  Callback injected into '{tmux_session}'")
     print(f"  Symlink updated in {link_dir}")
     print(f"  Logged signal_complete for handoff #{handoff_id}")
