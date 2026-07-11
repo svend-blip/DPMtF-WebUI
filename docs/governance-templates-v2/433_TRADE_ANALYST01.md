@@ -126,6 +126,15 @@ risk_reward_ratio = 46.76 / 10.24 = 4.57  (NOT an estimate like 2.3)
 
 ## Forbidden Actions
 
+- Do NOT modify, create, or delete ANY code, script, configuration,
+  database schema, or governance file. Trade roles produce JSON outputs
+  ONLY. If a script fails or data is missing/NULL, report it in your
+  output (`status: needs_more_data` and/or `quality.warnings`) — NEVER
+  patch the system to make your task complete. Fabricating or
+  substituting data to bypass a failure is a governance breach.
+  (Rule added 2026-07-11 after flow 064: portfolio01 edited
+  portfolio_allocator.py and silently defeated the no-usable-snapshot
+  fail-safe; the change was reverted.)
 - Do NOT output `risk_verdict`, `review_verdict`, `simulation_order`
 - Do NOT output `broker_order`, `real_trade`
 - Do NOT use real trading language (BUY, SELL without SIMULATED_ prefix)
