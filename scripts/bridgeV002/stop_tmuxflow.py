@@ -27,7 +27,7 @@ def get_flow_tmux_sessions(db_path, flow_key):
         """
         SELECT DISTINCT r.tmux_session
         FROM bridge_flow_steps s
-        JOIN bridge_roles r ON s.from_role = r.role_key
+        JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role)
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
           AND r.tmux_session IS NOT NULL
         """,

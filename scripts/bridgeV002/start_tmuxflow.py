@@ -16,7 +16,11 @@ import sys
 
 
 def get_required_sessions(db_path, flow_key):
-    """Fetch all unique FROM-ROLE tmux sessions for an active flow."""
+    """Fetch all unique role tmux sessions for an active flow.
+
+    Covers from_role AND to_role — the final role in a chain only ever
+    appears as to_role (e.g. portfolio01_trade) and was previously
+    skipped, leaving it with a stale session from the prior run."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
@@ -24,7 +28,7 @@ def get_required_sessions(db_path, flow_key):
     rows = conn.execute(
         "SELECT DISTINCT r.tmux_session "
         "FROM bridge_flow_steps s "
-        "JOIN bridge_roles r ON s.from_role = r.role_key "
+        "JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role) "
         "WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1",
         (flow_key,),
     ).fetchall()
