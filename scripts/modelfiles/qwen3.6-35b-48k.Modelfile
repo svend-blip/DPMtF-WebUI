@@ -1,4 +1,4 @@
-FROM ornith35b-q5-64k:latest
+FROM qwen3.6:35b-a3b
 PARAMETER num_ctx 49152
 PARAMETER temperature 0.6
 PARAMETER top_p 0.95
