@@ -63,11 +63,22 @@ def inbox_dirs():
 
 
 def find_output(role, run_id):
-    """Locate a role's output for the run (plain id or legacy polluted id)."""
+    """Locate a role's COMPLETE output for the run.
+
+    Roles write incrementally (432 chunked-write discipline), so mere file
+    existence is not completion — flow 067's watchdog nudged the chain on
+    an 817-byte partial market file. The file must parse as JSON and carry
+    a status field before it counts."""
     for d in inbox_dirs():
         for name in (f"{run_id}_{role}.json", f"{run_id}_humantrade_{role}.json"):
             p = d / name
-            if p.exists():  # follows symlinks
+            if not p.exists():  # follows symlinks
+                continue
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue  # partial/in-progress write
+            if isinstance(data, dict) and data.get("status"):
                 return p
     return None
 
