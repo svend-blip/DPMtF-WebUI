@@ -41,7 +41,7 @@ CHAIN = [
     "portfolio01_trade",
 ]
 
-STALL_MINUTES_DEFAULT = 6
+STALL_MINUTES_DEFAULT = 12
 ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
 LOG_DIR = PROJECT_ROOT / "logs"
 STATE_PATH = LOG_DIR / "chain-watchdog-state.json"
