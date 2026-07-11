@@ -89,7 +89,8 @@ mkdir -p "$TRADE_INBOX"
 cat > "${TRADE_INBOX}/${FLOW_ID}_humantrade.json" << TRIGGEREOF
 <role>You are trend01_trade in the ${FLOW_KEY} flow.</role>
 <flow_run_id>${FLOW_ID}</flow_run_id>
-<task>Execute your role according to the governance file. Produce JSON output to the inbox. Use flow_run_id "${FLOW_ID}" (the numeric run id above) in your output wrapper and in all signals — never derive it from filenames.</task>
+<output_file>${FLOW_ID}_trend01_trade.json</output_file>
+<task>Execute your role according to the governance file. Write your JSON output to a NEW file named exactly as output_file above, in the same inbox directory. NEVER overwrite this trigger file. Use flow_run_id "${FLOW_ID}" (the numeric run id above) in your output wrapper and in all signals — never derive it from filenames.</task>
 <constraint>SIMULATION_ONLY = TRUE. Follow GATES.md. Valid JSON only.</constraint>
 TRIGGEREOF
 echo "  Created: ${FLOW_ID}_humantrade.json"
