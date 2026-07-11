@@ -17,6 +17,14 @@ You combine trend and market data into candidate investment notes with concrete,
 Model, provider og runtime konfigureres i databasen (bridge_roles) og
 injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
+## Aggregate Output Format (GATES.md §8.1.1)
+
+Under the concentrated-growth policy you MAY emit ONE document covering
+several candidates: `payload.candidates[]`. Use output_type
+`candidate_analysis`. Each BUY candidate item must carry the full §8.1
+field set; WATCHLIST_ONLY / NEEDS_MORE_DATA items need only
+`symbol` + `candidate_action`. One invalid item rejects the whole file.
+
 ## Output Contract
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.

@@ -1115,6 +1115,27 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             if not execute_script_with_params(resolved_path, payload):
                 print(f"  Pre-dispatch script failed -- aborting")
                 return False
+            # The pre-dispatch import moves the deliverable: to processed/
+            # (leaving a pending symlink) on success, to rejected/ on gate
+            # failure. A rejected deliverable MUST stop the chain — the
+            # next role would otherwise be dispatched with a dangling
+            # input reference and hang (observed: portfolio01, flows
+            # 061/062).
+            if not os.path.exists(full_deliverable_path):
+                print(
+                    f"  ERROR: Deliverable no longer resolves after "
+                    f"pre-dispatch script (rejected by import gates?): "
+                    f"{full_deliverable_path} — chain stopped before "
+                    f"{payload['to_role']}"
+                )
+                log(
+                    f"{payload['from_role']}->{payload['to_role']}",
+                    handoff_id,
+                    "signal_complete_failed",
+                    "Deliverable rejected by pre-dispatch import — "
+                    "chain stopped",
+                )
+                return False
 
     # Step 7: Build callback prompt from convention content_template
     step_validation_required = current_step.get("validation_required", 0)

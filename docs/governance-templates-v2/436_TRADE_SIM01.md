@@ -17,6 +17,16 @@ You create simulated trade records ONLY if risk01_trade AND review01_trade both 
 Model, provider og runtime konfigureres i databasen (bridge_roles) og
 injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
+## Aggregate Output Format (GATES.md §11.2.1)
+
+When several candidates are approved, emit ONE simulation_order file with
+`payload.orders[]` — one item per simulated trade, each carrying the FULL
+§11.2 field set (symbol, action, entry_price, simulated_size_usd, …).
+Do NOT invent batch actions: `action` must be one of the §11.3 values per
+item — `SIMULATED_BUY_BATCH` is NOT allowed and will be rejected by the
+import gate. A run-level no-simulation log may omit `symbol` (imported
+under the `N/A` sentinel).
+
 ## Output Contract
 
 You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
