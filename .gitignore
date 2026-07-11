@@ -18,3 +18,7 @@ screenshot-*.png
 # Machine Profiles — local copies are git-ignored
 profiles/*.json
 !profiles/*.example.json
+
+# Runtime artifacts (bridge inbox remnants, app/cron logs)
+inbox/
+logs/

@@ -1,6 +1,6 @@
 {
-  "last_handoff": "70",
-  "flow": "cloud_pay",
-  "active_role": "review02pay",
-  "updated": "2026-07-09T12:51:21Z"
+  "last_handoff": "064_humantrade",
+  "flow": "trade_cockpit_simulation_v001",
+  "active_role": "portfolio01_trade",
+  "updated": "2026-07-11T10:44:07Z"
 }
