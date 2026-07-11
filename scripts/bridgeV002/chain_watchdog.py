@@ -191,7 +191,7 @@ def check_once(run_id, stall_minutes, state):
         age_min = (time.time() - out.stat().st_mtime) / 60.0
         if pane_active(next_role):
             return "active"  # next role already working (signal made it)
-        if recent_signal_delivered(role, next_role, run_id, stall_minutes):
+        if recent_signal_delivered(role, next_role, run_id, stall_minutes * 2):
             return "active"  # callback delivered; role is loading/slow
         if age_min < stall_minutes:
             return "active"
