@@ -1,0 +1,2 @@
+FROM ornith35b-q5-64k:latest
+PARAMETER num_ctx 49152

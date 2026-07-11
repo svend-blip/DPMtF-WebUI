@@ -51,7 +51,7 @@ echo ""
 echo "[1/6] Pre-flight cleanup..."
 
 # Stop trade Ollama models (free VRAM, clear context)
-TRADE_MODELS=("qwen3.6:35b-a3b-64k" "qwen3.6:27b-q4_K_M" "deepseek-v4-pro:cloud")
+TRADE_MODELS=("qwen3.6:35b-a3b-64k" "qwen3.6-35b-48k" "qwen3.6-35b-32k" "qwen3.6-27b-32k" "ornith35b-q5-48k" "qwen3.6:27b-q4_K_M")
 for model in "${TRADE_MODELS[@]}"; do
     if ollama ps 2>/dev/null | grep -q "$model"; then
         echo "  Stopping $model..."
