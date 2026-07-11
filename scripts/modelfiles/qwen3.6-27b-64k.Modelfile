@@ -1,0 +1,5 @@
+FROM qwen3.6:27b-q4_K_M
+PARAMETER num_ctx 65536
+PARAMETER temperature 0.6
+PARAMETER top_p 0.95
+PARAMETER presence_penalty 1.0
