@@ -129,6 +129,16 @@ Why `tvly` and not `Web Search`:
 
 **If you use `Web Search` instead of `tvly search`, your output will be flagged by review01_trade for unverifiable sources.**
 
+## Output Writing Discipline (local models)
+
+Your market_snapshot payload is large (14+ symbols). Write it
+INCREMENTALLY: first Write the wrapper with the first symbol group, then
+append the remaining groups in 2-3 further edits. Never attempt the whole
+file in one response, keep prose to a minimum, and do not re-read large
+search results after you have extracted the numbers you need. (Local
+qwen3.6 thinking plus a single full-file write exceeds the output-token
+budget — observed three times in flow 066.)
+
 ## Forbidden Actions
 
 - Do NOT modify, create, or delete ANY code, script, configuration,
