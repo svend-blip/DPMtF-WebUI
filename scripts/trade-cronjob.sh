@@ -117,8 +117,9 @@ echo ""
 # portfolio01 delivers or after 90 minutes.
 echo ""
 echo "[7/7] Starting chain watchdog (90 min max)..."
+# Parametre (stall/loop/max) laeses fra profiles/machine.local.json [watchdog]
 nohup python3 "${PROJECT_ROOT}/scripts/bridgeV002/chain_watchdog.py" \
-    --run-id "${FLOW_ID}" --loop-seconds 60 --max-minutes 90 \
+    --run-id "${FLOW_ID}" \
     >> "${LOG_DIR}/chain-watchdog.log" 2>&1 &
 echo "  Watchdog PID: $!"
 

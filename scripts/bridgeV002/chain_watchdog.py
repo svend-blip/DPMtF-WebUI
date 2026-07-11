@@ -29,9 +29,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import config  # Father config — trade inbox dir, db path
 
 FLOW_KEY = "trade_cockpit_simulation_v001"
-# Chain order (matches bridge_flow_steps; kept inline so the watchdog has
-# no hard DB dependency at 09:00 — verified against DB in tests).
-CHAIN = [
+# Fallback chain order — the live order is read from bridge_flow_steps
+# (config-consolidation: DB is the single source of truth for flow structure).
+CHAIN_FALLBACK = [
     "trend01_trade",
     "market01_trade",
     "analyst01_trade",
@@ -41,7 +41,46 @@ CHAIN = [
     "portfolio01_trade",
 ]
 
-STALL_MINUTES_DEFAULT = 12
+
+def load_chain():
+    """Role order from bridge_flow_steps; falls back to the inline list
+    if the DB is unavailable at runtime (09:00 cron must never die here)."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(PROJECT_ROOT / "databases" / "dpmtf.db"))
+        rows = conn.execute(
+            "SELECT from_role, to_role FROM bridge_flow_steps "
+            "WHERE flow_key = ? AND is_active = 1 ORDER BY sort_order",
+            (FLOW_KEY,),
+        ).fetchall()
+        conn.close()
+        chain = []
+        for from_role, to_role in rows:
+            for role in (from_role, to_role):
+                if role and role != "humantrade" and role not in chain:
+                    chain.append(role)
+        return chain or CHAIN_FALLBACK
+    except Exception:
+        return CHAIN_FALLBACK
+
+
+CHAIN = load_chain()
+
+
+def _watchdog_profile():
+    """Watchdog defaults from the machine profile [watchdog] section."""
+    try:
+        path = PROJECT_ROOT / "profiles" / "machine.local.json"
+        return json.loads(path.read_text()).get("watchdog", {})
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+_WD = _watchdog_profile()
+STALL_MINUTES_DEFAULT = int(_WD.get("stall_minutes", 12))
+MAX_NUDGES_PER_STEP = int(_WD.get("max_nudges_per_step", 2))
+LOOP_SECONDS_DEFAULT = int(_WD.get("loop_seconds", 60))
+MAX_MINUTES_DEFAULT = int(_WD.get("max_minutes", 90))
 ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
 LOG_DIR = PROJECT_ROOT / "logs"
 STATE_PATH = LOG_DIR / "chain-watchdog-state.json"
@@ -207,7 +246,7 @@ def check_once(run_id, stall_minutes, state):
         if age_min < stall_minutes:
             return "active"
         key = f"{run_id}:{role}"
-        if state.get(key, 0) >= 2:
+        if state.get(key, 0) >= MAX_NUDGES_PER_STEP:
             log(f"SKIP: {key} already nudged twice — human attention needed")
             return "idle"
         state[key] = state.get(key, 0) + 1
@@ -220,8 +259,8 @@ def check_once(run_id, stall_minutes, state):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--loop-seconds", type=int, default=60)
-    parser.add_argument("--max-minutes", type=int, default=90)
+    parser.add_argument("--loop-seconds", type=int, default=LOOP_SECONDS_DEFAULT)
+    parser.add_argument("--max-minutes", type=int, default=MAX_MINUTES_DEFAULT)
     parser.add_argument("--stall-minutes", type=int, default=STALL_MINUTES_DEFAULT)
     parser.add_argument("--run-id", default=None,
                         help="Run id to watch (default: newest in inbox)")

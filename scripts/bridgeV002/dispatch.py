@@ -44,10 +44,8 @@ _STARTUP_FILE = "docs/StartUpNextSession.md"
 _TRADE_MCP_BASE_URL = os.environ.get(
     "TRADE_MCP_BASE_URL", "http://127.0.0.1:9145"
 )
-_TRADE_MCP_PUSH = {
-    ("trade_cockpit_simulation_v001", "trend01_trade"): "watchlist",
-    ("trade_cockpit_simulation_v001", "risk01_trade"): "risk",
-}
+# Push-mode per rolle konfigureres i bridge_roles.trade_mcp_push_mode
+# (migration 004) — redigerbar via frontend. Ingen hardcodede rolle-maps.
 
 
 def _trade_mcp_get(path, timeout=30):
@@ -109,9 +107,10 @@ def _extract_candidate_proposals(deliverable_path):
 
 
 def append_trade_mcp_context(prompt_text, flow_key, to_role,
-                             previous_deliverable_path):
-    """Append a deterministic trade-mcp context block for push-path roles."""
-    mode = _TRADE_MCP_PUSH.get((flow_key, to_role))
+                             previous_deliverable_path, mode=None):
+    """Append a deterministic trade-mcp context block for push-path roles.
+
+    mode kommer fra bridge_roles.trade_mcp_push_mode (migration 004)."""
     if not mode:
         return prompt_text
     try:
@@ -366,6 +365,22 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
             pass
 
 
+_machine_profile_cache = None
+
+
+def _machine_profile():
+    """Machine profile (lokal json) — cached; tom dict hvis fraværende."""
+    global _machine_profile_cache
+    if _machine_profile_cache is None:
+        try:
+            path = os.path.join(PROJECT_ROOT, "profiles", "machine.local.json")
+            with open(path, encoding="utf-8") as fh:
+                _machine_profile_cache = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            _machine_profile_cache = {}
+    return _machine_profile_cache
+
+
 def warm_ollama_model(model_name, timeout=180):
     """Load a model into VRAM BEFORE injecting the role prompt (hardening
     1d). Cold dispatches — Claude Code's first request racing a 30-60s
@@ -373,8 +388,10 @@ def warm_ollama_model(model_name, timeout=180):
     flows 065/066. An empty generate request blocks until loaded."""
     import urllib.request
     base = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    keep_alive = (_machine_profile().get("providers", {})
+                  .get("local_ollama", {}).get("warmup_keep_alive", "30m"))
     body = json.dumps({"model": model_name, "prompt": "",
-                       "keep_alive": "30m"}).encode("utf-8")
+                       "keep_alive": keep_alive}).encode("utf-8")
     req = urllib.request.Request(f"{base}/api/generate", data=body,
                                  headers={"Content-Type": "application/json"})
     started = time.time()
@@ -1293,7 +1310,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # deterministic context must be appended here as well.
     prompt_text = append_trade_mcp_context(
         prompt_text, payload["flow_key"], payload["to_role"],
-        full_deliverable_path)
+        full_deliverable_path, mode=to_role.get("trade_mcp_push_mode"))
 
     if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
         warm_ollama_model(to_role["ollama_model"])
@@ -1910,7 +1927,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     # Trade-MCP push path (PILOT): deterministic context for selected roles
     prompt_text = append_trade_mcp_context(
-        prompt_text, flow_key, to_role_key, handoff_abs)
+        prompt_text, flow_key, to_role_key, handoff_abs,
+        mode=to_role_data.get("trade_mcp_push_mode"))
 
     if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
         warm_ollama_model(to_role_data["ollama_model"])

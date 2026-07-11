@@ -13,7 +13,7 @@ import shutil
 
 
 def build_start_command(runtime, provider, model, role_key, machine_profile,
-                        config_dir=None):
+                        config_dir=None, extra_env=None):
     """Build a start command object from logical role fields + Machine Profile.
 
     Args:
@@ -60,7 +60,13 @@ def build_start_command(runtime, provider, model, role_key, machine_profile,
     # Resolve config directory: explicit config_dir > role_key
     effective_config_dir = config_dir or role_key
 
-    return builder(runtime, provider, model, effective_config_dir, machine_profile)
+    cmd_obj = builder(runtime, provider, model, effective_config_dir, machine_profile)
+    if extra_env:
+        # Per-role env overrides (e.g. bridge_roles.max_output_tokens ->
+        # CLAUDE_CODE_MAX_OUTPUT_TOKENS) — applied LAST so they win over
+        # profile defaults (shell semantics: last assignment wins).
+        cmd_obj.setdefault("env", {}).update(extra_env)
+    return cmd_obj
 
 
 # ── Builder registry ──────────────────────────────────────────
@@ -146,7 +152,7 @@ def build_claude_ollama_command(runtime, provider, model, role_key, mp):
 
     return {
         "env": env,
-        "argv": [claude_bin, "--bare", "--model", model],
+        "argv": [claude_bin, *runtime_cfg.get("extra_args", []), "--model", model],
     }
 
 
@@ -191,7 +197,7 @@ def build_claude_openrouter_command(runtime, provider, model, role_key, mp):
 
     return {
         "env": env,
-        "argv": [claude_bin, "--bare", "--model", model],
+        "argv": [claude_bin, *runtime_cfg.get("extra_args", []), "--model", model],
     }
 
 

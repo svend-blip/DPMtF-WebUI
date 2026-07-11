@@ -55,6 +55,7 @@ def get_flow_roles(db_path, flow_key):
         """
         SELECT r.role_key, r.tmux_session,
                r.default_runtime, r.default_provider, r.default_model,
+               r.max_output_tokens,
                r.config_dir,
                s.runtime_override, s.provider_override, s.model_override,
                s.sort_order
@@ -70,6 +71,7 @@ def get_flow_roles(db_path, flow_key):
         """
         SELECT r.role_key, r.tmux_session,
                r.default_runtime, r.default_provider, r.default_model,
+               r.max_output_tokens,
                r.config_dir,
                s.runtime_override, s.provider_override, s.model_override,
                s.sort_order + 0.5 AS sort_order
@@ -98,6 +100,7 @@ def get_flow_roles(db_path, flow_key):
                 "default_runtime": row["default_runtime"],
                 "default_provider": row["default_provider"],
                 "default_model": row["default_model"],
+                "max_output_tokens": row["max_output_tokens"],
                 "config_dir": row["config_dir"],
                 "runtime_override": row["runtime_override"],
                 "provider_override": row["provider_override"],
@@ -295,6 +298,10 @@ def main():
                 role_key=role["role_key"],
                 machine_profile=machine_profile,
                 config_dir=role.get("config_dir"),
+                extra_env=(
+                    {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(role["max_output_tokens"])}
+                    if role.get("max_output_tokens") else None
+                ),
             )
 
             # Check model against provider model list (warning only)

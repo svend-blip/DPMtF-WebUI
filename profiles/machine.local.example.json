@@ -1,8 +1,7 @@
 {
   "schema_version": 1,
   "name": "My Machine",
-  "description": "Machine Profile — copy to machine.<name>.json and customize",
-
+  "description": "Machine Profile \u2014 copy to machine.<name>.json and customize",
   "capabilities": {
     "tmux": true,
     "cuda": false,
@@ -11,7 +10,6 @@
     "telegram_bridge": false,
     "cron": false
   },
-
   "paths": {
     "project_root": "/home/user/DPMtF-WebUI",
     "bridge_dir": "/home/user/flows",
@@ -19,7 +17,6 @@
     "log_dir": "/home/user/DPMtF-WebUI/logs",
     "exports_dir": "/home/user/DPMtF-WebUI/exports"
   },
-
   "binaries": {
     "python": "python3",
     "tmux": "tmux",
@@ -28,13 +25,16 @@
     "opencode": "opencode",
     "freebuff": "freebuff"
   },
-
   "runtimes": {
     "claude": {
       "binary_ref": "claude",
       "default_env": {
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "65536"
-      }
+      },
+      "extra_args": [
+        "--bare"
+      ],
+      "_extra_args_note": "role sessions run minimal mode: no user hooks/plugins/LSP (10-15k token context tax, flow 068)"
     },
     "opencode": {
       "binary_ref": "opencode",
@@ -44,13 +44,13 @@
       "binary_ref": "freebuff"
     }
   },
-
   "providers": {
     "local_ollama": {
       "available": false,
       "endpoint": "http://127.0.0.1:11434",
       "auth_token": "ollama",
-      "models": []
+      "models": [],
+      "warmup_keep_alive": "30m"
     },
     "cloud_ollama": {
       "available": false,
@@ -73,19 +73,32 @@
       "models": []
     }
   },
-
   "ports": {
     "app": 9130,
     "ollama": 11434,
     "resource_webui": 9121,
     "expected_children": {}
   },
-
   "checks": {
-    "required_paths": ["project_root", "bridge_dir"],
-    "required_binaries": ["python", "tmux"],
-    "required_ports": ["app"],
+    "required_paths": [
+      "project_root",
+      "bridge_dir"
+    ],
+    "required_binaries": [
+      "python",
+      "tmux"
+    ],
+    "required_ports": [
+      "app"
+    ],
     "required_secrets": [],
     "required_providers": []
+  },
+  "watchdog": {
+    "stall_minutes": 12,
+    "max_nudges_per_step": 2,
+    "loop_seconds": 60,
+    "max_minutes": 90,
+    "_note": "chain watchdog defaults; chain order is read from bridge_flow_steps"
   }
 }
