@@ -50,13 +50,11 @@ echo "════════════════════════�
 echo ""
 echo "[1/6] Pre-flight cleanup..."
 
-# Stop trade Ollama models (free VRAM, clear context)
-TRADE_MODELS=("qwen3.6:35b-a3b-64k" "qwen3.6-35b-48k" "qwen3.6-35b-32k" "qwen3.6-27b-32k" "ornith35b-q5-48k" "qwen3.6:27b-q4_K_M")
-for model in "${TRADE_MODELS[@]}"; do
-    if ollama ps 2>/dev/null | grep -q "$model"; then
-        echo "  Stopping $model..."
-        ollama stop "$model" 2>/dev/null || true
-    fi
+# Stop ALL loaded Ollama models (free VRAM, clear context) — dynamic list
+# from `ollama ps`, no hardcoded model names (config-consolidation).
+ollama ps 2>/dev/null | awk 'NR>1 && NF {print $1}' | while read -r model; do
+    echo "  Stopping $model..."
+    ollama stop "$model" 2>/dev/null || true
 done
 echo "  Ollama models cleared."
 
