@@ -366,6 +366,30 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
             pass
 
 
+def warm_ollama_model(model_name, timeout=180):
+    """Load a model into VRAM BEFORE injecting the role prompt (hardening
+    1d). Cold dispatches — Claude Code's first request racing a 30-60s
+    model load — correlate with task-derails ('Hej! Jeg er klar...') in
+    flows 065/066. An empty generate request blocks until loaded."""
+    import urllib.request
+    base = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+    body = json.dumps({"model": model_name, "prompt": "",
+                       "keep_alive": "30m"}).encode("utf-8")
+    req = urllib.request.Request(f"{base}/api/generate", data=body,
+                                 headers={"Content-Type": "application/json"})
+    started = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout):
+            pass
+        print(f"  Model warmup: '{model_name}' loaded "
+              f"({time.time()-started:.0f}s)")
+        return True
+    except Exception as exc:
+        print(f"  Model warmup: '{model_name}' failed ({exc}) — "
+              "dispatching anyway")
+        return False
+
+
 def inject_prompt(session_name, text, enter_command="default"):
     """Detect tool type and route to correct injection method.
 
@@ -1264,6 +1288,9 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         prompt_text, payload["flow_key"], payload["to_role"],
         full_deliverable_path)
 
+    if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
+        warm_ollama_model(to_role["ollama_model"])
+
     # Step 8: Inject callback prompt into to_role's tmux session
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
@@ -1877,6 +1904,9 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Trade-MCP push path (PILOT): deterministic context for selected roles
     prompt_text = append_trade_mcp_context(
         prompt_text, flow_key, to_role_key, handoff_abs)
+
+    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
+        warm_ollama_model(to_role_data["ollama_model"])
 
     # Step 8: Inject prompt into target role's tmux session
     inject_prompt(tmux_session, prompt_text,
