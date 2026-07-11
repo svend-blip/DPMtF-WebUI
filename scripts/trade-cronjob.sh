@@ -58,6 +58,11 @@ ollama ps 2>/dev/null | awk 'NR>1 && NF {print $1}' | while read -r model; do
 done
 echo "  Ollama models cleared."
 
+# Kill stale watchdogs from previous runs — a surviving watchdog could
+# nudge old-run signals into the fresh sessions created below.
+pkill -f "[c]hain_watchdog.py" 2>/dev/null || true
+echo "  Stale watchdogs cleared."
+
 # Kill old trade tmux sessions — DB-driven (no hardcoding, always covers all roles)
 python3 "${PROJECT_ROOT}/scripts/bridgeV002/stop_tmuxflow.py" "$FLOW_KEY" 2>/dev/null || true
 
