@@ -88,7 +88,8 @@ echo "[4/6] Creating trigger file..."
 mkdir -p "$TRADE_INBOX"
 cat > "${TRADE_INBOX}/${FLOW_ID}_humantrade.json" << TRIGGEREOF
 <role>You are trend01_trade in the ${FLOW_KEY} flow.</role>
-<task>Execute your role according to the governance file. Produce JSON output to the inbox.</task>
+<flow_run_id>${FLOW_ID}</flow_run_id>
+<task>Execute your role according to the governance file. Produce JSON output to the inbox. Use flow_run_id "${FLOW_ID}" (the numeric run id above) in your output wrapper and in all signals — never derive it from filenames.</task>
 <constraint>SIMULATION_ONLY = TRUE. Follow GATES.md. Valid JSON only.</constraint>
 TRIGGEREOF
 echo "  Created: ${FLOW_ID}_humantrade.json"
@@ -109,6 +110,17 @@ python3 scripts/bridgeV002/dispatch.py \
     --id "$FLOW_ID"
 
 echo ""
+# ── 7. Chain watchdog (hardening 1b) ─────────────────
+# Auto-nudges write-but-no-signal stalls and samples ollama ps
+# (context/GPU-split observability). Scoped to this run: exits when
+# portfolio01 delivers or after 90 minutes.
+echo ""
+echo "[7/7] Starting chain watchdog (90 min max)..."
+nohup python3 "${PROJECT_ROOT}/scripts/bridgeV002/chain_watchdog.py" \
+    --run-id "${FLOW_ID}" --loop-seconds 60 --max-minutes 90 \
+    >> "${LOG_DIR}/chain-watchdog.log" 2>&1 &
+echo "  Watchdog PID: $!"
+
 echo "═══════════════════════════════════════════════════════════"
 echo "  Flow ${FLOW_ID} dispatch complete"
 echo "  Finished: $(date '+%Y-%m-%d %H:%M:%S')"

@@ -379,6 +379,9 @@ def inject_prompt(session_name, text, enter_command="default"):
       - 'c-d': Two-step C-d
     """
     tool = get_pane_command(session_name)
+    # Observability: prompt size per dispatch (context-tuning data point).
+    print(f"  Injection: {len(text)} chars (~{len(text) // 4} est. tokens) "
+          f"-> '{session_name}' ({tool})")
     if tool == "opencode":
         soft_clear = (
             "Start a new logical task now. "
@@ -390,6 +393,61 @@ def inject_prompt(session_name, text, enter_command="default"):
         inject_via_paste_buffer(session_name, combined, enter_command)
     else:
         inject_via_send_keys(session_name, text, enter_command)
+    verify_injection_submitted(session_name)
+
+
+# Pane markers that indicate the client actually accepted/started the
+# prompt. Deliberately narrow: idle footers contain generic glyphs
+# ("· ← for agents", token totals), so only genuine in-progress signals
+# count — the interrupt hint and the live download counter.
+_ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
+_PASTE_STUCK_MARKER = "paste again to expand"
+
+
+def _pane_tail(session_name, lines=25):
+    result = subprocess.run(
+        ["tmux", "capture-pane", "-t", "=" + session_name, "-p"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return ""
+    return "\n".join(result.stdout.splitlines()[-lines:]).lower()
+
+
+def verify_injection_submitted(session_name, attempts=3, settle_seconds=4):
+    """Verify the injected prompt was actually SUBMITTED, not left sitting
+    in the client's input buffer (observed: 'paste again to expand' state,
+    silent unsubmitted pastes — flows 062/064 required manual Enter).
+
+    Heuristic: after a settle delay, an accepted prompt shows activity
+    markers (spinner/token counter) in the pane. A stuck paste shows the
+    paste-expand hint or no activity. Remedy: resend Enter, recheck.
+    Never raises; prints the outcome for the dispatch log.
+    """
+    for attempt in range(1, attempts + 1):
+        time.sleep(settle_seconds)
+        tail = _pane_tail(session_name)
+        if _PASTE_STUCK_MARKER in tail:
+            print(f"  Injection verify: stuck paste in '{session_name}' "
+                  f"(attempt {attempt}) — resending Enter")
+            subprocess.run(["tmux", "send-keys", "-t", "=" + session_name,
+                            "Enter"], capture_output=True)
+            continue
+        if any(marker in tail for marker in _ACTIVITY_MARKERS):
+            print(f"  Injection verify: '{session_name}' active "
+                  f"(attempt {attempt})")
+            return True
+        # No activity and no stuck-paste hint: the prompt may be sitting
+        # unsubmitted without the hint (observed flow 064 portfolio01).
+        print(f"  Injection verify: no activity in '{session_name}' "
+              f"(attempt {attempt}) — sending Enter")
+        subprocess.run(["tmux", "send-keys", "-t", "=" + session_name,
+                        "Enter"], capture_output=True)
+    tail = _pane_tail(session_name)
+    submitted = any(m in tail for m in _ACTIVITY_MARKERS)
+    print(f"  Injection verify: final state for '{session_name}': "
+          f"{'active' if submitted else 'UNCONFIRMED — check pane manually'}")
+    return submitted
 
 
 def unload_ollama_model(model_name):
@@ -1886,7 +1944,17 @@ def main():
 
     # Determine handoff ID: explicit --id overrides; DB auto-incremented counter.
     if args.id:
-        handoff_id = args.id
+        # Normalize model-polluted ids: roles have derived flow_run_id from
+        # trigger FILENAMES ('064_humantrade' in flow 064), and the pollution
+        # then propagates through every chained deliverable/prompt. The id is
+        # the leading numeric run number — strip any suffix.
+        match = re.match(r"^(\d+)", str(args.id))
+        if match and match.group(1) != str(args.id):
+            print(f"  NOTE: normalized handoff id '{args.id}' "
+                  f"-> '{match.group(1)}'")
+            handoff_id = match.group(1)
+        else:
+            handoff_id = args.id
     else:
         handoff_id = f"{get_next_id_for_flow(args.db_flow, db_path=_db_path()):03d}"
 
