@@ -129,6 +129,14 @@ Why `tvly` and not `Web Search`:
 
 **If you use `Web Search` instead of `tvly search`, your output will be flagged by review01_trade for unverifiable sources.**
 
+## Search Output Discipline (local models)
+
+Pipe every tvly/web search through `head -60` (or tighter). Raw search
+results flooding your context window causes silent truncation once the
+session history exceeds the model's num_ctx — after which you lose your
+task instructions entirely (observed repeatedly in flow 066/067). Extract
+the numbers you need immediately; never re-read full results.
+
 ## Output Writing Discipline (local models)
 
 Your market_snapshot payload is large (14+ symbols). Write it

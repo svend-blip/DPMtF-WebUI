@@ -1254,6 +1254,13 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     if ctemplate:
         prompt_text = ctemplate.replace("{handoff_id}", payload["handoff_id"])
+        # {flow_run_id} is the spec 5.2 alias for the run id. It was NEVER
+        # replaced on this chain-callback path (only in signal_send), so
+        # every chained role received a literal "{flow_run_id}" in its
+        # chain_advancement command — the root of id guessing/pollution
+        # (flow 064's '064_humantrade' ids) and skipped signals.
+        prompt_text = prompt_text.replace("{flow_run_id}", payload["handoff_id"])
+        prompt_text = prompt_text.replace("{output_type}", to_role.get("primary_output_type") or "")
         prompt_text = prompt_text.replace("{source_role}", payload["from_role"])
         prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
