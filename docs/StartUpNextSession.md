@@ -378,5 +378,6 @@ first for current status + remaining recommendations.
 | Bridge deliverable_dir | **BridgeV002 uses database-driven `deliverable_dir`** from `bridge_flow_steps.deliverable_dir` — *not* legacy `/home/svend/claude-bridge`. Current values: `/home/svend/flows/cloud_pay/{handoffs,results,reviews,verdicts}` |
 | Trade deliverable_dir | `/home/svend/trade-ui/inbox/pending` (absolute path in bridge_flow_steps.deliverable_dir) |
 | Ollama endpoint | http://127.0.0.1:11434 |
+| ONYX (optional) | ONYX Lite via docker compose — API `http://127.0.0.1:9162`, web UI `:9163`, onyx-mcp tools `:9164/mcp` (on-demand: `model-allocator mcp-serve`). OPTIONAL runtime: only `backend: onyx` aliases touch it; `docker compose down` removes it without affecting anything. Setup/credentials: `~/model-allocator/deploy/onyx/README.md` |
 | mcp-light endpoint | http://127.0.0.1:9135/mcp — MCP streamable-http, read-only context server (18 tools). systemd `mcp-light.service` runs `/home/svend/mcp-light/venv/bin/python server.py`. Repo: `/home/svend/mcp-light` (separate). Configs: `~/.config/opencode-roles/*/opencode.json` `mcp.mcp-light` block. |
 | Runtime | `/home/svend/.local/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |
