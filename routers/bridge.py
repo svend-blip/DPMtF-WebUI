@@ -503,8 +503,9 @@ async def bridge_v2_create_role(request: Request):
             (role_key, tmux_session, model_type, cloud_model, ollama_model,
              setup_script, teardown_script, deliver_error_msg, enter_command,
              default_runtime, default_provider, default_model, config_dir,
-             default_model_source, default_model_alias)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             default_model_source, default_model_alias,
+             trade_mcp_push_mode, max_output_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["role_key"],
             data["tmux_session"],
@@ -521,6 +522,8 @@ async def bridge_v2_create_role(request: Request):
             data.get("config_dir"),
             data.get("default_model_source"),
             data.get("default_model_alias"),
+            data.get("trade_mcp_push_mode"),
+            data.get("max_output_tokens"),
         ))
     else:
         # Role exists (active or soft-deleted) — reactivate/update it
@@ -532,7 +535,8 @@ async def bridge_v2_create_role(request: Request):
                       "ollama_model", "setup_script", "teardown_script",
                       "deliver_error_msg", "enter_command",
                       "default_runtime", "default_provider", "default_model",
-                      "config_dir", "default_model_source", "default_model_alias"]:
+                      "config_dir", "default_model_source", "default_model_alias",
+                      "trade_mcp_push_mode", "max_output_tokens"]:
             if field in data:
                 sets.append(f"{field} = ?")
                 params.append(data[field])
@@ -574,6 +578,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "default_runtime", "default_provider", "default_model",  # Machine Profile Fase 2A
         "config_dir",  # Machine Profile Fase 2A — OpenCode config directory override
         "default_model_source", "default_model_alias",  # V3A: Model Allocator source / alias
+        "trade_mcp_push_mode", "max_output_tokens",  # Migration 004: runtime config
     ]
     sets = []
     params = []

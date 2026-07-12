@@ -2545,6 +2545,12 @@ function addBridgeRole() {
     if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
     if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
 
+    // Migration 004: runtime config
+    var pmEl = document.getElementById("bridge-input-trade-mcp-push-mode");
+    var moEl = document.getElementById("bridge-input-max-output-tokens");
+    if (pmEl) body.trade_mcp_push_mode = pmEl.value || null;
+    if (moEl) body.max_output_tokens = moEl.value ? parseInt(moEl.value, 10) : null;
+
     // V3A: Model Allocator source / alias
     var msEl = document.getElementById("bridge-role-model-source");
     var maEl = document.getElementById("bridge-role-model-alias");
@@ -2671,6 +2677,31 @@ function addBridgeRole() {
   mdDiv.appendChild(mdList);
   mpSectionDiv.appendChild(mdDiv);
 
+  // Migration 004: trade-mcp push mode + max output tokens
+  var pmDiv = el("div", "dpmtf-form-group");
+  pmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_trade_mcp_push_mode", "Trade-MCP Push Mode")));
+  var pmSelect = el("select", null);
+  pmSelect.id = "bridge-input-trade-mcp-push-mode";
+  ["", "watchlist", "market", "risk"].forEach(function (m) {
+    var opt = el("option", null);
+    opt.value = m;
+    opt.textContent = m || lbl("lbl_bridge_model_source_default", "Default / inherit");
+    pmSelect.appendChild(opt);
+  });
+  pmSelect.value = "";
+  pmDiv.appendChild(pmSelect);
+  mpSectionDiv.appendChild(pmDiv);
+
+  var moDiv = el("div", "dpmtf-form-group");
+  moDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_max_output_tokens", "Max Output Tokens")));
+  var moInput = el("input", null);
+  moInput.type = "number";
+  moInput.min = "1024";
+  moInput.step = "1024";
+  moInput.id = "bridge-input-max-output-tokens";
+  moInput.value = "";
+  moDiv.appendChild(moInput);
+  mpSectionDiv.appendChild(moDiv);
   form.appendChild(mpSectionDiv);
 
   // V3A: Model Allocator source / alias
@@ -2945,6 +2976,12 @@ function editBridgeRoleFull(roleKey) {
         if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
         if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
 
+        // Migration 004: runtime config
+        var pmEl = document.getElementById("bridge-edit-input-trade-mcp-push-mode");
+        var moEl = document.getElementById("bridge-edit-input-max-output-tokens");
+        if (pmEl) body.trade_mcp_push_mode = pmEl.value || null;
+        if (moEl) body.max_output_tokens = moEl.value ? parseInt(moEl.value, 10) : null;
+
         // V3A: Model Allocator source / alias
         var msEl = document.getElementById("bridge-edit-role-model-source");
         var maEl = document.getElementById("bridge-edit-role-model-alias");
@@ -3135,6 +3172,31 @@ function editBridgeRoleFull(roleKey) {
       mdDiv.appendChild(mdList);
       mpSectionDiv.appendChild(mdDiv);
 
+      // Migration 004: trade-mcp push mode + max output tokens
+      var pmDiv = el("div", "dpmtf-form-group");
+      pmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_trade_mcp_push_mode", "Trade-MCP Push Mode")));
+      var pmSelect = el("select", null);
+      pmSelect.id = "bridge-edit-input-trade-mcp-push-mode";
+      ["", "watchlist", "market", "risk"].forEach(function (m) {
+        var opt = el("option", null);
+        opt.value = m;
+        opt.textContent = m || lbl("lbl_bridge_model_source_default", "Default / inherit");
+        pmSelect.appendChild(opt);
+      });
+      pmSelect.value = role.trade_mcp_push_mode || "";
+      pmDiv.appendChild(pmSelect);
+      mpSectionDiv.appendChild(pmDiv);
+
+      var moDiv = el("div", "dpmtf-form-group");
+      moDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_max_output_tokens", "Max Output Tokens")));
+      var moInput = el("input", null);
+      moInput.type = "number";
+      moInput.min = "1024";
+      moInput.step = "1024";
+      moInput.id = "bridge-edit-input-max-output-tokens";
+      moInput.value = role.max_output_tokens != null ? String(role.max_output_tokens) : "";
+      moDiv.appendChild(moInput);
+      mpSectionDiv.appendChild(moDiv);
       form.appendChild(mpSectionDiv);
 
       // V3A: Model Allocator source / alias
