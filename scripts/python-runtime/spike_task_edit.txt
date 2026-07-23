@@ -1,0 +1,4 @@
+TASK: In the file `scripts/spike_edit_target.py`, add a second function
+named `added()` that returns the integer 42, WITHOUT changing or removing
+the existing `original()` function. First READ_FILE the target, then
+APPLY_PATCH the complete new file content, then FINISH.

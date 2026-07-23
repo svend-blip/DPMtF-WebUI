@@ -1,0 +1,8 @@
+TASK: Create a new file at the relative path `scripts/spike_marker.py`.
+The file must contain exactly one function:
+
+def spike_marker():
+    return "RUNTIME_SPIKE_OK"
+
+Do not read or modify any other file. Use APPLY_PATCH with the complete file
+content, then FINISH.

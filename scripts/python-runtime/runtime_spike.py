@@ -23,19 +23,27 @@ DISPATCH = Path(__file__).resolve().parent.parent / "bridgeV002" / "dispatch.py"
 SYSTEM_INSTRUCTION = (
     "You are imple01, a code implementer with NO shell and NO direct file "
     "access. You act ONLY by returning exactly ONE JSON object per message, "
-    "nothing else — no prose, no markdown fences. Allowed actions:\n"
+    "nothing else — no prose, no markdown fences, no code blocks. "
+    "The JSON MUST use these exact field names:\n"
     '  {"action": "READ_FILE", "path": "<relative path>"}\n'
-    '  {"action": "REQUEST_CONTEXT", "query": "<what you need to know>"}\n'
     '  {"action": "APPLY_PATCH", "path": "<relative path>", "content": "<full new file content>"}\n'
-    '  {"action": "RUN_REGISTERED_CHECK", "check": "py_compile|node_check"}\n'
     '  {"action": "FINISH", "summary": "<what you did>"}\n'
-    "APPLY_PATCH always contains the COMPLETE new file content. Return one "
-    "action, wait for the OBSERVATION, then continue. Call FINISH when done."
+    "Rules:\n"
+    "- The field is \"action\" (not \"operation\" or \"type\")\n"
+    "- The field is \"path\" (not \"filepath\" or \"file\")\n"
+    "- The field is \"content\" (not \"patch\" or \"code\")\n"
+    "- APPLY_PATCH content is the COMPLETE new file, never a diff\n"
+    "- Return ONE JSON object, then STOP and wait for OBSERVATION\n"
+    "- Do NOT return multiple JSON objects in one message\n"
 )
 
 
 def resolve_model_via_allocator(role, client):
     """Resolve model + API base + context via Model Allocator."""
+    import sys as _sys
+    from pathlib import Path as _Path
+    _project_root = _Path(__file__).resolve().parent.parent.parent
+    _sys.path.insert(0, str(_project_root))
     import config
     allocator_path = os.path.join(
         config.get_project_path("model-allocator"), "scripts", "model-allocator"
@@ -71,10 +79,38 @@ def call_model(url, model, messages, num_ctx, temperature):
     return data["message"]["content"]
 
 
+def _fix_json_newlines(text):
+    """Fix actual newlines inside JSON string values by escaping them."""
+    result = []
+    in_string = False
+    escape = False
+    for c in text:
+        if escape:
+            result.append(c)
+            escape = False
+            continue
+        if c == '\\':
+            result.append(c)
+            escape = True
+            continue
+        if c == '"':
+            in_string = not in_string
+            result.append(c)
+            continue
+        if c == '\n' and in_string:
+            result.append('\\n')
+            continue
+        if c == '\r' and in_string:
+            result.append('\\r')
+            continue
+        result.append(c)
+    return ''.join(result)
+
+
 def extract_json(text):
     if not text or not text.strip():
         return None
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    cleaned = re.sub(r"embroil.*?notified", "", text, flags=re.DOTALL)
     cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL)
     cleaned = cleaned.strip()
     fence = chr(96) * 3
@@ -85,13 +121,55 @@ def extract_json(text):
         if lines and lines[-1].startswith(fence):
             lines = lines[:-1]
         cleaned = "\n".join(lines).strip()
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if start >= 0 and end > start:
-        try:
-            return json.loads(cleaned[start:end + 1])
-        except json.JSONDecodeError:
-            return None
-    return None
+    # Find the FIRST JSON object (model may return multiple)
+    start = cleaned.find("{")
+    if start < 0:
+        return None
+    # Track brace depth to find the end of the first JSON object
+    depth = 0
+    in_str = False
+    esc = False
+    end = -1
+    for i, c in enumerate(cleaned[start:]):
+        if esc:
+            esc = False
+            continue
+        if c == '\\':
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                end = start + i
+                break
+    if end < 0 or end <= start:
+        return None
+    json_str = cleaned[start:end + 1]
+    # Fix actual newlines inside string values
+    json_str = _fix_json_newlines(json_str)
+    try:
+        data = json.loads(json_str)
+        # Normalize alternate field names
+        if "operation" in data and "action" not in data:
+            data["action"] = data.pop("operation")
+        if "filepath" in data and "path" not in data:
+            data["path"] = data.pop("filepath")
+        if "file" in data and "path" not in data:
+            data["path"] = data.pop("file")
+        if "patch" in data and "content" not in data:
+            data["content"] = data.pop("patch")
+        if "code" in data and "content" not in data:
+            data["content"] = data.pop("code")
+        return data
+    except json.JSONDecodeError:
+        return None
 
 
 def safe_resolve(project_root, rel_path):
