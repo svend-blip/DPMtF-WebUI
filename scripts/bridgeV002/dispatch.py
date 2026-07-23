@@ -1127,43 +1127,54 @@ def _ensure_session_ready(role_key, db_path=None):
             return False
         time.sleep(0.3)
 
-    # Step 2: Start coding frontend if configured
-    config_dir = role.get("config_dir")
+    # Step 2: Start coding frontend via Model Allocator
     default_runtime = role.get("default_runtime", "")
-    default_provider = role.get("default_provider", "")
-    default_model = role.get("default_model", "")
 
     if default_runtime:
-        # Build start command from decomposed fields (Machine Profile Fase 2A)
-        try:
-            import config as _cfg
-            from command_builder import build_start_command, render_tmux_shell_string
-            machine_profile = _cfg.get_machine_profile()
-            cmd_str = build_start_command(
-                runtime=default_runtime,
-                provider=default_provider,
-                model=default_model,
-                role_key=role_key,
-                machine_profile=machine_profile,
-                config_dir=config_dir,
-            )
-            if cmd_str:
-                shell_str = render_tmux_shell_string(cmd_str)
-                subprocess.run(
-                    ["tmux", "send-keys", "-t", f"={session_name}:0",
-                     shell_str, "Enter"],
-                    capture_output=True, text=True,
+        # Phase 2: all roles use model_allocator
+        model_source, model_alias = get_effective_model_source(
+            role_key, db_path=db_path
+        )
+        if model_source == "model_allocator" and model_alias:
+            try:
+                import config as _cfg
+                allocator_path = os.path.join(
+                    _cfg.get_project_path("model-allocator"), "scripts", "model-allocator"
                 )
-                print(f"  Started coding frontend in '{session_name}' "
-                      f"(runtime={default_runtime}, provider={default_provider})")
-                time.sleep(1.0)  # Give the frontend time to initialize
-        except ImportError:
-            print(f"  WARNING: command_builder not available, skipping frontend start")
+                run_cmd = [allocator_path, "run",
+                            "--role", role_key,
+                            "--client", default_runtime]
+                if role.get("max_output_tokens"):
+                    run_cmd += ["--max-output-tokens", str(role["max_output_tokens"])]
+                result = subprocess.run(
+                    run_cmd, capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0:
+                    shell_str = result.stdout.strip()
+                    cwd = _cfg.get_project_root()
+                    cmd_str = f"cd {cwd} && {shell_str}"
+                    subprocess.run(
+                        ["tmux", "send-keys", "-t", f"={session_name}:0",
+                         cmd_str, "Enter"],
+                        capture_output=True, text=True,
+                    )
+                    print(f"  Started coding frontend in '{session_name}' "
+                          f"(allocator alias={model_alias})")
+                    time.sleep(1.0)
+                else:
+                    print(f"  ERROR: allocator run failed: {result.stderr.strip()}")
+                    return False
+            except Exception as e:
+                print(f"  ERROR: allocator run error: {e}")
+                return False
+        else:
+            print(f"  ERROR: role '{role_key}' has model_source='{model_source}' — "
+                  f"expected 'model_allocator'")
+            return False
     else:
-        # No Machine Profile runtime configured — fail loud.
-        print(f"  ERROR: role '{role_key}' has no default_runtime configured. "
-              f"Set default_runtime in the role's Machine Profile fields "
-              f"or via machine.local.json.")
+        # No default_runtime configured — skip frontend start
+        print(f"  WARNING: role '{role_key}' has no default_runtime — "
+              f"skipping frontend start")
 
     return session_alive(session_name)
 
