@@ -1094,17 +1094,17 @@ async def bridge_v2_allocator_validate(request: Request):
     )
     try:
         result = subprocess.run(
-            [allocator_script, "validate", "--alias", alias, "--client", client],
+            [allocator_script, "validate", "--alias", alias, "--client", client, "--json"],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        # model-allocator validate prints formatted text; parse JSON if available.
         raw_output = result.stdout.strip()
         parsed = {}
         try:
             parsed = json.loads(raw_output)
         except json.JSONDecodeError:
+            # Fallback: allocator without --json support — parse text output
             parsed = _parse_allocator_validate_text(raw_output)
 
         return {
@@ -1113,7 +1113,7 @@ async def bridge_v2_allocator_validate(request: Request):
             "resolved_real_model": parsed.get("resolved_real_model"),
             "warnings": parsed.get("warnings", []),
             "errors": parsed.get("errors", []),
-            "gpu_policy": parsed.get("gpu_policy"),
+            "gpu_policy": parsed.get("resolved_gpu", parsed.get("gpu_policy")),
             "raw_output": raw_output,
         }
     except subprocess.TimeoutExpired:
