@@ -32,8 +32,9 @@ from bridge_lib import (  # noqa: E402
     resolve_placeholders,
 )
 
-# Machine Profile Fase 2A — command builder
-from command_builder import build_start_command, render_tmux_shell_string  # noqa: E402
+# Phase 2: direct command_builder path removed — all roles use model_allocator.
+# render_tmux_shell_string is still needed for the allocator run command output.
+from command_builder import render_tmux_shell_string  # noqa: E402
 
 
 def get_flow_roles(db_path, flow_key):
@@ -288,83 +289,11 @@ def main():
                 errors.append(role["role_key"])
             continue
 
-        # Build command from Machine Profile (direct_* path — unchanged)
-        try:
-            # Fase 2B: override chain — step override > role default
-            runtime = role.get("runtime_override") or role.get("default_runtime")
-            provider = role.get("provider_override") or role.get("default_provider")
-            model = role.get("model_override") or role.get("default_model")
-
-            cmd_obj = build_start_command(
-                runtime=runtime,
-                provider=provider,
-                model=model,
-                role_key=role["role_key"],
-                machine_profile=machine_profile,
-                config_dir=role.get("config_dir"),
-                extra_env=(
-                    {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(role["max_output_tokens"])}
-                    if role.get("max_output_tokens") else None
-                ),
-            )
-
-            # Check model against provider model list (warning only)
-            provider_key = role.get("default_provider")
-            if provider_key and provider_key in machine_profile.get("providers", {}):
-                provider_models = machine_profile["providers"][provider_key].get("models", [])
-                if provider_models and role.get("default_model") not in provider_models:
-                    print(f"  WARNING: model '{role.get('default_model')}' not in "
-                          f"Machine Profile provider '{provider_key}' model list")
-
-            # V2.3: direct opencode roles need the top-level `model` field in
-            # their opencode.json because `opencode --model <model>` is ignored
-            # by the OpenCode TUI. Extract the model-field string from the argv
-            # element immediately following "--model" and merge it into the role's
-            # opencode.json atomically. Preserve all existing keys.
-            if runtime == "opencode":
-                config_dir = role.get("config_dir") or role["role_key"]
-                opencode_json_path = os.path.expanduser(
-                    f"~/.config/opencode-roles/{config_dir}/opencode.json"
-                )
-                try:
-                    argv = cmd_obj.get("argv", [])
-                    if "--model" in argv:
-                        model_field = argv[argv.index("--model") + 1]
-                        if ensure_opencode_model_field(opencode_json_path, model_field):
-                            print(f"    Updated opencode.json model field: {model_field}")
-                        else:
-                            print(f"    opencode.json model field already correct")
-                except (OSError, json.JSONDecodeError, IndexError) as exc:
-                    print(f"    WARNING: opencode.json model-field write failed; continuing: {exc}")
-
-            cmd_str = render_tmux_shell_string(cmd_obj)
-            # cwd: Prompt Compiler's target_project (project_root) takes precedence.
-            # Machine Profile's paths.project_root is the fallback.
-            cwd = project_root
-            mp_paths = machine_profile.get("paths", {})
-            cwd = mp_paths.get("project_root", project_root)
-            cmd_str = f"cd {cwd} && {cmd_str}"
-            print(f"  {role['role_key']:15s} → '{session_name}'  (machine_profile) ...")
-
-            ok = run_cmd_in_session(
-                session_name,
-                cmd_str,
-                bridge_dir,
-                project_root,
-            )
-
-        except ValueError as e:
-            print(f"  {role['role_key']:15s} → '{session_name}'")
-            print(f"  ERROR building Machine Profile command: {e}")
-            errors.append(role["role_key"])
-            continue
-
-        if ok:
-            started.append(session_name)
-            print(f"    Command sent to session.")
-        else:
-            print(f"    ERROR running command in '{session_name}'.", file=sys.stderr)
-            errors.append(role["role_key"])
+        # Phase 2: direct/command_builder path removed — all roles use model_allocator.
+        # If a role reaches here, it has an unknown model_source.
+        print(f"  {role['role_key']:15s} → '{session_name}'")
+        print(f"  ERROR: role has model_source='{model_source}' — expected 'model_allocator'")
+        errors.append(role["role_key"])
 
     # Summary
     parts = []
