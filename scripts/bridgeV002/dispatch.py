@@ -1141,9 +1141,18 @@ def _ensure_session_ready(role_key, db_path=None):
                 allocator_path = os.path.join(
                     _cfg.get_project_path("model-allocator"), "scripts", "model-allocator"
                 )
+                # Map DB runtime to allocator client key
+                runtime_to_client = {
+                    "claude": "claude-code",
+                    "opencode": "opencode",
+                    "freebuff": "freebuff",
+                }
+                allocator_client = runtime_to_client.get(
+                    default_runtime, default_runtime
+                )
                 run_cmd = [allocator_path, "run",
                             "--role", role_key,
-                            "--client", default_runtime]
+                            "--client", allocator_client]
                 if role.get("max_output_tokens"):
                     run_cmd += ["--max-output-tokens", str(role["max_output_tokens"])]
                 result = subprocess.run(

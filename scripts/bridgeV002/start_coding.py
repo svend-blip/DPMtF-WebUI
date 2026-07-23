@@ -204,6 +204,16 @@ def main():
             errors.append(role["role_key"])
             continue
 
+        # Map DB default_runtime to allocator client key
+        runtime_to_client = {
+            "claude": "claude-code",
+            "opencode": "opencode",
+            "freebuff": "freebuff",
+        }
+        allocator_client = runtime_to_client.get(
+            role["default_runtime"], role["default_runtime"]
+        )
+
         # V1B pilot: use Model Allocator when role opts in.
         model_source, model_alias = get_effective_model_source(
             role["role_key"], db_path=db_path
@@ -218,7 +228,7 @@ def main():
             # V2.2: regenerate role-specific opencode.json so the OpenCode TUI
             # uses the allocator-selected model. This is only needed/correct for
             # the opencode client; other clients follow the existing path.
-            if role["default_runtime"] == "opencode":
+            if allocator_client == "opencode":
                 config_dir = role.get("config_dir") or role["role_key"]
                 opencode_json_path = os.path.expanduser(
                     f"~/.config/opencode-roles/{config_dir}/opencode.json"
@@ -248,7 +258,7 @@ def main():
                     model_allocator_path,
                     "run",
                     "--role", role["role_key"],
-                    "--client", role["default_runtime"],
+                    "--client", allocator_client,
                 ]
                 # Pass per-role max_output_tokens from DB
                 if role.get("max_output_tokens"):
