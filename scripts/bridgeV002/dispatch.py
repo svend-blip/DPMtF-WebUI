@@ -258,6 +258,34 @@ def _model_allocator_path():
     )
 
 
+def _run_allocator_start(model_alias, timeout=180):
+    """Warm up an allocator-managed model before prompt injection.
+
+    Runs `model-allocator start --alias <model_alias>` with an outer timeout.
+    Returns True on success, False on failure (dispatch continues anyway).
+    """
+    start_cmd = [_model_allocator_path(), "start", "--alias", model_alias]
+    try:
+        result = subprocess.run(
+            start_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip() if result.stderr else ""
+            print(f"  WARNING: model-allocator start returned {result.returncode}: {stderr}")
+            return False
+        print(f"  Warmed allocator model '{model_alias}'")
+        return True
+    except subprocess.TimeoutExpired:
+        print(f"  WARNING: model-allocator start timed out for '{model_alias}'")
+        return False
+    except Exception as exc:
+        print(f"  WARNING: model-allocator start failed: {exc}")
+        return False
+
+
 def _run_allocator_stop(model_alias, timeout=45):
     """Stop an allocator-managed model without hanging.
 
@@ -1368,7 +1396,16 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         prompt_text, payload["flow_key"], payload["to_role"],
         full_deliverable_path, mode=to_role.get("trade_mcp_push_mode"))
 
-    if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
+    # Warm the target role's model via allocator before injection
+    to_source_sc, to_alias_sc = get_effective_model_source(
+        payload["to_role"],
+        step_key=current_step.get("step_key") if 'current_step' in dir() else None,
+        flow_key=flow_key,
+        db_path=_db_path(),
+    )
+    if to_source_sc == "model_allocator" and to_alias_sc:
+        _run_allocator_start(to_alias_sc)
+    elif to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
         warm_ollama_model(to_role["ollama_model"])
 
     # Step 8: Inject callback prompt into to_role's tmux session
@@ -1992,7 +2029,14 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text, flow_key, to_role_key, handoff_abs,
         mode=to_role_data.get("trade_mcp_push_mode"))
 
-    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
+    # Warm target role's model via allocator before injection
+    to_source_send, to_alias_send = get_effective_model_source(
+        to_role_key, step_key=target_step.get("step_key"),
+        flow_key=flow_key, db_path=_db_path(),
+    )
+    if to_source_send == "model_allocator" and to_alias_send:
+        _run_allocator_start(to_alias_send)
+    elif to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
         warm_ollama_model(to_role_data["ollama_model"])
 
     # Step 8: Inject prompt into target role's tmux session

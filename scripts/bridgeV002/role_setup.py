@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Role setup script — preload an Ollama model for a role session.
+Role setup script — warm up the model for a role session via Model Allocator.
 Reads role configuration from the database (bridge_roles table).
 No hardcoded paths or model names.
 """
@@ -15,32 +15,31 @@ PROJECT_ROOT = os.environ.get(
 )
 sys.path.insert(0, str(Path(__file__).parent))
 
-from bridge_lib import load_role_from_db
+from bridge_lib import load_role_from_db, get_effective_model_source
+
+import config
+
+
+def _model_allocator_path():
+    return os.path.join(
+        config.get_project_path("model-allocator"), "scripts", "model-allocator"
+    )
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="BridgeV002 role setup — start a role session with fresh context"
+        description="BridgeV002 role setup — warm model via Model Allocator"
     )
-    parser.add_argument("--role", required=True, help="Role key (matches bridge_roles.role_key)")
-    parser.add_argument("--flow-key", default=None,
-                        help="Flow key (e.g. 'heavy', 'simplified')")
-    parser.add_argument("--step-key", default=None,
-                        help="Step key within the flow")
-    parser.add_argument("--from-role", default=None,
-                        help="Source role name")
-    parser.add_argument("--to-role", default=None,
-                        help="Target role name (overrides --role if given)")
-    parser.add_argument("--deliverable-dir", default=None,
-                        help="Deliverable directory relative to bridge_dir")
-    parser.add_argument("--deliverable-pattern", default=None,
-                        help="Deliverable filename pattern with {ID} placeholder")
-    parser.add_argument("--deliverable-file", default=None,
-                        help="Resolved deliverable filename")
-    parser.add_argument("--handoff-id", default=None,
-                        help="Handoff ID")
-    parser.add_argument("--bridge-dir", default=None,
-                        help="Bridge directory path")
+    parser.add_argument("--role", required=True)
+    parser.add_argument("--flow-key", default=None)
+    parser.add_argument("--step-key", default=None)
+    parser.add_argument("--from-role", default=None)
+    parser.add_argument("--to-role", default=None)
+    parser.add_argument("--deliverable-dir", default=None)
+    parser.add_argument("--deliverable-pattern", default=None)
+    parser.add_argument("--deliverable-file", default=None)
+    parser.add_argument("--handoff-id", default=None)
+    parser.add_argument("--bridge-dir", default=None)
     args = parser.parse_args()
 
     if args.flow_key:
@@ -54,26 +53,39 @@ def main():
 
     role_config = load_role_from_db(args.role)
     tmux_session = role_config["tmux_session"]
-    model_type = role_config.get("model_type", "")
-    ollama_model = role_config.get("ollama_model", "")
 
     print(f"Setting up role '{args.role}'...")
     print(f"  Session: {tmux_session}")
-    if model_type:
-        print(f"  Model type: {model_type}")
-    if ollama_model:
-        print(f"  Ollama model: {ollama_model}")
 
-    if model_type == "ollama" and ollama_model:
-        print(f"  Reloading '{ollama_model}' fresh via pull...")
-        result = subprocess.run(
-            ["ollama", "pull", ollama_model],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"  WARNING: Model reload returned non-zero")
+    # Resolve model via allocator
+    model_source, model_alias = get_effective_model_source(
+        args.role, step_key=args.step_key, flow_key=args.flow_key
+    )
 
-    print(f"  Role '{args.role}' started — session '{tmux_session}' ready")
+    if model_source == "model_allocator" and model_alias:
+        print(f"  Warming allocator model '{model_alias}'...")
+        try:
+            result = subprocess.run(
+                [_model_allocator_path(), "start", "--alias", model_alias],
+                capture_output=True, text=True, timeout=180,
+            )
+            if result.returncode == 0:
+                print(f"  Model warmed via allocator")
+            else:
+                print(f"  WARNING: allocator start returned {result.returncode}: {result.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            print(f"  WARNING: allocator start timed out")
+        except Exception as e:
+            print(f"  WARNING: allocator start failed: {e}")
+    elif role_config.get("model_type") == "ollama" and role_config.get("ollama_model"):
+        # Legacy fallback for non-allocator roles (should not exist after Phase 2)
+        print(f"  WARNING: role '{args.role}' not on allocator — using legacy ollama pull")
+        subprocess.run(["ollama", "pull", role_config["ollama_model"]],
+                       capture_output=True, text=True)
+    else:
+        print(f"  No model to warm for role '{args.role}'")
+
+    print(f"  Role '{args.role}' ready — session '{tmux_session}'")
 
 
 if __name__ == "__main__":
