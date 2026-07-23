@@ -138,8 +138,26 @@
                 <div id="allocator-dashboard"></div>
             </div>
         </section>
+        <!-- Job Queue -->
+        <section class="panel-group" id="pg-job-queue">
+            <div class="panel-group-header" data-group="job-queue">
+                <h2 data-slot="pg_job_queue">📋 Job Queue</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+                <div id="job-queue-dashboard"></div>
+            </div>
+        </section>
     </main>
     <script src="/static/js/dpmtf-app.js"></script>
     <script src="/static/js/allocator.js"></script>
+    <script src="/static/js/job-queue.js"></script>
+    <script>
+      // Initialize job queue after labels load
+      if (window.initJobQueue) {
+        var origOnReady = window.onReady || function(){};
+        window.onReady = function() { origOnReady(); window.initJobQueue(); };
+      }
+    </script>
 </body>
 </html>
