@@ -37,13 +37,16 @@ def _table_names(db_path: str) -> set[str]:
 
 
 def test_migrate_idempotent(temp_db_path):
+    # Dynamically discover all migration files
+    all_migrations = sorted(f.name for f in migrate.MIGRATIONS_DIR.glob("*.sql"))
+    
     first = migrate.run_migrations(temp_db_path)
-    assert first["applied"] == ["001_baseline.sql", "002_drop_dead_tables.sql"]
+    assert first["applied"] == all_migrations
     assert first["skipped"] == 0
 
     second = migrate.run_migrations(temp_db_path)
     assert second["applied"] == []
-    assert second["skipped"] == 2
+    assert second["skipped"] == len(all_migrations)
 
 
 def test_baseline_creates_all_tables(temp_db_path):
@@ -95,15 +98,16 @@ def test_baseline_creates_all_tables(temp_db_path):
 
 
 def test_schema_migrations_tracks_baseline(temp_db_path):
+    all_migrations = sorted(f.name for f in migrate.MIGRATIONS_DIR.glob("*.sql"))
     migrate.run_migrations(temp_db_path)
     conn = sqlite3.connect(temp_db_path)
     try:
         rows = conn.execute(
             "SELECT filename, applied_at FROM schema_migrations"
         ).fetchall()
-        assert len(rows) == 2
+        assert len(rows) == len(all_migrations)
         filenames = {row[0] for row in rows}
-        assert filenames == {"001_baseline.sql", "002_drop_dead_tables.sql"}
+        assert filenames == set(all_migrations)
         for _, applied_at in rows:
             assert applied_at is not None and len(applied_at) > 0
     finally:
