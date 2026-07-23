@@ -41,10 +41,14 @@ class Scheduler:
         # 1. Recover expired leases
         recovered = self.repo.recover_expired_leases()
 
+        # 1b. Check all RUNNING jobs for completion
+        completed_jobs = self._check_running_jobs()
+
         # 2. Claim oldest APPROVED job
         job = self.repo.claim(self.worker_id)
         if job is None:
-            return {"claimed": False, "recovered": recovered}
+            return {"claimed": False, "recovered": recovered,
+                    "completed": completed_jobs}
 
         result = {"claimed": True, "job_id": job.job_id, "recovered": recovered}
 
@@ -108,6 +112,26 @@ class Scheduler:
                 pass
 
         return result
+
+    def _check_running_jobs(self) -> list[str]:
+        """Check all RUNNING jobs for deliverable files.
+
+        If a deliverable is found, transition to VERIFYING → write checkpoint → COMPLETED.
+        Returns list of completed job_ids.
+        """
+        completed = []
+        running_jobs = self.repo.list_jobs(status="RUNNING")
+        for job in running_jobs:
+            if self._check_completion(job):
+                try:
+                    self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                    self._write_checkpoint(job)
+                    self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
+                    completed.append(job.job_id)
+                    print(f"  Job {job.job_id} completed — checkpoint written")
+                except IllegalTransitionError:
+                    pass  # State changed concurrently
+        return completed
 
     def _context_fit_check(self, job: Job) -> str:
         """Evaluate context fit using real allocator context window."""
@@ -276,19 +300,20 @@ class Scheduler:
 
     def _check_completion(self, job: Job) -> bool:
         """Check if the job's deliverable file exists."""
-        # Check for deliverable in the bridge directory
-        bridge_dir = config.get_bridge_base_path()
-        # Look for files matching the handoff pattern
+        # Use env var or config for bridge dir
+        bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
         import glob
+        hid = job.handoff_id or ""
+        if not hid:
+            return False
         patterns = [
-            os.path.join(bridge_dir, job.flow_key, "**", f"*{job.handoff_id or job.job_id[-3:]}*"),
-            os.path.join(bridge_dir, "**", f"*{job.handoff_id}*"),
+            os.path.join(bridge_dir, job.flow_key, "**", f"*{hid}*"),
+            os.path.join(bridge_dir, "**", f"*{hid}*"),
         ]
         for pattern in patterns:
             matches = glob.glob(pattern, recursive=True)
             if matches:
                 return True
-        # If no handoff_id is set, we can't check — assume not complete
         return False
 
     def _auto_split(self, job: Job, fit_state: str):
