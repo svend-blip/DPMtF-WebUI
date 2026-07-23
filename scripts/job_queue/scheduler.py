@@ -80,6 +80,8 @@ class Scheduler:
 
             # 6. Compile handoff prompt + write handoff file + dispatch
             self._compile_handoff(job)
+            # Refresh job to get the handoff_id set by _compile_handoff
+            job = self.repo.get_job(job.job_id)
             dispatch_result = self._dispatch(job)
             result["dispatch"] = dispatch_result
 
@@ -226,13 +228,32 @@ class Scheduler:
         print(f"  Handoff file written: {handoff_path}")
 
     def _dispatch(self, job: Job) -> dict:
-        """Dispatch the job via dispatch.py signal_send."""
+        """Dispatch the job via dispatch.py signal_send.
+
+        Uses the step's from_role (not hardcoded) so it works for any step
+        in the flow, not just the first.
+        """
+        # Resolve from_role from the step
+        from bridge_lib import load_flow_from_db
+        try:
+            flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
+            from_role = "human"  # default for first step
+            for s in flow_data["steps"]:
+                if s.get("to_role") == job.role_key:
+                    from_role = s.get("from_role", "human")
+                    break
+                if s.get("from_role") == job.role_key:
+                    # This role is a sender, not a receiver — skip
+                    continue
+        except Exception:
+            from_role = "human"
+
         try:
             result = subprocess.run(
                 [sys.executable, self.dispatch_script,
                  "--db-flow", job.flow_key,
                  "--signal-send",
-                 "--from-role", "human",
+                 "--from-role", from_role,
                  "--to-role", job.role_key,
                  "--id", job.handoff_id or job.job_id[-3:]],
                 capture_output=True, text=True,
