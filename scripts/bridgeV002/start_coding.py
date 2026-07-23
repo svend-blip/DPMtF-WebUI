@@ -243,13 +243,17 @@ def main():
                         print(f"      stderr: {exc.stderr.strip()}")
 
             try:
+                run_cmd = [
+                    model_allocator_path,
+                    "run",
+                    "--role", role["role_key"],
+                    "--client", role["default_runtime"],
+                ]
+                # Pass per-role max_output_tokens from DB
+                if role.get("max_output_tokens"):
+                    run_cmd += ["--max-output-tokens", str(role["max_output_tokens"])]
                 result = subprocess.run(
-                    [
-                        model_allocator_path,
-                        "run",
-                        "--role", role["role_key"],
-                        "--client", role["default_runtime"],
-                    ],
+                    run_cmd,
                     capture_output=True,
                     text=True,
                     check=True,
