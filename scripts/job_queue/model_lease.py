@@ -39,9 +39,109 @@ class Lease:
 
 
 class LeaseRegistry:
-    """In-memory lease registry. Production would use SQLite."""
+    """Lease registry with SQLite persistence.
 
-    _leases: dict[str, list[Lease]] = {}  # alias → list of active leases
+    Leases are stored in the DPMtF database so they survive process restarts.
+    Falls back to in-memory if the database is unavailable.
+    """
+
+    _leases: dict[str, list[Lease]] = {}  # alias → list of active leases (in-memory fallback)
+    _db_path: str = None
+
+    @classmethod
+    def _get_db_path(cls) -> str:
+        if cls._db_path:
+            return cls._db_path
+        try:
+            import config
+            p = config.get_db_path()
+            import os
+            if not os.path.isabs(p):
+                p = os.path.join(str(config.get_project_root()), p)
+            cls._db_path = p
+            return p
+        except Exception:
+            return 
+
+    @classmethod
+    def _ensure_table(cls):
+        """Create model_leases table if it doesn't exist."""
+        p = cls._get_db_path()
+        if not p:
+            return
+        import sqlite3
+        try:
+            conn = sqlite3.connect(p)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS model_leases (
+                    lease_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id TEXT NOT NULL,
+                    alias TEXT NOT NULL,
+                    worker_id TEXT,
+                    acquired_at TEXT DEFAULT (datetime('now')),
+                    UNIQUE(job_id, alias)
+                )
+            """)
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    @classmethod
+    def _load_from_db(cls, alias: str) -> list[Lease]:
+        """Load active leases for an alias from SQLite."""
+        cls._ensure_table()
+        p = cls._get_db_path()
+        if not p:
+            return cls._leases.get(alias, [])
+        import sqlite3
+        try:
+            conn = sqlite3.connect(p)
+            rows = conn.execute(
+                "SELECT job_id, alias, worker_id, acquired_at FROM model_leases WHERE alias = ?",
+                (alias,)
+            ).fetchall()
+            conn.close()
+            return [Lease(job_id=r[0], alias=r[1], worker_id=r[2] or "", acquired_at=r[3] or "") for r in rows]
+        except Exception:
+            return cls._leases.get(alias, [])
+
+    @classmethod
+    def _save_lease_to_db(cls, lease: Lease):
+        """Persist a lease to SQLite."""
+        cls._ensure_table()
+        p = cls._get_db_path()
+        if not p:
+            return
+        import sqlite3
+        try:
+            conn = sqlite3.connect(p)
+            conn.execute(
+                "INSERT OR IGNORE INTO model_leases (job_id, alias, worker_id) VALUES (?, ?, ?)",
+                (lease.job_id, lease.alias, lease.worker_id)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    @classmethod
+    def _delete_lease_from_db(cls, job_id: str, alias: str):
+        """Remove a lease from SQLite."""
+        p = cls._get_db_path()
+        if not p:
+            return
+        import sqlite3
+        try:
+            conn = sqlite3.connect(p)
+            conn.execute(
+                "DELETE FROM model_leases WHERE job_id = ? AND alias = ?",
+                (job_id, alias)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
     @classmethod
     def acquire(cls, job_id: str, alias: str, worker_id: str = "") -> Lease:
@@ -69,15 +169,24 @@ class LeaseRegistry:
         
         Returns True if model was stopped, False if other leases remain.
         """
-        if alias not in cls._leases:
-            return False
+        # Check if any leases existed before removing
+        active_before = cls._load_from_db(alias)
+        in_mem_before = cls._leases.get(alias, [])
+        had_lease = any(l.job_id == job_id for l in active_before) or any(l.job_id == job_id for l in in_mem_before)
         
-        # Remove this job's lease
-        before = len(cls._leases[alias])
-        cls._leases[alias] = [l for l in cls._leases[alias] if l.job_id != job_id]
-        after = len(cls._leases[alias])
+        # Remove from in-memory
+        if alias in cls._leases:
+            cls._leases[alias] = [l for l in cls._leases[alias] if l.job_id != job_id]
         
-        if after == 0 and before > 0:
+        # Remove from DB
+        cls._delete_lease_from_db(job_id, alias)
+        
+        # Check remaining leases
+        active = cls._load_from_db(alias)
+        in_mem = cls._leases.get(alias, [])
+        total = len(active) + len(in_mem)
+        
+        if total == 0 and had_lease:
             # No more leases — stop the model
             cls._stop_model(alias)
             return True
@@ -92,7 +201,9 @@ class LeaseRegistry:
     @classmethod
     def lease_count(cls, alias: str) -> int:
         """Number of active leases for an alias."""
-        return len(cls._leases.get(alias, []))
+        in_mem = len(cls._leases.get(alias, []))
+        from_db = len(cls._load_from_db(alias))
+        return max(in_mem, from_db)
 
     @classmethod
     def is_loaded(cls, alias: str) -> bool:

@@ -53,6 +53,14 @@ class Scheduler:
             fit_state = self._context_fit_check(job)
             self.repo.update(job.job_id, context_fit_state=fit_state)
 
+            if fit_state == "SPLIT_REQUIRED":
+                # Auto-split: create continuation jobs
+                self._auto_split(job, fit_state)
+                self.repo.transition(job.job_id, "BLOCKED",
+                    detail=f"auto-split: {fit_state}")
+                result["outcome"] = "split"
+                return result
+
             if fit_state not in ("FITS", "FITS_WITH_LOW_MARGIN"):
                 # Not executable — block and require human
                 self.repo.transition(job.job_id, "BLOCKED",
@@ -70,7 +78,8 @@ class Scheduler:
                     self.repo.update(job.job_id, allocator_alias=alias)
                     job = self.repo.get_job(job.job_id)
 
-            # 6. Dispatch (signal_send to start the role)
+            # 6. Compile handoff prompt + write handoff file + dispatch
+            self._compile_handoff(job)
             dispatch_result = self._dispatch(job)
             result["dispatch"] = dispatch_result
 
@@ -99,12 +108,14 @@ class Scheduler:
         return result
 
     def _context_fit_check(self, job: Job) -> str:
-        """Evaluate context fit. Returns a fit state."""
-        # Simple heuristic for now — production will use context_fit_spike
-        # If goal is very large, require split
+        """Evaluate context fit using real allocator context window."""
+        ctx_window = self._resolve_context_window(job)
         goal_tokens = len(job.goal) // 4
-        if goal_tokens > 5000:
+        # Simple heuristic: if goal tokens exceed 30% of context window, flag it
+        if goal_tokens > ctx_window * 0.3:
             return "SPLIT_REQUIRED"
+        if goal_tokens > ctx_window * 0.15:
+            return "FITS_WITH_LOW_MARGIN"
         return "FITS"
 
     def _resolve_alias(self, job: Job) -> str:
@@ -114,6 +125,105 @@ class Scheduler:
             job.role_key, flow_key=job.flow_key, db_path=self.repo.db_path
         )
         return alias or ""
+
+    def _resolve_context_window(self, job: Job) -> int:
+        """Resolve the model's context window via allocator."""
+        if not job.allocator_alias:
+            return 131072
+        try:
+            result = subprocess.run(
+                [self.allocator_script, "validate",
+                 "--alias", job.allocator_alias,
+                 "--client", "opencode",
+                 "--json"],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode in (0, 2):
+                data = json.loads(result.stdout)
+                return data.get("resolved_context", 131072) or 131072
+        except Exception:
+            pass
+        return 131072
+
+    def _compile_handoff(self, job: Job):
+        """Compile the handoff prompt and write the handoff file.
+
+        Calls the prompt_compiler logic internally (not via HTTP) to generate
+        the handoff file that dispatch.py --signal-send expects to exist.
+        """
+        bridge_dir = config.get_bridge_base_path()
+        from bridge_lib import load_flow_from_db, get_next_id_for_flow, load_role_from_db
+        from dispatch import build_step_payload
+
+        flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
+        steps = flow_data["steps"]
+
+        # Find the step matching this role
+        step = None
+        for s in steps:
+            if s.get("to_role") == job.role_key or s.get("from_role") == job.role_key:
+                step = s
+                break
+        if not step:
+            step = steps[0] if steps else None
+        if not step:
+            return
+
+        # Assign handoff ID
+        handoff_id = str(get_next_id_for_flow(job.flow_key, db_path=self.repo.db_path))
+        self.repo.update(job.job_id, handoff_id=handoff_id)
+        job = self.repo.get_job(job.job_id)
+
+        # Build payload
+        payload = build_step_payload(step, job.flow_key, handoff_id, bridge_dir)
+
+        # Load to_role governance
+        to_role = load_role_from_db(payload["to_role"], db_path=self.repo.db_path)
+        gov_file = to_role.get("governance_file", "")
+        gov_path = str(PROJECT_ROOT / "docs" / "governance-templates-v2" / gov_file) if gov_file else ""
+
+        # Build handoff prompt
+        deliverable_dir = payload.get("deliverable_dir", "")
+        result_dir = os.path.join(os.path.dirname(deliverable_dir) if deliverable_dir else bridge_dir, "results")
+        result_path = os.path.join(result_dir, f"{handoff_id}-result.md")
+        signal_cmd = f"python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key}"
+
+        lines = [
+            f"<role>You are {job.role_key} in the DPMtF {job.flow_key} flow.",
+        ]
+        if gov_path:
+            lines.append(f"Your role is defined in {gov_path}.")
+        lines.append("Read it now before proceeding.</role>")
+        lines.append("")
+        lines.append(f"<handoff_id>{handoff_id}</handoff_id>")
+        lines.append(f"<project>{job.target_project}</project>")
+        lines.append("<context>")
+        lines.append(f"Human has approved scope for this job.")
+        lines.append(f"Flow: {job.flow_key}, Role: {job.role_key}")
+        lines.append("</context>")
+        lines.append("<task>")
+        lines.append(job.goal)
+        lines.append("")
+        lines.append("When ALL steps are complete, execute the bridge signal:")
+        lines.append(f"1. Write result file to {result_path}")
+        lines.append(f"2. SIGNAL completion: {signal_cmd}")
+        lines.append("</task>")
+        lines.append("<constraint>")
+        lines.append("DO NOT COMMIT. Leave all changes unstaged.")
+        lines.append("Execute ALL steps in <task> — especially the signal completion command.")
+        lines.append("</constraint>")
+
+        prompt_text = "\n".join(lines)
+
+        # Write handoff file
+        deliverable_pattern = payload.get("deliverable_pattern", "{ID}-handoff.md")
+        deliverable_file = deliverable_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
+        handoff_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
+        os.makedirs(os.path.dirname(handoff_path), exist_ok=True)
+        with open(handoff_path, "w", encoding="utf-8") as f:
+            f.write(prompt_text)
+
+        print(f"  Handoff file written: {handoff_path}")
 
     def _dispatch(self, job: Job) -> dict:
         """Dispatch the job via dispatch.py signal_send."""
@@ -159,6 +269,35 @@ class Scheduler:
                 return True
         # If no handoff_id is set, we can't check — assume not complete
         return False
+
+    def _auto_split(self, job: Job, fit_state: str):
+        """Auto-split an oversized job into continuation jobs."""
+        ctx_window = self._resolve_context_window(job)
+        from handoff_compiler import compile_handoff
+        compiled = compile_handoff(
+            goal=job.goal, flow_key=job.flow_key, role_key=job.role_key,
+            target_project=job.target_project, model_context_window=ctx_window,
+        )
+        for i, cj in enumerate(compiled):
+            if i == 0 and cj.context_fit_state in ("FITS", "FITS_WITH_LOW_MARGIN"):
+                continue  # First chunk already fits — keep original job
+            self.repo.create_job(
+                flow_key=cj.flow_key, role_key=cj.role_key,
+                goal=cj.goal, target_project=cj.target_project,
+                allocator_alias=job.allocator_alias,
+                parent_job_id=job.job_id,
+            )
+        print(f"  Auto-split: created {len(compiled)} continuation jobs")
+
+    def run_loop(self, max_iterations: int = 10) -> list[dict]:
+        """Run scheduler ticks until no more APPROVED jobs or max iterations."""
+        results = []
+        for i in range(max_iterations):
+            result = self.tick()
+            results.append(result)
+            if not result.get("claimed"):
+                break
+        return results
 
     def _write_checkpoint(self, job: Job):
         """Write a structured checkpoint for the completed job."""

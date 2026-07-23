@@ -1437,6 +1437,60 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     except Exception:
         pass  # Lease registry not available — non-fatal
 
+    # Check if this role uses python_runtime as execution backend
+    # (instead of tmux injection via OpenCode/Claude Code)
+    runtime_override = current_step.get("runtime_override", "") if current_step else ""
+    if runtime_override == "python_runtime":
+        print(f"  Execution backend: python_runtime")
+        runtime_script = str(Path(__file__).resolve().parent.parent / "python-runtime" / "runtime.py")
+        result_path = os.path.join(bridge_dir, payload["deliverable_dir"],
+                                   f"{handoff_id}-result.md")
+        try:
+            rt_result = subprocess.run(
+                [sys.executable, runtime_script,
+                 "--prompt-file", full_deliverable_path,
+                 "--project-root", config.get_project_root(),
+                 "--handoff-id", handoff_id,
+                 "--result-path", result_path,
+                 "--allocator-role", payload["to_role"],
+                 "--allocator-client", to_role.get("default_runtime", "opencode"),
+                 "--flow", flow_key,
+                 "--role", payload["to_role"],
+                 "--step-key", payload.get("step_key", ""),
+                 "--no-signal"],
+                capture_output=True, text=True,
+                timeout=600,
+            )
+            if rt_result.returncode == 0:
+                print(f"  Python runtime completed successfully")
+                # Write checkpoint
+                try:
+                    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+                    from checkpoint_integration import create_checkpoint_for_dispatch
+                    create_checkpoint_for_dispatch(
+                        handoff_id=handoff_id, flow_key=flow_key,
+                        step_key=payload["step_key"],
+                        from_role=payload["from_role"], to_role=payload["to_role"],
+                        deliverable_path=result_path, bridge_dir=bridge_dir,
+                        model_alias=to_alias_sc if to_source_sc == "model_allocator" else "",
+                    )
+                except Exception:
+                    pass
+                log(f"{payload['from_role']}->{payload['to_role']}", handoff_id,
+                    "signal_complete", f"Python runtime completed")
+                return True
+            else:
+                print(f"  Python runtime FAILED: {rt_result.stderr[-500:]}")
+                log(f"{payload['from_role']}->{payload['to_role']}", handoff_id,
+                    "signal_complete_failed", f"Python runtime failed")
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"  Python runtime timed out")
+            return False
+        except Exception as e:
+            print(f"  Python runtime error: {e}")
+            return False
+
     # Step 8: Inject callback prompt into to_role's tmux session
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
@@ -1502,6 +1556,39 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             print(f"  Checkpoint written: {cp_path}")
     except Exception as e:
         print(f"  Checkpoint creation skipped: {e}")
+
+    # Step 9c: Load previous checkpoint and append to prompt for fresh-context start
+    try:
+        checkpoint_dir = os.path.join(PROJECT_ROOT, "jobs", "checkpoints")
+        # Find the most recent checkpoint from the from_role
+        import glob
+        cp_patterns = [
+            os.path.join(checkpoint_dir, f"*{payload['from_role']}*"),
+            os.path.join(checkpoint_dir, f"*{handoff_id}*"),
+        ]
+        for pattern in cp_patterns:
+            cp_files = sorted(glob.glob(pattern), reverse=True)
+            if cp_files:
+                with open(cp_files[0], "r", encoding="utf-8") as f:
+                    cp_data = json.load(f)
+                cp_summary = cp_data.get("implementation_summary", "")
+                cp_changed = cp_data.get("changed_files", [])
+                cp_verification = cp_data.get("verification_results", [])
+                if cp_summary or cp_changed:
+                    verif_lines = []
+                    for v in cp_verification:
+                        verif_lines.append(f'{v.get("check","?")} {v.get("file","?")}: {v.get("status","?")}')
+                    verif_str = "; ".join(verif_lines) if verif_lines else "(none)"
+                    prompt_text += (
+                        f"\n\n## Previous Step Checkpoint\n"
+                        f"Summary: {cp_summary[:500]}\n"
+                        f"Changed files: {', '.join(cp_changed) if cp_changed else '(none)'}\n"
+                        f"Verification: {verif_str}\n"
+                        f"This is a machine-generated checkpoint — you do not need the previous conversation."
+                    )
+                break
+    except Exception:
+        pass  # No checkpoint available — non-fatal
 
     # Step 10: Update symlink
     deliverable_dir = payload["deliverable_dir"]

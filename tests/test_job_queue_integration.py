@@ -51,7 +51,10 @@ def test_context_fit_blocks_oversized(tmp_path):
     repo.transition(job_id, "APPROVED")
     
     sched = Scheduler(db_path=db)
-    result = sched.tick()
+    with patch.object(sched, '_resolve_context_window', return_value=16000), \
+         patch.object(sched, '_auto_split'), \
+         patch.object(sched, '_resolve_alias', return_value='archi-local'):
+        result = sched.tick()
     
     job = repo.get_job(job_id)
     assert job.status == "BLOCKED"
@@ -69,7 +72,9 @@ def test_context_fit_allows_normal(tmp_path):
     sched = Scheduler(db_path=db)
     with patch.object(sched, '_dispatch', return_value={"status": "ok"}), \
          patch.object(sched, '_check_completion', return_value=True), \
-         patch.object(sched, '_resolve_alias', return_value="archi-local"):
+         patch.object(sched, '_resolve_alias', return_value="archi-local"), \
+         patch.object(sched, '_compile_handoff'), \
+         patch.object(sched, '_resolve_context_window', return_value=131072):
         result = sched.tick()
     
     job = repo.get_job(job_id)
@@ -89,7 +94,9 @@ def test_checkpoint_written_on_completion(tmp_path):
     sched = Scheduler(db_path=db)
     with patch.object(sched, '_dispatch', return_value={"status": "ok"}), \
          patch.object(sched, '_check_completion', return_value=True), \
-         patch.object(sched, '_resolve_alias', return_value="archi-local"):
+         patch.object(sched, '_resolve_alias', return_value="archi-local"), \
+         patch.object(sched, '_compile_handoff'), \
+         patch.object(sched, '_resolve_context_window', return_value=131072):
         sched.tick()
     
     job = repo.get_job(job_id)

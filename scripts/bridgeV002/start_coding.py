@@ -214,6 +214,48 @@ def main():
             role["default_runtime"], role["default_runtime"]
         )
 
+        # Freebuff is a separate execution runtime, not a model backend.
+        # It starts directly via its binary — no allocator involvement.
+        if role["default_runtime"] == "freebuff":
+            try:
+                mp_binaries = machine_profile.get("binaries", {})
+                freebuff_bin = mp_binaries.get("freebuff", "freebuff")
+                if os.path.isabs(freebuff_bin):
+                    if not (os.path.isfile(freebuff_bin) and os.access(freebuff_bin, os.X_OK)):
+                        print(f"  {role['role_key']:15s} → '{session_name}'")
+                        print(f"  ERROR: Freebuff binary not found: {freebuff_bin}")
+                        errors.append(role["role_key"])
+                        continue
+                else:
+                    import shutil
+                    freebuff_bin = shutil.which(freebuff_bin)
+                    if not freebuff_bin:
+                        print(f"  {role['role_key']:15s} → '{session_name}'")
+                        print(f"  ERROR: Freebuff binary not found on PATH")
+                        errors.append(role["role_key"])
+                        continue
+
+                cwd = project_root
+                mp_paths = machine_profile.get("paths", {})
+                cwd = mp_paths.get("project_root", project_root)
+                cmd_str = f"cd {cwd} && {freebuff_bin}"
+                print(f"  {role['role_key']:15s} → '{session_name}'  (freebuff) ...")
+                ok = run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root)
+                if ok:
+                    started.append(session_name)
+                    print(f"    Command sent to session.")
+                else:
+                    errors.append(role["role_key"])
+                continue
+            except Exception as e:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR: Freebuff startup failed: {e}")
+                errors.append(role["role_key"])
+                continue
+        allocator_client = runtime_to_client.get(
+            role["default_runtime"], role["default_runtime"]
+        )
+
         # V1B pilot: use Model Allocator when role opts in.
         model_source, model_alias = get_effective_model_source(
             role["role_key"], db_path=db_path
