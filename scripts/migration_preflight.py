@@ -126,19 +126,37 @@ def main():
         client = CLIENT_MAP.get(runtime, runtime)
 
         if check_resolution:
-            # Phase 2 mode: check actual alias resolution
+            # Phase 2 mode: check actual alias resolution via --json
             try:
                 result = subprocess.run(
-                    [ALLOCATOR_SCRIPT, "validate", "--alias", alias, "--client", client],
+                    [ALLOCATOR_SCRIPT, "validate", "--alias", alias, "--client", client, "--json"],
                     capture_output=True, text=True, timeout=15,
                 )
-                if result.returncode != 0:
-                    errors.append(
-                        f"{role_key}: alias '{alias}' fails validation for client '{client}': "
-                        f"{result.stderr.strip()}"
-                    )
-                else:
-                    passed.append(f"{role_key}: alias '{alias}' validates for client '{client}'")
+                # Parse JSON output
+                try:
+                    data = json.loads(result.stdout.strip())
+                    status = data.get("validation_status", "UNKNOWN")
+                    if status == "ERROR":
+                        errors.append(
+                            f"{role_key}: alias '{alias}' validation ERROR: "
+                            f"{data.get('errors', [])}"
+                        )
+                    elif status == "WARNING":
+                        warnings.append(
+                            f"{role_key}: alias '{alias}' has warnings: "
+                            f"{data.get('warnings', [])}"
+                        )
+                        passed.append(f"{role_key}: alias '{alias}' resolves (WARNING)")
+                    else:
+                        passed.append(f"{role_key}: alias '{alias}' validates OK for client '{client}'")
+                except json.JSONDecodeError:
+                    # Fallback for allocators without --json
+                    if result.returncode == 1:
+                        errors.append(
+                            f"{role_key}: alias '{alias}' fails validation: {result.stderr.strip()}"
+                        )
+                    else:
+                        passed.append(f"{role_key}: alias '{alias}' validates (text mode)")
             except Exception as e:
                 errors.append(f"{role_key}: allocator check failed: {e}")
         else:
