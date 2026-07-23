@@ -1421,3 +1421,106 @@ async def bridge_v2_db_backup():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database backup failed: {e}")
+
+# ── Job Queue endpoints ──────────────────────────────────────────
+
+@router.post("/jobs")
+async def bridge_v2_create_job(request: Request):
+    """Create a job in DRAFT state."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from job_queue.models import JobRepository
+
+    data = await request.json()
+    required = ["flow_key", "role_key", "goal", "target_project"]
+    for field in required:
+        if not data.get(field):
+            raise HTTPException(status_code=400, detail=f"Missing field: {field}")
+
+    repo = JobRepository()
+    try:
+        job_id = repo.create_job(
+            flow_key=data["flow_key"],
+            role_key=data["role_key"],
+            goal=data["goal"],
+            target_project=data["target_project"],
+            allocator_alias=data.get("allocator_alias", ""),
+            step_key=data.get("step_key", ""),
+            priority=data.get("priority", 0),
+            idempotency_key=data.get("idempotency_key", ""),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"job_id": job_id, "status": "DRAFT"}
+
+
+@router.put("/jobs/{job_id}/approve")
+async def bridge_v2_approve_job(job_id: str):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from job_queue.models import JobRepository, IllegalTransitionError
+
+    repo = JobRepository()
+    try:
+        repo.transition(job_id, "AWAITING_APPROVAL", actor="human")
+        repo.transition(job_id, "APPROVED", actor="human")
+    except IllegalTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {"job_id": job_id, "status": "APPROVED"}
+
+
+@router.get("/jobs")
+async def bridge_v2_list_jobs(status: str = None, flow_key: str = None):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from job_queue.models import JobRepository
+
+    repo = JobRepository()
+    jobs = repo.list_jobs(status=status, flow_key=flow_key)
+    return {"jobs": [j.__dict__ for j in jobs], "count": len(jobs)}
+
+
+@router.get("/jobs/{job_id}")
+async def bridge_v2_get_job(job_id: str):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from job_queue.models import JobRepository
+
+    repo = JobRepository()
+    job = repo.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    events = repo.get_events(job_id)
+    return {"job": job.__dict__, "events": events}
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def bridge_v2_cancel_job(job_id: str):
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from job_queue.models import JobRepository, IllegalTransitionError
+
+    repo = JobRepository()
+    try:
+        repo.transition(job_id, "CANCELLED", actor="human")
+    except IllegalTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return {"job_id": job_id, "status": "CANCELLED"}
+
+
+@router.post("/jobs/scheduler/tick")
+async def bridge_v2_scheduler_tick():
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from job_queue.scheduler import Scheduler
+
+    sched = Scheduler()
+    result = sched.tick()
+    return result
