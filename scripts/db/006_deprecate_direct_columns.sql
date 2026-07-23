@@ -1,0 +1,6 @@
+-- Migration 006: Deprecate direct model columns.
+-- These columns are now ignored when default_model_source = 'model_allocator'
+-- (which is set for all non-human, non-Freebuff roles by migration 005).
+-- They remain for backwards compatibility / rollback.
+-- No schema change — this is a documentation migration.
+-- NOTE: migrate.py records this filename in schema_migrations automatically.
