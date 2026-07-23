@@ -1428,6 +1428,15 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     elif to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
         warm_ollama_model(to_role["ollama_model"])
 
+    # Acquire model lease for the target role (reference-counted unload)
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+        from model_lease import LeaseRegistry
+        if to_source_sc == "model_allocator" and to_alias_sc:
+            LeaseRegistry.acquire(handoff_id, to_alias_sc, worker_id="dispatch")
+    except Exception:
+        pass  # Lease registry not available — non-fatal
+
     # Step 8: Inject callback prompt into to_role's tmux session
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
@@ -1446,7 +1455,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         f"Callback dispatched to {tmux_session} (DB-driven)",
     )
 
-    # Step 9: Post-dispatch - stop from_role's Ollama model (VRAM cleanup)
+    # Step 9: Post-dispatch - release lease + stop from_role's model (VRAM cleanup)
     try:
         from_role_data = load_role_from_db(payload["from_role"],
                                            db_path=_db_path())
@@ -1457,11 +1466,42 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             db_path=_db_path(),
         )
         if from_source == "model_allocator" and from_alias:
-            _run_allocator_stop(from_alias)
+            # Release lease first — model only stops if no other job holds it
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+                from model_lease import LeaseRegistry
+                stopped = LeaseRegistry.release(handoff_id, from_alias)
+                if not stopped:
+                    print(f"  Model '{from_alias}' still leased by other jobs — not stopping")
+                else:
+                    print(f"  Stopped allocator model '{from_alias}' (last lease released)")
+            except ImportError:
+                _run_allocator_stop(from_alias)
         elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
             unload_ollama_model(from_role_data["ollama_model"])
     except ValueError:
         pass  # from_role not in DB - not an ollama role, skip
+
+    # Step 9b: Write structured checkpoint for this completed step
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+        from checkpoint_integration import create_checkpoint_for_dispatch
+        cp_path = create_checkpoint_for_dispatch(
+            handoff_id=handoff_id,
+            flow_key=flow_key,
+            step_key=payload["step_key"],
+            from_role=payload["from_role"],
+            to_role=payload["to_role"],
+            deliverable_path=full_deliverable_path,
+            bridge_dir=bridge_dir,
+            model_alias=from_alias if from_source == "model_allocator" else "",
+            model_backend=from_source or "",
+            concrete_model=from_role_data.get("ollama_model", "") if from_role_data else "",
+        )
+        if cp_path:
+            print(f"  Checkpoint written: {cp_path}")
+    except Exception as e:
+        print(f"  Checkpoint creation skipped: {e}")
 
     # Step 10: Update symlink
     deliverable_dir = payload["deliverable_dir"]

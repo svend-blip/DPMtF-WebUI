@@ -1524,3 +1524,52 @@ async def bridge_v2_scheduler_tick():
     sched = Scheduler()
     result = sched.tick()
     return result
+
+
+# ── Handoff Compiler endpoint ─────────────────────────────────────
+
+@router.post("/jobs/compile")
+async def bridge_v2_compile_handoff(request: Request):
+    """Compile an approved goal into bounded execution jobs.
+
+    Body: {goal, flow_key, role_key, target_project, model_context_window}
+    Returns: {jobs: [...], count: N}
+    """
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "job_queue"))
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "python-runtime"))
+    from handoff_compiler import compile_handoff, create_jobs_from_compiled
+    from job_queue.models import JobRepository
+    from context_fit_spike import evaluate_fit
+
+    data = await request.json()
+    required = ["goal", "flow_key", "role_key", "target_project"]
+    for field in required:
+        if not data.get(field):
+            raise HTTPException(status_code=400, detail=f"Missing field: {field}")
+
+    # Default context window: 131072 (will be overridden by allocator in production)
+    model_ctx = data.get("model_context_window", 131072)
+
+    compiled = compile_handoff(
+        goal=data["goal"],
+        flow_key=data["flow_key"],
+        role_key=data["role_key"],
+        target_project=data["target_project"],
+        model_context_window=model_ctx,
+    )
+
+    # Create jobs in the queue
+    repo = JobRepository()
+    job_ids = create_jobs_from_compiled(
+        repo, compiled,
+        allocator_alias=data.get("allocator_alias", ""),
+    )
+
+    return {
+        "jobs": [{"job_id": jid, "goal": c.goal, "context_fit_state": c.context_fit_state,
+                   "is_continuation": c.is_continuation}
+                  for jid, c in zip(job_ids, compiled)],
+        "count": len(job_ids),
+    }

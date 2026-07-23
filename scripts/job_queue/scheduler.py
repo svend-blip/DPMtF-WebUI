@@ -117,22 +117,48 @@ class Scheduler:
 
     def _dispatch(self, job: Job) -> dict:
         """Dispatch the job via dispatch.py signal_send."""
-        # For now, we record the intent — actual dispatch requires
-        # a compiled handoff file, which the prompt_compiler produces.
-        # In production, this calls prompt_compiler internally.
-        return {
-            "action": "signal_send",
-            "flow_key": job.flow_key,
-            "role_key": job.role_key,
-            "allocator_alias": job.allocator_alias,
-            "status": "dispatched"
-        }
+        try:
+            result = subprocess.run(
+                [sys.executable, self.dispatch_script,
+                 "--db-flow", job.flow_key,
+                 "--signal-send",
+                 "--from-role", "human",
+                 "--to-role", job.role_key,
+                 "--id", job.handoff_id or job.job_id[-3:]],
+                capture_output=True, text=True,
+                cwd=str(PROJECT_ROOT),
+                timeout=120,
+            )
+            return {
+                "action": "signal_send",
+                "flow_key": job.flow_key,
+                "role_key": job.role_key,
+                "allocator_alias": job.allocator_alias,
+                "status": "dispatched" if result.returncode == 0 else "failed",
+                "returncode": result.returncode,
+                "output": (result.stdout or "")[-500:],
+            }
+        except subprocess.TimeoutExpired:
+            return {"action": "signal_send", "status": "timeout"}
+        except Exception as e:
+            return {"action": "signal_send", "status": "error", "error": str(e)}
 
     def _check_completion(self, job: Job) -> bool:
-        """Check if the job's deliverable exists and validates."""
-        # For now, a job is "completed" if it was dispatched.
-        # In production, this checks for the deliverable file + validation.
-        return True
+        """Check if the job's deliverable file exists."""
+        # Check for deliverable in the bridge directory
+        bridge_dir = config.get_bridge_base_path()
+        # Look for files matching the handoff pattern
+        import glob
+        patterns = [
+            os.path.join(bridge_dir, job.flow_key, "**", f"*{job.handoff_id or job.job_id[-3:]}*"),
+            os.path.join(bridge_dir, "**", f"*{job.handoff_id}*"),
+        ]
+        for pattern in patterns:
+            matches = glob.glob(pattern, recursive=True)
+            if matches:
+                return True
+        # If no handoff_id is set, we can't check — assume not complete
+        return False
 
     def _write_checkpoint(self, job: Job):
         """Write a structured checkpoint for the completed job."""
