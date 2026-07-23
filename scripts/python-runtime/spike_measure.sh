@@ -3,7 +3,7 @@ set -euo pipefail
 MODEL="${1:?usage: spike_measure.sh <model-name>}"
 PROJ="/tmp/spike-measure"
 TARGET="$PROJ/scripts/spike_edit_target.py"
-RT="$(dirname "$0")/runtime_spike.py"
+RT="$(dirname "$0")/runtime.py"
 PASS=0
 for i in $(seq 1 10); do
   rm -rf "$PROJ"
