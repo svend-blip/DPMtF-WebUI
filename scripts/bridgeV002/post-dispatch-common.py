@@ -74,13 +74,13 @@ def validate_deliverable(full_path):
 
 
 def get_ollama_model_from_db(from_role_key, db_path):
-    """Look up the Ollama model for a given role from bridge_roles table.
+    """Look up the allocator alias for a given role from bridge_roles table.
 
-    Returns the ollama_model string or None if not found/not configured.
+    Returns the default_model_alias string or None if not found/not configured.
     Uses parameterized SQL — never f-strings or concatenation in SQL-sp queries.
     """
     if not db_path or not os.path.exists(db_path):
-        print("  WARNING: Database file not found, skipping Ollama lookup")
+        print("  WARNING: Database file not found, skipping allocator alias lookup")
         return None
 
     try:
@@ -88,23 +88,23 @@ def get_ollama_model_from_db(from_role_key, db_path):
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row  # Enable dict-like access
         row = conn.execute(
-            "SELECT ollama_model FROM bridge_roles WHERE role_key = ?",
+            "SELECT default_model_alias FROM bridge_roles WHERE role_key = ?",
             (from_role_key,)
         ).fetchone()
         conn.close()
-        return row["ollama_model"] if row and row["ollama_model"] else None
+        return row["default_model_alias"] if row and row["default_model_alias"] else None
     except sqlite3.OperationalError as e:
         print(f"  WARNING: Database lookup failed ({e})")
         return None
 
 
 def get_next_role_ollama_model(step_key, db_path):
-    """Find the next role in the flow chain and return its ollama_model, if any.
+    """Find the next role in the flow chain and return its allocator alias, if any.
 
     Looks up the current step's flow_key and sort_order, finds the step with
-    sort_order + 1 in the same flow, and returns the to_role's ollama_model.
+    sort_order + 1 in the same flow, and returns the to_role's default_model_alias.
     Returns None if there is no next step, the DB is unavailable, or the next
-    role is not an Ollama role.
+    role has no alias.
     """
     if not db_path or not os.path.exists(db_path):
         return None
@@ -137,16 +137,16 @@ def get_next_role_ollama_model(step_key, db_path):
 
         next_role_key = next_row["to_role"]
 
-        # Look up next role's ollama_model
+        # Look up next role's allocator alias
         role_row = conn.execute(
-            "SELECT ollama_model FROM bridge_roles WHERE role_key = ?",
+            "SELECT default_model_alias FROM bridge_roles WHERE role_key = ?",
             (next_role_key,)
         ).fetchone()
 
         conn.close()
 
-        if role_row and role_row["ollama_model"]:
-            return role_row["ollama_model"]
+        if role_row and role_row["default_model_alias"]:
+            return role_row["default_model_alias"]
         return None
 
     except sqlite3.OperationalError as e:

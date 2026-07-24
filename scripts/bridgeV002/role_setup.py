@@ -77,11 +77,9 @@ def main():
             print(f"  WARNING: allocator start timed out")
         except Exception as e:
             print(f"  WARNING: allocator start failed: {e}")
-    elif role_config.get("model_type") == "ollama" and role_config.get("ollama_model"):
-        # Legacy fallback for non-allocator roles (should not exist after Phase 2)
-        print(f"  WARNING: role '{args.role}' not on allocator — using legacy ollama pull")
-        subprocess.run(["ollama", "pull", role_config["ollama_model"]],
-                       capture_output=True, text=True)
+    elif role_config.get("default_model_source") == "model_allocator" and role_config.get("default_model_alias"):
+        # Already handled above — this branch is kept for clarity
+        pass
     else:
         print(f"  No model to warm for role '{args.role}'")
 

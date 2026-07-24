@@ -31,6 +31,7 @@ import os
 import platform
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Ensure scripts/ is on sys.path for platform_adapter (mirrors app.py).
@@ -55,9 +56,30 @@ logger = logging.getLogger(__name__)
 
 # ── GET / ──
 
+def _static_version() -> str:
+    """Return a cache-busting version string for static assets."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=8", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return datetime.now().strftime("%Y%m%d%H%M")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    return HTMLResponse(content=open("templates/index.html").read())
+    html = open("templates/index.html").read()
+    version = _static_version()
+    # Inject cache-busting version into JS and CSS references
+    html = html.replace(".js\"", f".js?v={version}\"")
+    html = html.replace(".css\"", f".css?v={version}\"")
+    return HTMLResponse(content=html)
 
 
 # ── GET /api/health ──

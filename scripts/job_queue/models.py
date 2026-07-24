@@ -201,13 +201,17 @@ class JobRepository:
         return self.get_job(job_id)
 
     def claim(self, worker_id: str, lease_seconds: int = 300) -> Optional[Job]:
-        """Atomically claim the oldest APPROVED job. Returns Job or None."""
+        """Atomically claim the oldest APPROVED job. Returns Job or None.
+
+        Excludes jobs that have exhausted their retry budget (retry_count >= max_retries).
+        """
         conn = self._conn()
         try:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 """SELECT job_id FROM jobs WHERE status = 'APPROVED'
-                   AND (parent_job_id IS NULL OR parent_job_id = '' 
+                   AND retry_count < max_retries
+                   AND (parent_job_id IS NULL OR parent_job_id = ''
                         OR parent_job_id IN (SELECT job_id FROM jobs WHERE status = 'COMPLETED'))
                    ORDER BY priority DESC, created_at ASC LIMIT 1"""
             ).fetchone()
@@ -248,7 +252,12 @@ class JobRepository:
         conn.close()
 
     def recover_expired_leases(self) -> int:
-        """Reclaim jobs with expired leases. Returns count recovered."""
+        """Reclaim jobs with expired leases. Returns count recovered.
+
+        Jobs that still have retry budget are reset to APPROVED.
+        Jobs that have exhausted retries (retry_count >= max_retries) are
+        transitioned to FAILED — they will not be retried again.
+        """
         conn = self._conn()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -260,17 +269,44 @@ class JobRepository:
             ).fetchall()
             for row in rows:
                 job_id = row[0]
+                # Increment retry_count first
                 conn.execute(
-                    """UPDATE jobs SET status = 'APPROVED', lease_owner = NULL,
-                       lease_expires_at = NULL, retry_count = retry_count + 1,
+                    """UPDATE jobs SET retry_count = retry_count + 1,
+                       lease_owner = NULL, lease_expires_at = NULL,
                        updated_at = datetime('now') WHERE job_id = ?""",
                     (job_id,)
                 )
-                conn.execute(
-                    """INSERT INTO job_events (job_id, event_type, from_state, to_state, actor, detail)
-                       VALUES (?, 'lease_expired', 'RUNNING', 'APPROVED', 'system', 'auto-recovery')""",
+                # Check if retries exhausted
+                check = conn.execute(
+                    "SELECT retry_count, max_retries FROM jobs WHERE job_id = ?",
                     (job_id,)
-                )
+                ).fetchone()
+                rc = check["retry_count"] if check else 0
+                mr = check["max_retries"] if check else 3
+                if rc >= mr:
+                    # Exhausted retries — transition to FAILED
+                    conn.execute(
+                        """UPDATE jobs SET status = 'FAILED',
+                           updated_at = datetime('now') WHERE job_id = ?""",
+                        (job_id,)
+                    )
+                    conn.execute(
+                        """INSERT INTO job_events (job_id, event_type, from_state, to_state, actor, detail)
+                           VALUES (?, 'lease_expired', 'RUNNING', 'FAILED', 'system', ?)""",
+                        (job_id, f"retry exhausted ({rc}/{mr})")
+                    )
+                else:
+                    # Still have budget — reset to APPROVED for retry
+                    conn.execute(
+                        """UPDATE jobs SET status = 'APPROVED',
+                           updated_at = datetime('now') WHERE job_id = ?""",
+                        (job_id,)
+                    )
+                    conn.execute(
+                        """INSERT INTO job_events (job_id, event_type, from_state, to_state, actor, detail)
+                           VALUES (?, 'lease_expired', 'RUNNING', 'APPROVED', 'system', ?)""",
+                        (job_id, f"auto-recovery ({rc}/{mr})")
+                    )
             conn.commit()
             return len(rows)
         except Exception:

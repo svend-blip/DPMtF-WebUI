@@ -371,11 +371,10 @@ def load_role_from_db(role_name, db_path=None):
     Returns:
         dict with keys matching bridge_roles columns, plus resolved
         setup_script and teardown_script.
-        Keys: role_key, tmux_session, model_type, cloud_model,
-              ollama_model, setup_script, teardown_script, deliver_error_msg,
-              is_active, created_at, updated_at, restart_policy,
-              governance_file, role_type, enter_command, default_runtime,
-              default_provider, default_model, config_dir
+        Keys: role_key, tmux_session, setup_script, teardown_script,
+              deliver_error_msg, is_active, created_at, updated_at,
+              restart_policy, governance_file, role_type, enter_command,
+              config_dir, default_model_source, default_model_alias
 
     Raises:
         ValueError: If table doesn't exist or role not found.
@@ -762,7 +761,7 @@ if __name__ == "__main__":
         for role in ["archi01", "imple01"]:
             try:
                 rc = load_role_from_db(role)
-                print(f"  Role '{role}': session={rc.get('tmux_session')}, model_type={rc.get('model_type')}")
+                print(f"  Role '{role}': session={rc.get('tmux_session')}, alias={rc.get('default_model_alias')}")
             except ValueError as e:
                 print(f"  Role '{role}': NOT FOUND ({e})")
 

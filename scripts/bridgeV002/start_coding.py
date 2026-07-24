@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""start_coding.py — Send the Machine-Profile-built start command to each role.
+"""start_coding.py — Start coding frontends for each role in a flow.
 
 Usage:
     python3 scripts/bridgeV002/start_coding.py <flow_key>
 
 Iterates through all active steps in the given flow, looks up each step's
-TO-ROLE, builds the start command via command_builder.build_start_command
-(from the role's default_runtime / default_provider / default_model /
-config_dir), and injects it into the role's dedicated tmux session via
-send-keys.
+TO-ROLE, resolves the model via Model Allocator, and starts the coding
+frontend (opencode/claude-code/freebuff) in the role's tmux session.
 
 **Assumes sessions are already created** (use start_tmuxflow.py first).
-Roles without a default_runtime are skipped with a warning.
+Roles without a model_allocator alias are skipped with a warning.
 
 Example:
     python3 scripts/bridgeV002/start_coding.py strict_review
@@ -41,8 +39,8 @@ def get_flow_roles(db_path, flow_key):
     """Fetch all role data for active steps in a flow (both from_role and to_role).
 
     Returns a list of dicts sorted by sort_order:
-        [{role_key, tmux_session, default_runtime, default_provider,
-          default_model, config_dir}, ...]
+        [{role_key, tmux_session, default_model_source, default_model_alias,
+          max_output_tokens, config_dir}, ...]
     Duplicate roles are deduplicated (first occurrence wins).
 
     Includes the last step's to_role so the final role in the chain
@@ -55,10 +53,9 @@ def get_flow_roles(db_path, flow_key):
     from_rows = conn.execute(
         """
         SELECT r.role_key, r.tmux_session,
-               r.default_runtime, r.default_provider, r.default_model,
+               r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
-               s.runtime_override, s.provider_override, s.model_override,
                s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
@@ -71,10 +68,9 @@ def get_flow_roles(db_path, flow_key):
     to_rows = conn.execute(
         """
         SELECT r.role_key, r.tmux_session,
-               r.default_runtime, r.default_provider, r.default_model,
+               r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
-               s.runtime_override, s.provider_override, s.model_override,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.to_role = r.role_key
@@ -98,14 +94,10 @@ def get_flow_roles(db_path, flow_key):
             result.append({
                 "role_key": row["role_key"],
                 "tmux_session": row["tmux_session"],
-                "default_runtime": row["default_runtime"],
-                "default_provider": row["default_provider"],
-                "default_model": row["default_model"],
+                "default_model_source": row["default_model_source"],
+                "default_model_alias": row["default_model_alias"],
                 "max_output_tokens": row["max_output_tokens"],
                 "config_dir": row["config_dir"],
-                "runtime_override": row["runtime_override"],
-                "provider_override": row["provider_override"],
-                "model_override": row["model_override"],
             })
 
     conn.close()
@@ -191,8 +183,8 @@ def main():
     for role in roles:
         session_name = role["tmux_session"]
 
-        if not role.get("default_runtime"):
-            print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no default_runtime)")
+        if not role.get("default_model_source"):
+            print(f"  {role['role_key']:15s} → '{session_name}'  (skipped — no model_source)")
             skipped.append(role["role_key"])
             continue
 
@@ -204,57 +196,8 @@ def main():
             errors.append(role["role_key"])
             continue
 
-        # Map DB default_runtime to allocator client key
-        runtime_to_client = {
-            "claude": "claude-code",
-            "opencode": "opencode",
-            "freebuff": "freebuff",
-        }
-        allocator_client = runtime_to_client.get(
-            role["default_runtime"], role["default_runtime"]
-        )
-
-        # Freebuff is a separate execution runtime, not a model backend.
-        # It starts directly via its binary — no allocator involvement.
-        if role["default_runtime"] == "freebuff":
-            try:
-                mp_binaries = machine_profile.get("binaries", {})
-                freebuff_bin = mp_binaries.get("freebuff", "freebuff")
-                if os.path.isabs(freebuff_bin):
-                    if not (os.path.isfile(freebuff_bin) and os.access(freebuff_bin, os.X_OK)):
-                        print(f"  {role['role_key']:15s} → '{session_name}'")
-                        print(f"  ERROR: Freebuff binary not found: {freebuff_bin}")
-                        errors.append(role["role_key"])
-                        continue
-                else:
-                    import shutil
-                    freebuff_bin = shutil.which(freebuff_bin)
-                    if not freebuff_bin:
-                        print(f"  {role['role_key']:15s} → '{session_name}'")
-                        print(f"  ERROR: Freebuff binary not found on PATH")
-                        errors.append(role["role_key"])
-                        continue
-
-                cwd = project_root
-                mp_paths = machine_profile.get("paths", {})
-                cwd = mp_paths.get("project_root", project_root)
-                cmd_str = f"cd {cwd} && {freebuff_bin}"
-                print(f"  {role['role_key']:15s} → '{session_name}'  (freebuff) ...")
-                ok = run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root)
-                if ok:
-                    started.append(session_name)
-                    print(f"    Command sent to session.")
-                else:
-                    errors.append(role["role_key"])
-                continue
-            except Exception as e:
-                print(f"  {role['role_key']:15s} → '{session_name}'")
-                print(f"  ERROR: Freebuff startup failed: {e}")
-                errors.append(role["role_key"])
-                continue
-        allocator_client = runtime_to_client.get(
-            role["default_runtime"], role["default_runtime"]
-        )
+        # Derive allocator client from model_source
+        allocator_client = "opencode"
 
         # V1B pilot: use Model Allocator when role opts in.
         model_source, model_alias = get_effective_model_source(
@@ -352,11 +295,11 @@ def main():
     if started:
         parts.append(f"{len(started)} start command(s) executed")
     if skipped:
-        parts.append(f"{len(skipped)} role(s) skipped (no default_runtime)")
+        parts.append(f"{len(skipped)} role(s) skipped (no model_source)")
     if errors:
         parts.append(f"{len(errors)} error(s)")
     if not parts:
-        print(f"\nDone: no roles with default_runtime in flow '{args.flow_key}'.")
+        print(f"\nDone: no roles with model_source in flow '{args.flow_key}'.")
     else:
         print(f"\nDone: {'; '.join(parts)}.")
 

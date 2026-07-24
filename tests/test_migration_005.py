@@ -26,10 +26,10 @@ MIGRATED_ROLES = [
     "analyst01_trade", "sim01_trade", "trend01_trade",
     "market01_trade", "portfolio01_trade",
     "risk01_trade", "score01_trade", "learn01_trade",
-    "review01_trade",
+    "review01_trade", "imple01cloud",
 ]
 
-EXCLUDED_ROLES = ["human", "humancloud", "humanpay", "humantrade", "imple01cloud"]
+EXCLUDED_ROLES = ["human", "humancloud", "humanpay", "humantrade"]
 
 
 def test_migration_005_all_nonhuman_roles_use_allocator():
@@ -65,16 +65,17 @@ def test_migration_005_no_human_role_migrated():
     assert len(rows) == 0, f"Human roles with model_source: {[r[0] for r in rows]}"
 
 
-def test_migration_005_freebuff_excluded():
-    """imple01cloud (Freebuff) should NOT have model_source = 'model_allocator'."""
+def test_migration_005_imple01cloud_migrated():
+    """imple01cloud should now use model_allocator (Freebuff is just a program, not a separate runtime)."""
     conn = sqlite3.connect(_db_path())
     row = conn.execute("""
-        SELECT default_model_source FROM bridge_roles
+        SELECT default_model_source, default_model_alias FROM bridge_roles
         WHERE role_key = 'imple01cloud' AND is_active = 1
     """).fetchone()
     conn.close()
-    if row:
-        assert row[0] != "model_allocator", "imple01cloud (Freebuff) should NOT be migrated"
+    assert row is not None, "imple01cloud not found"
+    assert row[0] == "model_allocator", f"imple01cloud should be migrated, got source={row[0]}"
+    assert row[1], "imple01cloud should have a model_alias"
 
 
 def test_migration_005_imple01_unchanged():

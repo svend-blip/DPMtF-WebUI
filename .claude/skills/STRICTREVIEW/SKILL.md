@@ -1,11 +1,11 @@
 ---
-name: strict-review
+name: strict_review
 description: Reconstruct the Architect's full context after a cold start or ollama stop cycle in the strict_review flow. Use when resuming work in the strict_review BridgeV002 flow, after a restart, or when the Architect session has lost context and needs to rebuild its state from durable files.
 ---
 
 # STRICTREVIEW — Architect Cold-Start
 
-Invoke with `/strict-review` to reconstruct the Architect's full context after
+Invoke with `/strict_review` to reconstruct the Architect's full context after
 a cold start or `ollama stop` cycle in the `strict_review` flow.
 
 ## Procedure

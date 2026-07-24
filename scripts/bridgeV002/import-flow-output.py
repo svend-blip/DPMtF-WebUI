@@ -54,45 +54,39 @@ def _get_role_config(role_key):
 
 
 def _build_start_command(role):
-    """Build the CLI start command for a role, mirroring start_coding.py."""
-    runtime = (role.get("default_runtime") or "").lower()
-    model = role.get("default_model") or ""
-    provider = (role.get("default_provider") or "").lower()
+    """Build the CLI start command for a role via Model Allocator."""
+    model_source = role.get("default_model_source") or ""
+    model_alias = role.get("default_model_alias") or ""
 
-    if runtime == "claude":
-        if provider == "local_ollama":
-            return (
-                "cd /home/svend/DPMtF-WebUI && "
-                "CLAUDE_CODE_MAX_OUTPUT_TOKENS=262144 "
-                "ANTHROPIC_BASE_URL=http://127.0.0.1:11434 "
-                "ANTHROPIC_AUTH_TOKEN=ollama "
-                "/home/svend/.local/bin/claude "
-                f"--model {model}"
-            )
-        else:
-            return (
-                "cd /home/svend/DPMtF-WebUI && "
-                "CLAUDE_CODE_MAX_OUTPUT_TOKENS=262144 "
-                "/home/svend/.local/bin/claude "
-                f"--model {model}"
-            )
-    elif runtime == "opencode":
-        config_dir = role.get("config_dir") or ""
-        if config_dir:
-            return (
-                "cd /home/svend/DPMtF-WebUI && "
-                f'OPENCODE_CONFIG_DIR="{config_dir}" '
-                f'OPENCODE_CONFIG="{config_dir}/opencode.json" '
-                "/home/svend/.opencode/bin/opencode "
-                f"--model {model}"
-            )
-        return (
-            "cd /home/svend/DPMtF-WebUI && "
-            "/home/svend/.opencode/bin/opencode "
-            f"--model {model}"
+    if model_source != "model_allocator" or not model_alias:
+        return None
+
+    # Determine client from enter_command (Freebuff uses c-m)
+    enter_cmd = role.get("enter_command", "default")
+    if enter_cmd == "c-m":
+        allocator_client = "freebuff"
+    else:
+        allocator_client = "opencode"
+
+    import config as _cfg
+    allocator_path = os.path.join(
+        _cfg.get_project_path("model-allocator"), "scripts", "model-allocator"
+    )
+    # Use allocator run to get the shell command, then return it
+    try:
+        result = subprocess.run(
+            [allocator_path, "run",
+             "--role", role["role_key"],
+             "--client", allocator_client],
+            capture_output=True, text=True, timeout=60,
         )
-
-    return None  # unknown runtime — skip
+        if result.returncode == 0:
+            shell_str = result.stdout.strip()
+            cwd = _cfg.get_project_root()
+            return f"cd {cwd} && {shell_str}"
+    except Exception:
+        pass
+    return None
 
 
 def _restart_session(session_name, role_key):
@@ -119,8 +113,8 @@ def _restart_session(session_name, role_key):
 
     cmd = _build_start_command(role)
     if not cmd:
-        print(f"  WARNING: no start command for runtime="
-              f"'{role.get('default_runtime')}' — session is idle")
+        print(f"  WARNING: no start command for role '{role_key}' "
+              f"(model_source={role.get('default_model_source')}) — session is idle")
         return
 
     subprocess.run(
@@ -128,8 +122,7 @@ def _restart_session(session_name, role_key):
         check=True, capture_output=True,
     )
     print(f"  Start command sent to {session_name} "
-          f"(runtime={role.get('default_runtime')}, "
-          f"model={role.get('default_model')})")
+          f"(alias={role.get('default_model_alias')})")
 
 
 # ── Import ──────────────────────────────────────────────

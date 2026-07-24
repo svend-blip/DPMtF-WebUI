@@ -1,0 +1,97 @@
+{
+  "flow_run_id": "97cf0509-6878-4013-89ac-3539d85cb134",
+  "flow_key": "trade_cockpit_simulation_v001",
+  "role_key": "trend01_trade",
+  "model_name": "qwen3.6:35b-a3b-64k",
+  "created_at": "2026-06-29T13:41:14.495333+00:00",
+  "output_type": "trend_note",
+  "status": "completed",
+  "payload": {
+    "symbols": [
+      "BTC-USD",
+      "ETH-USD",
+      "GC=F",
+      "CL=F",
+      "SMCI",
+      "MU",
+      "AAPL"
+    ],
+    "themes": [
+      {
+        "name": "Crypto Bear Market Deepens",
+        "description": "Bitcoin at ~$59,786 (June 29) extends decline from October 2025 peak of $126,000 \u2014 a -53% drawdown below the 200-week moving average. Crypto market cap collapsed from $4.28T to ~$2T. BTC Jul-2026 futures at $60,505 hint at limited near-term recovery. Capital rotation into AI equities cited by BlackRock as primary driver of crypto outflows.",
+        "impact": "high"
+      },
+      {
+        "name": "Oil Price Stabilization Post-Ceasefire",
+        "description": "Brent crude dropped from $126/bbl wartime peak after US-Iran ceasefire signed June 14 (Pakistan-mediated). Hormuz shipping gradually resuming but Goldman Sachs warns Brent stays above $100 if limited traffic persists. US EIA raised 2026 oil price forecast. Israel-Lebanon ceasefire adds to regional stabilization.",
+        "impact": "high"
+      },
+      {
+        "name": "Fed Rate Cut Uncertainty",
+        "description": "September rate cut probability remains contested \u2014 economists describe it as a \"very close call\" dependent on upcoming jobs data. Polymarket odds for 2026 cuts collapsed earlier this year. Markets pricing in delayed easing, no cut expected in September or December by current consensus.",
+        "impact": "medium"
+      },
+      {
+        "name": "AI CapEx Frenzy vs Crypto",
+        "description": "Micron surged 15% on record revenue and positive guidance; AI momentum attracting institutional capital away from crypto. Coatue founder Philippe Laffont publicly stated preference for SpaceX/AI investments over Bitcoin. This represents a structural regime shift \u2014 AI is now competing directly with BTC for institutional allocation.",
+        "impact": "medium"
+      },
+      {
+        "name": "US Geopolitical De-escalation",
+        "description": "60-day nuclear negotiation window after interim Hormuz agreement. US House approved resolution to curb war powers. If Geneva/Switzerland follow-up talks collapse, expect oil spike back toward $120+. Current sentiment: cautious optimism on geopolitical front.",
+        "impact": "high"
+      }
+    ],
+    "sentiment": "neutral",
+    "sentiment_breakdown": {
+      "crypto": "bearish",
+      "oil": "cautiously_bullish",
+      "rates": "uncertain",
+      "equities": "mixed",
+      "geopolitics": "cautiously_bullish"
+    },
+    "sources": [
+      {
+        "title": "Bitcoin Hits 21-Month Low \u2014 Forbes (June 25)",
+        "url": "https://www.forbes.com/sites/tylerroush/2026/06/25/bitcoin-hits-21-month-low-as-expiring-crypto-bets-threaten-more-selling"
+      },
+      {
+        "title": "Brent To Stay Above $100 \u2014 Bloomberg/Goldman Sachs",
+        "url": "https://www.bloomberg.com/news/articles/2026-06-24/latest-oil-market-news-and-analysis-for-june-25"
+      },
+      {
+        "title": "US and Iran Reach Deal to Halt War \u2014 Bloomberg (June 14)",
+        "url": "https://www.bloomberg.com/news/articles/2026-06-14/pakistan-says-us-and-iran-have-reached-a-peace-deal"
+      },
+      {
+        "title": "Fed Rate Cut Chances Shift \u2014 Yahoo Finance",
+        "url": "https://finance.yahoo.com/news/fed-rate-cut-chances-shift-192434135.html"
+      },
+      {
+        "title": "Oil Price Tops $126 \u2014 WSJ (wartime peak)",
+        "url": "N/A - reference only"
+      },
+      {
+        "title": "Micron Surges 15% on Record Revenue",
+        "url": "https://www.forbes.com/sites/antoniopequenoiv/2026/06/24/micron-soars-15-after-chipmaker-posts-record-revenue-and-positive-guidance/"
+      },
+      {
+        "title": "BlackRock: AI is Sucking All Oxygen from BTC",
+        "url": "https://www.benzinga.com/crypto/cryptocurrency/26/06/60043982"
+      },
+      {
+        "title": "Fed Rate Cut 2026 Prediction \u2014 Polymarket Odds Collapse",
+        "url": "https://www.forbes.com/sites/digital-assets/2026/04/13/no-cuts-polymarket-bettors-dump-fed-rate-cut-hopes"
+      }
+    ],
+    "summary": "Market regime in transition. Crypto bear deepens with BTC -53% from peak as institutional capital rotates into AI infrastructure plays. Oil stabilized post-ceasefire but remains elevated ($100+ Brent) amid partial Hormuz reopening. Fed September cut window narrowing \u2014 jobs data will be decisive. Geopolitical de-escalation (US-Iran, Israel-Lebanon) reduces tail risk but 60-day nuclear talks remain fragile. Overall: neutral with high uncertainty around oil price direction and crypto recovery timing.",
+    "methodology": {
+      "web_search_depth": "multi-query deep search",
+      "sources_analyzed": 8,
+      "institutional_consensus": "BTC bear market; oil $100+ floor; delayed Fed easing",
+      "tavily_used": true,
+      "tavily_note": null
+    }
+  }
+}

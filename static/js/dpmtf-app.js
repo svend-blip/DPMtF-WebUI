@@ -371,7 +371,8 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   container.appendChild(resultDiv);
 
   function resolveClient() {
-    return (typeof clientValue === "function") ? clientValue() : (clientValue || "opencode");
+    var raw = (typeof clientValue === "function") ? clientValue() : (clientValue || "opencode");
+    return _allocatorClient(raw);
   }
 
   function updateState() {
@@ -455,21 +456,21 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
 }
 
 // V3B: Model Allocator status card helpers
-function _maStorageKey(alias) {
-  return "ma_validate_" + alias;
+function _maStorageKey(alias, client) {
+  return "ma_validate_" + alias + "_" + (client || "any");
 }
 
-function _saveValidateResult(alias, result) {
+function _saveValidateResult(alias, result, client) {
   try {
-    localStorage.setItem(_maStorageKey(alias), JSON.stringify({ result: result, timestamp: new Date().toISOString() }));
+    localStorage.setItem(_maStorageKey(alias, client), JSON.stringify({ result: result, timestamp: new Date().toISOString() }));
   } catch (e) {
     console.warn("Failed to save validation result:", e);
   }
 }
 
-function _loadValidateResult(alias) {
+function _loadValidateResult(alias, client) {
   try {
-    var raw = localStorage.getItem(_maStorageKey(alias));
+    var raw = localStorage.getItem(_maStorageKey(alias, client));
     if (raw) return JSON.parse(raw);
   } catch (e) {
     console.warn("Failed to load validation result:", e);
@@ -491,9 +492,17 @@ function _renderInfoRow(container, label, value, valueClass) {
   container.appendChild(row);
 }
 
+function _allocatorClient(role) {
+  // Derive allocator client from role_type or model_source — default_runtime is removed.
+  if (role.default_model_source === "model_allocator" || !role.default_model_source) {
+    return "opencode";
+  }
+  return "opencode";
+}
+
 function renderAllocatorStatusCard(role) {
   var alias = role.default_model_alias;
-  var client = role.default_runtime || "opencode";
+  var client = _allocatorClient(role);
   var card = el("div", "dpmtf-card");
   card.style.marginTop = "12px";
   card.style.borderLeft = "4px solid #58a6ff";
@@ -519,7 +528,7 @@ function renderAllocatorStatusCard(role) {
       (result && result.gpu_policy) ? result.gpu_policy : "N/A", null);
     if (result && result.resolved_backend && result.resolved_real_model) {
       _renderInfoRow(validationSection,
-        lbl("lbl_bridge_default_model", "Model"),
+        lbl("lbl_bridge_allocator_resolved_model", "Model"),
         result.resolved_backend + " / " + result.resolved_real_model, null);
     }
     (result && result.warnings || []).forEach(function (w) {
@@ -572,12 +581,12 @@ function renderAllocatorStatusCard(role) {
     })
       .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
       .then(function (result) {
-        _saveValidateResult(alias, result);
+        _saveValidateResult(alias, result, client);
         updateValidationSection(result, new Date().toISOString());
       })
       .catch(function (err) {
         var errorResult = { validation_status: "ERROR", errors: [err.message], gpu_policy: null };
-        _saveValidateResult(alias, errorResult);
+        _saveValidateResult(alias, errorResult, client);
         updateValidationSection(errorResult, new Date().toISOString());
       })
       .finally(function () { validateBtn.disabled = false; });
@@ -649,7 +658,7 @@ function renderAllocatorStatusCard(role) {
       });
   }
 
-  var cached = _loadValidateResult(alias);
+  var cached = _loadValidateResult(alias, client);
   if (cached && cached.result) {
     updateValidationSection(cached.result, cached.timestamp);
   } else {
@@ -2209,18 +2218,6 @@ function getTargetProject() {
   return "";
 }
 
-function buildMachineProfileDisplay(role) {
-  // Show Machine Profile logical fields as a readable command preview
-  var runtime = role.default_runtime || "(ingen runtime)";
-  var provider = role.default_provider || "(ingen provider)";
-  var model = role.default_model || "(ingen model)";
-  var configDir = role.config_dir || role.role_key;
-  return "[MP] runtime=" + runtime +
-         " provider=" + provider +
-         " model=" + model +
-         " config=" + configDir;
-}
-
 function renderRoleCard(role) {
   var card = el("div", "dpmtf-card");
 
@@ -2247,12 +2244,10 @@ function renderRoleCard(role) {
     [lbl("lbl_bridge_tmux_session", "Tmux Session"), role.tmux_session],
     // 2. target_project — read-only, from Prompt Compiler
     [lbl("lbl_compiler_target_project", "Target Project"), targetProject || "(not set)"],
-    // Machine Profile preview (read-only, viser logiske felter)
-    [lbl("lbl_bridge_mp_preview", "Machine Profile"), buildMachineProfileDisplay(role)],
-    // Existing fields below
-    [lbl("lbl_bridge_model_type", "Model Type"), role.model_type],
-    [lbl("lbl_bridge_cloud_model", "Cloud Model"), role.cloud_model],
-    [lbl("lbl_bridge_ollama_model", "Ollama Model"), role.ollama_model],
+    // Model Allocator info
+    [lbl("lbl_bridge_default_model_source", "Model Source"), role.default_model_source],
+    [lbl("lbl_bridge_default_model_alias", "Model Alias"), role.default_model_alias],
+    // Remaining fields
     [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
     [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
     [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
@@ -2261,13 +2256,8 @@ function renderRoleCard(role) {
     if (!pair[1]) return;
     var row = el("div", null);
     var label = pair[0];
-    // Set data-field for styling hooks
     row.appendChild(el("span", "dpmtf-small", escapeHtml(label) + ": "));
     var valSpan = el("span", null, escapeHtml(String(pair[1])));
-    if (label === lbl("lbl_bridge_mp_preview", "Machine Profile")) {
-      valSpan.style.fontFamily = "monospace";
-      valSpan.style.fontSize = "11px";
-    }
     row.appendChild(valSpan);
     card.appendChild(row);
   });
@@ -2528,24 +2518,10 @@ function addBridgeRole() {
     if (!rk || !ts) { alert(lbl("lbl_bridge_role_key", "Role Key") + " and " + lbl("lbl_bridge_tmux_session", "Tmux Session") + " are required."); return; }
 
     var body = { role_key: rk, tmux_session: ts };
-    var mt = document.getElementById("bridge-input-model_type");
-    if (mt) body.model_type = mt.value;
-    var cm = document.getElementById("bridge-input-cloud_model");
-    if (cm && cm.value.trim()) body.cloud_model = cm.value.trim();
-    var om = document.getElementById("bridge-input-ollama_model");
-    if (om && om.value.trim()) body.ollama_model = om.value.trim();
     var ec = document.getElementById("bridge-input-enter_command");
     if (ec) body.enter_command = ec.value;
 
-    // Machine Profile Fase 2A — only save if not disabled
-    var rtEl = document.getElementById("bridge-input-default-runtime");
-    var pvEl = document.getElementById("bridge-input-default-provider");
-    var mdEl = document.getElementById("bridge-input-default-model");
-    if (rtEl && !rtEl.disabled) body.default_runtime = rtEl.value || null;
-    if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
-    if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
-
-    // Migration 004: runtime config
+    // Runtime config
     var pmEl = document.getElementById("bridge-input-trade-mcp-push-mode");
     var moEl = document.getElementById("bridge-input-max-output-tokens");
     if (pmEl) body.trade_mcp_push_mode = pmEl.value || null;
@@ -2592,33 +2568,6 @@ function addBridgeRole() {
     form.appendChild(div);
   });
 
-  // Model type select
-  var mtDiv = el("div", "dpmtf-form-group");
-  mtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_model_type", "Model Type")));
-  var mtSelect = el("select", null);
-  mtSelect.id = "bridge-input-model_type";
-  [["ollama", lbl("lbl_bridge_ollama_option", "Ollama")], ["cloud", lbl("lbl_bridge_cloud_option", "Cloud")]].forEach(function (pair) {
-    var opt = document.createElement("option");
-    opt.value = pair[0];
-    opt.textContent = pair[1];
-    mtSelect.appendChild(opt);
-  });
-  mtDiv.appendChild(mtSelect);
-  form.appendChild(mtDiv);
-
-  // Model name inputs
-  [["bridge-input-cloud_model", lbl("lbl_bridge_cloud_model", "Cloud Model"), ""],
-   ["bridge-input-ollama_model", lbl("lbl_bridge_ollama_model", "Ollama Model"), ""]].forEach(function (f) {
-    var div = el("div", "dpmtf-form-group");
-    div.appendChild(el("label", "dpmtf-label", f[1]));
-    var input = el("input", null);
-    input.id = f[0];
-    input.type = "text";
-    input.placeholder = f[2];
-    div.appendChild(input);
-    form.appendChild(div);
-  });
-
   // H150: Enter command select
   var ecDiv = el("div", "dpmtf-form-group");
   ecDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_enter_command", "Enter Command")));
@@ -2633,53 +2582,9 @@ function addBridgeRole() {
   ecDiv.appendChild(ecSelect);
   form.appendChild(ecDiv);
 
-  // Machine Profile Fase 2A — default_runtime, default_provider, default_model
-  var mpSectionDiv = el("div", "dpmtf-form-group");
-  mpSectionDiv.appendChild(el("h4", null, lbl("system_setup_machine_profile", "Machine Profile")));
-
-  // default_runtime dropdown
-  var rtDiv = el("div", "dpmtf-form-group");
-  rtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_runtime", "default_runtime")));
-  var rtSelect = el("select", null);
-  rtSelect.id = "bridge-input-default-runtime";
-  rtSelect.disabled = true;
-  var rtEmpty = el("option", null);
-  rtEmpty.value = "";
-  rtEmpty.textContent = "";
-  rtSelect.appendChild(rtEmpty);
-  rtDiv.appendChild(rtSelect);
-  mpSectionDiv.appendChild(rtDiv);
-
-  // default_provider dropdown
-  var pvDiv = el("div", "dpmtf-form-group");
-  pvDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_provider", "default_provider")));
-  var pvSelect = el("select", null);
-  pvSelect.id = "bridge-input-default-provider";
-  pvSelect.disabled = true;
-  var pvEmpty = el("option", null);
-  pvEmpty.value = "";
-  pvEmpty.textContent = "";
-  pvSelect.appendChild(pvEmpty);
-  pvDiv.appendChild(pvSelect);
-  mpSectionDiv.appendChild(pvDiv);
-
-  // default_model text input with datalist
-  var mdDiv = el("div", "dpmtf-form-group");
-  mdDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_model", "default_model")));
-  var mdInput = el("input", null);
-  mdInput.type = "text";
-  mdInput.id = "bridge-input-default-model";
-  mdInput.setAttribute("list", "bridge-default-model-options");
-  mdInput.disabled = true;
-  var mdList = el("datalist", null);
-  mdList.id = "bridge-default-model-options";
-  mdDiv.appendChild(mdInput);
-  mdDiv.appendChild(mdList);
-  mpSectionDiv.appendChild(mdDiv);
-
-  // Migration 004: trade-mcp push mode + max output tokens
-  var pmDiv = el("div", "dpmtf-form-group");
-  pmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_trade_mcp_push_mode", "Trade-MCP Push Mode")));
+  // Runtime config: trade-mcp push mode + max output tokens
+  var rcDiv = el("div", "dpmtf-form-group");
+  rcDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_trade_mcp_push_mode", "Trade-MCP Push Mode")));
   var pmSelect = el("select", null);
   pmSelect.id = "bridge-input-trade-mcp-push-mode";
   ["", "watchlist", "market", "risk"].forEach(function (m) {
@@ -2689,8 +2594,8 @@ function addBridgeRole() {
     pmSelect.appendChild(opt);
   });
   pmSelect.value = "";
-  pmDiv.appendChild(pmSelect);
-  mpSectionDiv.appendChild(pmDiv);
+  rcDiv.appendChild(pmSelect);
+  form.appendChild(rcDiv);
 
   var moDiv = el("div", "dpmtf-form-group");
   moDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_max_output_tokens", "Max Output Tokens")));
@@ -2701,18 +2606,14 @@ function addBridgeRole() {
   moInput.id = "bridge-input-max-output-tokens";
   moInput.value = "";
   moDiv.appendChild(moInput);
-  mpSectionDiv.appendChild(moDiv);
-  form.appendChild(mpSectionDiv);
+  form.appendChild(moDiv);
 
   // V3A: Model Allocator source / alias
   var allocatorControl = createModelSourceControl(
     "bridge-role",
     null,
     null,
-    function () {
-      var rt = document.getElementById("bridge-input-default-runtime");
-      return rt ? rt.value : "opencode";
-    },
+    function () { return "opencode"; },
     {
       source: "lbl_bridge_default_model_source",
       alias: "lbl_bridge_default_model_alias",
@@ -2720,51 +2621,10 @@ function addBridgeRole() {
     },
     [
       ["", lbl("lbl_bridge_model_source_default", "Default / inherit")],
-      ["direct_ollama", "direct_ollama"],
-      ["direct_cloud", "direct_cloud"],
-      ["direct_llama_cpp", "direct_llama_cpp"],
       ["model_allocator", "model_allocator"]
     ]
   );
   form.appendChild(allocatorControl.container);
-
-  // Populate Machine Profile fields
-  fetch("/api/system/machine-profile")
-    .then(function (res) { return res.json(); })
-    .then(function (meta) {
-      var disabled = !meta.exists || meta.parse_error || meta.schema_version !== 1;
-      rtSelect.disabled = disabled;
-      pvSelect.disabled = disabled;
-      mdInput.disabled = disabled;
-
-      if (!disabled) {
-        // Populate runtimes
-        var runtimes = (meta.runtimes && Object.keys(meta.runtimes).length)
-          ? Object.keys(meta.runtimes)
-          : ["claude", "opencode", "freebuff"];
-        runtimes.forEach(function (rt) {
-          var opt = el("option", null);
-          opt.value = rt;
-          opt.textContent = rt;
-          rtSelect.appendChild(opt);
-        });
-
-        // Populate providers
-        if (meta.providers) {
-          Object.keys(meta.providers).forEach(function (pv) {
-            var opt = el("option", null);
-            opt.value = pv;
-            opt.textContent = pv + " (" + (meta.providers[pv].model_count || 0) + " models)";
-            pvSelect.appendChild(opt);
-          });
-        }
-      }
-    })
-    .catch(function () {
-      rtSelect.disabled = true;
-      pvSelect.disabled = true;
-      mdInput.disabled = true;
-    });
 
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
@@ -2774,7 +2634,7 @@ function addBridgeRole() {
   container.insertBefore(form, container.firstChild);
 }
 
-// Update role save to include Machine Profile fields
+// Update role save to include allocator fields
 var _origAddBridgeRoleSave = null;
 
 function addBridgeFlow() {
@@ -2940,15 +2800,6 @@ function editBridgeRoleFull(roleKey) {
         if (!ts) { alert(lbl("lbl_bridge_tmux_session", "Tmux Session") + " is required."); return; }
         body.tmux_session = ts;
 
-        var mt = document.getElementById("bridge-edit-input-model_type");
-        if (mt && mt.value) body.model_type = mt.value;
-
-        var cm = document.getElementById("bridge-edit-input-cloud_model");
-        if (cm) body.cloud_model = cm.value.trim();
-
-        var om = document.getElementById("bridge-edit-input-ollama_model");
-        if (om) body.ollama_model = om.value.trim();
-
         var gf = document.getElementById("bridge-edit-input-governance_file");
         if (gf && gf.value) {
           body.governance_file = gf.value;
@@ -2968,15 +2819,7 @@ function editBridgeRoleFull(roleKey) {
           body.enter_command = ec.value;
         }
 
-        // Machine Profile Fase 2A — only save if not disabled
-        var rtEl = document.getElementById("bridge-edit-input-default-runtime");
-        var pvEl = document.getElementById("bridge-edit-input-default-provider");
-        var mdEl = document.getElementById("bridge-edit-input-default-model");
-        if (rtEl && !rtEl.disabled) body.default_runtime = rtEl.value || null;
-        if (pvEl && !pvEl.disabled) body.default_provider = pvEl.value || null;
-        if (mdEl && !mdEl.disabled) body.default_model = mdEl.value || null;
-
-        // Migration 004: runtime config
+        // Runtime config
         var pmEl = document.getElementById("bridge-edit-input-trade-mcp-push-mode");
         var moEl = document.getElementById("bridge-edit-input-max-output-tokens");
         if (pmEl) body.trade_mcp_push_mode = pmEl.value || null;
@@ -3032,41 +2875,6 @@ function editBridgeRoleFull(roleKey) {
       tsInput.value = role.tmux_session || "";
       tsDiv.appendChild(tsInput);
       form.appendChild(tsDiv);
-
-      // model_type select
-      var mtDiv = el("div", "dpmtf-form-group");
-      mtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_model_type", "Model Type")));
-      var mtSelect = el("select", null);
-      mtSelect.id = "bridge-edit-input-model_type";
-      [["ollama", lbl("lbl_bridge_ollama_option", "Ollama")], ["cloud", lbl("lbl_bridge_cloud_option", "Cloud")]].forEach(function (pair) {
-        var opt = document.createElement("option");
-        opt.value = pair[0];
-        opt.textContent = pair[1];
-        if (role.model_type === pair[0]) opt.selected = true;
-        mtSelect.appendChild(opt);
-      });
-      mtDiv.appendChild(mtSelect);
-      form.appendChild(mtDiv);
-
-      // cloud_model
-      var cmDiv = el("div", "dpmtf-form-group");
-      cmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_cloud_model", "Cloud Model")));
-      var cmInput = el("input", null);
-      cmInput.id = "bridge-edit-input-cloud_model";
-      cmInput.type = "text";
-      cmInput.value = role.cloud_model || "";
-      cmDiv.appendChild(cmInput);
-      form.appendChild(cmDiv);
-
-      // ollama_model
-      var omDiv = el("div", "dpmtf-form-group");
-      omDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_ollama_model", "Ollama Model")));
-      var omInput = el("input", null);
-      omInput.id = "bridge-edit-input-ollama_model";
-      omInput.type = "text";
-      omInput.value = role.ollama_model || "";
-      omDiv.appendChild(omInput);
-      form.appendChild(omDiv);
 
       // governance_file select — loaded dynamically from disk
       var gfDiv = el("div", "dpmtf-form-group");
@@ -3130,49 +2938,7 @@ function editBridgeRoleFull(roleKey) {
       ecDiv2.appendChild(ecSelect2);
       form.appendChild(ecDiv2);
 
-      // Machine Profile Fase 2A — default_runtime, default_provider, default_model
-      var mpSectionDiv = el("div", "dpmtf-form-group");
-      mpSectionDiv.appendChild(el("h4", null, lbl("system_setup_machine_profile", "Machine Profile")));
-
-      var rtDiv = el("div", "dpmtf-form-group");
-      rtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_runtime", "default_runtime")));
-      var rtSelect = el("select", null);
-      rtSelect.id = "bridge-edit-input-default-runtime";
-      rtSelect.disabled = true;
-      var rtEmpty = el("option", null);
-      rtEmpty.value = "";
-      rtEmpty.textContent = "";
-      rtSelect.appendChild(rtEmpty);
-      rtDiv.appendChild(rtSelect);
-      mpSectionDiv.appendChild(rtDiv);
-
-      var pvDiv = el("div", "dpmtf-form-group");
-      pvDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_provider", "default_provider")));
-      var pvSelect = el("select", null);
-      pvSelect.id = "bridge-edit-input-default-provider";
-      pvSelect.disabled = true;
-      var pvEmpty = el("option", null);
-      pvEmpty.value = "";
-      pvEmpty.textContent = "";
-      pvSelect.appendChild(pvEmpty);
-      pvDiv.appendChild(pvSelect);
-      mpSectionDiv.appendChild(pvDiv);
-
-      var mdDiv = el("div", "dpmtf-form-group");
-      mdDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_default_model", "default_model")));
-      var mdInput = el("input", null);
-      mdInput.type = "text";
-      mdInput.id = "bridge-edit-input-default-model";
-      mdInput.setAttribute("list", "bridge-edit-default-model-options");
-      mdInput.value = role.default_model || "";
-      mdInput.disabled = true;
-      var mdList = el("datalist", null);
-      mdList.id = "bridge-edit-default-model-options";
-      mdDiv.appendChild(mdInput);
-      mdDiv.appendChild(mdList);
-      mpSectionDiv.appendChild(mdDiv);
-
-      // Migration 004: trade-mcp push mode + max output tokens
+      // Runtime config: trade-mcp push mode + max output tokens
       var pmDiv = el("div", "dpmtf-form-group");
       pmDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_trade_mcp_push_mode", "Trade-MCP Push Mode")));
       var pmSelect = el("select", null);
@@ -3185,7 +2951,7 @@ function editBridgeRoleFull(roleKey) {
       });
       pmSelect.value = role.trade_mcp_push_mode || "";
       pmDiv.appendChild(pmSelect);
-      mpSectionDiv.appendChild(pmDiv);
+      form.appendChild(pmDiv);
 
       var moDiv = el("div", "dpmtf-form-group");
       moDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_max_output_tokens", "Max Output Tokens")));
@@ -3196,18 +2962,14 @@ function editBridgeRoleFull(roleKey) {
       moInput.id = "bridge-edit-input-max-output-tokens";
       moInput.value = role.max_output_tokens != null ? String(role.max_output_tokens) : "";
       moDiv.appendChild(moInput);
-      mpSectionDiv.appendChild(moDiv);
-      form.appendChild(mpSectionDiv);
+      form.appendChild(moDiv);
 
       // V3A: Model Allocator source / alias
       var allocatorControl = createModelSourceControl(
         "bridge-edit-role",
         role.default_model_source,
         role.default_model_alias,
-        function () {
-          var rt = document.getElementById("bridge-edit-input-default-runtime");
-          return rt ? rt.value : "opencode";
-        },
+        function () { return "opencode"; },
         {
           source: "lbl_bridge_default_model_source",
           alias: "lbl_bridge_default_model_alias",
@@ -3215,51 +2977,10 @@ function editBridgeRoleFull(roleKey) {
         },
         [
           ["", lbl("lbl_bridge_model_source_default", "Default / inherit")],
-          ["direct_ollama", "direct_ollama"],
-          ["direct_cloud", "direct_cloud"],
-          ["direct_llama_cpp", "direct_llama_cpp"],
           ["model_allocator", "model_allocator"]
         ]
       );
       form.appendChild(allocatorControl.container);
-
-      // Populate Machine Profile fields for edit form
-      fetch("/api/system/machine-profile")
-        .then(function (res) { return res.json(); })
-        .then(function (meta) {
-          var disabled = !meta.exists || meta.parse_error || meta.schema_version !== 1;
-          rtSelect.disabled = disabled;
-          pvSelect.disabled = disabled;
-          mdInput.disabled = disabled;
-
-          if (!disabled) {
-            var runtimes = (meta.runtimes && Object.keys(meta.runtimes).length)
-              ? Object.keys(meta.runtimes)
-              : ["claude", "opencode", "freebuff"];
-            runtimes.forEach(function (rt) {
-              var opt = el("option", null);
-              opt.value = rt;
-              opt.textContent = rt;
-              if (role.default_runtime === rt) opt.selected = true;
-              rtSelect.appendChild(opt);
-            });
-
-            if (meta.providers) {
-              Object.keys(meta.providers).forEach(function (pv) {
-                var opt = el("option", null);
-                opt.value = pv;
-                opt.textContent = pv + " (" + (meta.providers[pv].model_count || 0) + " models)";
-                if (role.default_provider === pv) opt.selected = true;
-                pvSelect.appendChild(opt);
-              });
-            }
-          }
-        })
-        .catch(function () {
-          rtSelect.disabled = true;
-          pvSelect.disabled = true;
-          mdInput.disabled = true;
-        });
 
       // H160: Target Project (read-only, from Prompt Compiler)
       var tpDiv = el("div", "dpmtf-form-group");
@@ -3588,6 +3309,8 @@ function renderStepCard(step, meta) {
     ["Sort", String(step.sort_order || 0)],
     ["Auto-chain", step.auto_chain_to_next ? "Yes" : "No"],
     ["Require validation", step.validation_required ? "Yes" : "No"],
+    ["Model Source", step.model_source],
+    ["Model Alias", step.model_alias],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -3733,14 +3456,6 @@ function _showStepForm(initialData) {
     var vreq = document.getElementById("bridge-input-validation_required");
     if (vreq) body.validation_required = vreq.checked ? 1 : 0;
 
-    // Machine Profile Fase 2B — overrides
-    var ro = document.getElementById("bridge-input-runtime_override");
-    var po = document.getElementById("bridge-input-provider_override");
-    var mo = document.getElementById("bridge-input-model_override");
-    if (ro && ro.value.trim()) body.runtime_override = ro.value.trim();
-    if (po && po.value.trim()) body.provider_override = po.value.trim();
-    if (mo && mo.value.trim()) body.model_override = mo.value.trim();
-
     // V3A: Model Allocator step-level source / alias
     var msEl = document.getElementById("bridge-step-model-source");
     var maEl = document.getElementById("bridge-step-model-alias");
@@ -3785,32 +3500,12 @@ function _showStepForm(initialData) {
     form.appendChild(div);
   });
 
-  // Machine Profile Fase 2B — flow-role overrides
-  var mpOverrideLabel = el("h4", null, lbl("system_setup_machine_profile", "Machine Profile Overrides"));
-  form.appendChild(mpOverrideLabel);
-  [["bridge-input-runtime_override", "runtime_override", data.runtime_override || ""],
-   ["bridge-input-provider_override", "provider_override", data.provider_override || ""],
-   ["bridge-input-model_override", "model_override", data.model_override || ""]].forEach(function (f) {
-    var div = el("div", "dpmtf-form-group");
-    div.appendChild(el("label", "dpmtf-label", f[1]));
-    var input = el("input", null);
-    input.id = f[0];
-    input.type = "text";
-    input.value = f[2];
-    input.placeholder = "(valgfri — overstyrer rolle-default)";
-    div.appendChild(input);
-    form.appendChild(div);
-  });
-
   // V3A: Model Allocator step-level source / alias
   var stepAllocatorControl = createModelSourceControl(
     "bridge-step",
     data.model_source,
     data.model_alias,
-    function () {
-      var ro = document.getElementById("bridge-input-runtime_override");
-      return ro && ro.value.trim() ? ro.value.trim() : "opencode";
-    },
+    function () { return "opencode"; },
     {
       source: "lbl_bridge_step_model_source",
       alias: "lbl_bridge_step_model_alias",
@@ -3818,9 +3513,6 @@ function _showStepForm(initialData) {
     },
     [
       ["inherit_from_role", lbl("lbl_bridge_step_model_source_inherit", "Inherit from role")],
-      ["direct_ollama", "direct_ollama"],
-      ["direct_cloud", "direct_cloud"],
-      ["direct_llama_cpp", "direct_llama_cpp"],
       ["model_allocator", "model_allocator"]
     ]
   );

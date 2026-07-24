@@ -89,6 +89,19 @@ class Scheduler:
             dispatch_result = self._dispatch(job)
             result["dispatch"] = dispatch_result
 
+            # 6b. Check if dispatch failed — fail fast rather than waiting
+            #     for lease expiry. The job can be retried via lease recovery
+            #     or human re-approval.
+            dispatch_status = dispatch_result.get("status", "")
+            if dispatch_status in ("failed", "timeout", "error"):
+                err_msg = dispatch_result.get("output") or \
+                         dispatch_result.get("error") or \
+                         dispatch_status
+                self.repo.transition(job.job_id, "FAILED",
+                    detail=f"dispatch failed: {err_msg[:400]}")
+                result["outcome"] = "dispatch_failed"
+                return result
+
             # 7. Check completion
             completed = self._check_completion(job)
             if completed:

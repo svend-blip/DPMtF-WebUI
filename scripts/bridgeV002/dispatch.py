@@ -449,48 +449,6 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
             pass
 
 
-_machine_profile_cache = None
-
-
-def _machine_profile():
-    """Machine profile (lokal json) — cached; tom dict hvis fraværende."""
-    global _machine_profile_cache
-    if _machine_profile_cache is None:
-        try:
-            path = os.path.join(PROJECT_ROOT, "profiles", "machine.local.json")
-            with open(path, encoding="utf-8") as fh:
-                _machine_profile_cache = json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            _machine_profile_cache = {}
-    return _machine_profile_cache
-
-
-def warm_ollama_model(model_name, timeout=180):
-    """Load a model into VRAM BEFORE injecting the role prompt (hardening
-    1d). Cold dispatches — Claude Code's first request racing a 30-60s
-    model load — correlate with task-derails ('Hej! Jeg er klar...') in
-    flows 065/066. An empty generate request blocks until loaded."""
-    import urllib.request
-    base = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-    keep_alive = (_machine_profile().get("providers", {})
-                  .get("local_ollama", {}).get("warmup_keep_alive", "30m"))
-    body = json.dumps({"model": model_name, "prompt": "",
-                       "keep_alive": keep_alive}).encode("utf-8")
-    req = urllib.request.Request(f"{base}/api/generate", data=body,
-                                 headers={"Content-Type": "application/json"})
-    started = time.time()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout):
-            pass
-        print(f"  Model warmup: '{model_name}' loaded "
-              f"({time.time()-started:.0f}s)")
-        return True
-    except Exception as exc:
-        print(f"  Model warmup: '{model_name}' failed ({exc}) — "
-              "dispatching anyway")
-        return False
-
-
 def inject_prompt(session_name, text, enter_command="default"):
     """Detect tool type and route to correct injection method.
 
@@ -573,34 +531,6 @@ def verify_injection_submitted(session_name, attempts=4, settle_seconds=8):
     print(f"  Injection verify: final state for '{session_name}': "
           f"{'active' if submitted else 'UNCONFIRMED — check pane manually'}")
     return submitted
-
-
-def unload_ollama_model(model_name):
-    """Stop an Ollama model to free VRAM and clear context.
-
-    Returns True on success or if model was already unloaded.
-    Returns False on actual failure (model name invalid, ollama not running, etc.).
-    """
-    if not model_name:
-        return True  # nothing to unload — not an error
-
-    result = subprocess.run(
-        ["ollama", "stop", model_name],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        print(f"  Stopped Ollama model '{model_name}'")
-        return True
-
-    # Check for 'already unloaded' — not a failure
-    stderr_lower = (result.stderr or "").lower()
-    if "not loaded" in stderr_lower or "not found" in stderr_lower:
-        print(f"  Model '{model_name}' not currently loaded — VRAM already free")
-        return True
-
-    # Actual failure
-    print(f"  WARNING: Failed to stop '{model_name}': {result.stderr.strip()}")
-    return False
 
 
 def _resolve_existing_target(bridge_dir, subdir, target):
@@ -965,10 +895,6 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         )
         return True
 
-    from_ollama_model = ""
-    model_type = to_role.get("model_type", "")
-    ollama_model = to_role.get("ollama_model", "")
-
     # Step 4: Check session is alive (persistent session, not started)
     if not session_alive(tmux_session):
         print(f"  ERROR: Target session '{tmux_session}' is not running")
@@ -1022,16 +948,8 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             return False
 
     # Compose final injection text: use convention prompt_template or content_template from DB
-    # Resolve model_name for {model_name} placeholder
-    target_model_name_rs = ""
-    if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
-        target_model_name_rs = to_role["ollama_model"]
-    elif to_role.get("model_type") == "cloud" and to_role.get("cloud_model"):
-        target_model_name_rs = to_role["cloud_model"]
-
-    # Resolve output_file: the filename the TO role should write
-    output_pattern_rs = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
-    output_file_rs = output_pattern_rs.replace("{ID}", payload["handoff_id"]).replace("{role_key}", payload["to_role"])
+    # Resolve model_name for {model_name} placeholder (via allocator alias)
+    target_model_name_rs = to_role.get("default_model_alias", "")
 
     prompt_text = payload.get("prompt_template", "")
     if not prompt_text:
@@ -1074,8 +992,6 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     )
     if from_source == "model_allocator" and from_alias:
         _run_allocator_stop(from_alias)
-    elif from_role.get("model_type") == "ollama" and from_role.get("ollama_model"):
-        unload_ollama_model(from_role["ollama_model"])
 
     post_script = target_step.get("post_dispatch_script")
     if post_script:
@@ -1128,61 +1044,51 @@ def _ensure_session_ready(role_key, db_path=None):
         time.sleep(0.3)
 
     # Step 2: Start coding frontend via Model Allocator
-    default_runtime = role.get("default_runtime", "")
-
-    if default_runtime:
-        # Phase 2: all roles use model_allocator
-        model_source, model_alias = get_effective_model_source(
-            role_key, db_path=db_path
-        )
-        if model_source == "model_allocator" and model_alias:
-            try:
-                import config as _cfg
-                allocator_path = os.path.join(
-                    _cfg.get_project_path("model-allocator"), "scripts", "model-allocator"
+    model_source, model_alias = get_effective_model_source(
+        role_key, db_path=db_path
+    )
+    if model_source == "model_allocator" and model_alias:
+        try:
+            import config as _cfg
+            allocator_path = os.path.join(
+                _cfg.get_project_path("model-allocator"), "scripts", "model-allocator"
+            )
+            # Determine client from the role's enter_command (Freebuff uses c-m)
+            enter_cmd = role.get("enter_command", "default")
+            if enter_cmd == "c-m":
+                allocator_client = "freebuff"
+            elif enter_cmd in ("c-j", "c-d"):
+                allocator_client = "opencode"
+            else:
+                allocator_client = "opencode"
+            run_cmd = [allocator_path, "run",
+                        "--role", role_key,
+                        "--client", allocator_client]
+            if role.get("max_output_tokens"):
+                run_cmd += ["--max-output-tokens", str(role["max_output_tokens"])]
+            result = subprocess.run(
+                run_cmd, capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode == 0:
+                shell_str = result.stdout.strip()
+                cwd = _cfg.get_project_root()
+                cmd_str = f"cd {cwd} && {shell_str}"
+                subprocess.run(
+                    ["tmux", "send-keys", "-t", f"={session_name}:0",
+                     cmd_str, "Enter"],
+                    capture_output=True, text=True,
                 )
-                # Map DB runtime to allocator client key
-                runtime_to_client = {
-                    "claude": "claude-code",
-                    "opencode": "opencode",
-                    "freebuff": "freebuff",
-                }
-                allocator_client = runtime_to_client.get(
-                    default_runtime, default_runtime
-                )
-                run_cmd = [allocator_path, "run",
-                            "--role", role_key,
-                            "--client", allocator_client]
-                if role.get("max_output_tokens"):
-                    run_cmd += ["--max-output-tokens", str(role["max_output_tokens"])]
-                result = subprocess.run(
-                    run_cmd, capture_output=True, text=True, timeout=60,
-                )
-                if result.returncode == 0:
-                    shell_str = result.stdout.strip()
-                    cwd = _cfg.get_project_root()
-                    cmd_str = f"cd {cwd} && {shell_str}"
-                    subprocess.run(
-                        ["tmux", "send-keys", "-t", f"={session_name}:0",
-                         cmd_str, "Enter"],
-                        capture_output=True, text=True,
-                    )
-                    print(f"  Started coding frontend in '{session_name}' "
-                          f"(allocator alias={model_alias})")
-                    time.sleep(1.0)
-                else:
-                    print(f"  ERROR: allocator run failed: {result.stderr.strip()}")
-                    return False
-            except Exception as e:
-                print(f"  ERROR: allocator run error: {e}")
+                print(f"  Started coding frontend in '{session_name}' "
+                      f"(allocator alias={model_alias})")
+                time.sleep(1.0)
+            else:
+                print(f"  ERROR: allocator run failed: {result.stderr.strip()}")
                 return False
-        else:
-            print(f"  ERROR: role '{role_key}' has model_source='{model_source}' — "
-                  f"expected 'model_allocator'")
+        except Exception as e:
+            print(f"  ERROR: allocator run error: {e}")
             return False
     else:
-        # No default_runtime configured — skip frontend start
-        print(f"  WARNING: role '{role_key}' has no default_runtime — "
+        print(f"  WARNING: role '{role_key}' has no model_allocator alias — "
               f"skipping frontend start")
 
     return session_alive(session_name)
@@ -1362,14 +1268,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         rule_key, db_path=_db_path()
     ) if rule_key else ""
 
-    # Resolve model_name for {model_name} placeholder
-    target_model_name_sc = ""
-    if to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
-        target_model_name_sc = to_role["ollama_model"]
-    elif to_role.get("model_type") == "cloud" and to_role.get("cloud_model"):
-        target_model_name_sc = to_role["cloud_model"]
-
-    # Resolve output_file: the filename the TO role should write
+    # Resolve model_name for {model_name} placeholder (via allocator alias)
+    target_model_name_sc = to_role.get("default_model_alias", "")
     output_pattern_sc = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
     output_file_sc = output_pattern_sc.replace("{ID}", payload["handoff_id"]).replace("{role_key}", payload["to_role"])
 
@@ -1425,8 +1325,6 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     )
     if to_source_sc == "model_allocator" and to_alias_sc:
         _run_allocator_start(to_alias_sc)
-    elif to_role.get("model_type") == "ollama" and to_role.get("ollama_model"):
-        warm_ollama_model(to_role["ollama_model"])
 
     # Acquire model lease for the target role (reference-counted unload)
     try:
@@ -1439,8 +1337,10 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
 
     # Check if this role uses python_runtime as execution backend
     # (instead of tmux injection via OpenCode/Claude Code)
-    runtime_override = current_step.get("runtime_override", "") if current_step else ""
-    if runtime_override == "python_runtime":
+    # Check if this role uses python_runtime as execution backend
+    # (step-level model_source determines execution backend)
+    step_model_source = current_step.get("model_source", "") if current_step else ""
+    if step_model_source == "python_runtime":
         print(f"  Execution backend: python_runtime")
         runtime_script = str(Path(__file__).resolve().parent.parent / "python-runtime" / "runtime.py")
         result_path = os.path.join(bridge_dir, payload["deliverable_dir"],
@@ -1453,7 +1353,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
                  "--handoff-id", handoff_id,
                  "--result-path", result_path,
                  "--allocator-role", payload["to_role"],
-                 "--allocator-client", to_role.get("default_runtime", "opencode"),
+                 "--allocator-client", "opencode",
                  "--flow", flow_key,
                  "--role", payload["to_role"],
                  "--step-key", payload.get("step_key", ""),
@@ -1531,8 +1431,6 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
                     print(f"  Stopped allocator model '{from_alias}' (last lease released)")
             except ImportError:
                 _run_allocator_stop(from_alias)
-        elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
-            unload_ollama_model(from_role_data["ollama_model"])
     except ValueError:
         pass  # from_role not in DB - not an ollama role, skip
 
@@ -1550,7 +1448,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             bridge_dir=bridge_dir,
             model_alias=from_alias if from_source == "model_allocator" else "",
             model_backend=from_source or "",
-            concrete_model=from_role_data.get("ollama_model", "") if from_role_data else "",
+            concrete_model=from_alias if from_source == "model_allocator" else "",
         )
         if cp_path:
             print(f"  Checkpoint written: {cp_path}")
@@ -1753,10 +1651,8 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         )
         if from_source == "model_allocator" and from_alias:
             _run_allocator_stop(from_alias)
-        elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
-            unload_ollama_model(from_role_data["ollama_model"])
     except Exception:
-        pass  # Not an ollama role or model already stopped
+        pass  # Not an allocator role or model already stopped
 
     # Step 8: Update symlink in escalation directory
     link_path = os.path.join(esc_dir, "current.md")
@@ -1897,10 +1793,8 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         )
         if from_source == "model_allocator" and from_alias:
             _run_allocator_stop(from_alias)
-        elif from_role_data.get("model_type") == "ollama" and from_role_data.get("ollama_model"):
-            unload_ollama_model(from_role_data["ollama_model"])
     except Exception:
-        pass  # Not an ollama role or model already stopped
+        pass  # Not an allocator role or model already stopped
 
     # Step 6: Update symlink in answer directory
     link_path = os.path.join(ans_dir, "current_answer.md")
@@ -2106,8 +2000,6 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     )
     if to_source == "model_allocator" and to_alias:
         _run_allocator_stop(to_alias)
-    elif to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
-        unload_ollama_model(to_role_data["ollama_model"])
 
     # Step 5: Prepend governance file reference if target role has one
     gov_file = to_role_data.get("governance_file")
@@ -2122,14 +2014,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     ) if rule_key else ""
 
     # Step 7: Build prompt with placeholder replacement
-    # Resolve model_name for {model_name} placeholder
-    target_model_name = ""
-    if to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
-        target_model_name = to_role_data["ollama_model"]
-    elif to_role_data.get("model_type") == "cloud" and to_role_data.get("cloud_model"):
-        target_model_name = to_role_data["cloud_model"]
-
-    # Resolve output_file: the filename the TO role should write
+    # Resolve model_name for {model_name} placeholder (via allocator alias)
+    target_model_name = to_role_data.get("default_model_alias", "")
     output_pattern = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
     output_file = output_pattern.replace("{ID}", handoff_id).replace("{role_key}", to_role_key)
 
@@ -2183,8 +2069,6 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     )
     if to_source_send == "model_allocator" and to_alias_send:
         _run_allocator_start(to_alias_send)
-    elif to_role_data.get("model_type") == "ollama" and to_role_data.get("ollama_model"):
-        warm_ollama_model(to_role_data["ollama_model"])
 
     # Step 8: Inject prompt into target role's tmux session
     inject_prompt(tmux_session, prompt_text,

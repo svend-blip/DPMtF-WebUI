@@ -22,3 +22,4 @@ profiles/*.json
 # Runtime artifacts (bridge inbox remnants, app/cron logs)
 inbox/
 logs/
+.aider*

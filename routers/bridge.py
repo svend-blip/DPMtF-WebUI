@@ -337,9 +337,8 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
             (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
              pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order,
              auto_chain_to_next, validation_required,
-             runtime_override, provider_override, model_override,
              model_source, model_alias)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         flow_key, data["step_key"], data["from_role"], data["to_role"],
         deliverable_dir, deliverable_pattern,
@@ -347,9 +346,6 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
         error_msg, rule_key, max_so + 1,
         int(data.get("auto_chain_to_next", 0)),
         int(data.get("validation_required", 0)),
-        data.get("runtime_override"),
-        data.get("provider_override"),
-        data.get("model_override"),
         data.get("model_source"),
         data.get("model_alias"),
     ))
@@ -397,9 +393,6 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
         "sort_order": "sort_order",
         "auto_chain_to_next": "auto_chain_to_next",
         "validation_required": "validation_required",
-        "runtime_override": "runtime_override",
-        "provider_override": "provider_override",
-        "model_override": "model_override",
         "model_source": "model_source",
         "model_alias": "model_alias",
     }
@@ -497,28 +490,21 @@ async def bridge_v2_create_role(request: Request):
     ).fetchone()
 
     if not existing:
-        model_type = data.get("model_type", "ollama")
         cursor.execute("""
             INSERT INTO bridge_roles
-            (role_key, tmux_session, model_type, cloud_model, ollama_model,
+            (role_key, tmux_session,
              setup_script, teardown_script, deliver_error_msg, enter_command,
-             default_runtime, default_provider, default_model, config_dir,
+             config_dir,
              default_model_source, default_model_alias,
              trade_mcp_push_mode, max_output_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["role_key"],
             data["tmux_session"],
-            model_type,
-            data.get("cloud_model"),
-            data.get("ollama_model"),
             data.get("setup_script"),
             data.get("teardown_script"),
             data.get("deliver_error_msg"),
             data.get("enter_command", "default"),
-            data.get("default_runtime"),
-            data.get("default_provider"),
-            data.get("default_model"),
             data.get("config_dir"),
             data.get("default_model_source"),
             data.get("default_model_alias"),
@@ -528,13 +514,11 @@ async def bridge_v2_create_role(request: Request):
     else:
         # Role exists (active or soft-deleted) — reactivate/update it
         row = dict(existing) if not isinstance(existing, dict) else dict(existing)
-        model_type = row["model_type"] if not data.get("model_type") else data["model_type"]
         sets = []
         params = []
-        for field in ["tmux_session", "model_type", "cloud_model",
-                      "ollama_model", "setup_script", "teardown_script",
+        for field in ["tmux_session",
+                      "setup_script", "teardown_script",
                       "deliver_error_msg", "enter_command",
-                      "default_runtime", "default_provider", "default_model",
                       "config_dir", "default_model_source", "default_model_alias",
                       "trade_mcp_push_mode", "max_output_tokens"]:
             if field in data:
@@ -570,13 +554,12 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Role '{role_key}' not found")
 
     updatable = [
-        "tmux_session", "model_type", "cloud_model", "ollama_model",
+        "tmux_session",
         "setup_script", "teardown_script", "deliver_error_msg", "is_active",
         "governance_file",
         "role_type",  # G1: allow frontend to change role type (agent/human)
         "enter_command",  # H150: per-role Enter key configuration
-        "default_runtime", "default_provider", "default_model",  # Machine Profile Fase 2A
-        "config_dir",  # Machine Profile Fase 2A — OpenCode config directory override
+        "config_dir",  # OpenCode config directory override
         "default_model_source", "default_model_alias",  # V3A: Model Allocator source / alias
         "trade_mcp_push_mode", "max_output_tokens",  # Migration 004: runtime config
     ]
@@ -913,7 +896,7 @@ async def bridge_v2_start_coding_for_flow(flow_key: str):
         if result.returncode == 0:
             return {
                 "status": "ok",
-                "message": result.stdout.strip() or f"No roles with default_runtime for '{flow_key}'",
+                "message": result.stdout.strip() or f"No roles with model_allocator for '{flow_key}'",
             }
         else:
             raise HTTPException(status_code=500, detail=result.stderr.strip())
