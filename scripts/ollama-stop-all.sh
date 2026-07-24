@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/svend/DPMtF-WebUI"
+PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-/home/svend/DPMtF-WebUI}"
 
 echo "═══════════════════════════════════════════════════════════"
 echo "  Ollama Stop-All — Free context on local models"

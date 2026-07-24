@@ -129,7 +129,7 @@ function loadPanelStructure() {
 }
 
 function buildPanelStructure() {
-  var groupNames = ["daily", "journals", "reports", "periodic", "setup"];
+  var groupNames = ["daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator"];
   for (var i = 0; i < groupNames.length; i++) {
     var gn = groupNames[i];
     var pg = document.getElementById("pg-" + gn);
@@ -1151,7 +1151,7 @@ function runValidationDrawer() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      target_project: "/home/svend/DPMtF-WebUI",
+      target_project: "",
       rule_keys: ["all"]
     })
   })
@@ -1374,7 +1374,7 @@ function buildCompilerForm() {
   var projInput = el("input", null);
   projInput.type = "text";
   projInput.id = "compile-target_project";
-  projInput.placeholder = lbl("lbl_compiler_project_placeholder", "/home/svend/DPMtF-WebUI");
+  projInput.placeholder = lbl("lbl_compiler_project_placeholder", "DPMtF-WebUI");
   projDiv.appendChild(projInput);
   container.appendChild(projDiv);
 

@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/svend/DPMtF-WebUI"
+PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-/home/svend/DPMtF-WebUI}"
 
 # cd FIRST — cron runs with CWD=$HOME (/home/svend), so a relative
 # config.get_db_path() ("databases/dpmtf.db") would resolve to

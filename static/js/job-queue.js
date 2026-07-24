@@ -212,7 +212,7 @@ function renderJobQueue() {
   projLabel.style.cssText = "font-size:0.85em;display:block;margin-bottom:4px;";
   var projInput = el("input", "dpmtf-input");
   projInput.type = "text";
-  projInput.value = "/home/svend/DPMtF-WebUI";
+  projInput.value = "";
   projInput.style.cssText = "width:100%;margin-bottom:8px;";
   projLabel.appendChild(projInput);
   createForm.appendChild(projLabel);
