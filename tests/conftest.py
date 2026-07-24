@@ -28,35 +28,44 @@ from fastapi.testclient import TestClient
 
 _BRIDGE_SCHEMA_SQL = [
     """
-    CREATE TABLE bridge_roles (
+    CREATE TABLE IF NOT EXISTS bridge_roles (
         role_key TEXT PRIMARY KEY,
         tmux_session TEXT NOT NULL,
         start_cmd TEXT,
-        model_type TEXT DEFAULT 'ollama',
-        cloud_model TEXT,
-        ollama_model TEXT,
         setup_script TEXT,
         teardown_script TEXT,
         deliver_error_msg TEXT,
         is_active INTEGER DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        restart_policy TEXT,
+        governance_file TEXT,
+        role_type TEXT DEFAULT 'agent',
+        enter_command TEXT DEFAULT 'default',
+        config_dir TEXT,
+        primary_output_type TEXT,
+        default_model_source TEXT,
+        default_model_alias TEXT,
+        trade_mcp_push_mode TEXT,
+        max_output_tokens INTEGER
     )
     """,
     """
-    CREATE TABLE bridge_flows (
+    CREATE TABLE IF NOT EXISTS bridge_flows (
         flow_key TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         description TEXT,
         step_order TEXT,
         is_default INTEGER DEFAULT 0,
+        use_machine_profile INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
+        auto_complete_enabled INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """
-    CREATE TABLE bridge_flow_steps (
+    CREATE TABLE IF NOT EXISTS bridge_flow_steps (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         flow_key TEXT NOT NULL,
         step_key TEXT NOT NULL,
@@ -69,8 +78,80 @@ _BRIDGE_SCHEMA_SQL = [
         error_msg TEXT,
         sort_order INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
+        rule_key TEXT,
+        auto_chain_to_next INTEGER DEFAULT 0,
+        validation_required INTEGER DEFAULT 0,
+        model_source TEXT,
+        model_alias TEXT,
         FOREIGN KEY (flow_key) REFERENCES bridge_flows(flow_key),
         UNIQUE(flow_key, step_key)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        workflow_run_id TEXT,
+        flow_key TEXT NOT NULL,
+        step_key TEXT,
+        role_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'DRAFT',
+        allocator_alias TEXT,
+        handoff_id TEXT,
+        idempotency_key TEXT UNIQUE,
+        retry_count INTEGER DEFAULT 0,
+        max_retries INTEGER DEFAULT 3,
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        heartbeat_at TEXT,
+        priority INTEGER DEFAULT 0,
+        goal TEXT NOT NULL,
+        target_project TEXT NOT NULL,
+        scope_version TEXT,
+        checkpoint_path TEXT,
+        context_fit_state TEXT,
+        parent_job_id TEXT,
+        continuation_index INTEGER,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS job_events (
+        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        from_state TEXT,
+        to_state TEXT,
+        actor TEXT,
+        detail TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS bridge_scripts (
+        script_key TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        description TEXT,
+        is_active INTEGER DEFAULT 1
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS bridge_conventions (
+        rule_key TEXT PRIMARY KEY,
+        name TEXT,
+        dir_template TEXT,
+        pattern_template TEXT,
+        error_template TEXT,
+        prompt_template TEXT,
+        content_template TEXT,
+        is_active INTEGER DEFAULT 1
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS bridge_content_templates (
+        rule_key TEXT PRIMARY KEY,
+        template TEXT,
+        is_active INTEGER DEFAULT 1
     )
     """,
 ]
@@ -108,16 +189,16 @@ def seeded_db_path(temp_db_path: str) -> str:
         conn.execute(
             """
             INSERT INTO bridge_roles
-                (role_key, tmux_session, start_cmd, model_type,
-                 ollama_model, is_active)
+                (role_key, tmux_session, start_cmd,
+                 default_model_source, default_model_alias, is_active)
             VALUES (?, ?, ?, ?, ?, 1)
             """,
             (
                 "test_role",
                 "test_tmux_session",
                 "echo test",
-                "ollama",
-                "qwen-test:7b",
+                "model_allocator",
+                "test-alias",
             ),
         )
         conn.execute(
@@ -144,9 +225,10 @@ def seeded_db_path(temp_db_path: str) -> str:
 def app_module(seeded_db_path: str):
     """Import app.py once and patch DB_PATH to the temp DB.
 
-    app.py reads `DB_PATH = config.get_db_path()` at module import time
-    and stores it as a module global. We patch the global so every
-    endpoint that touches the database uses the isolated temp DB.
+    Patches `app.DB_PATH` at session scope so the FastAPI app uses the
+    isolated temp DB. The `config.get_db_path` patch is applied per-test
+    in the `client` fixture to avoid affecting tests that read the live
+    database directly (e.g. migration tests).
 
     Returns the imported app module.
     """
@@ -170,9 +252,18 @@ def client(app_module) -> TestClient:
     """Yield a FastAPI TestClient bound to the patched app.
 
     Each test gets a fresh TestClient (function-scoped) but they all
-    share the same temp DB (session-scoped).
+    share the same temp DB (session-scoped). Patches `config.get_db_path`
+    per-test so JobRepository() (which calls config.get_db_path()) also
+    uses the temp DB. Migration tests that read the live DB directly are
+    not affected because they don't use this fixture.
     """
-    return TestClient(app_module.app)
+    import config as dpmtf_config
+    original_config_fn = dpmtf_config.get_db_path
+    dpmtf_config.get_db_path = lambda: app_module.DB_PATH
+    try:
+        yield TestClient(app_module.app)
+    finally:
+        dpmtf_config.get_db_path = original_config_fn
 
 
 @pytest.fixture()

@@ -58,11 +58,11 @@ def test_bridge_v2_status_reports_missing_when_no_tables(
         conn.execute(
             """
             INSERT INTO bridge_roles
-                (role_key, tmux_session, start_cmd, model_type,
-                 ollama_model, is_active)
+                (role_key, tmux_session, start_cmd,
+                 default_model_source, default_model_alias, is_active)
             VALUES (?, ?, ?, ?, ?, 1)
             """,
-            ("test_role", "test_tmux_session", "echo test", "ollama", "qwen-test:7b"),
+            ("test_role", "test_tmux_session", "echo test", "model_allocator", "test-alias"),
         )
         conn.execute(
             """
@@ -129,11 +129,11 @@ def test_bridge_v2_flows_returns_empty_when_no_tables(
         conn.execute(
             """
             INSERT INTO bridge_roles
-                (role_key, tmux_session, start_cmd, model_type,
-                 ollama_model, is_active)
+                (role_key, tmux_session, start_cmd,
+                 default_model_source, default_model_alias, is_active)
             VALUES (?, ?, ?, ?, ?, 1)
             """,
-            ("test_role", "test_tmux_session", "echo test", "ollama", "qwen-test:7b"),
+            ("test_role", "test_tmux_session", "echo test", "model_allocator", "test-alias"),
         )
         conn.execute(
             """

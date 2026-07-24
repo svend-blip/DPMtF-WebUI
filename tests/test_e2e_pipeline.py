@@ -13,11 +13,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from job_queue.models import JobRepository
 from job_queue.scheduler import Scheduler
 
-def test_full_pipeline_end_to_end():
+def test_full_pipeline_end_to_end(tmp_path):
     """Test the full end-to-end pipeline from job creation to completion."""
-    
+
     # Setup temporary database
-    db_path = "/tmp/test_e2e.db"
+    db_path = str(tmp_path / "test_e2e.db")
     conn = sqlite3.connect(db_path)
     conn.executescript("""
         CREATE TABLE jobs (
@@ -74,6 +74,5 @@ def test_full_pipeline_end_to_end():
         assert cp["role_key"] == "archi01"
         
     finally:
-        # Clean up
-        if Path(db_path).exists():
-            Path(db_path).unlink()
+        # Clean up (tmp_path auto-cleans, but explicit for clarity)
+        pass

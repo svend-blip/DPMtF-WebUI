@@ -13,11 +13,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from job_queue.models import JobRepository
 from job_queue.scheduler import Scheduler
 
-def test_full_create_to_completion_workflow():
+def test_full_create_to_completion_workflow(tmp_path):
     """Test the complete end-to-end workflow from job creation to completion."""
-    
-    # Setup temporary database 
-    db_path = "/tmp/test_complete_e2e.db"
+
+    # Setup temporary database
+    db_path = str(tmp_path / "test_complete_e2e.db")
     conn = sqlite3.connect(db_path)
     conn.executescript("""
         CREATE TABLE jobs (
@@ -89,15 +89,13 @@ def test_full_create_to_completion_workflow():
 
         
     finally:
-        # Clean up
-        if Path(db_path).exists():
-            Path(db_path).unlink()
+        pass  # tmp_path auto-cleans
 
-def test_multiple_jobs_workflow():
+def test_multiple_jobs_workflow(tmp_path):
     """Test multiple jobs in sequence to verify complete workflow."""
-    
+
     # Setup temporary database
-    db_path = "/tmp/test_multiple_jobs.db"
+    db_path = str(tmp_path / "test_multiple_jobs.db")
     conn = sqlite3.connect(db_path)
     conn.executescript("""
         CREATE TABLE jobs (
@@ -159,6 +157,4 @@ def test_multiple_jobs_workflow():
         assert job2.status == "COMPLETED"
         
     finally:
-        # Clean up
-        if Path(db_path).exists():
-            Path(db_path).unlink()
+        pass  # tmp_path auto-cleans

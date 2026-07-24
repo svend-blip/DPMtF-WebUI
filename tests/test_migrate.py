@@ -146,6 +146,7 @@ def test_init_db_end_to_end(temp_db_path):
     config_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config_mod)
     config_mod.get_db_path = lambda: temp_db_path
+    original_config = sys.modules.get("config")
     sys.modules["config"] = config_mod
 
     # Reset migrate module cache so it picks up the patched config.
@@ -178,6 +179,9 @@ def test_init_db_end_to_end(temp_db_path):
         assert label_count > 0
     finally:
         conn.close()
+        # Restore original config module so other tests aren't affected
+        if original_config is not None:
+            sys.modules["config"] = original_config
 
 
 def test_migration_failure_rolls_back(temp_db_path):
