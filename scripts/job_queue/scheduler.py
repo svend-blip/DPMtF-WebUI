@@ -312,21 +312,31 @@ class Scheduler:
             return {"action": "signal_send", "status": "error", "error": str(e)}
 
     def _check_completion(self, job: Job) -> bool:
-        """Check if the job's deliverable file exists."""
-        # Use env var or config for bridge dir
+        """Check if the job's result/deliverable file exists.
+
+        Looks specifically for result files and callback files — NOT the
+        handoff file itself (which is the input, not the output).
+        """
         bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
         import glob
         hid = job.handoff_id or ""
         if not hid:
             return False
-        patterns = [
-            os.path.join(bridge_dir, job.flow_key, "**", f"*{hid}*"),
-            os.path.join(bridge_dir, "**", f"*{hid}*"),
+        # Look for result files, callback files, verdict files — not handoff files
+        # The handoff file (input) is excluded; only output deliverables count.
+        result_patterns = [
+            os.path.join(bridge_dir, job.flow_key, "**", f"*{hid}-result*"),
+            os.path.join(bridge_dir, job.flow_key, "**", f"*{hid}-callback*"),
+            os.path.join(bridge_dir, job.flow_key, "**", f"*{hid}-verdict*"),
+            os.path.join(bridge_dir, job.flow_key, "results", f"*{hid}*"),
         ]
-        for pattern in patterns:
+        for pattern in result_patterns:
             matches = glob.glob(pattern, recursive=True)
             if matches:
-                return True
+                # Exclude the handoff file itself (it's the input, not output)
+                matches = [m for m in matches if "-handoff" not in m]
+                if matches:
+                    return True
         return False
 
     def _auto_split(self, job: Job, fit_state: str):
