@@ -493,7 +493,7 @@ function _renderInfoRow(container, label, value, valueClass) {
 }
 
 function _allocatorClient(role) {
-  // Derive allocator client from role_type or model_source — default_runtime is removed.
+  // Derive allocator client from role_type or model_source.
   if (role.default_model_source === "model_allocator" || !role.default_model_source) {
     return "opencode";
   }

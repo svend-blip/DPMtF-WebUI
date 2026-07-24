@@ -73,7 +73,7 @@ def validate_deliverable(full_path):
         return False
 
 
-def get_ollama_model_from_db(from_role_key, db_path):
+def get_allocator_alias_from_db(from_role_key, db_path):
     """Look up the allocator alias for a given role from bridge_roles table.
 
     Returns the default_model_alias string or None if not found/not configured.
@@ -98,7 +98,7 @@ def get_ollama_model_from_db(from_role_key, db_path):
         return None
 
 
-def get_next_role_ollama_model(step_key, db_path):
+def get_next_role_allocator_alias(step_key, db_path):
     """Find the next role in the flow chain and return its allocator alias, if any.
 
     Looks up the current step's flow_key and sort_order, finds the step with
@@ -154,7 +154,7 @@ def get_next_role_ollama_model(step_key, db_path):
         return None
 
 
-def stop_ollama_model(model_name):
+def stop_allocator_model(model_name):
     """Stop an Ollama model to free VRAM. Returns True on success.
 
     Handles the case where the model is already unloaded — this is idempotent,
@@ -212,22 +212,22 @@ def main():
         print(f"  ERROR: {args.error_msg}")
         sys.exit(1)
 
-    # Step 4: Look up Ollama model for from_role in database
-    ollama_model = get_ollama_model_from_db(args.from_role, db_path)
-    if ollama_model:
-        print(f"  From role '{args.from_role}' has Ollama model: {ollama_model}")
+    # Step 4: Look up allocator alias for from_role in database
+    allocator_alias = get_allocator_alias_from_db(args.from_role, db_path)
+    if allocator_alias:
+        print(f"  From role '{args.from_role}' has allocator alias: {allocator_alias}")
 
     # Step 5: Check if next role in chain uses the same model — if so, skip stop
     # to avoid killing a model the next role is actively loading or using.
-    next_model = get_next_role_ollama_model(args.step_key, db_path)
-    if next_model and ollama_model and next_model == ollama_model:
-        print(f"  Skipping ollama stop — next role in chain also uses '{ollama_model}'")
+    next_model = get_next_role_allocator_alias(args.step_key, db_path)
+    if next_model and allocator_alias and next_model == allocator_alias:
+        print(f"  Skipping model stop — next role in chain also uses '{allocator_alias}'")
         success = True
     else:
-        # Step 6: Stop the Ollama model (absolute last action — no stdout after this)
-        success = stop_ollama_model(ollama_model)
+        # Step 6: Stop the model (absolute last action — no stdout after this)
+        success = stop_allocator_model(allocator_alias)
         if not success:
-            print("  WARNING: Post-dispatch completed with ollama stop failure")
+            print("  WARNING: Post-dispatch completed with model stop failure")
             sys.exit(1)
 
     # Step 7: Final status output (last printed line before exit)

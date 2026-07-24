@@ -30,9 +30,7 @@ from bridge_lib import (  # noqa: E402
     resolve_placeholders,
 )
 
-# Phase 2: direct command_builder path removed — all roles use model_allocator.
-# render_tmux_shell_string is still needed for the allocator run command output.
-from command_builder import render_tmux_shell_string  # noqa: E402
+# All roles use model_allocator — direct command_builder path removed.
 
 
 def get_flow_roles(db_path, flow_key):
@@ -120,9 +118,8 @@ def ensure_session_exists(session_name):
 def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
     """Send the start command string to an existing tmux session via send-keys.
 
-    The cmd_str is expected to be a fully-formed shell command (typically
-    built by the Machine Profile command_builder). Returns True on success,
-    False on failure.
+    The cmd_str is a fully-formed shell command from `model-allocator run`.
+    Returns True on success, False on failure.
     """
     if not cmd_str:
         print(f"  ERROR: No command string to send")
@@ -169,14 +166,7 @@ def main():
         print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
         return
 
-    # Machine Profile — always used for command building
-    machine_profile = config_mod.get_machine_profile()
-    if not machine_profile:
-        print("ERROR: No valid Machine Profile found.")
-        print("  Create profiles/machine.local.json or set DPMTF_MACHINE_PROFILE in .env.")
-        return 1
-
-    # 2. Process each role — send the built start command to its tmux session
+    # 2. Process each role — start coding frontend via Model Allocator
     started = []
     skipped = []
     errors = []
@@ -256,10 +246,7 @@ def main():
                     timeout=60,
                 )
                 shell_str = result.stdout.strip()
-                # cwd: same fallback as the Machine-Profile path.
                 cwd = project_root
-                mp_paths = machine_profile.get("paths", {})
-                cwd = mp_paths.get("project_root", project_root)
                 cmd_str = f"cd {cwd} && {shell_str}"
                 print(f"  {role['role_key']:15s} → '{session_name}'  (model_allocator) ...")
                 ok = run_cmd_in_session(
@@ -284,7 +271,6 @@ def main():
                 errors.append(role["role_key"])
             continue
 
-        # Phase 2: direct/command_builder path removed — all roles use model_allocator.
         # If a role reaches here, it has an unknown model_source.
         print(f"  {role['role_key']:15s} → '{session_name}'")
         print(f"  ERROR: role has model_source='{model_source}' — expected 'model_allocator'")
