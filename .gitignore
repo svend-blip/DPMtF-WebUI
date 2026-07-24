@@ -23,3 +23,10 @@ profiles/*.json
 inbox/
 logs/
 .aider*
+
+# Job queue checkpoints (runtime artifacts, one per completed job)
+jobs/checkpoints/
+
+# Bridge cycle state (runtime metadata, updated every dispatch)
+docs/bridgeV002/current-cycle-*.json
+scripts/docs/bridgeV002/current-cycle.json
