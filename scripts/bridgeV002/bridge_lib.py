@@ -694,6 +694,113 @@ def resolve_content_template_from_db(rule_key, db_path=None):
         return ""
 
 
+def auto_prepend_xml_sections(file_path, rule_key, handoff_id, source_role,
+                               flow_key, bridge_dir, db_path=None):
+    """Auto-prepend missing XML sections to a deliverable file.
+
+    If the deliverable file is missing required XML sections (as defined by
+    the convention rule's validation_schema), this function prepends them
+    using the content_template from the database, with all placeholders
+    resolved. The original content is preserved below the prepended header.
+
+    This is a safety net: models are instructed via governance files to
+    include these sections, but some models occasionally skip them. Without
+    this fix, the chain breaks because dispatch.py rejects files that fail
+    validation.
+
+    Args:
+        file_path: Absolute path to the deliverable .md file.
+        rule_key: The convention key whose schema/template to use.
+        handoff_id: The handoff ID (e.g. '272').
+        source_role: The role that wrote the deliverable (e.g. 'imple01').
+        flow_key: The flow key (e.g. 'strict_review').
+        bridge_dir: The bridge directory path.
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        dict with keys:
+            'prepended': bool — True if sections were added
+            'missing': list[str] — tags that were missing (and are now prepended)
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    result = {"prepended": False, "missing": []}
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT validation_schema, content_template FROM bridge_convention_rules WHERE rule_key = ?",
+            (rule_key,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            return result  # No schema — nothing to validate/prepend
+
+        import json as _json
+        required_tags = _json.loads(row[0])
+        content_template = row[1] if row[1] else ""
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        missing = [tag for tag in required_tags if tag not in content]
+
+        if not missing:
+            return result  # All sections present — nothing to do
+
+        result["missing"] = missing
+
+        if not content_template:
+            # No template available — build a minimal header from the
+            # required tags using known placeholder values.
+            header_parts = []
+            for tag in required_tags:
+                tag_name = tag.strip("<>")
+                if tag_name == "handoff_id":
+                    header_parts.append(f"<handoff_id>{handoff_id}</handoff_id>")
+                elif tag_name == "source_role":
+                    header_parts.append(f"<source_role>{source_role}</source_role>")
+                elif tag_name == "deliverable_input":
+                    header_parts.append(
+                        f"<deliverable_input>\n"
+                        f"  {bridge_dir}/{flow_key}/handoffs/{handoff_id}-handoff.md\n"
+                        f"</deliverable_input>"
+                    )
+                elif tag_name == "deliverable_output":
+                    header_parts.append(
+                        f"<deliverable_output>\n"
+                        f"  result: {bridge_dir}/{flow_key}/results/{handoff_id}-result.md\n"
+                        f"</deliverable_output>"
+                    )
+                else:
+                    header_parts.append(f"<{tag_name}>(auto-generated)</{tag_name}>")
+            header = "\n\n".join(header_parts) + "\n\n"
+        else:
+            # Resolve placeholders in the content template
+            header = content_template.replace("{handoff_id}", handoff_id)
+            header = header.replace("{source_role}", source_role)
+            header = header.replace("{next_role}", source_role)  # next_role not relevant here
+            header = header.replace("{bridge_dir}", bridge_dir)
+            header = header.replace("{flow_key}", flow_key)
+            # Remove any unresolved {placeholder} patterns that we can't fill
+            import re as _re
+            header = _re.sub(r"\{[^}]+\}", "", header)
+            header = header.strip() + "\n\n"
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(header + content)
+
+        result["prepended"] = True
+        return result
+
+    except (sqlite3.OperationalError, FileNotFoundError, json.JSONDecodeError):
+        return result
+
+
 def validate_deliverable_against_schema(file_path, rule_key, db_path=None):
     """Validate that a deliverable file contains required XML sections.
 

@@ -26,6 +26,7 @@ from bridge_lib import (
     resolve_convention_from_db,
     resolve_content_template_from_db,
     validate_deliverable_against_schema,
+    auto_prepend_xml_sections,
     get_next_id_for_flow,
     ensure_subdir,
     resolve_placeholders,
@@ -932,9 +933,26 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
                 print(f"  Pre-dispatch script failed -- aborting")
                 return False
 
-    # Validate deliverable if step requires validation and rule_key is set
+    # Auto-prepend missing XML sections + validate deliverable
     step_validation_required = target_step.get("validation_required", 0)
     if step_validation_required and rule_key:
+        # Safety net: auto-prepend missing XML sections before validation
+        prepend_result = auto_prepend_xml_sections(
+            full_deliverable_path, rule_key,
+            handoff_id=handoff_id,
+            source_role=payload["from_role"],
+            flow_key=flow_key,
+            bridge_dir=bridge_dir,
+            db_path=_db_path(),
+        )
+        if prepend_result["prepended"]:
+            print(f"  WARNING: Auto-prepended missing XML sections: {', '.join(prepend_result['missing'])}")
+            log(
+                f"{payload['from_role']}->{payload['to_role']}",
+                handoff_id,
+                "auto_prepend",
+                f"Model omitted required XML sections; auto-prepended: {', '.join(prepend_result['missing'])}",
+            )
         vresult = validate_deliverable_against_schema(full_deliverable_path, rule_key,
                                                       db_path=_db_path())
         if not vresult["valid"]:
@@ -1246,9 +1264,26 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
                 )
                 return False
 
-    # Step 7: Build callback prompt from convention content_template
+    # Step 7: Auto-prepend missing XML sections, then validate + build callback
     step_validation_required = current_step.get("validation_required", 0)
     if step_validation_required and rule_key:
+        # Safety net: auto-prepend missing XML sections before validation
+        prepend_result = auto_prepend_xml_sections(
+            full_deliverable_path, rule_key,
+            handoff_id=handoff_id,
+            source_role=payload["from_role"],
+            flow_key=flow_key,
+            bridge_dir=bridge_dir,
+            db_path=_db_path(),
+        )
+        if prepend_result["prepended"]:
+            print(f"  WARNING: Auto-prepended missing XML sections: {', '.join(prepend_result['missing'])}")
+            log(
+                f"{payload['from_role']}->{payload['to_role']}",
+                handoff_id,
+                "auto_prepend",
+                f"Model omitted required XML sections; auto-prepended: {', '.join(prepend_result['missing'])}",
+            )
         vresult = validate_deliverable_against_schema(
             full_deliverable_path, rule_key,
             db_path=_db_path(),
