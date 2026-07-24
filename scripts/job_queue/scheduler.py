@@ -277,51 +277,86 @@ class Scheduler:
         print(f"  Handoff file written: {handoff_path}")
 
     def _dispatch(self, job: Job) -> dict:
-        """Dispatch the job via dispatch.py signal_send.
+        """Dispatch the job by injecting the handoff file into the target role's tmux session.
 
-        Uses the step's from_role (not hardcoded) so it works for any step
-        in the flow, not just the first.
+        For the FIRST step in a flow (where the job's role is the first from_role),
+        there is no preceding step — we inject the handoff file path directly into
+        the role's tmux session so the model reads it.
+
+        For subsequent steps, signal_send is used to transition between roles.
         """
-        # Resolve from_role from the step
-        from bridge_lib import load_flow_from_db
+        from bridge_lib import load_flow_from_db, load_role_from_db
+        import config as dpmtf_config
+
+        bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path())
+
         try:
             flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
-            from_role = "human"  # default for first step
-            for s in flow_data["steps"]:
-                if s.get("to_role") == job.role_key:
-                    from_role = s.get("from_role", "human")
-                    break
-                if s.get("from_role") == job.role_key:
-                    # This role is a sender, not a receiver — skip
-                    continue
         except Exception:
-            from_role = "human"
+            return {"action": "dispatch", "status": "error", "error": "Could not load flow"}
 
+        steps = flow_data["steps"]
+        if not steps:
+            return {"action": "dispatch", "status": "error", "error": "No steps in flow"}
+
+        # Find the step where job.role_key is the from_role (first step for this role)
+        first_step = None
+        for s in steps:
+            if s.get("from_role") == job.role_key:
+                first_step = s
+                break
+
+        if not first_step:
+            return {"action": "dispatch", "status": "error",
+                    "error": f"No step with from_role={job.role_key} in flow {job.flow_key}"}
+
+        # Build the handoff file path
+        deliverable_dir = first_step.get("deliverable_dir", "")
+        deliverable_pattern = first_step.get("deliverable_pattern", "{ID}-handoff.md")
+        deliverable_file = deliverable_pattern.replace("{ID}", job.handoff_id or "").replace("{role_key}", job.role_key)
+        handoff_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
+
+        if not os.path.exists(handoff_path):
+            return {"action": "dispatch", "status": "error",
+                    "error": f"Handoff file not found: {handoff_path}"}
+
+        # Load the target role's tmux session
         try:
-            result = subprocess.run(
-                [sys.executable, self.dispatch_script,
-                 "--db-flow", job.flow_key,
-                 "--signal-send",
-                 "--from-role", from_role,
-                 "--to-role", job.role_key,
-                 "--id", job.handoff_id or job.job_id[-3:]],
-                capture_output=True, text=True,
-                cwd=str(PROJECT_ROOT),
-                timeout=120,
-            )
-            return {
-                "action": "signal_send",
-                "flow_key": job.flow_key,
-                "role_key": job.role_key,
-                "allocator_alias": job.allocator_alias,
-                "status": "dispatched" if result.returncode == 0 else "failed",
-                "returncode": result.returncode,
-                "output": (result.stdout or "")[-500:],
-            }
-        except subprocess.TimeoutExpired:
-            return {"action": "signal_send", "status": "timeout"}
-        except Exception as e:
-            return {"action": "signal_send", "status": "error", "error": str(e)}
+            to_role = load_role_from_db(job.role_key, db_path=self.repo.db_path)
+        except Exception:
+            return {"action": "dispatch", "status": "error",
+                    "error": f"Could not load role {job.role_key}"}
+
+        tmux_session = to_role.get("tmux_session", "")
+        enter_command = to_role.get("enter_command", "default")
+
+        if not tmux_session:
+            return {"action": "dispatch", "status": "error",
+                    "error": f"No tmux_session for role {job.role_key}"}
+
+        # Inject the handoff file path into the tmux session
+        # Use the same injection mechanism as dispatch.py
+        sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "bridgeV002"))
+        from dispatch import inject_prompt, session_alive
+
+        if not session_alive(tmux_session):
+            return {"action": "dispatch", "status": "error",
+                    "error": f"tmux session '{tmux_session}' not alive"}
+
+        # Read the handoff file and inject it
+        with open(handoff_path, "r", encoding="utf-8") as f:
+            handoff_content = f.read()
+
+        inject_prompt(tmux_session, handoff_content, enter_command)
+
+        return {
+            "action": "inject_handoff",
+            "flow_key": job.flow_key,
+            "role_key": job.role_key,
+            "tmux_session": tmux_session,
+            "handoff_path": handoff_path,
+            "status": "dispatched",
+        }
 
     def _check_completion(self, job: Job) -> bool:
         """Check if the job's result/deliverable file exists.

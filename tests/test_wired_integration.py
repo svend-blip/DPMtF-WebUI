@@ -70,12 +70,13 @@ def test_dispatch_has_lease_call():
 
 
 def test_scheduler_dispatch_is_real():
-    """scheduler._dispatch should call subprocess.run, not return a mock."""
+    """scheduler._dispatch should inject into tmux, not return a mock."""
     sched_path = PROJECT_ROOT / "scripts" / "job_queue" / "scheduler.py"
     source = sched_path.read_text()
-    # The _dispatch method should contain subprocess.run call
+    # The _dispatch method should call inject_prompt to dispatch via tmux
     dispatch_section = source[source.find("def _dispatch"):source.find("def _check_completion")]
-    assert "subprocess.run" in dispatch_section, "scheduler._dispatch doesn't call subprocess.run"
+    assert "inject_prompt" in dispatch_section, "scheduler._dispatch doesn't call inject_prompt"
+    assert "session_alive" in dispatch_section, "scheduler._dispatch doesn't check session_alive"
 
 
 def test_scheduler_check_completion_is_real():

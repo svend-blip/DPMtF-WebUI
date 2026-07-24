@@ -367,7 +367,12 @@ def inject_via_send_keys(session_name, text, enter_command="default"):
         # Submit based on enter_command
         # = prefix: exact session match (prevents prefix-matching imple01→imple01pay)
         # :0 suffix required — paste-buffer/send-keys need a window target
-        target = "=" + session_name + ":0"
+        # If session_name already contains a window spec (e.g. "flow-strict_review:0"),
+        # don't append another :0 — use it as-is.
+        if ":" in session_name:
+            target = "=" + session_name
+        else:
+            target = "=" + session_name + ":0"
         if enter_command == "c-m":
             # Two-step: paste text first, then separate C-m (Freebuff)
             subprocess.run(
@@ -419,13 +424,23 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         subprocess.run(["tmux", "load-buffer", tmp_path], check=True)
-        subprocess.run(["tmux", "paste-buffer", "-t", "=" + session_name + ":0"], check=True)
+        # If session_name already contains a window spec, don't append :0
+        if ":" in session_name:
+            paste_target = "=" + session_name
+        else:
+            paste_target = "=" + session_name + ":0"
+        subprocess.run(["tmux", "paste-buffer", "-t", paste_target], check=True)
         time.sleep(0.3)
 
         # Submit based on enter_command
         # = prefix: exact session match (prevents prefix-matching imple01→imple01pay)
         # :0 suffix required — paste-buffer/send-keys need a window target
-        target = "=" + session_name + ":0"
+        # If session_name already contains a window spec (e.g. "flow-strict_review:0"),
+        # don't append another :0 — use it as-is.
+        if ":" in session_name:
+            target = "=" + session_name
+        else:
+            target = "=" + session_name + ":0"
         if enter_command == "c-m":
             subprocess.run(
                 ["tmux", "send-keys", "-t", target, "", "C-m"], check=True
