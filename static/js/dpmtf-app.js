@@ -3828,6 +3828,7 @@ function loadUserPreferences() {
 function onReady() {
   loadLabels().then(function () {
     if (window.initAllocator) window.initAllocator();
+    if (window.initJobQueue) window.initJobQueue();
   });
   // Language dropdown handler
   var langDropdown = document.getElementById("lang-dropdown");
