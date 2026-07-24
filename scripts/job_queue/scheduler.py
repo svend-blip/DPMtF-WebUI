@@ -215,10 +215,13 @@ class Scheduler:
         if not step:
             return
 
-        # Assign handoff ID
-        handoff_id = str(get_next_id_for_flow(job.flow_key, db_path=self.repo.db_path))
-        self.repo.update(job.job_id, handoff_id=handoff_id)
-        job = self.repo.get_job(job.job_id)
+        # Assign handoff ID — but only if not already assigned (lease recovery reuses)
+        if job.handoff_id:
+            handoff_id = job.handoff_id
+        else:
+            handoff_id = str(get_next_id_for_flow(job.flow_key, db_path=self.repo.db_path))
+            self.repo.update(job.job_id, handoff_id=handoff_id)
+            job = self.repo.get_job(job.job_id)
 
         # Build payload
         payload = build_step_payload(step, job.flow_key, handoff_id, bridge_dir)
