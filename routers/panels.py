@@ -49,7 +49,7 @@ ALLOWED_CLASSIFICATIONS = ["unknown", "starter", "advanced",
                             "project_specific", "debug", "skip"]
 
 # Valid user panel groups + states (user-panel-groups endpoints)
-VALID_PANEL_GROUPS = {"daily", "journals", "reports", "periodic", "setup"}
+VALID_PANEL_GROUPS = {"daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator"}
 VALID_PANEL_STATES = {"expanded", "collapsed"}
 
 
@@ -405,7 +405,7 @@ async def get_panel_structure(locale: str = "en-US"):
     )
     subgroup_states = {r["group_name"]: r["state"] for r in cursor.fetchall()}
 
-    group_names = ["daily", "journals", "reports", "periodic", "setup"]
+    group_names = ["daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator"]
     result = {}
     title_field = "title_da" if locale == "da-DK" else "title_en"
 
