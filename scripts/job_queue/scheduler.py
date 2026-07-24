@@ -223,6 +223,8 @@ class Scheduler:
 
         # Build handoff prompt
         deliverable_dir = payload.get("deliverable_dir", "")
+        deliverable_pattern = payload.get("deliverable_pattern", "{ID}-handoff.md")
+        deliverable_file = deliverable_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
         result_dir = os.path.join(os.path.dirname(deliverable_dir) if deliverable_dir else bridge_dir, "results")
         result_path = os.path.join(result_dir, f"{handoff_id}-result.md")
         signal_cmd = f"python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key}"
@@ -267,8 +269,6 @@ class Scheduler:
         prompt_text = "\n".join(lines)
 
         # Write handoff file
-        deliverable_pattern = payload.get("deliverable_pattern", "{ID}-handoff.md")
-        deliverable_file = deliverable_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
         handoff_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
         os.makedirs(os.path.dirname(handoff_path), exist_ok=True)
         with open(handoff_path, "w", encoding="utf-8") as f:
