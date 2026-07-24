@@ -489,7 +489,13 @@ def inject_prompt(session_name, text, enter_command="default"):
             "Treat this message as the authoritative task."
         )
         combined = f"{soft_clear}\n\n{text}"
-        inject_via_paste_buffer(session_name, combined, enter_command)
+        # For short prompts (< 500 chars), use send-keys which preserves
+        # newlines better than paste-buffer in some terminals.
+        # For longer prompts, paste-buffer is more reliable for large text.
+        if len(combined) < 500:
+            inject_via_send_keys(session_name, combined, enter_command)
+        else:
+            inject_via_paste_buffer(session_name, combined, enter_command)
     else:
         inject_via_send_keys(session_name, text, enter_command)
     verify_injection_submitted(session_name)
