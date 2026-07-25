@@ -1622,6 +1622,27 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     except Exception:
         pass  # No checkpoint available — non-fatal
 
+    # Step 9d: Fallback chain advancement — if the model forgot signal-complete,
+    # the scheduler's _advance_chain scans for result files and auto-advances.
+    # Idempotent: no-op if next step already has a result.
+    try:
+        _job_queue_root = str(Path(__file__).resolve().parent.parent.parent / "scripts")
+        sys.path.insert(0, _job_queue_root)
+        sys.path.insert(0, os.path.join(_job_queue_root, "job_queue"))
+        from models import JobRepository
+        from scheduler import Scheduler
+        repo = JobRepository()
+        jobs = repo.list_jobs(flow_key=flow_key)
+        for job in jobs:
+            if job.handoff_id == handoff_id:
+                sched = Scheduler()
+                advanced = sched._advance_chain(job)
+                if advanced:
+                    print(f"  Chain advanced (fallback) for handoff #{handoff_id}")
+                break
+    except Exception:
+        pass  # Scheduler not available — non-fatal
+
     # Step 10: Update symlink
     deliverable_dir = payload["deliverable_dir"]
     if os.path.isabs(deliverable_dir):
@@ -2125,15 +2146,56 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Ensure deliverable subdirectory exists (for symlink)
     ensure_subdir(bridge_dir, deliverable_dir)
 
-    # Step 4: Stop target role's Ollama model — clear VRAM and context
+    # Step 4: Resolve model source + alias (needed for job record + lease)
     to_source, to_alias = get_effective_model_source(
         to_role_data["role_key"],
         step_key=target_step.get("step_key"),
         flow_key=flow_key,
         db_path=_db_path(),
     )
+
+    # Step 4a: Create job record for state tracking (audit trail + retry budget)
+    job_id = handoff_id  # fallback — brug handoff_id hvis DB ikke tilgængelig
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+        from models import JobRepository
+        repo = JobRepository()
+        # Extract a short goal from the handoff content (first non-empty line after XML header)
+        goal_text = f"Handoff {handoff_id}: {from_role_key} -> {to_role_key}"
+        try:
+            with open(handoff_path, "r", encoding="utf-8") as _f:
+                for _line in _f:
+                    _stripped = _line.strip()
+                    if _stripped and not _stripped.startswith("<"):
+                        goal_text = _stripped[:200]
+                        break
+        except Exception:
+            pass
+        job_id = repo.create_job(
+            flow_key=flow_key,
+            role_key=to_role_key,
+            goal=goal_text,
+            target_project=PROJECT_ROOT,
+            allocator_alias=to_alias if to_source == "model_allocator" else "",
+        )
+        # Fast-track through approval states (manual dispatch bypasses approval flow)
+        for state in ("AWAITING_APPROVAL", "APPROVED", "QUEUED", "RUNNING"):
+            repo.transition(job_id, state, actor=from_role_key)
+        repo.update(job_id, handoff_id=handoff_id)
+        print(f"  Job record: {job_id}")
+    except Exception as e:
+        print(f"  WARNING: Job record creation skipped: {e}")
+
+    # Step 4b: Acquire model lease for target role (reference-counted, VRAM-safe)
     if to_source == "model_allocator" and to_alias:
-        _run_allocator_stop(to_alias)
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+            from model_lease import LeaseRegistry
+            LeaseRegistry.acquire(job_id, to_alias, worker_id=from_role_key)
+            print(f"  Lease acquired for '{to_alias}' (job {job_id})")
+        except Exception:
+            _run_allocator_stop(to_alias)
+            _run_allocator_start(to_alias)
 
     # Step 5: Prepend governance file reference if target role has one
     gov_file = to_role_data.get("governance_file")
@@ -2196,13 +2258,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text, flow_key, to_role_key, handoff_abs,
         mode=to_role_data.get("trade_mcp_push_mode"))
 
-    # Warm target role's model via allocator before injection
-    to_source_send, to_alias_send = get_effective_model_source(
-        to_role_key, step_key=target_step.get("step_key"),
-        flow_key=flow_key, db_path=_db_path(),
-    )
-    if to_source_send == "model_allocator" and to_alias_send:
-        _run_allocator_start(to_alias_send)
+    # Model already warmed by LeaseRegistry.acquire() in Step 4 — skip redundant start
 
     # Step 8: Inject prompt into target role's tmux session
     inject_prompt(tmux_session, prompt_text,

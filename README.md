@@ -35,6 +35,10 @@ code.
   - `trade_cockpit_simulation_v001` — daily research-to-simulation chain
     (7 steps: trend → market → analyst → risk → review → sim → portfolio)
   - `trade_cockpit_scoring_v001` — periodic scoring and learning
+
+**Auto-chain** — the strict_review flow now auto-advances via chain_advancement
+blocks in content templates, with _advance_chain as fallback. Only the initial
+signal_send is needed from the Human.
 - **Roles** — per-role definitions in `bridge_roles` with tmux sessions,
   model aliases, governance files, and enter commands. 25 active roles across
   all flows.
@@ -99,6 +103,17 @@ creation through full chain completion — no manual intervention required.
    from each, and runs signal-complete for the last completed role
 5. **_check_completion** — when the final step's deliverable exists, job is
    marked COMPLETED
+
+**Job records created automatically at signal_send time** (state machine:
+DRAFT→AWAITING_APPROVAL→APPROVED→QUEUED→RUNNING)
+
+**LeaseRegistry for reference-counted model lifecycle** (models only stop
+when all leases are released)
+
+**Chain advancement fallback** (_advance_chain) that auto-advances if a
+model forgets to signal completion
+
+**Cron-based scheduler** (cron_tick.py) for fully automated flows
 
 **Lease recovery:** expired leases (15 min) are recovered back to APPROVED,
 re-claimed, and the handoff_id is reused so deliverable files don't need to

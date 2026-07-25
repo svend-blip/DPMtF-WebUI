@@ -504,10 +504,33 @@ class Scheduler:
             if next_has_result:
                 continue  # Next step already has a result
 
+            # Guard: skip if a dispatch for this exact (flow, from_role, id)
+            # is already running. Without this, every scheduler tick spawns a
+            # new signal_complete process that hangs in post-dispatch, and
+            # they accumulate until the system is flooded (144 attempts logged
+            # for handoff 309, 7 concurrent hung processes observed).
+            dispatch_args = f"--db-flow {job.flow_key} --signal-complete --from-role {from_role} --id {file_id}"
+            try:
+                existing = subprocess.run(
+                    ["pgrep", "-f", dispatch_args],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if existing.returncode == 0 and existing.stdout.strip():
+                    print(f"  Chain advancement SKIPPED: dispatch already running "
+                          f"for {from_role} ID {file_id} "
+                          f"(pids: {existing.stdout.strip().replace(chr(10), ', ')})")
+                    continue
+            except Exception:
+                pass  # pgrep failed — proceed with dispatch
+
             # This role's result exists but next role's doesn't — advance!
-            to_role = next_step.get("to_role", "")
+            # Dispatch to the to_role of the CURRENT step (where from_role
+            # matches), not the next step. The next step's to_role is only
+            # used to check if the chain has already advanced.
+            current_step = steps[step_idx]
+            dispatch_to = current_step.get("to_role", "unknown")
             print(f"  Chain advancement (fallback): {from_role} completed (ID {file_id}), "
-                  f"dispatching to {to_role}")
+                  f"dispatching to {dispatch_to}")
 
             try:
                 result = subprocess.run(
