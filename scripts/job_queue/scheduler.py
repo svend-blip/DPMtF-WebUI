@@ -255,13 +255,10 @@ class Scheduler:
                     result_path = os.path.join(bridge_dir, next_dir, next_file)
                 break
 
-        lines = [
-            f"<role>You are {job.role_key} in the DPMtF {job.flow_key} flow.",
-        ]
+        lines = []
         if gov_path:
-            lines.append(f"Your role is defined in {gov_path}.")
-        lines.append("Read it now before proceeding.</role>")
-        lines.append("")
+            lines.append(f"Read your role definition at {gov_path} before proceeding.")
+            lines.append("")
         lines.append(f"<handoff_id>{handoff_id}</handoff_id>")
         lines.append(f"<project>{job.target_project}</project>")
         lines.append("<context>")

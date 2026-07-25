@@ -1396,12 +1396,14 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         )
 
     # Prepend governance file reference for target role
+    # The governance file defines the role, responsibilities, and boundaries.
+    # Do NOT hardcode role descriptions here — the governance file is the single source of truth.
     gov_file = to_role.get("governance_file")
     project_root_sc = PROJECT_ROOT
     if gov_file:
         gov_path = os.path.join(project_root_sc, "docs", "governance-templates-v2", gov_file)
         prompt_text = (
-            f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
+            f"Read your role definition at {gov_path} before proceeding.\n\n"
             f"{prompt_text}"
         )
 
