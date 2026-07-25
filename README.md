@@ -1,9 +1,9 @@
 # DPMtF-WebUI — Father Project
 
 DPMtF-WebUI is the **Father project** in the DPMtF ecosystem. It owns the
-authoritative governance templates and serves as the Prompt Compiler for all
-projects (including itself). It also hosts **BridgeV002** — the database-driven
-dispatch system for AI role-to-role communication.
+authoritative governance templates, hosts the **BridgeV002** dispatch system
+for AI role-to-role communication, and provides a **Job Queue** for fully
+automated chain execution with durable state management.
 
 ## Quick Start
 
@@ -21,47 +21,125 @@ Open `http://localhost:9130` in a browser.
 
 ### BridgeV002 — AI Role Dispatch
 
-Database-driven dispatch system for AI role-to-role communication. Replaces
-the legacy `claude-bridge` entirely.
+Database-driven dispatch system for AI role-to-role communication. All flow
+configuration — roles, steps, conventions, deliverable paths — is stored in
+the database and resolved at runtime. No flow-specific hardcoding in dispatch
+code.
 
-- **Flows** — configurable step sequences (e.g., `strict_review`: architect →
-  implementer → technical review → governance review → human)
-- **Roles** — per-flow role definitions with tmux sessions, models, and start
-  commands
-- **Conventions** — content templates for handoff prompts, callback formats,
-  and verdict structures
-- **Signals** — `send`, `complete`, `escalation`, `answer` via `dispatch.py`
+- **Flows** — configurable step sequences stored in `bridge_flows` +
+  `bridge_flow_steps`. Active flows:
+  - `strict_review` — architect → implementer → technical review → governance
+    review → human (5 steps, fully automated)
+  - `cloud_llm` — cloud LLM variant using Freebuff frontends
+  - `cloud_pay` — cloud LLM variant using Anthropic API proxy
+  - `trade_cockpit_simulation_v001` — daily research-to-simulation chain
+    (7 steps: trend → market → analyst → risk → review → sim → portfolio)
+  - `trade_cockpit_scoring_v001` — periodic scoring and learning
+- **Roles** — per-role definitions in `bridge_roles` with tmux sessions,
+  model aliases, governance files, and enter commands. 25 active roles across
+  all flows.
+- **Conventions** — `bridge_convention_rules` with `content_template` and
+  `validation_schema` for handoff, callback, technical_review, verdict,
+  human_delivery, escalation, and json_output rule keys.
+- **Signals** — `signal_send` (initial dispatch), `signal_complete` (chain
+  advancement), `signal_escalation` (review → architect question),
+  `signal_answer` (architect → review response). All via `dispatch.py`.
+
+**Key dispatch features:**
+
+- **Tool-aware injection** — detects opencode vs Claude Code in target tmux
+  session and adapts injection method (send-keys for short prompts, paste-buffer
+  for long)
+- **XML tag stripping** — opencode models hallucinate XML function calls when
+  they see XML tags; `_strip_xml_tags()` converts XML section headers to plain
+  text before injection
+- **Auto-prepend** — `auto_prepend_xml_sections()` adds missing XML headers to
+  deliverable files before validation, using `content_template` from DB
+- **nohup background execution** — signal-complete commands run via `nohup ... &`
+  to prevent opencode's 120s shell timeout from killing the dispatch process
+- **Model lifecycle** — allocator warm-up before injection, reference-counted
+  model leases, VRAM cleanup after dispatch
+- **Checkpoint integration** — structured checkpoints written after each
+  signal-complete for fresh-context continuation
 
 Manage flows, roles, steps, and conventions via the web UI under
 **Setup → Bridge Setup**.
 
+### Job Queue — Automated Chain Execution
+
+Durable job abstraction with a state machine that drives flows from job
+creation through full chain completion — no manual intervention required.
+
+**State machine:** `DRAFT → AWAITING_APPROVAL → APPROVED → QUEUED → RUNNING → VERIFYING → COMPLETED`
+(with `CANCELLED`, `FAILED`, `BLOCKED` as terminal states)
+
+**Components:**
+
+| File | Purpose |
+|------|---------|
+| `scripts/job_queue/models.py` | `JobRepository` — atomic claims, 15-min leases, heartbeat, retry with max_retries |
+| `scripts/job_queue/scheduler.py` | `Scheduler` — claims APPROVED jobs, compiles handoff, dispatches, checks completion |
+| `scripts/job_queue/cron_tick.py` | Single-pass entry point — run via cron every minute |
+| `scripts/job_queue/model_lease.py` | `LeaseRegistry` — reference-counted model load/unload |
+| `scripts/job_queue/checkpoint_integration.py` | Checkpoint creation for dispatch steps |
+| `scripts/job_queue/handoff_compiler.py` | Context-fit splitting for oversized goals |
+
+**Chain automation:**
+
+1. **Cron-tick** (every minute) claims oldest APPROVED job → transitions to
+   RUNNING → compiles handoff file → injects short prompt into role's tmux
+   session
+2. **Model** reads handoff file, executes task, writes deliverable, runs
+   `nohup signal-complete &` (background, no timeout)
+3. **signal_complete** validates deliverable, resolves content_template from
+   DB, injects callback prompt into next role's tmux session (with deliverable
+   path, output path, and signal command)
+4. **_advance_chain** (fallback) — if a model forgets signal-complete,
+   cron-tick scans deliverable files, reads `<source_role>` or `Source Role:`
+   from each, and runs signal-complete for the last completed role
+5. **_check_completion** — when the final step's deliverable exists, job is
+   marked COMPLETED
+
+**Lease recovery:** expired leases (15 min) are recovered back to APPROVED,
+re-claimed, and the handoff_id is reused so deliverable files don't need to
+be renamed.
+
 ### Prompt Compiler
 
 Assembles handoff prompts from knowledge fragments, scope profiles, and
-governance rules. Generates BridgeV002 dispatch commands for one-click
-delivery to AI roles.
+governance rules. The scheduler's `_compile_handoff()` generates handoff
+files with task description, deliverable path, signal-complete command, and
+required XML sections — all dynamically resolved from DB flow/step config.
 
 ### Governance Templates
 
-`docs/governance-templates-v2/` contains the authoritative governance files
-for all DPMtF projects. General templates define universal rules.
-Flow-specific templates (400-series) take precedence when operating within a
-BridgeV002 flow.
+`docs/governance-templates-v2/` contains 50+ authoritative governance files:
+
+- **100-series** — bridge, project, scope, coding standard, validation
+- **200-series** — hardening, gates, alignment, model selection, frontend
+- **300-series** — setup instructions
+- **400-series** — flow-specific role definitions (strict_review, cloud_llm,
+  cloud_pay, trade)
+
+Governance files are the **single source of truth** for role identity,
+responsibilities, and boundaries. No role descriptions are hardcoded in
+dispatch or scheduler code — the prompt simply says "Read your role
+definition at {gov_path}".
 
 ### Model Allocator Integration
 
 The [model-allocator](https://github.com/svend-blip/model-allocator) is a
-standalone CLI that resolves stable model aliases (e.g. `imple-fast`,
-`review-cloud`) to concrete backends (Ollama, llama.cpp/TurboQuant,
+standalone CLI that resolves stable model aliases (e.g. `archi-local`,
+`imple01-local`) to concrete backends (Ollama, llama.cpp/TurboQuant,
 OpenAI-compatible cloud APIs) and manages runtime lifecycle. The WebUI
 integrates it via proxy endpoints under `/api/bridge-v2/allocator/*`:
 
 - **Role/step editors** — `model_source` dropdown + alias picker + validate
-  button (aliases, validate)
+  button
 - **Runtime control** — status cards with Start/Stop/Refresh on
-  allocator-managed role cards (status, start, stop)
+  allocator-managed role cards
 - **Config dashboard** — full alias/role CRUD with detail forms and runtime
-  status controls (config show/set/delete)
+  status controls
 
 All endpoints shell out to the allocator CLI — the Father never talks to
 model backends directly.
@@ -78,34 +156,116 @@ The Father hosts the cronjobs that drive the trade-ui's automated flows:
 Both dispatch into the trade-ui's inbox via BridgeV002. They produce research
 and allocation plans — they never execute trades.
 
+### Python Runtime
+
+`scripts/python-runtime/` provides an alternative execution backend for
+roles that use `model_source = "python_runtime"` instead of tmux injection.
+Supports checkpoint schema, file tools, context-fit spike testing, and
+prompt parsing.
+
 ## Architecture
 
-- **`app.py`** (~145 lines) — thin FastAPI entrypoint; all endpoints live in
-  domain routers under `routers/` (bridge, governance, prompt_compiler,
-  panels, sessions, git, validation, system, webui, app_profiles).
-- **Database migrations** — versioned SQL migrations in `scripts/db/*.sql`
-  applied by `scripts/migrate.py` (tracked in `schema_migrations`). Schema
-  changes are new `00X_*.sql` files — never edits to `init_db.py`.
+### Backend
+
+- **`app.py`** (145 lines) — thin FastAPI entrypoint; all endpoints live in
+  10 domain routers under `routers/`:
+  - `bridge.py` (45 endpoints) — flows, roles, steps, conventions, dispatch,
+    tmux session management, allocator proxy
+  - `system.py` (15) — health, config, system info
+  - `panels.py` (11) — frontend panel CRUD, layout slots
+  - `sessions.py` (8) — Claude session management
+  - `prompt_compiler.py` (5) — handoff prompt compilation
+  - `git.py` (5) — git operations
+  - `validation.py` (5) — deliverable validation
+  - `webui.py` (5) — webui migration targets
+  - `app_profiles.py` (3) — user profile panels
+  - `governance.py` (2) — governance file access
+- **94 API endpoints** total
+
+### Database
+
+- **SQLite** (`databases/dpmtf.db`) with 39 tables
+- **Versioned migrations** — `scripts/db/*.sql` applied by `scripts/migrate.py`
+  (tracked in `schema_migrations`). 8 migrations to date. Schema changes are
+  new `00X_*.sql` files — never edits to `init_db.py`.
 - **`scripts/init_db.py`** — schema + canonical defaults (i18n labels,
   conventions) only. User-configured data lives in the DB, managed via the
   frontend.
+
+### Frontend
+
+- **`static/js/dpmtf-app.js`** — main application shell, panel groups,
+  expand/collapse tracking, theme switching
+- **`static/js/allocator.js`** — model allocator dashboard
+- **`static/js/job-queue.js`** — job queue panel with status filters,
+  scheduler tick trigger, job creation/approval
+- **`static/css/dpmtf-theme.css`** — themed styling
+
+### External Integrations
+
 - **mcp-light** — read-only MCP context server (separate repo) exposing
   governance, panels, flows, roles, and verdicts as tools on
-  `http://127.0.0.1:9135/mcp`.
+  `http://127.0.0.1:9135/mcp`
+- **model-allocator** — standalone CLI for model lifecycle management
+- **opencode** — AI coding frontend running in tmux sessions, configured per
+  role via `~/.config/opencode-roles/{role}/opencode.json` with permissions
+  (`external_directory: allow`, `bash: allow`, `edit: allow`)
+
+### Claude Code Skills
+
+`.claude/skills/` contains role-specific skill definitions:
+- `STRICTREVIEW` — strict_review flow monitoring and chain advancement
+- `CLOUDLLM` — cloud LLM flow configuration
+- `CLOUDPAY` — cloud pay flow configuration
+
+## Testing
+
+```bash
+python3 -m pytest tests/ -q    # 159 tests, all passing
+```
+
+26 test files covering:
+- Job queue models, scheduler, integration, spikes
+- Bridge endpoints, dispatch, convention rules
+- Checkpoint schema and integration
+- Migration tests (005, 007)
+- Runtime modules, safe resolve, action schema
+- E2E pipeline and full cycle workflow
+- Handoff compiler, context fit
+- Allocator config endpoints
+- Model lease
 
 ## Configuration
 
 Two files control all configurable values:
 
-- **`dpmtf.ini`** — App-config defaults (committed to git, no secrets)
+- **`dpmtf.ini`** — App-config defaults (committed to git, no secrets):
+  port, host, database path, governance dir, log dir, project paths
 - **`.env`** — Secrets + infrastructure vars (NEVER commit)
 
-Key environment variable:
+Key environment variables:
 ```bash
 export DPMTF_BRIDGE_DIR=/home/<you>/flows   # BridgeV002 deliverable directory
+export DPMTF_PROJECT_ROOT=/home/<you>/DPMtF-WebUI  # Project root
 ```
 
 See `docs/governance-templates-v2/300_SETUPINSTRUCTION.md` for full setup guide.
+
+## Tmux Session Management
+
+The web UI provides four tmux management actions per flow (accessible via
+bridge endpoints):
+
+| Action | Endpoint | Script |
+|--------|----------|--------|
+| Start sessions | `POST /api/bridge-v2/flows/{flow}/start-tmux` | `start_tmuxflow.py` |
+| Stop sessions | `POST /api/bridge-v2/flows/{flow}/stop-tmux` | `stop_tmuxflow.py` |
+| Start coding | `POST /api/bridge-v2/flows/{flow}/start-coding` | `start_coding.py` |
+| Attach viewer | `POST /api/bridge-v2/flows/{flow}/attach-tmux` | `attach_tmux.py` |
+
+Sessions are named by role key (e.g., `archi01`, `imple01`). The attach
+action creates a viewer session (`flow-<flow_key>`) that links all role
+sessions as windows for easy monitoring.
 
 ## Platform Support
 
