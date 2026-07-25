@@ -470,31 +470,34 @@ def _strip_xml_tags(text):
 
     OpenCode models (especially qwen3-coder) see XML tags like <handoff>,
     <role>, <task> and hallucinate XML-style function calls instead of
-    using opencode's native tool calling format. This strips XML tags
-    and converts them to plain-text section headers.
+    using opencode's native tool calling format. This converts opening
+    tags to plain-text headers and removes closing tags entirely.
     """
     import re
-    # Replace common XML section tags with plain text headers
-    replacements = [
-        (r'</?handoff>', '--- Handoff ---'),
-        (r'</?role>', 'Role:'),
-        (r'</?task>', 'Task:'),
-        (r'</?constraint>', 'Constraint:'),
-        (r'</?deliverable>', 'Deliverable:'),
-        (r'</?notification>', 'Notification:'),
-        (r'</?handoff_id>', 'Handoff ID:'),
-        (r'</?source_role>', 'Source Role:'),
-        (r'</?deliverable_input>', 'Input:'),
-        (r'</?deliverable_output>', 'Output:'),
-        (r'</?context>', 'Context:'),
-        (r'</?project>', 'Project:'),
-        (r'</?dispatch_command>', 'Dispatch Command:'),
-        (r'</?(parameter|function)[^>]*>', ''),
+    # Opening tags → plain text headers (closing tags just removed)
+    opening_replacements = [
+        (r'<handoff>', '--- Handoff ---'),
+        (r'<role>', 'Role:'),
+        (r'<task>', 'Task:'),
+        (r'<constraint>', 'Constraint:'),
+        (r'<deliverable>', 'Deliverable:'),
+        (r'<notification>', 'Notification:'),
+        (r'<handoff_id>', 'Handoff ID: '),
+        (r'<source_role>', 'Source Role: '),
+        (r'<deliverable_input>', 'Input:'),
+        (r'<deliverable_output>', 'Output:'),
+        (r'<context>', 'Context:'),
+        (r'<project>', 'Project: '),
+        (r'<dispatch_command>', 'Dispatch Command:'),
+        (r'<parameter[^>]*>', ''),
+        (r'<function[^>]*>', ''),
     ]
-    for pattern, replacement in replacements:
+    for pattern, replacement in opening_replacements:
         text = re.sub(pattern, replacement, text)
+    # Remove all closing tags
+    text = re.sub(r'</[a-zA-Z_][a-zA-Z0-9_]*[^>]*>', '', text)
     # Remove any remaining XML tags
-    text = re.sub(r'</?[a-zA-Z_][a-zA-Z0-9_]*[^>]*>', '', text)
+    text = re.sub(r'<[a-zA-Z_][a-zA-Z0-9_]*[^>]*/?>', '', text)
     # Clean up extra whitespace
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()

@@ -226,9 +226,10 @@ class Scheduler:
         # Build payload
         payload = build_step_payload(step, job.flow_key, handoff_id, bridge_dir)
 
-        # Load to_role governance
-        to_role = load_role_from_db(payload["to_role"], db_path=self.repo.db_path)
-        gov_file = to_role.get("governance_file", "")
+        # Load governance for the role that will EXECUTE this step (job.role_key)
+        # NOT the next role (payload["to_role"]) — the next role is for signal_complete
+        from_role = load_role_from_db(job.role_key, db_path=self.repo.db_path)
+        gov_file = from_role.get("governance_file", "")
         gov_path = str(PROJECT_ROOT / "docs" / "governance-templates-v2" / gov_file) if gov_file else ""
 
         # Build handoff prompt
