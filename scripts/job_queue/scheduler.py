@@ -470,11 +470,13 @@ class Scheduler:
                 file_id = int(m.group(1))
                 if file_id < int(hid):
                     continue
-                # Read source_role from file
+                # Read source_role from file (try XML tag first, then plain text)
                 try:
                     with open(fpath, "r", encoding="utf-8") as f:
                         content = f.read(2000)
-                    m2 = re.search(r'<source_role>\s*(\S+)', content)
+                    m2 = re.search(r'<source_role>\s*([^<\s]+)', content)
+                    if not m2:
+                        m2 = re.search(r'Source Role:\s*(\S+)', content)
                     if m2:
                         result_ids[file_id] = m2.group(1).strip()
                 except Exception:
