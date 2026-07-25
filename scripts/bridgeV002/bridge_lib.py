@@ -52,6 +52,17 @@ def ensure_opencode_model_field(opencode_json_path, model_field):
     if "$schema" not in config_data:
         config_data["$schema"] = DEFAULT_OPENCODE_SCHEMA
 
+    # Ensure permissions allow external directory access (~/flows/) and bash
+    # so models can read handoff files and run signal-complete without prompts
+    perm = config_data.setdefault("permission", {})
+    if isinstance(perm, dict):
+        if "external_directory" not in perm:
+            perm["external_directory"] = "allow"
+        if "bash" not in perm:
+            perm["bash"] = "allow"
+        if "edit" not in perm:
+            perm["edit"] = "allow"
+
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(
         json.dumps(config_data, indent=2, default=str) + "\n",
