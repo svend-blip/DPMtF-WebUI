@@ -127,17 +127,20 @@ class Scheduler:
         return result
 
     def _check_running_jobs(self) -> list[str]:
-        """Check all RUNNING jobs for completion.
+        """Check all RUNNING jobs for completion and advance chains.
 
-        Chain advancement is handled by signal_complete (called by the
-        models themselves after writing their result file). The scheduler
-        only checks if the FINAL deliverable exists → mark COMPLETED.
+        For each RUNNING job:
+        1. Try to advance the chain (fallback if model forgot signal-complete)
+        2. Check if the final deliverable exists → mark COMPLETED
 
         Returns list of completed job_ids.
         """
         completed = []
         running_jobs = self.repo.list_jobs(status="RUNNING")
         for job in running_jobs:
+            # Try to advance the chain (fallback for models that forget signal-complete)
+            self._advance_chain(job)
+
             # Check if the final deliverable exists
             if self._check_completion(job):
                 try:

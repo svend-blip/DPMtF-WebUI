@@ -200,7 +200,7 @@ class JobRepository:
             conn.close()
         return self.get_job(job_id)
 
-    def claim(self, worker_id: str, lease_seconds: int = 300) -> Optional[Job]:
+    def claim(self, worker_id: str, lease_seconds: int = 900) -> Optional[Job]:
         """Atomically claim the oldest APPROVED job. Returns Job or None.
 
         Excludes jobs that have exhausted their retry budget (retry_count >= max_retries).
@@ -239,7 +239,7 @@ class JobRepository:
         finally:
             conn.close()
 
-    def heartbeat(self, job_id: str, worker_id: str, lease_seconds: int = 300):
+    def heartbeat(self, job_id: str, worker_id: str, lease_seconds: int = 900):
         """Extend lease."""
         expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + lease_seconds))
         conn = self._conn()
