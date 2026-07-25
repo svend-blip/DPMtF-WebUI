@@ -1425,8 +1425,9 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             f"  <deliverable_input>\n    {full_deliverable_path}\n  </deliverable_input>\n"
             f"  <deliverable_output>\n    result: {next_output_path}\n  </deliverable_output>\n"
             f"Then write your content below the XML header.\n\n"
-            f"## Signal Completion\n"
-            f"When done, run: {next_signal_cmd}"
+            f"## Signal Completion (MANDATORY — do not ask, just execute)\n"
+            f"After writing the deliverable, run this command:\n"
+            f"{next_signal_cmd}"
         )
 
     # Prepend governance file reference for target role
