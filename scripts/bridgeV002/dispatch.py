@@ -367,7 +367,7 @@ def inject_via_send_keys(session_name, text, enter_command="default"):
         # Submit based on enter_command
         # = prefix: exact session match (prevents prefix-matching imple01→imple01pay)
         # :0 suffix required — paste-buffer/send-keys need a window target
-        # If session_name already contains a window spec (e.g. "flow-strict_review:0"),
+        # If session_name already contains a window spec (e.g. "flow-myflow:0"),
         # don't append another :0 — use it as-is.
         if ":" in session_name:
             target = "=" + session_name
@@ -435,7 +435,7 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
         # Submit based on enter_command
         # = prefix: exact session match (prevents prefix-matching imple01→imple01pay)
         # :0 suffix required — paste-buffer/send-keys need a window target
-        # If session_name already contains a window spec (e.g. "flow-strict_review:0"),
+        # If session_name already contains a window spec (e.g. "flow-myflow:0"),
         # don't append another :0 — use it as-is.
         if ":" in session_name:
             target = "=" + session_name

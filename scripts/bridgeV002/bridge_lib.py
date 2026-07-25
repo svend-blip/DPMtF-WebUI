@@ -876,20 +876,25 @@ if __name__ == "__main__":
     # Database-backed functions
     if _bridgev002_tables_exist():
         print("\nDatabase-backed lookup:")
-        for role in ["archi01", "imple01"]:
+        # List all roles dynamically from DB
+        roles = list_roles_from_db()
+        for role_key in roles:
             try:
-                rc = load_role_from_db(role)
-                print(f"  Role '{role}': session={rc.get('tmux_session')}, alias={rc.get('default_model_alias')}")
+                rc = load_role_from_db(role_key)
+                print(f"  Role '{role_key}': session={rc.get('tmux_session')}, alias={rc.get('default_model_alias')}")
             except ValueError as e:
-                print(f"  Role '{role}': NOT FOUND ({e})")
+                print(f"  Role '{role_key}': NOT FOUND ({e})")
 
-        try:
-            fl = load_flow_from_db("strict_review")
-            print(f"  Flow 'strict_review': {len(fl['steps'])} steps")
-            for s in fl["steps"]:
-                print(f"    {s['step_key']}: {s['from_role']} -> {s['to_role']}")
-        except ValueError as e:
-            print(f"  Flow 'strict_review': NOT FOUND ({e})")
+        # List all flows dynamically from DB
+        flows = list_flows_from_db()
+        for fl_key in flows:
+            try:
+                fl = load_flow_from_db(fl_key)
+                print(f"  Flow '{fl_key}': {len(fl['steps'])} steps")
+                for s in fl["steps"]:
+                    print(f"    {s['step_key']}: {s['from_role']} -> {s['to_role']}")
+            except ValueError as e:
+                print(f"  Flow '{fl_key}': NOT FOUND ({e})")
 
         roles = list_roles_from_db()
         flows = list_flows_from_db()

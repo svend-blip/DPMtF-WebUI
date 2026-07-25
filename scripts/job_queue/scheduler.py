@@ -233,27 +233,14 @@ class Scheduler:
         gov_path = str(PROJECT_ROOT / "docs" / "governance-templates-v2" / gov_file) if gov_file else ""
 
         # Build handoff prompt
+        # The deliverable is the file signal_complete will validate and pass to the next role.
+        # For step 1 (archi01→imple01), this is handoffs/{ID}-handoff.md.
+        # archi01 writes its result INTO this same file (overwriting the task prompt).
         deliverable_dir = payload.get("deliverable_dir", "")
         deliverable_pattern = payload.get("deliverable_pattern", "{ID}-handoff.md")
         deliverable_file = deliverable_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
-        handoff_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
+        deliverable_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
         signal_cmd = f"python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key} --id {handoff_id}"
-
-        # Find the next step (the one that receives from this role) to determine
-        # where the result should be written. The result file is the deliverable
-        # of the NEXT step (e.g. imple01→review01 has deliverable in results/).
-        result_path = ""
-        for idx, s in enumerate(steps):
-            if s.get("from_role") == job.role_key and idx + 1 < len(steps):
-                next_step = steps[idx + 1]
-                next_dir = next_step.get("deliverable_dir", "")
-                next_pattern = next_step.get("deliverable_pattern", "{ID}-result.md")
-                next_file = next_pattern.replace("{ID}", handoff_id).replace("{role_key}", job.role_key)
-                if os.path.isabs(next_dir):
-                    result_path = os.path.join(next_dir, next_file)
-                else:
-                    result_path = os.path.join(bridge_dir, next_dir, next_file)
-                break
 
         lines = []
         if gov_path:
@@ -269,18 +256,19 @@ class Scheduler:
         lines.append(job.goal)
         lines.append("")
         lines.append("When ALL steps are complete, execute the bridge signal:")
-        lines.append(f"1. Write result file to {result_path}")
+        lines.append(f"1. Write your deliverable to {deliverable_path}")
+        lines.append(f"   (overwrite this handoff file with your result, keeping the XML header)")
         lines.append(f"2. SIGNAL completion: {signal_cmd}")
         lines.append("")
-        lines.append("IMPORTANT: The result file MUST start with these XML sections")
+        lines.append("IMPORTANT: The deliverable file MUST start with these XML sections")
         lines.append("(dispatch validation rejects files without them):")
         lines.append(f"  <handoff_id>{handoff_id}</handoff_id>")
         lines.append(f"  <source_role>{job.role_key}</source_role>")
         lines.append(f"  <deliverable_input>")
-        lines.append(f"    {handoff_path}")
+        lines.append(f"    {deliverable_path}")
         lines.append(f"  </deliverable_input>")
         lines.append(f"  <deliverable_output>")
-        lines.append(f"    result: {result_path}")
+        lines.append(f"    result: {deliverable_path}")
         lines.append(f"  </deliverable_output>")
         lines.append("Then write your result content below the XML header.")
         lines.append("</task>")
@@ -393,8 +381,7 @@ class Scheduler:
 
         Loads the flow steps, finds the LAST step's deliverable pattern,
         and checks if that file exists. This ensures the job is only marked
-        COMPLETED when the entire chain (archi01→imple01→review01→review02→human)
-        has finished, not just the first step.
+        COMPLETED when the entire chain has finished, not just the first step.
         """
         bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
         import glob
