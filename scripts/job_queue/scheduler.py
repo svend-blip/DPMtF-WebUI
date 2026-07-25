@@ -240,7 +240,7 @@ class Scheduler:
         deliverable_pattern = payload.get("deliverable_pattern", "{ID}-handoff.md")
         deliverable_file = deliverable_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
         deliverable_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
-        signal_cmd = f"python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key} --id {handoff_id}"
+        signal_cmd = f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key} --id {handoff_id} > /tmp/bridge-signal-{handoff_id}.log 2>&1 &"
 
         lines = []
         if gov_path:
@@ -258,7 +258,8 @@ class Scheduler:
         lines.append("When ALL steps are complete, execute the bridge signal:")
         lines.append(f"1. Write your deliverable to {deliverable_path}")
         lines.append(f"   (overwrite this handoff file with your result, keeping the XML header)")
-        lines.append(f"2. SIGNAL completion: {signal_cmd}")
+        lines.append(f"2. SIGNAL completion (MANDATORY — execute without asking):")
+        lines.append(f"   {signal_cmd}")
         lines.append("")
         lines.append("IMPORTANT: The deliverable file MUST start with these XML sections")
         lines.append("(dispatch validation rejects files without them):")

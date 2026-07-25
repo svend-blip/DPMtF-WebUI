@@ -559,7 +559,7 @@ def _pane_tail(session_name, lines=25):
     return "\n".join(result.stdout.splitlines()[-lines:]).lower()
 
 
-def verify_injection_submitted(session_name, attempts=4, settle_seconds=8):
+def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
     """Verify the injected prompt was actually SUBMITTED, not left sitting
     in the client's input buffer (observed: 'paste again to expand' state,
     silent unsubmitted pastes — flows 062/064 required manual Enter).
@@ -1409,9 +1409,10 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             else:
                 next_output_path = os.path.join(bridge_dir, next_dir, next_file)
             next_signal_cmd = (
-                f"python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
+                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
                 f"--db-flow {flow_key} --signal-complete "
-                f"--from-role {payload['to_role']} --id {handoff_id}"
+                f"--from-role {payload['to_role']} --id {handoff_id} "
+                f"> /tmp/bridge-signal-{handoff_id}.log 2>&1 &"
             )
             break
 
