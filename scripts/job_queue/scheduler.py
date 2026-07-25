@@ -509,10 +509,14 @@ class Scheduler:
             # new signal_complete process that hangs in post-dispatch, and
             # they accumulate until the system is flooded (144 attempts logged
             # for handoff 309, 7 concurrent hung processes observed).
-            dispatch_args = f"--db-flow {job.flow_key} --signal-complete --from-role {from_role} --id {file_id}"
+            # Use pgrep -f with -- to prevent the pattern (which starts with
+            # --db-flow) from being parsed as an option. Without --, pgrep
+            # fails with "unrecognized option" and the except clause silently
+            # proceeds — defeating the guard entirely.
+            dispatch_pattern = f"dispatch.py.*--db-flow {job.flow_key}.*--signal-complete.*--from-role {from_role}.*--id {file_id}"
             try:
                 existing = subprocess.run(
-                    ["pgrep", "-f", dispatch_args],
+                    ["pgrep", "-f", "--", dispatch_pattern],
                     capture_output=True, text=True, timeout=5,
                 )
                 if existing.returncode == 0 and existing.stdout.strip():
@@ -520,8 +524,8 @@ class Scheduler:
                           f"for {from_role} ID {file_id} "
                           f"(pids: {existing.stdout.strip().replace(chr(10), ', ')})")
                     continue
-            except Exception:
-                pass  # pgrep failed — proceed with dispatch
+            except Exception as e:
+                print(f"  Chain advancement pgrep guard failed: {e} — proceeding")
 
             # This role's result exists but next role's doesn't — advance!
             # Dispatch to the to_role of the CURRENT step (where from_role
