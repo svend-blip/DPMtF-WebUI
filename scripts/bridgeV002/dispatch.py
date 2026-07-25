@@ -465,6 +465,41 @@ def inject_via_paste_buffer(session_name, text, enter_command="default"):
             pass
 
 
+def _strip_xml_tags(text):
+    """Remove XML tags from text to prevent model confusion.
+
+    OpenCode models (especially qwen3-coder) see XML tags like <handoff>,
+    <role>, <task> and hallucinate XML-style function calls instead of
+    using opencode's native tool calling format. This strips XML tags
+    and converts them to plain-text section headers.
+    """
+    import re
+    # Replace common XML section tags with plain text headers
+    replacements = [
+        (r'</?handoff>', '--- Handoff ---'),
+        (r'</?role>', 'Role:'),
+        (r'</?task>', 'Task:'),
+        (r'</?constraint>', 'Constraint:'),
+        (r'</?deliverable>', 'Deliverable:'),
+        (r'</?notification>', 'Notification:'),
+        (r'</?handoff_id>', 'Handoff ID:'),
+        (r'</?source_role>', 'Source Role:'),
+        (r'</?deliverable_input>', 'Input:'),
+        (r'</?deliverable_output>', 'Output:'),
+        (r'</?context>', 'Context:'),
+        (r'</?project>', 'Project:'),
+        (r'</?dispatch_command>', 'Dispatch Command:'),
+        (r'</?(parameter|function)[^>]*>', ''),
+    ]
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text)
+    # Remove any remaining XML tags
+    text = re.sub(r'</?[a-zA-Z_][a-zA-Z0-9_]*[^>]*>', '', text)
+    # Clean up extra whitespace
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def inject_prompt(session_name, text, enter_command="default"):
     """Detect tool type and route to correct injection method.
 
@@ -482,14 +517,16 @@ def inject_prompt(session_name, text, enter_command="default"):
     print(f"  Injection: {len(text)} chars (~{len(text) // 4} est. tokens) "
           f"-> '{session_name}' ({tool})")
     if tool == "opencode":
+        # Strip XML tags to prevent model from hallucinating XML function calls
+        clean_text = _strip_xml_tags(text)
         soft_clear = (
             "Start a new logical task now. "
             "Ignore earlier conversation context unless this prompt explicitly references it. "
             "Do not continue previous plans, assumptions, file edits, or task state. "
             "Treat this message as the authoritative task."
         )
-        combined = f"{soft_clear}\n\n{text}"
-        # For short prompts (< 500 chars), use send-keys which preserves
+        combined = f"{soft_clear}\n\n{clean_text}"
+        # For short prompts (< 800 chars), use send-keys which preserves
         # newlines better than paste-buffer in some terminals.
         # For longer prompts, paste-buffer is more reliable for large text.
         if len(combined) < 800:
