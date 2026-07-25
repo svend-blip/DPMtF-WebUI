@@ -1395,6 +1395,40 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             f"Read and proceed with: {full_deliverable_path}"
         )
 
+    # Find the NEXT step (where from_role == current to_role) to determine
+    # where the target role should write its deliverable and how to signal.
+    next_output_path = ""
+    next_signal_cmd = ""
+    for idx, s in enumerate(steps):
+        if s.get("from_role") == payload["to_role"]:
+            next_dir = s.get("deliverable_dir", "")
+            next_pattern = s.get("deliverable_pattern", "{ID}-result.md")
+            next_file = next_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["to_role"])
+            if os.path.isabs(next_dir):
+                next_output_path = os.path.join(next_dir, next_file)
+            else:
+                next_output_path = os.path.join(bridge_dir, next_dir, next_file)
+            next_signal_cmd = (
+                f"python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
+                f"--db-flow {flow_key} --signal-complete "
+                f"--from-role {payload['to_role']} --id {handoff_id}"
+            )
+            break
+
+    if next_output_path:
+        prompt_text += (
+            f"\n\n## Your Deliverable\n"
+            f"Write your result to: {next_output_path}\n"
+            f"The result file MUST start with these XML sections:\n"
+            f"  <handoff_id>{handoff_id}</handoff_id>\n"
+            f"  <source_role>{payload['to_role']}</source_role>\n"
+            f"  <deliverable_input>\n    {full_deliverable_path}\n  </deliverable_input>\n"
+            f"  <deliverable_output>\n    result: {next_output_path}\n  </deliverable_output>\n"
+            f"Then write your content below the XML header.\n\n"
+            f"## Signal Completion\n"
+            f"When done, run: {next_signal_cmd}"
+        )
+
     # Prepend governance file reference for target role
     # The governance file defines the role, responsibilities, and boundaries.
     # Do NOT hardcode role descriptions here — the governance file is the single source of truth.
