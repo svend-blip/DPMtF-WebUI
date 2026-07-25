@@ -127,20 +127,17 @@ class Scheduler:
         return result
 
     def _check_running_jobs(self) -> list[str]:
-        """Check all RUNNING jobs for completion and advance chains.
+        """Check all RUNNING jobs for completion.
 
-        For each RUNNING job:
-        1. Try to advance the chain (if an intermediate result exists)
-        2. Check if the final deliverable exists → mark COMPLETED
+        Chain advancement is handled by signal_complete (called by the
+        models themselves after writing their result file). The scheduler
+        only checks if the FINAL deliverable exists → mark COMPLETED.
 
         Returns list of completed job_ids.
         """
         completed = []
         running_jobs = self.repo.list_jobs(status="RUNNING")
         for job in running_jobs:
-            # Try to advance the chain (dispatch next step if needed)
-            self._advance_chain(job)
-
             # Check if the final deliverable exists
             if self._check_completion(job):
                 try:
@@ -288,6 +285,7 @@ class Scheduler:
         lines.append("</task>")
         lines.append("<constraint>")
         lines.append("DO NOT COMMIT. Leave all changes unstaged.")
+        lines.append("DO NOT move, rename, or delete any files in scripts/ or scripts/bridgeV002/.")
         lines.append("Execute ALL steps in <task> — especially the signal completion command.")
         lines.append("</constraint>")
 
@@ -429,17 +427,15 @@ class Scheduler:
         return os.path.exists(final_path)
 
     def _advance_chain(self, job: Job) -> bool:
-        """Check if an intermediate step's result exists and advance the chain.
+        """Fallback: advance chain if a model forgot to run signal-complete.
 
-        For each step in the flow (except the first and last), check if the
-        step's deliverable file exists. If it does AND the next step's deliverable
-        does NOT exist, run signal_complete to dispatch to the next role.
+        Scans the deliverable directory for result files with IDs >= the job's
+        handoff_id. For each result file, reads <source_role> to determine which
+        role wrote it. If a result exists for a role but the next role hasn't
+        produced a result yet, run signal_complete with that result's ID.
 
-        Step 0 is skipped because it's dispatched by _dispatch (direct injection).
-        The handoff file (step 0's deliverable) is written by the scheduler, not by
-        a model — so its existence doesn't indicate model completion.
-
-        Returns True if a chain advancement was made.
+        This is a FALLBACK only — the primary mechanism is signal_complete
+        called by the model itself after writing its result file.
         """
         bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
         hid = job.handoff_id or ""
@@ -456,38 +452,70 @@ class Scheduler:
         if not steps or len(steps) < 2:
             return False
 
-        for i, step in enumerate(steps[1:-1], start=1):
-            # Check if this step's deliverable exists
+        # Build a map of from_role → step index for quick lookup
+        role_to_step = {}
+        for i, step in enumerate(steps):
+            from_role = step.get("from_role", "")
+            if from_role:
+                role_to_step[from_role] = i
+
+        # Scan result files in the deliverable dirs for IDs >= hid
+        import re
+        import glob
+        result_ids = {}  # {id_int: from_role}
+        for step in steps:
             deliverable_dir = step.get("deliverable_dir", "")
             deliverable_pattern = step.get("deliverable_pattern", "{ID}-result.md")
-            deliverable_file = deliverable_pattern.replace("{ID}", hid).replace("{role_key}", step.get("from_role", ""))
-
+            # Build glob pattern from deliverable_pattern
+            glob_pattern = deliverable_pattern.replace("{ID}", "*").replace("{role_key}", "*")
             if os.path.isabs(deliverable_dir):
-                step_path = os.path.join(deliverable_dir, deliverable_file)
+                search_dir = deliverable_dir
             else:
-                step_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
+                search_dir = os.path.join(bridge_dir, deliverable_dir)
+            for fpath in glob.glob(os.path.join(search_dir, glob_pattern)):
+                fname = os.path.basename(fpath)
+                # Extract ID from filename
+                m = re.match(r'(\d+)-', fname)
+                if not m:
+                    continue
+                file_id = int(m.group(1))
+                if file_id < int(hid):
+                    continue
+                # Read source_role from file
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        content = f.read(2000)
+                    m2 = re.search(r'<source_role>\s*(\S+)', content)
+                    if m2:
+                        result_ids[file_id] = m2.group(1).strip()
+                except Exception:
+                    pass
 
-            if not os.path.exists(step_path):
-                continue  # This step hasn't completed yet
+        if not result_ids:
+            return False
 
-            # Check if the NEXT step's deliverable exists
-            next_step = steps[i + 1]
-            next_dir = next_step.get("deliverable_dir", "")
-            next_pattern = next_step.get("deliverable_pattern", "{ID}-result.md")
-            next_file = next_pattern.replace("{ID}", hid).replace("{role_key}", next_step.get("from_role", ""))
+        # For each result, check if the NEXT step in the chain has a result
+        for file_id, from_role in sorted(result_ids.items()):
+            step_idx = role_to_step.get(from_role)
+            if step_idx is None or step_idx + 1 >= len(steps):
+                continue
 
-            if os.path.isabs(next_dir):
-                next_path = os.path.join(next_dir, next_file)
-            else:
-                next_path = os.path.join(bridge_dir, next_dir, next_file)
+            next_step = steps[step_idx + 1]
+            next_from_role = next_step.get("from_role", "")
 
-            if os.path.exists(next_path):
-                continue  # Next step already done — chain already advanced
+            # Check if next role already has a result with a higher ID
+            next_has_result = False
+            for fid, frole in result_ids.items():
+                if frole == next_from_role and fid > file_id:
+                    next_has_result = True
+                    break
 
-            # This step's deliverable exists but next step's doesn't — advance!
-            from_role = step.get("from_role", "")
-            to_role = step.get("to_role", "")
-            print(f"  Chain advancement: {from_role} completed (step {i+1}/{len(steps)}), "
+            if next_has_result:
+                continue  # Next step already has a result
+
+            # This role's result exists but next role's doesn't — advance!
+            to_role = next_step.get("to_role", "")
+            print(f"  Chain advancement (fallback): {from_role} completed (ID {file_id}), "
                   f"dispatching to {to_role}")
 
             try:
@@ -496,7 +524,7 @@ class Scheduler:
                      "--db-flow", job.flow_key,
                      "--signal-complete",
                      "--from-role", from_role,
-                     "--id", hid],
+                     "--id", str(file_id)],
                     capture_output=True, text=True,
                     cwd=str(PROJECT_ROOT),
                     timeout=120,
