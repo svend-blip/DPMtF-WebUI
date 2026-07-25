@@ -129,7 +129,7 @@ function loadPanelStructure() {
 }
 
 function buildPanelStructure() {
-  var groupNames = ["daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator"];
+  var groupNames = ["daily", "journals", "reports", "periodic", "setup", "job-queue"];
   for (var i = 0; i < groupNames.length; i++) {
     var gn = groupNames[i];
     var pg = document.getElementById("pg-" + gn);
@@ -311,20 +311,15 @@ function lbl(key, fallback) {
 }
 
 /**
- * Factory for a model_source + model_alias control pair (V3A).
- *
- * @param {string} prefix - Unique ID prefix for the form (e.g. "bridge-role").
- * @param {string|null} sourceValue - Initial model_source value.
- * @param {string|null} aliasValue - Initial model_alias value.
- * @param {string|function():string} clientValue - Client key used to fetch aliases / validate.
- * @param {object} labels - lbl() keys for {source, alias, validate}.
- * @param {Array<Array<string>>} sourceOptions - List of [value, label] pairs for the source dropdown.
- * @returns {object} { container, getSource, getAlias, setClient }
+ * Factory for a model_source + model_alias control pair.
+ * Simplified: model_source is fixed (model_allocator or python_runtime),
+ * model_alias is a text field with a "Test OK" button, and a link to
+ * the allocator UI for full model management.
  */
 function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, labels, sourceOptions) {
   var container = el("div", "dpmtf-form-group");
 
-  // model_source dropdown
+  // model_source dropdown (simplified — only model_allocator or python_runtime)
   var srcDiv = el("div", "dpmtf-form-group");
   var srcLabel = el("label", "dpmtf-label", lbl(labels.source, "Model Source"));
   srcLabel.htmlFor = prefix + "-model-source";
@@ -341,7 +336,7 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   srcDiv.appendChild(srcSelect);
   container.appendChild(srcDiv);
 
-  // model_alias text input with datalist
+  // model_alias text input (no datalist — just type the alias name)
   var aliasDiv = el("div", "dpmtf-form-group");
   var aliasLabel = el("label", "dpmtf-label", lbl(labels.alias, "Model Alias"));
   aliasLabel.htmlFor = prefix + "-model-alias";
@@ -349,36 +344,39 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   aliasInput.type = "text";
   aliasInput.id = prefix + "-model-alias";
   aliasInput.value = aliasValue || "";
-  aliasInput.placeholder = lbl(labels.alias, "Model Alias");
-  aliasInput.setAttribute("list", prefix + "-model-alias-options");
+  aliasInput.placeholder = "e.g. archi-local";
   aliasInput.disabled = srcSelect.value !== "model_allocator";
-  var aliasList = el("datalist", null);
-  aliasList.id = prefix + "-model-alias-options";
   aliasDiv.appendChild(aliasLabel);
   aliasDiv.appendChild(aliasInput);
-  aliasDiv.appendChild(aliasList);
   container.appendChild(aliasDiv);
 
-  // Validate button
-  var validateBtn = el("button", "dpmtf-btn");
-  validateBtn.type = "button";
-  validateBtn.textContent = lbl(labels.validate, "Validate");
-  validateBtn.disabled = srcSelect.value !== "model_allocator";
-  container.appendChild(validateBtn);
+  // "Test OK" button — calls allocator CLI validate via a thin DPMtF proxy endpoint
+  var testBtn = el("button", "dpmtf-btn");
+  testBtn.type = "button";
+  testBtn.textContent = "Test OK";
+  testBtn.disabled = srcSelect.value !== "model_allocator";
+  container.appendChild(testBtn);
 
+  // Link to allocator UI
+  var linkDiv = el("div", "dpmtf-form-group");
+  var link = document.createElement("a");
+  link.href = "http://localhost:9140";
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = "Manage allocation models →";
+  link.style.fontSize = "0.8rem";
+  linkDiv.appendChild(link);
+  container.appendChild(linkDiv);
+
+  // Result area
   var resultDiv = el("div", "dpmtf-form-group");
   resultDiv.id = prefix + "-model-validation-result";
   container.appendChild(resultDiv);
 
-  function resolveClient() {
-    var raw = (typeof clientValue === "function") ? clientValue() : (clientValue || "opencode");
-    return _allocatorClient(raw);
-  }
-
   function updateState() {
     var isAllocator = srcSelect.value === "model_allocator";
     aliasInput.disabled = !isAllocator;
-    validateBtn.disabled = !isAllocator;
+    testBtn.disabled = !isAllocator;
     if (!isAllocator) {
       aliasInput.value = "";
       clear(resultDiv);
@@ -386,60 +384,36 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   }
   srcSelect.onchange = updateState;
 
-  function populateAliasOptions() {
-    var client = resolveClient();
-    if (!client) return;
-    fetch("/api/bridge-v2/allocator/aliases?client=" + encodeURIComponent(client))
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        clear(aliasList);
-        (data.aliases || []).forEach(function (item) {
-          var opt = document.createElement("option");
-          opt.value = item.alias || item;
-          opt.textContent = (item.alias || item) + (item.status ? " (" + item.status + ")" : "");
-          aliasList.appendChild(opt);
-        });
-      })
-      .catch(function (err) {
-        console.warn("Failed to load allocator aliases:", err);
-      });
-  }
-
-  aliasInput.onfocus = function () {
-    if (aliasList.children.length === 0) populateAliasOptions();
-  };
-
-  validateBtn.onclick = function () {
+  // Test OK: call DPMtF proxy endpoint that shells out to allocator CLI validate
+  testBtn.onclick = function () {
     clear(resultDiv);
     var alias = aliasInput.value.trim();
-    var client = resolveClient();
-    if (!alias || !client) return;
-    fetch("/api/bridge-v2/allocator/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias: alias, client: client })
-    })
+    if (!alias) return;
+    resultDiv.appendChild(el("div", "dpmtf-muted", "Testing..."));
+
+    // Use the allocator CLI directly via a thin proxy endpoint
+    var cmd = "/api/bridge-v2/allocator-test?alias=" + encodeURIComponent(alias) + "&client=opencode";
+    fetch(cmd)
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
       })
       .then(function (result) {
-        var status = result.validation_status || "UNKNOWN";
-        var msg = lbl("lbl_bridge_validation_status", "Validation") + ": " + status;
+        clear(resultDiv);
+        var status = (result.validation_status || "UNKNOWN").toUpperCase();
+        var statusClass = status === "OK" ? "dpmtf-text-success" :
+                          status === "WARNING" ? "dpmtf-text-warning" : "dpmtf-text-danger";
+        var msg = status;
         if (result.resolved_real_model) {
           msg += " — " + (result.resolved_backend || "") + "/" + result.resolved_real_model;
         }
-        resultDiv.appendChild(el("div", null, msg));
-        (result.warnings || []).forEach(function (w) {
-          resultDiv.appendChild(el("div", "dpmtf-text-warning",
-            lbl("lbl_bridge_validation_warning", "Warning") + ": " + w));
-        });
+        resultDiv.appendChild(el("div", statusClass, msg));
         (result.errors || []).forEach(function (e) {
-          resultDiv.appendChild(el("div", "dpmtf-text-danger",
-            lbl("lbl_bridge_validation_error", "Error") + ": " + e));
+          resultDiv.appendChild(el("div", "dpmtf-text-danger dpmtf-small", e));
         });
       })
       .catch(function (err) {
+        clear(resultDiv);
         resultDiv.appendChild(el("div", "dpmtf-text-danger",
           lbl("lbl_status_error_prefix", "Error") + ": " + escapeHtml(err.message)));
       });
@@ -453,220 +427,6 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
     },
     setClient: function (c) { clientValue = c; }
   };
-}
-
-// V3B: Model Allocator status card helpers
-function _maStorageKey(alias, client) {
-  return "ma_validate_" + alias + "_" + (client || "any");
-}
-
-function _saveValidateResult(alias, result, client) {
-  try {
-    localStorage.setItem(_maStorageKey(alias, client), JSON.stringify({ result: result, timestamp: new Date().toISOString() }));
-  } catch (e) {
-    console.warn("Failed to save validation result:", e);
-  }
-}
-
-function _loadValidateResult(alias, client) {
-  try {
-    var raw = localStorage.getItem(_maStorageKey(alias, client));
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn("Failed to load validation result:", e);
-  }
-  return null;
-}
-
-function _fmtTimestamp(iso) {
-  if (!iso) return "—";
-  try { return new Date(iso).toLocaleString(); } catch (e) { return iso; }
-}
-
-function _renderInfoRow(container, label, value, valueClass) {
-  var row = el("div", "dpmtf-small");
-  row.style.marginTop = "4px";
-  row.appendChild(el("span", "dpmtf-muted", label + ": "));
-  var v = el("span", valueClass || null, value || "—");
-  row.appendChild(v);
-  container.appendChild(row);
-}
-
-function _allocatorClient(role) {
-  // Derive allocator client from role_type or model_source.
-  if (role.default_model_source === "model_allocator" || !role.default_model_source) {
-    return "opencode";
-  }
-  return "opencode";
-}
-
-function renderAllocatorStatusCard(role) {
-  var alias = role.default_model_alias;
-  var client = _allocatorClient(role);
-  var card = el("div", "dpmtf-card");
-  card.style.marginTop = "12px";
-  card.style.borderLeft = "4px solid #58a6ff";
-  card.appendChild(el("h5", null, lbl("lbl_bridge_allocator_status", "Allocator Status")));
-
-  var validationSection = el("div", null);
-  card.appendChild(validationSection);
-
-  var runtimeSection = el("div", null);
-  runtimeSection.style.marginTop = "8px";
-  card.appendChild(runtimeSection);
-
-  function updateValidationSection(result, timestamp) {
-    clear(validationSection);
-    var status = (result && result.validation_status) ? result.validation_status : "UNKNOWN";
-    var statusClass = status === "OK" ? "dpmtf-text-success" :
-                      status === "WARNING" ? "dpmtf-text-warning" : "dpmtf-text-danger";
-    _renderInfoRow(validationSection,
-      lbl("lbl_bridge_validation_status", "Validation"),
-      status, statusClass);
-    _renderInfoRow(validationSection,
-      lbl("lbl_bridge_gpu_policy", "GPU Policy"),
-      (result && result.gpu_policy) ? result.gpu_policy : "N/A", null);
-    if (result && result.resolved_backend && result.resolved_real_model) {
-      _renderInfoRow(validationSection,
-        lbl("lbl_bridge_allocator_resolved_model", "Model"),
-        result.resolved_backend + " / " + result.resolved_real_model, null);
-    }
-    (result && result.warnings || []).forEach(function (w) {
-      validationSection.appendChild(el("div", "dpmtf-text-warning dpmtf-small",
-        lbl("lbl_bridge_validation_warning", "Warning") + ": " + w));
-    });
-    (result && result.errors || []).forEach(function (e) {
-      validationSection.appendChild(el("div", "dpmtf-text-danger dpmtf-small",
-        lbl("lbl_bridge_validation_error", "Error") + ": " + e));
-    });
-    _renderInfoRow(validationSection,
-      lbl("lbl_bridge_last_validated", "Last Validated"),
-      _fmtTimestamp(timestamp), null);
-  }
-
-  function updateRuntimeSection(data) {
-    clear(runtimeSection);
-    var runtimeStatus = "—";
-    var runtimeClass = null;
-    if (data && typeof data.running === "boolean") {
-      runtimeStatus = data.running
-        ? lbl("lbl_bridge_running", "Running")
-        : lbl("lbl_bridge_not_running", "Not running");
-      runtimeClass = data.running ? "dpmtf-text-success" : "dpmtf-text-muted";
-    }
-    _renderInfoRow(runtimeSection,
-      lbl("lbl_bridge_runtime_status", "Runtime Status"),
-      runtimeStatus, runtimeClass);
-    _renderInfoRow(runtimeSection,
-      lbl("lbl_bridge_pid", "PID"),
-      data && data.pid ? String(data.pid) : "—", null);
-    _renderInfoRow(runtimeSection,
-      lbl("lbl_bridge_port", "Port"),
-      data && data.port ? String(data.port) : "—", null);
-    startBtn.disabled = !!(data && data.running);
-    stopBtn.disabled = !(data && data.running);
-  }
-
-  var buttons = el("div", null);
-  buttons.style.marginTop = "8px";
-
-  var validateBtn = el("button", "dpmtf-btn");
-  validateBtn.textContent = lbl("lbl_bridge_validate_allocator", "Validate");
-  validateBtn.onclick = function () {
-    validateBtn.disabled = true;
-    fetch("/api/bridge-v2/allocator/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias: alias, client: client })
-    })
-      .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
-      .then(function (result) {
-        _saveValidateResult(alias, result, client);
-        updateValidationSection(result, new Date().toISOString());
-      })
-      .catch(function (err) {
-        var errorResult = { validation_status: "ERROR", errors: [err.message], gpu_policy: null };
-        _saveValidateResult(alias, errorResult, client);
-        updateValidationSection(errorResult, new Date().toISOString());
-      })
-      .finally(function () { validateBtn.disabled = false; });
-  };
-  buttons.appendChild(validateBtn);
-
-  var startBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
-  startBtn.textContent = lbl("lbl_bridge_start", "Start");
-  startBtn.onclick = function () {
-    startBtn.disabled = true;
-    fetch("/api/bridge-v2/allocator/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias: alias })
-    })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data.error) throw new Error(data.error);
-        alert(lbl("lbl_bridge_start", "Start") + ": OK");
-        refreshStatus();
-      })
-      .catch(function (err) {
-        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-        startBtn.disabled = false;
-      });
-  };
-  buttons.appendChild(startBtn);
-
-  var stopBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
-  stopBtn.textContent = lbl("lbl_bridge_stop", "Stop");
-  stopBtn.onclick = function () {
-    if (!confirm(lbl("lbl_bridge_confirm_stop", "Stop the allocator runtime for '{alias}'?").replace("{alias}", alias))) return;
-    stopBtn.disabled = true;
-    fetch("/api/bridge-v2/allocator/stop", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias: alias })
-    })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data.error) throw new Error(data.error);
-        alert(lbl("lbl_bridge_stop", "Stop") + ": OK");
-        refreshStatus();
-      })
-      .catch(function (err) {
-        alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
-        stopBtn.disabled = false;
-      });
-  };
-  buttons.appendChild(stopBtn);
-
-  var refreshBtn = el("button", "dpmtf-btn");
-  refreshBtn.textContent = lbl("lbl_bridge_refresh", "Refresh");
-  refreshBtn.onclick = refreshStatus;
-  buttons.appendChild(refreshBtn);
-
-  card.appendChild(buttons);
-
-  function refreshStatus() {
-    fetch("/api/bridge-v2/allocator/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias: alias })
-    })
-      .then(function (res) { if (!res.ok) throw new Error("HTTP " + res.status); return res.json(); })
-      .then(updateRuntimeSection)
-      .catch(function (err) {
-        updateRuntimeSection({ running: false, error: err.message });
-      });
-  }
-
-  var cached = _loadValidateResult(alias, client);
-  if (cached && cached.result) {
-    updateValidationSection(cached.result, cached.timestamp);
-  } else {
-    updateValidationSection(null, null);
-  }
-  refreshStatus();
-
-  return card;
 }
 
 /* ── 3. Database Status ────────────────────────────── */
@@ -2285,11 +2045,6 @@ function renderRoleCard(role) {
   actions.appendChild(delBtn);
 
   card.appendChild(actions);
-
-  // V3B: Allocator-managed roles get a runtime/status card
-  if (role.default_model_source === "model_allocator" && role.default_model_alias) {
-    card.appendChild(renderAllocatorStatusCard(role));
-  }
 
   return card;
 }

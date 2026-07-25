@@ -963,6 +963,43 @@ async def bridge_v2_attach_tmux_for_flow(flow_key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Thin proxy: Test OK for allocator alias ──────────────────
+
+@router.get("/allocator-test")
+async def bridge_v2_allocator_test(alias: str, client: str = "opencode"):
+    """Thin proxy: run `model-allocator validate --alias X --client Y --json`.
+
+    Returns the validation result so the role editor's 'Test OK' button
+    can show OK/Error inline without a full allocator dashboard.
+    """
+    import json as _json
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts", "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "validate", "--alias", alias,
+             "--client", client, "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode in (0, 2):
+            try:
+                return _json.loads(result.stdout)
+            except _json.JSONDecodeError:
+                return {"validation_status": "ERROR",
+                        "errors": ["Failed to parse allocator output"]}
+        else:
+            return {"validation_status": "ERROR",
+                    "errors": [result.stderr.strip() or result.stdout.strip() or "Unknown error"]}
+    except subprocess.TimeoutExpired:
+        return {"validation_status": "ERROR",
+                "errors": ["Allocator validate timed out after 30s"]}
+    except Exception as exc:
+        return {"validation_status": "ERROR",
+                "errors": [str(exc)]}
+
+
 @router.post("/export")
 async def bridge_v2_export(request: Request):
     """Export BridgeV002 configuration as JSON for backup/restoration."""

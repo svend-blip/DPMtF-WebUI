@@ -129,20 +129,22 @@ definition at {gov_path}".
 ### Model Allocator Integration
 
 The [model-allocator](https://github.com/svend-blip/model-allocator) is a
-standalone CLI that resolves stable model aliases (e.g. `archi-local`,
-`imple01-local`) to concrete backends (Ollama, llama.cpp/TurboQuant,
-OpenAI-compatible cloud APIs) and manages runtime lifecycle. The WebUI
-integrates it via proxy endpoints under `/api/bridge-v2/allocator/*`:
+standalone CLI + web UI that resolves stable model aliases (e.g.
+`archi-local`, `imple01-local`) to concrete backends (Ollama,
+llama.cpp/TurboQuant, OpenAI-compatible cloud APIs) and manages runtime
+lifecycle.
 
-- **Role/step editors** — `model_source` dropdown + alias picker + validate
-  button
-- **Runtime control** — status cards with Start/Stop/Refresh on
-  allocator-managed role cards
-- **Config dashboard** — full alias/role CRUD with detail forms and runtime
-  status controls
+**Separation of concerns:**
+- **Model-allocator UI** (port 9140) — full CRUD for allocation models,
+  runtime profiles, validation, doctor diagnostics. This is where models
+  are created, configured, and tested.
+- **DPMtF-WebUI** (port 9130) — role editor has a simple `model_alias`
+  text field + "Test OK" button + link to allocator UI. No allocator
+  dashboard, no config management.
 
-All endpoints shell out to the allocator CLI — the Father never talks to
-model backends directly.
+DPMtF calls the allocator CLI during dispatch (`start`/`stop`/`validate`)
+but does not manage model configuration — that lives entirely in the
+allocator repo.
 
 ### Trade Cockpit Orchestration
 
@@ -195,8 +197,8 @@ prompt parsing.
 ### Frontend
 
 - **`static/js/dpmtf-app.js`** — main application shell, panel groups,
-  expand/collapse tracking, theme switching
-- **`static/js/allocator.js`** — model allocator dashboard
+  expand/collapse tracking, theme switching, role editor with "Test OK"
+  button for allocator alias validation
 - **`static/js/job-queue.js`** — job queue panel with status filters,
   scheduler tick trigger, job creation/approval
 - **`static/css/dpmtf-theme.css`** — themed styling
@@ -206,7 +208,8 @@ prompt parsing.
 - **mcp-light** — read-only MCP context server (separate repo) exposing
   governance, panels, flows, roles, and verdicts as tools on
   `http://127.0.0.1:9135/mcp`
-- **model-allocator** — standalone CLI for model lifecycle management
+- **model-allocator** — standalone CLI + web UI (port 9140) for model
+  lifecycle management and allocation model CRUD
 - **opencode** — AI coding frontend running in tmux sessions, configured per
   role via `~/.config/opencode-roles/{role}/opencode.json` with permissions
   (`external_directory: allow`, `bash: allow`, `edit: allow`)
