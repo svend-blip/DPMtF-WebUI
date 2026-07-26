@@ -2370,6 +2370,36 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             f"Read and execute {handoff_abs}"
         )
 
+    # Append the target role's OWN deliverable path and signal command —
+    # resolved to absolute paths. Governance files describe the path with
+    # {bridge_dir}/{ID} placeholders, and local models fail to resolve them
+    # (observed: imple01 wrote 'deliverable-315.md' in the repo root).
+    # signal_complete already appends this block for chain callbacks; the
+    # initial signal_send dispatch needs it just as much.
+    for s in steps:
+        if s.get("from_role") == to_role_key:
+            next_dir = s.get("deliverable_dir", "")
+            next_pattern = s.get("deliverable_pattern", "{ID}-result.md")
+            next_file = next_pattern.replace("{ID}", handoff_id).replace(
+                "{role_key}", to_role_key)
+            if os.path.isabs(next_dir):
+                next_output_path = os.path.join(next_dir, next_file)
+            else:
+                next_output_path = os.path.join(bridge_dir, next_dir, next_file)
+            prompt_text += (
+                f"\n\n## Your Deliverable\n"
+                f"Write your result to: {next_output_path}\n"
+                f"Write ONLY to that exact path — do not create extra copies "
+                f"or invented filenames in the project working directory.\n\n"
+                f"## Signal Completion (MANDATORY — do not ask, just execute)\n"
+                f"After writing the deliverable, run this command:\n"
+                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
+                f"--db-flow {flow_key} --signal-complete "
+                f"--from-role {to_role_key} --id {handoff_id} "
+                f"> /tmp/bridge-signal-{handoff_id}.log 2>&1 &"
+            )
+            break
+
     # Prepend governance file reference for target role
     if gov_file:
         prompt_text = (
