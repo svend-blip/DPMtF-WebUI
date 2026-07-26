@@ -17,6 +17,9 @@ import sqlite3
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from attach_tmux import VIEWER_SESSION_PREFIX  # noqa: E402
+
 
 def get_flow_tmux_sessions(db_path, flow_key):
     """Fetch all tmux session names for active steps in a flow."""
@@ -83,6 +86,11 @@ def main():
         sys.exit(1)
 
     sessions = get_flow_tmux_sessions(db_path, args.flow_key)
+
+    # The viewer session created by attach_tmux.py groups the role sessions
+    # as linked windows — it survives its members and must be killed too,
+    # or every Start/Stop cycle leaves an orphaned flow-<flow_key> session.
+    sessions.add(f"{VIEWER_SESSION_PREFIX}{args.flow_key}")
 
     if not sessions:
         print(f"No tmux sessions found for flow '{args.flow_key}'. Nothing to do.")
