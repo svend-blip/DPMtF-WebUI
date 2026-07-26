@@ -142,7 +142,8 @@ def latest_run_id():
     return f"{best:03d}" if best is not None else None
 
 
-def pane_active(session):
+def _capture_pane_tail(session):
+    """Lowercased last 25 pane lines, or None when capture fails."""
     # capture-pane needs a window spec on grouped sessions — bare
     # `=session` fails silently (see dispatch._pane_target).
     target = "=" + session if ":" in session else "=" + session + ":0"
@@ -151,9 +152,28 @@ def pane_active(session):
         capture_output=True, text=True,
     )
     if result.returncode != 0:
+        return None
+    return "\n".join(result.stdout.splitlines()[-25:]).lower()
+
+
+def pane_active(session):
+    """Markers OR pane-content change between two captures 2 s apart.
+
+    Marker matching alone missed opencode's tool-execution state (no
+    'esc interrupt' in the tail) and nudged a working role.
+    """
+    first = _capture_pane_tail(session)
+    if first is None:
         return False
-    tail = "\n".join(result.stdout.splitlines()[-25:]).lower()
-    return any(m in tail for m in ACTIVITY_MARKERS)
+    if any(m in first for m in ACTIVITY_MARKERS):
+        return True
+    time.sleep(2)
+    second = _capture_pane_tail(session)
+    if second is None:
+        return False
+    if any(m in second for m in ACTIVITY_MARKERS):
+        return True
+    return first != second
 
 
 def load_state():

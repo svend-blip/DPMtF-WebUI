@@ -466,8 +466,8 @@ class Scheduler:
             return os.path.join(d, fname)
         return os.path.join(bridge_dir, d, fname)
 
-    def _pane_active(self, session: str) -> bool:
-        """True when the role's tmux pane shows live generation activity."""
+    def _capture_pane_tail(self, session: str):
+        """Lowercased last 25 pane lines, or None when capture fails."""
         # capture-pane needs a window spec on grouped sessions — bare
         # `=session` fails silently (see dispatch._pane_target).
         target = "=" + session if ":" in session else "=" + session + ":0"
@@ -477,11 +477,33 @@ class Scheduler:
                 capture_output=True, text=True, timeout=5,
             )
         except Exception:
-            return False
+            return None
         if result.returncode != 0:
+            return None
+        return "\n".join(result.stdout.splitlines()[-25:]).lower()
+
+    def _pane_active(self, session: str) -> bool:
+        """True when the role's tmux pane shows live activity.
+
+        Two signals: known activity markers, or the pane content CHANGING
+        between two captures 2 s apart. Marker matching alone missed
+        opencode's tool-execution state (no 'esc interrupt' in the tail) —
+        observed: the step-1 nudge re-prompted a WORKING imple01 on
+        handoff 316. A generating/tool-running pane redraws its spinner
+        and output constantly; an idle pane is byte-identical.
+        """
+        first = self._capture_pane_tail(session)
+        if first is None:
             return False
-        tail = "\n".join(result.stdout.splitlines()[-25:]).lower()
-        return any(m in tail for m in self._PANE_ACTIVITY_MARKERS)
+        if any(m in first for m in self._PANE_ACTIVITY_MARKERS):
+            return True
+        time.sleep(2)
+        second = self._capture_pane_tail(session)
+        if second is None:
+            return False
+        if any(m in second for m in self._PANE_ACTIVITY_MARKERS):
+            return True
+        return first != second
 
     def _recent_delivery(self, bridge_dir: str, from_role: str, to_role: str,
                          hid: str, within_minutes: int) -> bool:
