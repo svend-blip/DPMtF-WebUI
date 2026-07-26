@@ -685,7 +685,8 @@ def transition_recently_delivered(bridge_dir, from_role, to_role, handoff_id,
             continue
         if parts[1] != f"{from_role}->{to_role}" or parts[2] != str(handoff_id):
             continue
-        if parts[3] not in ("dispatched", "signal_complete"):
+        if parts[3] not in ("dispatched", "signal_complete",
+                            "signal_complete_to_human"):
             continue
         try:
             ts = datetime.strptime(
@@ -1422,6 +1423,16 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         full_deliverable_path = os.path.join(bridge_dir,
                                              payload["deliverable_dir"],
                                              payload["deliverable_file"])
+        # Idempotency also applies to human deliveries — models re-run the
+        # signal command (handoff 316: review02->human logged twice).
+        # Harmless (no injection) but pollutes the trace bookkeeping.
+        if not force and transition_recently_delivered(
+                bridge_dir, payload["from_role"], payload["to_role"],
+                handoff_id, _delivery_grace_minutes()):
+            print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "
+                  f"#{handoff_id} already delivered to human — duplicate "
+                  f"suppressed (use --force to override)")
+            return True
         print(f"  INFO: Completion delivered to human recipient — {full_deliverable_path}")
         log(
             f"{payload['from_role']}->{payload['to_role']}",
