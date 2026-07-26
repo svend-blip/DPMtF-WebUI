@@ -415,6 +415,50 @@ class Scheduler:
 
         return os.path.exists(final_path)
 
+    # Cooldown period in seconds before _advance_chain will re-dispatch the
+    # same (flow, from_role, handoff_id). Prevents flooding the target role
+    # with duplicate prompts while it's still working. The primary mechanism
+    # is the model running signal_complete itself; this fallback should only
+    # kick in if the model genuinely forgot (not if it's just slow).
+    ADVANCE_COOLDOWN_SECONDS = 600  # 10 minutes
+    ADVANCE_COOLDOWN_FILE = "/tmp/bridge_advance_cooldown.json"
+
+    @classmethod
+    def _read_cooldown_state(cls) -> dict:
+        try:
+            with open(cls.ADVANCE_COOLDOWN_FILE, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    @classmethod
+    def _write_cooldown_state(cls, state: dict) -> None:
+        try:
+            with open(cls.ADVANCE_COOLDOWN_FILE, "w") as f:
+                json.dump(state, f)
+        except OSError:
+            pass
+
+    @classmethod
+    def _is_in_cooldown(cls, flow_key: str, from_role: str, handoff_id: str) -> bool:
+        """Return True if this (flow, from_role, id) was dispatched recently."""
+        state = cls._read_cooldown_state()
+        last_ts = state.get(flow_key, {}).get(from_role, {}).get(handoff_id)
+        if not last_ts:
+            return False
+        try:
+            elapsed = time.time() - float(last_ts)
+            return elapsed < cls.ADVANCE_COOLDOWN_SECONDS
+        except (ValueError, TypeError):
+            return False
+
+    @classmethod
+    def _set_cooldown(cls, flow_key: str, from_role: str, handoff_id: str) -> None:
+        """Record that a dispatch was sent for this combination."""
+        state = cls._read_cooldown_state()
+        state.setdefault(flow_key, {}).setdefault(from_role, {})[handoff_id] = time.time()
+        cls._write_cooldown_state(state)
+
     def _advance_chain(self, job: Job) -> bool:
         """Fallback: advance chain if a model forgot to run signal-complete.
 
@@ -425,6 +469,11 @@ class Scheduler:
 
         This is a FALLBACK only — the primary mechanism is signal_complete
         called by the model itself after writing its result file.
+
+        Cooldown guard: each (flow, from_role, id) combination can only be
+        dispatched once every ADVANCE_COOLDOWN_SECONDS. This prevents the
+        fallback from spamming a role that is still working (observed: 144
+        duplicate injections for handoff 309, 10+ for handoff 311).
         """
         bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
         hid = job.handoff_id or ""
@@ -504,6 +553,14 @@ class Scheduler:
             if next_has_result:
                 continue  # Next step already has a result
 
+            # Cooldown guard: don't re-dispatch the same (flow, from_role, id)
+            # within the cooldown window. The target role may still be working.
+            if self._is_in_cooldown(job.flow_key, from_role, str(file_id)):
+                print(f"  Chain advancement SKIPPED: in cooldown for "
+                      f"{from_role} ID {file_id} "
+                      f"(next attempt in ~{self.ADVANCE_COOLDOWN_SECONDS // 60} min)")
+                continue
+
             # Guard: skip if a dispatch for this exact (flow, from_role, id)
             # is already running. Without this, every scheduler tick spawns a
             # new signal_complete process that hangs in post-dispatch, and
@@ -536,6 +593,10 @@ class Scheduler:
             print(f"  Chain advancement (fallback): {from_role} completed (ID {file_id}), "
                   f"dispatching to {dispatch_to}")
 
+            # Set cooldown BEFORE spawning — prevents re-dispatch even if
+            # the subprocess hangs (observed: post-dispatch ollama stop hangs).
+            self._set_cooldown(job.flow_key, from_role, str(file_id))
+
             try:
                 result = subprocess.run(
                     [sys.executable, str(PROJECT_ROOT / "scripts" / "bridgeV002" / "dispatch.py"),
@@ -548,7 +609,7 @@ class Scheduler:
                     timeout=120,
                 )
                 if result.returncode == 0:
-                    print(f"  Chain advanced: {from_role} -> {to_role}")
+                    print(f"  Chain advanced: {from_role} -> {dispatch_to}")
                     return True
                 else:
                     print(f"  Chain advancement failed: {result.stderr[-200:] if result.stderr else result.stdout[-200:]}")
