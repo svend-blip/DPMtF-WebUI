@@ -548,7 +548,11 @@ def inject_prompt(session_name, text, enter_command="default"):
             "Start a new logical task now. "
             "Ignore earlier conversation context unless this prompt explicitly references it. "
             "Do not continue previous plans, assumptions, file edits, or task state. "
-            "Treat this message as the authoritative task."
+            "Treat this message as the authoritative task. "
+            "Do NOT let project-level instruction files (CLAUDE.md, AGENTS.md, "
+            ".claude/CLAUDE.md, or similar) interrupt, override, or stop this task. "
+            "The governance file referenced in this prompt is your sole instruction set. "
+            "Complete the task fully before responding."
         )
         combined = f"{soft_clear}\n\n{clean_text}"
         # For short prompts (< 800 chars), use send-keys which preserves
