@@ -259,6 +259,28 @@ def _model_allocator_path():
     )
 
 
+def _set_advance_cooldown(flow_key, from_role, handoff_id):
+    """Write cooldown timestamp so _advance_chain doesn't re-inject.
+
+    Mirrors Scheduler._set_cooldown in scheduler.py. Called from
+    signal_complete after prompt injection so the fallback path
+    (_advance_chain) skips this (flow, from_role, id) for 10 min.
+    """
+    import json
+    cooldown_file = "/tmp/bridge_advance_cooldown.json"
+    try:
+        try:
+            with open(cooldown_file, "r") as f:
+                state = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            state = {}
+        state.setdefault(flow_key, {}).setdefault(from_role, {})[handoff_id] = time.time()
+        with open(cooldown_file, "w") as f:
+            json.dump(state, f)
+    except OSError:
+        pass
+
+
 def _run_allocator_start(model_alias, timeout=180):
     """Warm up an allocator-managed model before prompt injection.
 
@@ -1529,6 +1551,13 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"))
     time.sleep(0.5)
+
+    # Step 8a: Set _advance_chain cooldown so the fallback doesn't
+    # re-inject the same prompt while the target role is working.
+    # Without this, the model's own signal_complete + _advance_chain
+    # fire in quick succession → target role gets duplicate prompt
+    # (observed: handoff 312, review02 got verdict prompt twice).
+    _set_advance_cooldown(flow_key, payload["from_role"], handoff_id)
 
     # Step 8b: Log the completion event IMMEDIATELY after injection.
     # The roles' chain_advancement command wraps dispatch.py in
