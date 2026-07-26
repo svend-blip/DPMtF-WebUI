@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Cron-tick entry point for the Job Queue scheduler.
 
-Run via cron every minute:
-    * * * * * python3 /home/svend/DPMtF-WebUI/scripts/job_queue/cron_tick.py
+Run via cron every 30 seconds (two staggered entries, flock prevents
+overlapping ticks):
+    * * * * * flock -n /tmp/dpmtf-cron-tick.lock python3 .../cron_tick.py
+    * * * * * sleep 30 && flock -n /tmp/dpmtf-cron-tick.lock python3 .../cron_tick.py
 
 One tick = one scheduler pass: recover expired leases → claim oldest
 APPROVED job → context-fit preflight → dispatch → check completion →

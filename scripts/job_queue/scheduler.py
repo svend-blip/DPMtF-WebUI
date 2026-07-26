@@ -41,6 +41,12 @@ class Scheduler:
         wd = self._watchdog_profile()
         self.stall_minutes = int(wd.get("stall_minutes", 12))
         self.max_nudges = int(wd.get("max_nudges_per_step", 2))
+        # Fast path: nudge as soon as the WRITER's pane has been idle on
+        # idle_confirmations consecutive ticks (it finished generating) and
+        # the deliverable has had fast_nudge_minutes to be signaled by the
+        # model itself. Much faster than waiting out stall_minutes.
+        self.fast_nudge_minutes = int(wd.get("fast_nudge_minutes", 2))
+        self.idle_confirmations = int(wd.get("idle_confirmations", 2))
         self.nudge_state_path = PROJECT_ROOT / "logs" / "job-queue-nudge-state.json"
 
     @staticmethod
@@ -513,15 +519,50 @@ class Scheduler:
         except (OSError, json.JSONDecodeError):
             return {}
 
-    def _record_nudge(self, key: str) -> None:
-        state = self._read_nudge_state()
-        state[key] = state.get(key, 0) + 1
+    def _write_nudge_state(self, state: dict) -> None:
         try:
             path = Path(self.nudge_state_path)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(state, indent=1))
         except OSError:
             pass
+
+    def _record_nudge(self, key: str) -> None:
+        state = self._read_nudge_state()
+        state[key] = state.get(key, 0) + 1
+        self._write_nudge_state(state)
+
+    # Idle observations expire after this many minutes — a stale count from
+    # an earlier stall must not combine with a fresh one into a false
+    # "consecutively idle" conclusion.
+    IDLE_OBSERVATION_TTL_MINUTES = 10
+
+    def _confirm_writer_idle(self, key: str) -> bool:
+        """Count one idle observation; True when enough consecutive ones.
+
+        Persistent across ticks/restarts (same file as the nudge budget,
+        namespaced with 'idle::'). Returns True when this observation
+        reaches idle_confirmations, and resets the count so a granted
+        fast-path nudge starts over.
+        """
+        state = self._read_nudge_state()
+        entry = state.get(f"idle::{key}") or {}
+        count, ts = entry.get("count", 0), entry.get("ts", 0)
+        if time.time() - ts > self.IDLE_OBSERVATION_TTL_MINUTES * 60:
+            count = 0  # stale — start over
+        count += 1
+        if count >= self.idle_confirmations:
+            state.pop(f"idle::{key}", None)
+            self._write_nudge_state(state)
+            return True
+        state[f"idle::{key}"] = {"count": count, "ts": time.time()}
+        self._write_nudge_state(state)
+        return False
+
+    def _reset_writer_idle(self, key: str) -> None:
+        state = self._read_nudge_state()
+        if state.pop(f"idle::{key}", None) is not None:
+            self._write_nudge_state(state)
 
     def _advance_chain(self, job: Job) -> bool:
         """Nudge the chain when a role wrote its deliverable but never signaled.
@@ -580,11 +621,28 @@ class Scheduler:
             if session and self._pane_active(session):
                 return False  # target actively working — never re-inject
 
+            nudge_key = f"{job.flow_key}:{hid}:{step.get('step_key') or i}"
             age_min = (time.time() - os.path.getmtime(out_path)) / 60.0
             if age_min < self.stall_minutes:
-                return False  # give the completing role time to signal itself
-
-            nudge_key = f"{job.flow_key}:{hid}:{step.get('step_key') or i}"
+                # Fast path: the WRITER's pane being idle means it finished
+                # generating — if it also never signaled, it forgot. Requires
+                # idle_confirmations consecutive tick observations so a brief
+                # pause between tool calls can't masquerade as "done".
+                if age_min < self.fast_nudge_minutes:
+                    return False  # the model gets time to signal itself
+                try:
+                    writer_session = load_role_from_db(
+                        from_role, db_path=self.repo.db_path
+                    ).get("tmux_session", "")
+                except Exception:
+                    writer_session = ""
+                if not writer_session or self._pane_active(writer_session):
+                    # Writer busy or unobservable — fall back to the slow
+                    # path (stall_minutes) and restart the idle count.
+                    self._reset_writer_idle(nudge_key)
+                    return False
+                if not self._confirm_writer_idle(nudge_key):
+                    return False  # first idle observation — confirm next tick
             if self._read_nudge_state().get(nudge_key, 0) >= self.max_nudges:
                 print(f"  Chain nudge SKIPPED: {nudge_key} already nudged "
                       f"{self.max_nudges}x — human attention needed")

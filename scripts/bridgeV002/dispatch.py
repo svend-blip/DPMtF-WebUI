@@ -554,6 +554,58 @@ _ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
 _PASTE_STUCK_MARKER = "paste again to expand"
 
 
+def _delivery_grace_minutes():
+    """Idempotency window for duplicate signal suppression.
+
+    From the machine profile [watchdog] section (delivery_grace_minutes,
+    default 10) — the same profile the chain watchdog and scheduler nudges
+    read their thresholds from.
+    """
+    try:
+        profile_path = os.path.join(PROJECT_ROOT, "profiles", "machine.local.json")
+        with open(profile_path, "r", encoding="utf-8") as f:
+            wd = json.load(f).get("watchdog", {})
+        return int(wd.get("delivery_grace_minutes", 10))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return 10
+
+
+def transition_recently_delivered(bridge_dir, from_role, to_role, handoff_id,
+                                  within_minutes):
+    """True when trace.log shows this exact transition was delivered recently.
+
+    Delivery events are 'dispatched' (signal_send) and 'signal_complete'
+    (callback injection). Failed attempts do not count. Used as an
+    idempotency guard: a transition happens at most once per handoff id, so
+    a recent delivery means any further signal for the same
+    (from_role->to_role, id) is a duplicate — the model's own late signal
+    racing the scheduler nudge, or a re-run command.
+    """
+    trace = os.path.join(bridge_dir, "trace.log")
+    try:
+        with open(trace, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()[-400:]
+    except OSError:
+        return False
+    cutoff = time.time() - within_minutes * 60
+    for line in reversed(lines):
+        parts = line.split(" | ")
+        if len(parts) < 4:
+            continue
+        if parts[1] != f"{from_role}->{to_role}" or parts[2] != str(handoff_id):
+            continue
+        if parts[3] not in ("dispatched", "signal_complete"):
+            continue
+        try:
+            ts = datetime.strptime(
+                parts[0], "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            return True  # unparseable timestamp — assume recent, stay safe
+        return ts >= cutoff
+    return False
+
+
 def _pane_target(session_name):
     """Exact-match pane target for capture-pane/send-keys.
 
@@ -1193,7 +1245,8 @@ def _ensure_session_ready(role_key, db_path=None):
     return session_alive(session_name)
 
 
-def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=None):
+def signal_complete(flow_key, step_key, from_role_key, handoff_id,
+                    bridge_dir=None, force=False):
     """Signal that a role has completed its deliverable for a flow step.
 
     Replaces legacy bridge.py complete <ID>. DB-driven: loads the completed
@@ -1296,6 +1349,26 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             f"Target session '{tmux_session}' is not running",
         )
         return False
+
+    # Step 5a: Idempotency guard. A transition happens at most once per
+    # handoff id — if trace.log shows it was already delivered within the
+    # grace window, any further signal is a duplicate (the model's own late
+    # signal racing the scheduler nudge, or a re-run command). This guard is
+    # what makes fast nudging safe. --force bypasses for manual re-dispatch.
+    if not force and transition_recently_delivered(
+            bridge_dir, payload["from_role"], payload["to_role"],
+            handoff_id, _delivery_grace_minutes()):
+        print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "
+              f"#{handoff_id} already delivered within the last "
+              f"{_delivery_grace_minutes()} min — duplicate suppressed "
+              f"(use --force to override)")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "signal_complete_skipped",
+            "Duplicate delivery suppressed by idempotency guard",
+        )
+        return True
 
     # Step 6: Verify deliverable file exists (written by completing role)
     full_deliverable_path = os.path.join(bridge_dir,
@@ -2365,6 +2438,9 @@ def main():
                         help="Signal review escalation to architect")
     parser.add_argument("--signal-answer", action="store_true",
                         help="Signal architect answer back to review")
+    parser.add_argument("--force", action="store_true",
+                        help="Bypass the duplicate-delivery idempotency guard "
+                             "(manual re-dispatch of an already-delivered signal)")
 
     args = parser.parse_args()
 
@@ -2441,6 +2517,7 @@ def main():
             args.from_role,
             handoff_id,
             bridge_dir,
+            force=args.force,
         )
         sys.exit(0)
 

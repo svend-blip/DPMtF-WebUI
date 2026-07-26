@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "My Machine",
-  "description": "Machine Profile \u2014 copy to machine.<name>.json and customize",
+  "description": "Machine Profile — copy to machine.<name>.json and customize",
   "capabilities": {
     "tmux": true,
     "cuda": false,
@@ -99,6 +99,9 @@
     "max_nudges_per_step": 2,
     "loop_seconds": 60,
     "max_minutes": 90,
-    "_note": "chain watchdog defaults; chain order is read from bridge_flow_steps"
+    "_note": "chain watchdog + scheduler nudge defaults; chain order is read from bridge_flow_steps. fast_nudge_minutes/idle_confirmations drive the fast nudge path; delivery_grace_minutes is the signal_complete idempotency window.",
+    "fast_nudge_minutes": 2,
+    "idle_confirmations": 2,
+    "delivery_grace_minutes": 10
   }
 }

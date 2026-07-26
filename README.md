@@ -43,6 +43,12 @@ signal_send is needed from the Human.
   deliverable exists but was never signaled — it checks trace.log recency,
   target pane activity, and deliverable age, and stops after
   `max_nudges_per_step` attempts (machine profile `[watchdog]` section).
+- **Fast nudge path:** when the writer's pane has been idle on
+  `idle_confirmations` consecutive ticks and the deliverable is older than
+  `fast_nudge_minutes`, the nudge fires within ~2-3 minutes instead of
+  waiting out `stall_minutes`. Safe because `signal_complete` itself is
+  idempotent: a transition already delivered within
+  `delivery_grace_minutes` is suppressed (override with `--force`).
 - **Roles** — per-role definitions in `bridge_roles` with tmux sessions,
   model aliases, governance files, and enter commands. 25 active roles across
   all flows.

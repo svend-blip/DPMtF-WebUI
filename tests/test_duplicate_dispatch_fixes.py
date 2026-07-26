@@ -31,6 +31,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from job_queue.scheduler import Scheduler
 from bridge_lib import auto_prepend_xml_sections
+from dispatch import transition_recently_delivered
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +83,8 @@ def _mk_sched(tmp_path):
     sched.nudge_state_path = tmp_path / "nudge-state.json"
     sched.stall_minutes = 10
     sched.max_nudges = 2
+    sched.fast_nudge_minutes = 2
+    sched.idle_confirmations = 2
     return sched
 
 
@@ -107,19 +110,29 @@ def _trace_line(bridge: Path, from_role, to_role, hid, event, age_minutes=0.0):
         f.write(line)
 
 
-def _run_advance(sched, job, base, monkeypatch, pane_active=False):
+def _run_advance(sched, job, base, monkeypatch, pane_active=False,
+                 active_sessions=None):
+    """Run _advance_chain with tmux sessions named after their role keys.
+
+    active_sessions: iterable of role keys whose panes show activity.
+    pane_active=True is a legacy shorthand for "every pane is active".
+    """
     monkeypatch.setenv("DPMTF_BRIDGE_DIR", str(base))
     calls = []
+    active = set(active_sessions or [])
 
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
         return MagicMock(returncode=0, stdout="", stderr="")
 
+    def fake_pane_active(self, session):
+        return pane_active or session in active
+
     with patch("bridge_lib.load_flow_from_db",
                return_value={"steps": _steps(base)}), \
          patch("bridge_lib.load_role_from_db",
-               return_value={"tmux_session": "review01"}), \
-         patch.object(Scheduler, "_pane_active", return_value=pane_active), \
+               side_effect=lambda rk, db_path=None: {"tmux_session": rk}), \
+         patch.object(Scheduler, "_pane_active", new=fake_pane_active), \
          patch("job_queue.scheduler.subprocess.run", side_effect=fake_run):
         sched._advance_chain(job)
     return calls
@@ -213,6 +226,96 @@ def test_only_own_handoff_id_is_considered(tmp_path, monkeypatch):
 
     calls = _run_advance(sched, _job("42"), base, monkeypatch)
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# Fast-path nudge: writer pane idle beats the 12-minute wall clock
+# ---------------------------------------------------------------------------
+
+def test_fast_nudge_after_writer_idle_confirmations(tmp_path, monkeypatch):
+    """Deliverable past fast_nudge_minutes + writer pane idle on two
+    consecutive ticks -> nudge fires long before stall_minutes."""
+    base = tmp_path / "bridge"
+    sched = _mk_sched(tmp_path)
+    _write(base / "handoffs" / "42-handoff.md", age_minutes=60)
+    _write(base / "results" / "42-result.md", age_minutes=3)  # < stall (10)
+
+    first = _run_advance(sched, _job(), base, monkeypatch)
+    assert first == [], "first idle observation must only count, not dispatch"
+
+    second = _run_advance(sched, _job(), base, monkeypatch)
+    assert len(second) == 1, "second consecutive idle observation dispatches"
+    assert second[0][second[0].index("--from-role") + 1] == "imple01"
+
+
+def test_no_fast_nudge_while_writer_pane_active(tmp_path, monkeypatch):
+    """A writer that is still generating never triggers the fast path."""
+    base = tmp_path / "bridge"
+    sched = _mk_sched(tmp_path)
+    _write(base / "handoffs" / "42-handoff.md", age_minutes=60)
+    _write(base / "results" / "42-result.md", age_minutes=3)
+
+    calls = []
+    for _ in range(3):
+        calls += _run_advance(sched, _job(), base, monkeypatch,
+                              active_sessions=["imple01"])
+    assert calls == []
+
+
+def test_no_fast_nudge_below_min_age(tmp_path, monkeypatch):
+    """The model gets fast_nudge_minutes to run its own signal first."""
+    base = tmp_path / "bridge"
+    sched = _mk_sched(tmp_path)
+    _write(base / "handoffs" / "42-handoff.md", age_minutes=60)
+    _write(base / "results" / "42-result.md", age_minutes=1)  # < fast (2)
+
+    calls = []
+    for _ in range(3):
+        calls += _run_advance(sched, _job(), base, monkeypatch)
+    assert calls == []
+
+
+def test_writer_activity_resets_idle_confirmations(tmp_path, monkeypatch):
+    """Idle -> active -> idle must restart the confirmation count."""
+    base = tmp_path / "bridge"
+    sched = _mk_sched(tmp_path)
+    _write(base / "handoffs" / "42-handoff.md", age_minutes=60)
+    _write(base / "results" / "42-result.md", age_minutes=3)
+
+    assert _run_advance(sched, _job(), base, monkeypatch) == []
+    assert _run_advance(sched, _job(), base, monkeypatch,
+                        active_sessions=["imple01"]) == []
+    assert _run_advance(sched, _job(), base, monkeypatch) == [], \
+        "after a reset the first idle tick must only count again"
+    assert len(_run_advance(sched, _job(), base, monkeypatch)) == 1
+
+
+# ---------------------------------------------------------------------------
+# signal_complete idempotency guard
+# ---------------------------------------------------------------------------
+
+def test_transition_recently_delivered(tmp_path):
+    base = tmp_path / "bridge"
+    _trace_line(base, "review01", "review02", "42", "signal_complete",
+                age_minutes=3)
+
+    assert transition_recently_delivered(
+        str(base), "review01", "review02", "42", within_minutes=10) is True
+    assert transition_recently_delivered(
+        str(base), "review01", "review02", "42", within_minutes=2) is False, \
+        "delivery older than the window must not count"
+    assert transition_recently_delivered(
+        str(base), "imple01", "review01", "42", within_minutes=10) is False
+    assert transition_recently_delivered(
+        str(base), "review01", "review02", "43", within_minutes=10) is False
+
+
+def test_failed_signals_do_not_count_as_delivery(tmp_path):
+    base = tmp_path / "bridge"
+    _trace_line(base, "review01", "review02", "42", "signal_complete_failed",
+                age_minutes=1)
+    assert transition_recently_delivered(
+        str(base), "review01", "review02", "42", within_minutes=10) is False
 
 
 # ---------------------------------------------------------------------------
