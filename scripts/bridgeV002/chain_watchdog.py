@@ -143,8 +143,11 @@ def latest_run_id():
 
 
 def pane_active(session):
+    # capture-pane needs a window spec on grouped sessions — bare
+    # `=session` fails silently (see dispatch._pane_target).
+    target = "=" + session if ":" in session else "=" + session + ":0"
     result = subprocess.run(
-        ["tmux", "capture-pane", "-t", "=" + session, "-p"],
+        ["tmux", "capture-pane", "-t", target, "-p"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:

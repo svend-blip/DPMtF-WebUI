@@ -337,6 +337,42 @@ def get_next_id_for_flow(flow_key, db_path=None):
         conn.close()
 
 
+def bump_id_counter_past(flow_key, used_id, db_path=None):
+    """Ensure the flow's ID counter is above an explicitly used handoff ID.
+
+    Dispatches may run with an explicit --id that was never allocated via
+    get_next_id_for_flow (UI-typed, re-runs, external tools). Without this,
+    the counter lags behind (observed: strict_review counter at 305 while
+    handoffs 305-313 already existed on disk) and future allocations collide
+    with existing deliverable files.
+    """
+    try:
+        used = int(str(used_id).lstrip("0") or "0")
+    except (ValueError, TypeError):
+        return
+
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id) VALUES (?, 1)",
+            (flow_key,)
+        )
+        cursor.execute(
+            "UPDATE bridge_id_counters SET next_id = ? "
+            "WHERE flow_key = ? AND next_id <= ?",
+            (used + 1, flow_key, used)
+        )
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Table doesn't exist yet — nothing to bump
+    finally:
+        conn.close()
+
+
 def ensure_subdir(bridge_dir, subdir):
     """Ensure a deliverable directory exists.
 
@@ -706,27 +742,34 @@ def resolve_content_template_from_db(rule_key, db_path=None):
 
 
 def auto_prepend_xml_sections(file_path, rule_key, handoff_id, source_role,
-                               flow_key, bridge_dir, db_path=None):
+                               flow_key, bridge_dir, db_path=None,
+                               input_path=None, output_path=None):
     """Auto-prepend missing XML sections to a deliverable file.
 
     If the deliverable file is missing required XML sections (as defined by
-    the convention rule's validation_schema), this function prepends them
-    using the content_template from the database, with all placeholders
-    resolved. The original content is preserved below the prepended header.
+    the convention rule's validation_schema), this function prepends a
+    MINIMAL header containing only the missing tags, with known values.
+    The original content is preserved below the prepended header.
 
-    This is a safety net: models are instructed via governance files to
-    include these sections, but some models occasionally skip them. Without
-    this fix, the chain breaks because dispatch.py rejects files that fail
-    validation.
+    The convention's content_template is deliberately NEVER copied into the
+    deliverable: it is prompt material and may contain dispatch instructions
+    (<chain_advancement>, <dispatch_command>) that the NEXT role reading the
+    file executes verbatim. Observed on handoffs 311-313: the copied block
+    resolved {next_role} to the source role and {flow_run_id} to an empty
+    string, so every downstream reviewer re-signaled as the wrong role and
+    flooded review01/review02 with duplicate prompts.
 
     Args:
         file_path: Absolute path to the deliverable .md file.
-        rule_key: The convention key whose schema/template to use.
+        rule_key: The convention key whose schema to use.
         handoff_id: The handoff ID (e.g. '272').
         source_role: The role that wrote the deliverable (e.g. 'imple01').
         flow_key: The flow key (e.g. 'strict_review').
         bridge_dir: The bridge directory path.
         db_path: Optional path to SQLite database.
+        input_path: Optional exact path the source role read its input from.
+        output_path: Optional exact path of this deliverable (defaults to
+            file_path).
 
     Returns:
         dict with keys:
@@ -742,7 +785,7 @@ def auto_prepend_xml_sections(file_path, rule_key, handoff_id, source_role,
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT validation_schema, content_template FROM bridge_convention_rules WHERE rule_key = ?",
+            "SELECT validation_schema FROM bridge_convention_rules WHERE rule_key = ?",
             (rule_key,)
         )
         row = cursor.fetchone()
@@ -753,7 +796,6 @@ def auto_prepend_xml_sections(file_path, rule_key, handoff_id, source_role,
 
         import json as _json
         required_tags = _json.loads(row[0])
-        content_template = row[1] if row[1] else ""
 
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -765,42 +807,28 @@ def auto_prepend_xml_sections(file_path, rule_key, handoff_id, source_role,
 
         result["missing"] = missing
 
-        if not content_template:
-            # No template available — build a minimal header from the
-            # required tags using known placeholder values.
-            header_parts = []
-            for tag in required_tags:
-                tag_name = tag.strip("<>")
-                if tag_name == "handoff_id":
-                    header_parts.append(f"<handoff_id>{handoff_id}</handoff_id>")
-                elif tag_name == "source_role":
-                    header_parts.append(f"<source_role>{source_role}</source_role>")
-                elif tag_name == "deliverable_input":
-                    header_parts.append(
-                        f"<deliverable_input>\n"
-                        f"  {bridge_dir}/{flow_key}/handoffs/{handoff_id}-handoff.md\n"
-                        f"</deliverable_input>"
-                    )
-                elif tag_name == "deliverable_output":
-                    header_parts.append(
-                        f"<deliverable_output>\n"
-                        f"  result: {bridge_dir}/{flow_key}/results/{handoff_id}-result.md\n"
-                        f"</deliverable_output>"
-                    )
-                else:
-                    header_parts.append(f"<{tag_name}>(auto-generated)</{tag_name}>")
-            header = "\n\n".join(header_parts) + "\n\n"
-        else:
-            # Resolve placeholders in the content template
-            header = content_template.replace("{handoff_id}", handoff_id)
-            header = header.replace("{source_role}", source_role)
-            header = header.replace("{next_role}", source_role)  # next_role not relevant here
-            header = header.replace("{bridge_dir}", bridge_dir)
-            header = header.replace("{flow_key}", flow_key)
-            # Remove any unresolved {placeholder} patterns that we can't fill
-            import re as _re
-            header = _re.sub(r"\{[^}]+\}", "", header)
-            header = header.strip() + "\n\n"
+        header_parts = []
+        for tag in missing:
+            tag_name = tag.strip("<>")
+            if tag_name == "handoff_id":
+                header_parts.append(f"<handoff_id>{handoff_id}</handoff_id>")
+            elif tag_name == "source_role":
+                header_parts.append(f"<source_role>{source_role}</source_role>")
+            elif tag_name == "deliverable_input":
+                value = input_path or "(not recorded — header auto-added)"
+                header_parts.append(
+                    f"<deliverable_input>\n  {value}\n</deliverable_input>"
+                )
+            elif tag_name == "deliverable_output":
+                value = output_path or file_path
+                header_parts.append(
+                    f"<deliverable_output>\n  result: {value}\n</deliverable_output>"
+                )
+            else:
+                header_parts.append(
+                    f"<{tag_name}>(auto-added: model omitted this section)</{tag_name}>"
+                )
+        header = "\n\n".join(header_parts) + "\n\n"
 
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(header + content)

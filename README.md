@@ -39,6 +39,10 @@ code.
 **Auto-chain** — the strict_review flow now auto-advances via chain_advancement
 blocks in content templates, with _advance_chain as fallback. Only the initial
 signal_send is needed from the Human.
+- **Advance chain guards:** the fallback only nudges a step whose
+  deliverable exists but was never signaled — it checks trace.log recency,
+  target pane activity, and deliverable age, and stops after
+  `max_nudges_per_step` attempts (machine profile `[watchdog]` section).
 - **Roles** — per-role definitions in `bridge_roles` with tmux sessions,
   model aliases, governance files, and enter commands. 25 active roles across
   all flows.

@@ -28,6 +28,7 @@ from bridge_lib import (
     validate_deliverable_against_schema,
     auto_prepend_xml_sections,
     get_next_id_for_flow,
+    bump_id_counter_past,
     ensure_subdir,
     resolve_placeholders,
     list_scripts_from_db,
@@ -257,28 +258,6 @@ def _model_allocator_path():
         "scripts",
         "model-allocator",
     )
-
-
-def _set_advance_cooldown(flow_key, from_role, handoff_id):
-    """Write cooldown timestamp so _advance_chain doesn't re-inject.
-
-    Mirrors Scheduler._set_cooldown in scheduler.py. Called from
-    signal_complete after prompt injection so the fallback path
-    (_advance_chain) skips this (flow, from_role, id) for 10 min.
-    """
-    import json
-    cooldown_file = "/tmp/bridge_advance_cooldown.json"
-    try:
-        try:
-            with open(cooldown_file, "r") as f:
-                state = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            state = {}
-        state.setdefault(flow_key, {}).setdefault(from_role, {})[handoff_id] = time.time()
-        with open(cooldown_file, "w") as f:
-            json.dump(state, f)
-    except OSError:
-        pass
 
 
 def _run_allocator_start(model_alias, timeout=180):
@@ -575,9 +554,22 @@ _ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
 _PASTE_STUCK_MARKER = "paste again to expand"
 
 
+def _pane_target(session_name):
+    """Exact-match pane target for capture-pane/send-keys.
+
+    tmux resolves `=session` for has-session but NOT reliably for
+    pane-level commands on grouped sessions — capture-pane needs the
+    window spec (`=session:0`). Without it, capture failed silently and
+    verify_injection_submitted always saw "no activity".
+    """
+    if ":" in session_name:
+        return "=" + session_name
+    return "=" + session_name + ":0"
+
+
 def _pane_tail(session_name, lines=25):
     result = subprocess.run(
-        ["tmux", "capture-pane", "-t", "=" + session_name, "-p"],
+        ["tmux", "capture-pane", "-t", _pane_target(session_name), "-p"],
         capture_output=True, text=True,
     )
     if result.returncode != 0:
@@ -601,7 +593,8 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
         if _PASTE_STUCK_MARKER in tail:
             print(f"  Injection verify: stuck paste in '{session_name}' "
                   f"(attempt {attempt}) — resending Enter")
-            subprocess.run(["tmux", "send-keys", "-t", "=" + session_name,
+            subprocess.run(["tmux", "send-keys", "-t",
+                            _pane_target(session_name),
                             "Enter"], capture_output=True)
             continue
         if any(marker in tail for marker in _ACTIVITY_MARKERS):
@@ -612,7 +605,8 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
         # unsubmitted without the hint (observed flow 064 portfolio01).
         print(f"  Injection verify: no activity in '{session_name}' "
               f"(attempt {attempt}) — sending Enter")
-        subprocess.run(["tmux", "send-keys", "-t", "=" + session_name,
+        subprocess.run(["tmux", "send-keys", "-t",
+                        _pane_target(session_name),
                         "Enter"], capture_output=True)
     tail = _pane_tail(session_name)
     submitted = any(m in tail for m in _ACTIVITY_MARKERS)
@@ -1354,7 +1348,21 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
     # Step 7: Auto-prepend missing XML sections, then validate + build callback
     step_validation_required = current_step.get("validation_required", 0)
     if step_validation_required and rule_key:
-        # Safety net: auto-prepend missing XML sections before validation
+        # Safety net: auto-prepend missing XML sections before validation.
+        # Pass the exact step-derived paths so the header is truthful —
+        # the previous step's deliverable is what from_role read as input.
+        prev_input_path = None
+        step_idx = steps.index(current_step)
+        if step_idx > 0:
+            prev_step = steps[step_idx - 1]
+            prev_dir = prev_step.get("deliverable_dir", "")
+            prev_pattern = prev_step.get("deliverable_pattern", "{ID}-result.md")
+            prev_file = prev_pattern.replace("{ID}", handoff_id).replace(
+                "{role_key}", prev_step.get("from_role", ""))
+            if os.path.isabs(prev_dir):
+                prev_input_path = os.path.join(prev_dir, prev_file)
+            else:
+                prev_input_path = os.path.join(bridge_dir, prev_dir, prev_file)
         prepend_result = auto_prepend_xml_sections(
             full_deliverable_path, rule_key,
             handoff_id=handoff_id,
@@ -1362,6 +1370,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
             flow_key=flow_key,
             bridge_dir=bridge_dir,
             db_path=_db_path(),
+            input_path=prev_input_path,
+            output_path=full_deliverable_path,
         )
         if prepend_result["prepended"]:
             print(f"  WARNING: Auto-prepended missing XML sections: {', '.join(prepend_result['missing'])}")
@@ -1413,6 +1423,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         prompt_text = prompt_text.replace("{output_file}", output_file_sc)
         prompt_text = prompt_text.replace("{model_name}", target_model_name_sc)
         prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
+        prompt_text = prompt_text.replace("{project_root}", str(PROJECT_ROOT))
         prompt_text += f"\n\n## Current Deliverable\nRead your input from: {full_deliverable_path}"
     else:
         prompt_text = (
@@ -1446,6 +1457,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
         prompt_text += (
             f"\n\n## Your Deliverable\n"
             f"Write your result to: {next_output_path}\n"
+            f"Write ONLY to that exact path — do not create extra copies or "
+            f"invented filenames in the project working directory.\n"
             f"The result file MUST start with these XML sections:\n"
             f"  <handoff_id>{handoff_id}</handoff_id>\n"
             f"  <source_role>{payload['to_role']}</source_role>\n"
@@ -1556,14 +1569,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id, bridge_dir=No
                   enter_command=to_role.get("enter_command", "default"))
     time.sleep(0.5)
 
-    # Step 8a: Set _advance_chain cooldown so the fallback doesn't
-    # re-inject the same prompt while the target role is working.
-    # Without this, the model's own signal_complete + _advance_chain
-    # fire in quick succession → target role gets duplicate prompt
-    # (observed: handoff 312, review02 got verdict prompt twice).
-    _set_advance_cooldown(flow_key, payload["from_role"], handoff_id)
-
-    # Step 8b: Log the completion event IMMEDIATELY after injection.
+    # Step 8a: Log the completion event IMMEDIATELY after injection.
     # The roles' chain_advancement command wraps dispatch.py in
     # `timeout 60`; when post-dispatch (ollama stop) hangs, the process
     # is killed before a trailing trace write — leaving delivered
@@ -2082,6 +2088,10 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     payload = build_step_payload(target_step, flow_key, handoff_id, bridge_dir)
     rule_key = target_step.get("rule_key")
 
+    # Keep the flow's ID counter ahead of explicitly supplied IDs so future
+    # get_next_id_for_flow allocations never collide with existing files.
+    bump_id_counter_past(flow_key, handoff_id, db_path=_db_path())
+
     print(f"\nSignal Send: {from_role_key} -> {to_role_key}")
     print(f"  Flow: {flow_key}, Step: {payload['step_key']}")
     print(f"  Deliverable: {payload['deliverable_file']}")
@@ -2193,15 +2203,22 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
         from models import JobRepository
         repo = JobRepository()
-        # Extract a short goal from the handoff content (first non-empty line after XML header)
+        # Extract a short goal from the handoff's <task> block. The previous
+        # "first non-XML line" heuristic grabbed continuation lines of
+        # multi-line tags (e.g. "Read 402_...md before proceeding.</role>")
+        # and polluted the job records.
         goal_text = f"Handoff {handoff_id}: {from_role_key} -> {to_role_key}"
         try:
             with open(handoff_path, "r", encoding="utf-8") as _f:
-                for _line in _f:
-                    _stripped = _line.strip()
-                    if _stripped and not _stripped.startswith("<"):
-                        goal_text = _stripped[:200]
-                        break
+                _content = _f.read()
+            _m = re.search(r"<task>\s*(.*?)</task>", _content, re.S)
+            _block = _m.group(1) if _m else _content
+            for _line in _block.splitlines():
+                _stripped = _line.strip()
+                if (_stripped and not _stripped.startswith("<")
+                        and "</" not in _stripped):
+                    goal_text = _stripped[:200]
+                    break
         except Exception:
             pass
         job_id = repo.create_job(
@@ -2267,6 +2284,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text = prompt_text.replace("{model_name}", target_model_name)
         prompt_text = prompt_text.replace("{output_type}", target_output_type)
         prompt_text = prompt_text.replace("{previous_deliverable_path}", handoff_abs)
+        prompt_text = prompt_text.replace("{project_root}", str(PROJECT_ROOT))
         # Append explicit dispatch instruction with absolute path
         prompt_text += (
             f"\n\n## Dispatch Instruction\n"

@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -35,6 +36,20 @@ class Scheduler:
         self.dispatch_script = str(
             PROJECT_ROOT / "scripts" / "bridgeV002" / "dispatch.py"
         )
+        # Chain-nudge configuration — shared with chain_watchdog.py via the
+        # machine profile [watchdog] section (configurable, not hardcoded).
+        wd = self._watchdog_profile()
+        self.stall_minutes = int(wd.get("stall_minutes", 12))
+        self.max_nudges = int(wd.get("max_nudges_per_step", 2))
+        self.nudge_state_path = PROJECT_ROOT / "logs" / "job-queue-nudge-state.json"
+
+    @staticmethod
+    def _watchdog_profile() -> dict:
+        try:
+            path = PROJECT_ROOT / "profiles" / "machine.local.json"
+            return json.loads(path.read_text()).get("watchdog", {})
+        except (OSError, json.JSONDecodeError):
+            return {}
 
     def tick(self) -> dict:
         """One scheduler pass. Returns summary of what happened."""
@@ -258,6 +273,8 @@ class Scheduler:
         lines.append("When ALL steps are complete, execute the bridge signal:")
         lines.append(f"1. Write your deliverable to {deliverable_path}")
         lines.append(f"   (overwrite this handoff file with your result, keeping the XML header)")
+        lines.append(f"   Write ONLY to that exact path — no extra copies or invented")
+        lines.append(f"   filenames in the project working directory.")
         lines.append(f"2. SIGNAL completion (MANDATORY — execute without asking):")
         lines.append(f"   {signal_cmd}")
         lines.append("")
@@ -415,209 +432,191 @@ class Scheduler:
 
         return os.path.exists(final_path)
 
-    # Cooldown period in seconds before _advance_chain will re-dispatch the
-    # same (flow, from_role, handoff_id). Prevents flooding the target role
-    # with duplicate prompts while it's still working. The primary mechanism
-    # is the model running signal_complete itself; this fallback should only
-    # kick in if the model genuinely forgot (not if it's just slow).
-    ADVANCE_COOLDOWN_SECONDS = 600  # 10 minutes
-    ADVANCE_COOLDOWN_FILE = "/tmp/bridge_advance_cooldown.json"
+    # ------------------------------------------------------------------
+    # Chain-nudge fallback (state-aware, chain_watchdog semantics)
+    #
+    # The PRIMARY chain mechanism is the role itself running signal-complete
+    # after writing its deliverable (prompt-driven). This fallback exists for
+    # exactly one failure mode: a role wrote its deliverable but never
+    # signaled. It must never re-inject a role that is still working — the
+    # previous wall-clock-cooldown design did exactly that and flooded
+    # review01/review02 with duplicate prompts (19 in 22 min for handoff 311).
+    # ------------------------------------------------------------------
 
-    @classmethod
-    def _read_cooldown_state(cls) -> dict:
+    # Trace events that prove the transition prompt was already delivered.
+    _DELIVERY_EVENTS = ("dispatched", "signal_complete")
+    # Pane markers showing the client is actively generating (same set as
+    # dispatch.py/chain_watchdog.py).
+    _PANE_ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
+
+    @staticmethod
+    def _step_deliverable_path(step: dict, hid: str, bridge_dir: str) -> str:
+        d = step.get("deliverable_dir", "")
+        pattern = step.get("deliverable_pattern", "{ID}-result.md")
+        fname = pattern.replace("{ID}", hid).replace(
+            "{role_key}", step.get("from_role", ""))
+        if os.path.isabs(d):
+            return os.path.join(d, fname)
+        return os.path.join(bridge_dir, d, fname)
+
+    def _pane_active(self, session: str) -> bool:
+        """True when the role's tmux pane shows live generation activity."""
+        # capture-pane needs a window spec on grouped sessions — bare
+        # `=session` fails silently (see dispatch._pane_target).
+        target = "=" + session if ":" in session else "=" + session + ":0"
         try:
-            with open(cls.ADVANCE_COOLDOWN_FILE, "r") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", target, "-p"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            return False
+        if result.returncode != 0:
+            return False
+        tail = "\n".join(result.stdout.splitlines()[-25:]).lower()
+        return any(m in tail for m in self._PANE_ACTIVITY_MARKERS)
+
+    def _recent_delivery(self, bridge_dir: str, from_role: str, to_role: str,
+                         hid: str, within_minutes: int) -> bool:
+        """True when trace.log shows the transition was delivered recently.
+
+        A recent 'dispatched'/'signal_complete' line means the target role
+        already has the prompt — it is loading or working, not forgotten.
+        """
+        trace = os.path.join(bridge_dir, "trace.log")
+        try:
+            with open(trace, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()[-400:]
+        except OSError:
+            return False
+        cutoff = time.time() - within_minutes * 60
+        for line in reversed(lines):
+            parts = line.split(" | ")
+            if len(parts) < 4:
+                continue
+            if parts[1] != f"{from_role}->{to_role}" or parts[2] != str(hid):
+                continue
+            if parts[3] not in self._DELIVERY_EVENTS:
+                continue
+            try:
+                ts = datetime.strptime(
+                    parts[0], "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                return True  # unparseable timestamp — assume recent, stay safe
+            return ts >= cutoff
+        return False
+
+    def _read_nudge_state(self) -> dict:
+        try:
+            return json.loads(Path(self.nudge_state_path).read_text())
+        except (OSError, json.JSONDecodeError):
             return {}
 
-    @classmethod
-    def _write_cooldown_state(cls, state: dict) -> None:
+    def _record_nudge(self, key: str) -> None:
+        state = self._read_nudge_state()
+        state[key] = state.get(key, 0) + 1
         try:
-            with open(cls.ADVANCE_COOLDOWN_FILE, "w") as f:
-                json.dump(state, f)
+            path = Path(self.nudge_state_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(state, indent=1))
         except OSError:
             pass
 
-    @classmethod
-    def _is_in_cooldown(cls, flow_key: str, from_role: str, handoff_id: str) -> bool:
-        """Return True if this (flow, from_role, id) was dispatched recently."""
-        state = cls._read_cooldown_state()
-        last_ts = state.get(flow_key, {}).get(from_role, {}).get(handoff_id)
-        if not last_ts:
-            return False
-        try:
-            elapsed = time.time() - float(last_ts)
-            return elapsed < cls.ADVANCE_COOLDOWN_SECONDS
-        except (ValueError, TypeError):
-            return False
-
-    @classmethod
-    def _set_cooldown(cls, flow_key: str, from_role: str, handoff_id: str) -> None:
-        """Record that a dispatch was sent for this combination."""
-        state = cls._read_cooldown_state()
-        state.setdefault(flow_key, {}).setdefault(from_role, {})[handoff_id] = time.time()
-        cls._write_cooldown_state(state)
-
     def _advance_chain(self, job: Job) -> bool:
-        """Fallback: advance chain if a model forgot to run signal-complete.
+        """Nudge the chain when a role wrote its deliverable but never signaled.
 
-        Scans the deliverable directory for result files with IDs >= the job's
-        handoff_id. For each result file, reads <source_role> to determine which
-        role wrote it. If a result exists for a role but the next role hasn't
-        produced a result yet, run signal_complete with that result's ID.
+        Walks the flow's steps for the job's OWN handoff id and finds the
+        frontier: the first step whose deliverable exists while the next
+        step's does not. A nudge (re-running signal_complete for that step)
+        only fires when ALL of these hold:
 
-        This is a FALLBACK only — the primary mechanism is signal_complete
-        called by the model itself after writing its result file.
+        1. no recent 'dispatched'/'signal_complete' trace line for the
+           transition (recent = within stall_minutes — the prompt was
+           delivered; the target is loading or working),
+        2. the target role's tmux pane shows no generation activity,
+        3. the deliverable is older than stall_minutes (the completing role
+           gets time to run signal-complete itself),
+        4. fewer than max_nudges nudges recorded for this step (persistent
+           across restarts — after that, a human must look).
 
-        Cooldown guard: each (flow, from_role, id) combination can only be
-        dispatched once every ADVANCE_COOLDOWN_SECONDS. This prevents the
-        fallback from spamming a role that is still working (observed: 144
-        duplicate injections for handoff 309, 10+ for handoff 311).
+        Never scans other handoff ids and never sniffs <source_role> from
+        file contents — both caused cross-job false positives before.
         """
         bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
-        hid = job.handoff_id or ""
+        hid = str(job.handoff_id or "")
         if not hid:
             return False
 
-        from bridge_lib import load_flow_from_db
+        from bridge_lib import load_flow_from_db, load_role_from_db
         try:
-            flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
-            steps = flow_data["steps"]
+            steps = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)["steps"]
         except Exception:
             return False
-
         if not steps or len(steps) < 2:
             return False
 
-        # Build a map of from_role → step index for quick lookup
-        role_to_step = {}
-        for i, step in enumerate(steps):
+        for i, step in enumerate(steps[:-1]):
+            out_path = self._step_deliverable_path(step, hid, bridge_dir)
+            if not os.path.exists(out_path):
+                # Chain is at or before this step — nothing to advance from.
+                return False
+            next_path = self._step_deliverable_path(steps[i + 1], hid, bridge_dir)
+            if os.path.exists(next_path):
+                continue  # step already advanced
+
             from_role = step.get("from_role", "")
-            if from_role:
-                role_to_step[from_role] = i
+            to_role = step.get("to_role", "")
 
-        # Scan result files in the deliverable dirs for IDs >= hid
-        import re
-        import glob
-        result_ids = {}  # {id_int: from_role}
-        for step in steps:
-            deliverable_dir = step.get("deliverable_dir", "")
-            deliverable_pattern = step.get("deliverable_pattern", "{ID}-result.md")
-            # Build glob pattern from deliverable_pattern
-            glob_pattern = deliverable_pattern.replace("{ID}", "*").replace("{role_key}", "*")
-            if os.path.isabs(deliverable_dir):
-                search_dir = deliverable_dir
-            else:
-                search_dir = os.path.join(bridge_dir, deliverable_dir)
-            for fpath in glob.glob(os.path.join(search_dir, glob_pattern)):
-                fname = os.path.basename(fpath)
-                # Extract ID from filename
-                m = re.match(r'(\d+)-', fname)
-                if not m:
-                    continue
-                file_id = int(m.group(1))
-                if file_id < int(hid):
-                    continue
-                # Read source_role from file (try XML tag first, then plain text)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        content = f.read(2000)
-                    m2 = re.search(r'<source_role>\s*([^<\s]+)', content)
-                    if not m2:
-                        m2 = re.search(r'Source Role:\s*(\S+)', content)
-                    if m2:
-                        result_ids[file_id] = m2.group(1).strip()
-                except Exception:
-                    pass
+            if self._recent_delivery(bridge_dir, from_role, to_role, hid,
+                                     self.stall_minutes):
+                return False  # prompt delivered — target is loading/working
 
-        if not result_ids:
-            return False
-
-        # For each result, check if the NEXT step in the chain has a result
-        for file_id, from_role in sorted(result_ids.items()):
-            step_idx = role_to_step.get(from_role)
-            if step_idx is None or step_idx + 1 >= len(steps):
-                continue
-
-            next_step = steps[step_idx + 1]
-            next_from_role = next_step.get("from_role", "")
-
-            # Check if next role already has a result with a higher ID
-            next_has_result = False
-            for fid, frole in result_ids.items():
-                if frole == next_from_role and fid > file_id:
-                    next_has_result = True
-                    break
-
-            if next_has_result:
-                continue  # Next step already has a result
-
-            # Cooldown guard: don't re-dispatch the same (flow, from_role, id)
-            # within the cooldown window. The target role may still be working.
-            if self._is_in_cooldown(job.flow_key, from_role, str(file_id)):
-                print(f"  Chain advancement SKIPPED: in cooldown for "
-                      f"{from_role} ID {file_id} "
-                      f"(next attempt in ~{self.ADVANCE_COOLDOWN_SECONDS // 60} min)")
-                continue
-
-            # Guard: skip if a dispatch for this exact (flow, from_role, id)
-            # is already running. Without this, every scheduler tick spawns a
-            # new signal_complete process that hangs in post-dispatch, and
-            # they accumulate until the system is flooded (144 attempts logged
-            # for handoff 309, 7 concurrent hung processes observed).
-            # Use pgrep -f with -- to prevent the pattern (which starts with
-            # --db-flow) from being parsed as an option. Without --, pgrep
-            # fails with "unrecognized option" and the except clause silently
-            # proceeds — defeating the guard entirely.
-            dispatch_pattern = f"dispatch.py.*--db-flow {job.flow_key}.*--signal-complete.*--from-role {from_role}.*--id {file_id}"
             try:
-                existing = subprocess.run(
-                    ["pgrep", "-f", "--", dispatch_pattern],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if existing.returncode == 0 and existing.stdout.strip():
-                    print(f"  Chain advancement SKIPPED: dispatch already running "
-                          f"for {from_role} ID {file_id} "
-                          f"(pids: {existing.stdout.strip().replace(chr(10), ', ')})")
-                    continue
-            except Exception as e:
-                print(f"  Chain advancement pgrep guard failed: {e} — proceeding")
+                session = load_role_from_db(
+                    to_role, db_path=self.repo.db_path).get("tmux_session", "")
+            except Exception:
+                session = ""
+            if session and self._pane_active(session):
+                return False  # target actively working — never re-inject
 
-            # This role's result exists but next role's doesn't — advance!
-            # Dispatch to the to_role of the CURRENT step (where from_role
-            # matches), not the next step. The next step's to_role is only
-            # used to check if the chain has already advanced.
-            current_step = steps[step_idx]
-            dispatch_to = current_step.get("to_role", "unknown")
-            print(f"  Chain advancement (fallback): {from_role} completed (ID {file_id}), "
-                  f"dispatching to {dispatch_to}")
+            age_min = (time.time() - os.path.getmtime(out_path)) / 60.0
+            if age_min < self.stall_minutes:
+                return False  # give the completing role time to signal itself
 
-            # Set cooldown BEFORE spawning — prevents re-dispatch even if
-            # the subprocess hangs (observed: post-dispatch ollama stop hangs).
-            self._set_cooldown(job.flow_key, from_role, str(file_id))
+            nudge_key = f"{job.flow_key}:{hid}:{step.get('step_key') or i}"
+            if self._read_nudge_state().get(nudge_key, 0) >= self.max_nudges:
+                print(f"  Chain nudge SKIPPED: {nudge_key} already nudged "
+                      f"{self.max_nudges}x — human attention needed")
+                return False
 
+            self._record_nudge(nudge_key)
+            print(f"  Chain nudge: {from_role} wrote "
+                  f"{os.path.basename(out_path)} but never signaled — "
+                  f"running signal-complete (-> {to_role})")
             try:
                 result = subprocess.run(
-                    [sys.executable, str(PROJECT_ROOT / "scripts" / "bridgeV002" / "dispatch.py"),
+                    [sys.executable, self.dispatch_script,
                      "--db-flow", job.flow_key,
                      "--signal-complete",
                      "--from-role", from_role,
-                     "--id", str(file_id)],
+                     "--id", hid],
                     capture_output=True, text=True,
                     cwd=str(PROJECT_ROOT),
                     timeout=120,
                 )
                 if result.returncode == 0:
-                    print(f"  Chain advanced: {from_role} -> {dispatch_to}")
+                    print(f"  Chain nudged: {from_role} -> {to_role}")
                     return True
-                else:
-                    print(f"  Chain advancement failed: {result.stderr[-200:] if result.stderr else result.stdout[-200:]}")
+                print(f"  Chain nudge failed: "
+                      f"{(result.stderr or result.stdout)[-200:]}")
             except subprocess.TimeoutExpired:
-                print(f"  Chain advancement timed out for {from_role}")
+                # Known post-dispatch hang — the signal usually landed; the
+                # trace line written at injection keeps the next tick quiet.
+                print(f"  Chain nudge timed out for {from_role} — "
+                      f"signal likely delivered")
             except Exception as e:
-                print(f"  Chain advancement error: {e}")
-
+                print(f"  Chain nudge error: {e}")
             return False
 
         return False
