@@ -47,17 +47,19 @@ def get_flow_roles(db_path, flow_key):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    # Fetch from_role entries
+    # Fetch from_role entries. Human roles never run a coding frontend.
     from_rows = conn.execute(
         """
         SELECT r.role_key, r.tmux_session,
                r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
+               r.allocator_client,
                s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+          AND r.role_type != 'human'
         """,
         (flow_key,),
     ).fetchall()
@@ -69,10 +71,12 @@ def get_flow_roles(db_path, flow_key):
                r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
+               r.allocator_client,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.to_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+          AND r.role_type != 'human'
         ORDER BY s.sort_order DESC
         LIMIT 1
         """,
@@ -96,6 +100,7 @@ def get_flow_roles(db_path, flow_key):
                 "default_model_alias": row["default_model_alias"],
                 "max_output_tokens": row["max_output_tokens"],
                 "config_dir": row["config_dir"],
+                "allocator_client": row["allocator_client"] or "opencode",
             })
 
     conn.close()
@@ -186,8 +191,8 @@ def main():
             errors.append(role["role_key"])
             continue
 
-        # Derive allocator client from model_source
-        allocator_client = "opencode"
+        # Allocator client per role from the database (bridge_roles.allocator_client)
+        allocator_client = role.get("allocator_client") or "opencode"
 
         # V1B pilot: use Model Allocator when role opts in.
         model_source, model_alias = get_effective_model_source(
