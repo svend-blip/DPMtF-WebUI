@@ -145,28 +145,41 @@ class LeaseRegistry:
 
     @classmethod
     def acquire(cls, job_id: str, alias: str, worker_id: str = "") -> Lease:
-        """Acquire a lease on a model alias. Starts the model if no leases exist."""
+        """Acquire a lease on a model alias. Starts the model if no leases exist.
+
+        The lease is persisted to SQLite — every dispatch runs as its own
+        process, so an in-memory-only lease was invisible to the release()
+        call in the NEXT dispatch process. That made had_lease always False
+        and from-role models were never stopped at handoff (models piled up
+        in VRAM until Ollama's idle timeout).
+        """
         lease = Lease(
             job_id=job_id,
             alias=alias,
             acquired_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             worker_id=worker_id,
         )
-        
-        was_empty = alias not in cls._leases or len(cls._leases[alias]) == 0
-        
+
+        was_empty = (len(cls._leases.get(alias, []))
+                     + len(cls._load_from_db(alias))) == 0
+
         cls._leases.setdefault(alias, []).append(lease)
-        
+        cls._save_lease_to_db(lease)
+
         if was_empty:
             # Start the model — first lease
             cls._start_model(alias)
-        
+
         return lease
 
     @classmethod
-    def release(cls, job_id: str, alias: str) -> bool:
+    def release(cls, job_id: str, alias: str, stop_model: bool = True) -> bool:
         """Release a lease. Stops the model if no leases remain.
-        
+
+        stop_model=False releases the bookkeeping without unloading — used
+        when the next role runs the SAME real model under a different alias
+        (stopping would unload the model the target just started using).
+
         Returns True if model was stopped, False if other leases remain.
         """
         # Check if any leases existed before removing
@@ -186,11 +199,11 @@ class LeaseRegistry:
         in_mem = cls._leases.get(alias, [])
         total = len(active) + len(in_mem)
         
-        if total == 0 and had_lease:
+        if total == 0 and had_lease and stop_model:
             # No more leases — stop the model
             cls._stop_model(alias)
             return True
-        
+
         return False
 
     @classmethod

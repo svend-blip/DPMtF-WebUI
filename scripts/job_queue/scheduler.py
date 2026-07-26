@@ -389,7 +389,8 @@ class Scheduler:
             f"as specified in the handoff."
         )
 
-        inject_prompt(tmux_session, inject_text, enter_command)
+        inject_prompt(tmux_session, inject_text, enter_command,
+                      fresh_session=True)
 
         return {
             "action": "inject_handoff",

@@ -319,6 +319,51 @@ def test_failed_signals_do_not_count_as_delivery(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# LeaseRegistry: persistence across process boundaries + stop_model param
+# ---------------------------------------------------------------------------
+
+def test_lease_survives_process_boundary(tmp_path):
+    """acquire() in one dispatch process must be visible to release() in the
+    next — an in-memory-only lease made had_lease always False, so from-role
+    models were never stopped at handoff (VRAM pile-up)."""
+    from job_queue.model_lease import LeaseRegistry
+    old_db = LeaseRegistry._db_path
+    try:
+        LeaseRegistry._db_path = str(tmp_path / "leases.db")
+        LeaseRegistry.reset()
+        with patch.object(LeaseRegistry, "_start_model"), \
+             patch.object(LeaseRegistry, "_stop_model") as stop:
+            LeaseRegistry.acquire("42", "alias-a")
+            LeaseRegistry.reset()  # simulate a NEW dispatch process
+            assert LeaseRegistry.release("42", "alias-a") is True
+            stop.assert_called_once_with("alias-a")
+    finally:
+        LeaseRegistry._db_path = old_db
+        LeaseRegistry.reset()
+
+
+def test_lease_release_without_stop(tmp_path):
+    """stop_model=False releases bookkeeping without unloading — for
+    transitions where both aliases resolve to the same real model."""
+    from job_queue.model_lease import LeaseRegistry
+    old_db = LeaseRegistry._db_path
+    try:
+        LeaseRegistry._db_path = str(tmp_path / "leases.db")
+        LeaseRegistry.reset()
+        with patch.object(LeaseRegistry, "_start_model"), \
+             patch.object(LeaseRegistry, "_stop_model") as stop:
+            LeaseRegistry.acquire("42", "alias-a")
+            LeaseRegistry.reset()
+            assert LeaseRegistry.release("42", "alias-a", stop_model=False) is False
+            stop.assert_not_called()
+            assert LeaseRegistry.lease_count("alias-a") == 0, \
+                "the lease row itself must be gone"
+    finally:
+        LeaseRegistry._db_path = old_db
+        LeaseRegistry.reset()
+
+
+# ---------------------------------------------------------------------------
 # auto_prepend_xml_sections
 # ---------------------------------------------------------------------------
 

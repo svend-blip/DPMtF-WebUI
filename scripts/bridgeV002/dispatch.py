@@ -316,6 +316,80 @@ def _run_allocator_stop(model_alias, timeout=45):
         return False
 
 
+_REAL_MODEL_CACHE = {}
+
+
+def _resolve_real_model(alias):
+    """Resolve an alias to its concrete model via the allocator (cached).
+
+    Two aliases can point at the same real model (review01-local and
+    review02-local both run qwen3.6:35b-a3b-64k) — VRAM decisions must
+    compare real models, never aliases. Returns "" when unresolvable.
+    """
+    if alias in _REAL_MODEL_CACHE:
+        return _REAL_MODEL_CACHE[alias]
+    for client in ("opencode", "claude-code"):
+        try:
+            result = subprocess.run(
+                [_model_allocator_path(), "validate",
+                 "--alias", alias, "--client", client, "--json"],
+                capture_output=True, text=True, timeout=20,
+            )
+            if result.returncode in (0, 2) and result.stdout.strip():
+                real = json.loads(result.stdout).get("resolved_real_model") or ""
+                if real:
+                    _REAL_MODEL_CACHE[alias] = real
+                    return real
+        except Exception:
+            continue
+    _REAL_MODEL_CACHE[alias] = ""
+    return ""
+
+
+def _release_from_model_first(handoff_id, from_alias, to_alias):
+    """Free the completing role's VRAM BEFORE the next model is warmed.
+
+    Warming the target model while the predecessor is still resident put
+    both in VRAM at once — observed live: qwen3-coder:30b loaded 6%/94%
+    CPU/GPU because the 35b was never unloaded. When both aliases resolve
+    to the SAME real model, the lease is released without stopping (the
+    target keeps using the loaded weights — no swap needed at all).
+
+    Returns True when the from-model was handled (release/stop done here).
+    """
+    if not from_alias or from_alias == to_alias:
+        return False
+    from_real = _resolve_real_model(from_alias)
+    to_real = _resolve_real_model(to_alias) if to_alias else ""
+    same_real = bool(from_real) and from_real == to_real
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+        from model_lease import LeaseRegistry
+        if same_real:
+            LeaseRegistry.release(handoff_id, from_alias, stop_model=False)
+            print(f"  Lease on '{from_alias}' released without stop — "
+                  f"same real model as '{to_alias}' ({to_real})")
+        else:
+            stopped = LeaseRegistry.release(handoff_id, from_alias)
+            if stopped:
+                print(f"  VRAM-first swap: stopped '{from_alias}' before "
+                      f"warming '{to_alias}'")
+            else:
+                remaining = LeaseRegistry.lease_count(from_alias)
+                if remaining == 0:
+                    # No lease was ever registered under this handoff id
+                    # (historic key mismatches) — the model is unclaimed,
+                    # free the VRAM anyway.
+                    _run_allocator_stop(from_alias)
+                else:
+                    print(f"  Model '{from_alias}' still leased "
+                          f"({remaining} active) — not stopping")
+    except Exception:
+        if not same_real:
+            _run_allocator_stop(from_alias)
+    return True
+
+
 def wait_session_ready(session_name, timeout=5):
     """Poll until tmux session is actually running. Returns True if ready."""
     for _ in range(timeout * 10):
@@ -504,11 +578,19 @@ def _strip_xml_tags(text):
     return text.strip()
 
 
-def inject_prompt(session_name, text, enter_command="default"):
+def inject_prompt(session_name, text, enter_command="default",
+                  fresh_session=False):
     """Detect tool type and route to correct injection method.
 
     For OpenCode sessions, prepends soft-clear preamble before actual prompt.
     For Claude Code sessions, uses send-keys directly.
+
+    fresh_session=True starts a NEW OpenCode session (/new) before the
+    prompt. `ollama stop` only clears the server-side KV cache — the
+    OpenCode client resends its whole transcript with the next prompt, so
+    without /new every new task drags the previous tasks' context back into
+    the context window (and KV VRAM). Use for new-task dispatches; never
+    for escalation answers (the role must keep its context there).
 
     enter_command controls how the submit key is sent:
       - 'default': Enter (standard for Claude Code / OpenCode)
@@ -521,6 +603,15 @@ def inject_prompt(session_name, text, enter_command="default"):
     print(f"  Injection: {len(text)} chars (~{len(text) // 4} est. tokens) "
           f"-> '{session_name}' ({tool})")
     if tool == "opencode":
+        if fresh_session:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", _pane_target(session_name),
+                 "/new", "Enter"],
+                capture_output=True,
+            )
+            time.sleep(2)
+            print(f"  Fresh session: /new sent to '{session_name}' "
+                  f"(context reset before task)")
         # Strip XML tags to prevent model from hallucinating XML function calls
         clean_text = _strip_xml_tags(text)
         soft_clear = (
@@ -1129,7 +1220,8 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
 
     inject_prompt(tmux_session, prompt_text,
-                  enter_command=to_role.get("enter_command", "default"))
+                  enter_command=to_role.get("enter_command", "default"),
+                  fresh_session=True)
     time.sleep(0.5)
 
     # Post-dispatch: offload predecessor's model to free VRAM
@@ -1582,13 +1674,33 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         prompt_text, payload["flow_key"], payload["to_role"],
         full_deliverable_path, mode=to_role.get("trade_mcp_push_mode"))
 
-    # Warm the target role's model via allocator before injection
+    # Resolve both roles' models. VRAM-first order: release/stop the
+    # completing role's model BEFORE warming the next one so only one model
+    # loads at a time (max free VRAM when a role starts its task).
     to_source_sc, to_alias_sc = get_effective_model_source(
         payload["to_role"],
         step_key=current_step.get("step_key") if 'current_step' in dir() else None,
         flow_key=flow_key,
         db_path=_db_path(),
     )
+    from_source_sc, from_alias_sc = "", ""
+    try:
+        from_source_sc, from_alias_sc = get_effective_model_source(
+            payload["from_role"],
+            step_key=current_step.get("step_key"),
+            flow_key=flow_key,
+            db_path=_db_path(),
+        )
+    except Exception:
+        pass  # from_role without a model (e.g. human) — nothing to free
+
+    from_model_handled = False
+    if from_source_sc == "model_allocator" and from_alias_sc:
+        from_model_handled = _release_from_model_first(
+            handoff_id, from_alias_sc,
+            to_alias_sc if to_source_sc == "model_allocator" else "")
+
+    # Warm the target role's model via allocator before injection
     if to_source_sc == "model_allocator" and to_alias_sc:
         _run_allocator_start(to_alias_sc)
 
@@ -1657,9 +1769,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             print(f"  Python runtime error: {e}")
             return False
 
-    # Step 8: Inject callback prompt into to_role's tmux session
+    # Step 8: Inject callback prompt into to_role's tmux session.
+    # fresh_session: a chain callback is a NEW task for the target role.
     inject_prompt(tmux_session, prompt_text,
-                  enter_command=to_role.get("enter_command", "default"))
+                  enter_command=to_role.get("enter_command", "default"),
+                  fresh_session=True)
     time.sleep(0.5)
 
     # Step 8a: Log the completion event IMMEDIATELY after injection.
@@ -1675,30 +1789,18 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         f"Callback dispatched to {tmux_session} (DB-driven)",
     )
 
-    # Step 9: Post-dispatch - release lease + stop from_role's model (VRAM cleanup)
-    try:
-        from_role_data = load_role_from_db(payload["from_role"],
-                                           db_path=_db_path())
-        from_source, from_alias = get_effective_model_source(
-            from_role_data["role_key"],
-            step_key=current_step.get("step_key"),
-            flow_key=flow_key,
-            db_path=_db_path(),
-        )
-        if from_source == "model_allocator" and from_alias:
-            # Release lease first — model only stops if no other job holds it
-            try:
-                sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
-                from model_lease import LeaseRegistry
-                stopped = LeaseRegistry.release(handoff_id, from_alias)
-                if not stopped:
-                    print(f"  Model '{from_alias}' still leased by other jobs — not stopping")
-                else:
-                    print(f"  Stopped allocator model '{from_alias}' (last lease released)")
-            except ImportError:
-                _run_allocator_stop(from_alias)
-    except ValueError:
-        pass  # from_role not in DB - not an ollama role, skip
+    # Step 9: Post-dispatch VRAM cleanup. The from-role's model was already
+    # released BEFORE warm-up (VRAM-first swap) — this fallback only covers
+    # the same-alias case, where releasing before the target's acquire would
+    # have stopped the model the target needs.
+    from_source, from_alias = from_source_sc, from_alias_sc
+    if (not from_model_handled and from_source == "model_allocator"
+            and from_alias and from_alias == to_alias_sc):
+        # Same alias for both roles: the model must stay loaded for the
+        # target. The target's acquire refreshed the lease row (same
+        # job_id+alias), so there is nothing to release without pulling the
+        # lease out from under the target — intentionally left loaded.
+        print(f"  Model '{from_alias}' kept loaded — target role uses the same alias")
 
     # Step 9b: Write structured checkpoint for this completed step
     try:
@@ -2329,13 +2431,29 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     except Exception as e:
         print(f"  WARNING: Job record creation skipped: {e}")
 
+    # Step 4a2: VRAM-first — free the sender's model before warming the
+    # target's (e.g. archi01's model is still loaded when imple01 starts).
+    if from_role_type != "human":
+        try:
+            from_source_ss, from_alias_ss = get_effective_model_source(
+                from_role_key, flow_key=flow_key, db_path=_db_path(),
+            )
+            if from_source_ss == "model_allocator" and from_alias_ss:
+                _release_from_model_first(
+                    handoff_id, from_alias_ss,
+                    to_alias if to_source == "model_allocator" else "")
+        except Exception:
+            pass  # sender without a resolvable model — nothing to free
+
     # Step 4b: Acquire model lease for target role (reference-counted, VRAM-safe)
+    # Lease identity is the HANDOFF id — signal_complete releases with the
+    # handoff id, so acquiring under the job record id would orphan the lease.
     if to_source == "model_allocator" and to_alias:
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
             from model_lease import LeaseRegistry
-            LeaseRegistry.acquire(job_id, to_alias, worker_id=from_role_key)
-            print(f"  Lease acquired for '{to_alias}' (job {job_id})")
+            LeaseRegistry.acquire(handoff_id, to_alias, worker_id=from_role_key)
+            print(f"  Lease acquired for '{to_alias}' (handoff {handoff_id})")
         except Exception:
             _run_allocator_stop(to_alias)
             _run_allocator_start(to_alias)
@@ -2434,9 +2552,11 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
 
     # Model already warmed by LeaseRegistry.acquire() in Step 4 — skip redundant start
 
-    # Step 8: Inject prompt into target role's tmux session
+    # Step 8: Inject prompt into target role's tmux session.
+    # fresh_session: an initial handoff is a NEW task for the target role.
     inject_prompt(tmux_session, prompt_text,
-                  enter_command=to_role_data.get("enter_command", "default"))
+                  enter_command=to_role_data.get("enter_command", "default"),
+                  fresh_session=True)
     time.sleep(0.5)
 
     print(f"  Handoff dispatch prompt injected into '{tmux_session}'")

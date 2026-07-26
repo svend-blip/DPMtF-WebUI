@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -11,8 +13,18 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "job_queue"))
 from model_lease import LeaseRegistry, Lease
 
 
-def setup_function():
-    """Reset lease registry before each test."""
+@pytest.fixture(autouse=True)
+def _isolated_registry(tmp_path):
+    """Point lease persistence at a per-test database.
+
+    acquire() persists leases to SQLite (cross-process refcounting) — the
+    tests must never touch the real dpmtf.db.
+    """
+    old_db = LeaseRegistry._db_path
+    LeaseRegistry._db_path = str(tmp_path / "leases.db")
+    LeaseRegistry.reset()
+    yield
+    LeaseRegistry._db_path = old_db
     LeaseRegistry.reset()
 
 
