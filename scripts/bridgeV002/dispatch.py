@@ -1355,20 +1355,40 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # grace window, any further signal is a duplicate (the model's own late
     # signal racing the scheduler nudge, or a re-run command). This guard is
     # what makes fast nudging safe. --force bypasses for manual re-dispatch.
-    if not force and transition_recently_delivered(
-            bridge_dir, payload["from_role"], payload["to_role"],
-            handoff_id, _delivery_grace_minutes()):
-        print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "
-              f"#{handoff_id} already delivered within the last "
-              f"{_delivery_grace_minutes()} min — duplicate suppressed "
-              f"(use --force to override)")
-        log(
-            f"{payload['from_role']}->{payload['to_role']}",
-            handoff_id,
-            "signal_complete_skipped",
-            "Duplicate delivery suppressed by idempotency guard",
-        )
-        return True
+    #
+    # The flock closes the seconds-level race the trace check cannot: two
+    # signal processes starting within the same injection window would both
+    # pass the trace check before either has logged. The lock is held until
+    # process exit; a concurrent holder means an identical signal is already
+    # in flight — treat as duplicate.
+    if not force:
+        import fcntl
+        lock_name = f"bridge-tx-{flow_key}-{payload['from_role']}-{handoff_id}.lock"
+        lock_path = os.path.join(tempfile.gettempdir(), lock_name)
+        try:
+            _tx_lock = open(lock_path, "w")
+            fcntl.flock(_tx_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"  SKIP: identical signal for "
+                  f"{payload['from_role']}->{payload['to_role']} "
+                  f"#{handoff_id} already in flight — duplicate suppressed")
+            return True
+        except OSError:
+            pass  # lock unavailable (fs issue) — trace guard still applies
+        if transition_recently_delivered(
+                bridge_dir, payload["from_role"], payload["to_role"],
+                handoff_id, _delivery_grace_minutes()):
+            print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "
+                  f"#{handoff_id} already delivered within the last "
+                  f"{_delivery_grace_minutes()} min — duplicate suppressed "
+                  f"(use --force to override)")
+            log(
+                f"{payload['from_role']}->{payload['to_role']}",
+                handoff_id,
+                "signal_complete_skipped",
+                "Duplicate delivery suppressed by idempotency guard",
+            )
+            return True
 
     # Step 6: Verify deliverable file exists (written by completing role)
     full_deliverable_path = os.path.join(bridge_dir,
