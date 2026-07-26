@@ -390,7 +390,7 @@ class Scheduler:
         )
 
         inject_prompt(tmux_session, inject_text, enter_command,
-                      fresh_session=True)
+                      fresh_session_command=to_role.get("fresh_session_command"))
 
         return {
             "action": "inject_handoff",

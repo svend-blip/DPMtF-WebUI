@@ -579,18 +579,21 @@ def _strip_xml_tags(text):
 
 
 def inject_prompt(session_name, text, enter_command="default",
-                  fresh_session=False):
+                  fresh_session_command=None):
     """Detect tool type and route to correct injection method.
 
     For OpenCode sessions, prepends soft-clear preamble before actual prompt.
     For Claude Code sessions, uses send-keys directly.
 
-    fresh_session=True starts a NEW OpenCode session (/new) before the
-    prompt. `ollama stop` only clears the server-side KV cache — the
-    OpenCode client resends its whole transcript with the next prompt, so
-    without /new every new task drags the previous tasks' context back into
-    the context window (and KV VRAM). Use for new-task dispatches; never
-    for escalation answers (the role must keep its context there).
+    fresh_session_command (from bridge_roles.fresh_session_command — e.g.
+    '/new' for OpenCode, '/clear' for Claude Code, NULL = opt out) is sent
+    into the pane before the prompt to start the task on an EMPTY context.
+    `ollama stop` only clears the server-side KV cache — the client resends
+    its whole transcript with the next prompt, dragging previous tasks'
+    context (and KV VRAM) into every new task. The command is per-role
+    configuration so this code stays tool-independent. Use for new-task
+    dispatches; never for escalation answers (the role must keep its
+    context there).
 
     enter_command controls how the submit key is sent:
       - 'default': Enter (standard for Claude Code / OpenCode)
@@ -602,16 +605,16 @@ def inject_prompt(session_name, text, enter_command="default",
     # Observability: prompt size per dispatch (context-tuning data point).
     print(f"  Injection: {len(text)} chars (~{len(text) // 4} est. tokens) "
           f"-> '{session_name}' ({tool})")
+    if fresh_session_command:
+        subprocess.run(
+            ["tmux", "send-keys", "-t", _pane_target(session_name),
+             fresh_session_command, "Enter"],
+            capture_output=True,
+        )
+        time.sleep(2)
+        print(f"  Fresh session: {fresh_session_command} sent to "
+              f"'{session_name}' (context reset before task)")
     if tool == "opencode":
-        if fresh_session:
-            subprocess.run(
-                ["tmux", "send-keys", "-t", _pane_target(session_name),
-                 "/new", "Enter"],
-                capture_output=True,
-            )
-            time.sleep(2)
-            print(f"  Fresh session: /new sent to '{session_name}' "
-                  f"(context reset before task)")
         # Strip XML tags to prevent model from hallucinating XML function calls
         clean_text = _strip_xml_tags(text)
         soft_clear = (
@@ -1222,7 +1225,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"),
-                  fresh_session=True)
+                  fresh_session_command=to_role.get("fresh_session_command"))
     time.sleep(0.5)
 
     # Post-dispatch: offload predecessor's model to free VRAM
@@ -1781,10 +1784,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             return False
 
     # Step 8: Inject callback prompt into to_role's tmux session.
-    # fresh_session: a chain callback is a NEW task for the target role.
+    # A chain callback is a NEW task for the target role — send its
+    # configured context-reset command first (tool-independent).
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"),
-                  fresh_session=True)
+                  fresh_session_command=to_role.get("fresh_session_command"))
     time.sleep(0.5)
 
     # Step 8a: Log the completion event IMMEDIATELY after injection.
@@ -2564,10 +2568,11 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Model already warmed by LeaseRegistry.acquire() in Step 4 — skip redundant start
 
     # Step 8: Inject prompt into target role's tmux session.
-    # fresh_session: an initial handoff is a NEW task for the target role.
+    # An initial handoff is a NEW task for the target role — send its
+    # configured context-reset command first (tool-independent).
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role_data.get("enter_command", "default"),
-                  fresh_session=True)
+                  fresh_session_command=to_role_data.get("fresh_session_command"))
     time.sleep(0.5)
 
     print(f"  Handoff dispatch prompt injected into '{tmux_session}'")
