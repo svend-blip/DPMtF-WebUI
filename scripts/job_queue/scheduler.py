@@ -23,6 +23,10 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "python-runtime"))
 import config
 from job_queue.models import JobRepository, Job, IllegalTransitionError
 
+# Import these at module level for better performance and mocking 
+from bridge_lib import load_flow_from_db, get_effective_model_source, get_next_id_for_flow, load_role_from_db
+from dispatch import build_step_payload
+
 
 class Scheduler:
     """Picks up APPROVED jobs and dispatches them through the DPMtF pipeline."""
@@ -56,6 +60,50 @@ class Scheduler:
             return json.loads(path.read_text()).get("watchdog", {})
         except (OSError, json.JSONDecodeError):
             return {}
+
+    def _resolve_verdict_outcome(self, job: Job) -> Optional[tuple[str, str]]:
+        """Resolve verdict status from deliverable and return (target_state, detail) or None.
+        
+        This method consolidates the verdict parsing logic that was previously
+        duplicated in tick() and _check_running_jobs() to ensure consistent behavior
+        and reduce code duplication.
+        """
+        try:
+            bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
+            
+            # Find out if the last deliverable is a verdict file pattern
+            flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
+            steps = flow_data["steps"]
+            last_step = steps[-1]
+            deliverable_dir = last_step.get("deliverable_dir", "")
+            deliverable_pattern = last_step.get("deliverable_pattern", "{ID}-result.md")
+            
+            hid = job.handoff_id or ""
+            if not hid:
+                # Empty handoff_id - log a warning as per finding #6
+                print(f"WARNING: Job {job.job_id} has empty handoff_id but is being processed for verdict. "
+                      f"This job will be treated as non-verdict.")
+                return None
+                
+            deliverable_file = deliverable_pattern.replace("{ID}", hid).replace("{role_key}", last_step.get("from_role", ""))
+            if os.path.isabs(deliverable_dir):
+                final_path = os.path.join(deliverable_dir, deliverable_file)
+            else:
+                final_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
+            
+            verdict_status = self._parse_verdict_file(final_path)
+            
+            # Transition based on verdict
+            if verdict_status and verdict_status.upper() in ('APPROVED', 'APPROVED WITH NOTES', 'APPROVED WITHOUT NOTES'):
+                return ("COMPLETED", "") 
+            elif verdict_status and verdict_status.upper() == 'REJECTED':
+                return ("CHANGES_REQUESTED", f"Verdict file: {final_path}")
+            else:
+                # Any other status or error → REVIEW_REQUIRED
+                return ("REVIEW_REQUIRED", f"Verdict file: {final_path}")
+        except Exception:
+            # If we can't resolve the verdict, return None to allow normal completion flow
+            return None
 
     def tick(self) -> dict:
         """One scheduler pass. Returns summary of what happened."""
@@ -126,12 +174,34 @@ class Scheduler:
             # 7. Check completion
             completed = self._check_completion(job)
             if completed:
-                self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
-                # 8. Write checkpoint
-                self._write_checkpoint(job)
-                # 9. Complete
-                self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
-                result["outcome"] = "completed"
+                # Determine if this is a verdict file and parse it accordingly
+                if self._is_verdict_deliverable(job):
+                    # Resolve verdict outcome from deliverable
+                    verdict_outcome = self._resolve_verdict_outcome(job)
+                    if verdict_outcome:
+                        target_state, detail = verdict_outcome
+                        self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                        # 8. Write checkpoint
+                        self._write_checkpoint(job)
+                        # 9. Complete or transition based on verdict
+                        self.repo.transition(job.job_id, target_state, actor=self.worker_id, detail=detail)
+                        result["outcome"] = target_state.lower().replace("_", "-")
+                    else:
+                        # Fallback for cases where we can't parse verdict (treated as no verdict)
+                        self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                        # 8. Write checkpoint
+                        self._write_checkpoint(job)
+                        # 9. Complete
+                        self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
+                        result["outcome"] = "completed"
+                else:
+                    # Regular non-verdict flow — proceed as before
+                    self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                    # 8. Write checkpoint
+                    self._write_checkpoint(job)
+                    # 9. Complete
+                    self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
+                    result["outcome"] = "completed"
             else:
                 result["outcome"] = "running"
 
@@ -165,9 +235,27 @@ class Scheduler:
             # Check if the final deliverable exists
             if self._check_completion(job):
                 try:
-                    self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
-                    self._write_checkpoint(job)
-                    self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
+                    # Determine if this is a verdict file and parse it accordingly
+                    is_verdict = self._is_verdict_deliverable(job)
+                    
+                    if is_verdict:
+                        # Resolve verdict outcome from deliverable using shared method
+                        verdict_outcome = self._resolve_verdict_outcome(job)
+                        if verdict_outcome:
+                            target_state, detail = verdict_outcome
+                            self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                            self._write_checkpoint(job)
+                            self.repo.transition(job.job_id, target_state, actor=self.worker_id, detail=detail)
+                        else:
+                            # Fallback for cases where we can't parse verdict (treated as no verdict)
+                            self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                            self._write_checkpoint(job)
+                            self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
+                    else:
+                        # Regular non-verdict flow — proceed as before
+                        self.repo.transition(job.job_id, "VERIFYING", actor=self.worker_id)
+                        self._write_checkpoint(job)
+                        self.repo.transition(job.job_id, "COMPLETED", actor=self.worker_id)
                     completed.append(job.job_id)
                     print(f"  Job {job.job_id} completed — full chain done, checkpoint written")
                 except IllegalTransitionError:
@@ -219,8 +307,6 @@ class Scheduler:
         the handoff file that dispatch.py --signal-send expects to exist.
         """
         bridge_dir = config.get_bridge_base_path()
-        from bridge_lib import load_flow_from_db, get_next_id_for_flow, load_role_from_db
-        from dispatch import build_step_payload
 
         flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
         steps = flow_data["steps"]
@@ -321,10 +407,7 @@ class Scheduler:
 
         For subsequent steps, signal_send is used to transition between roles.
         """
-        from bridge_lib import load_flow_from_db, load_role_from_db
-        import config as dpmtf_config
-
-        bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path())
+        bridge_dir = os.environ.get("DPMTF_BRIDGE_DIR", config.get_bridge_base_path())
 
         try:
             flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
@@ -401,6 +484,35 @@ class Scheduler:
             "status": "dispatched",
         }
 
+    def _parse_verdict_file(self, verdict_path: str) -> Optional[str]:
+        """Parse the verdict file to extract the status."""
+        try:
+            # Extract status from a line like "### Status: APPROVED WITH NOTES"
+            with open(verdict_path, 'r') as f:
+                content = f.read()
+                lines = content.split('\n')
+                for line in lines:
+                    if line.strip().startswith("### Status:"):
+                        status = line.strip().replace("### Status:", "").strip()
+                        return status
+        except Exception:
+            # If we can't read the file, return None to trigger REVIEW_REQUIRED
+            pass
+        return None
+
+    def _is_verdict_deliverable(self, job: Job) -> bool:
+        """Check if this job's deliverable is a verdict file."""
+        try:
+            flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
+            steps = flow_data["steps"]
+            last_step = steps[-1]
+            deliverable_pattern = last_step.get("deliverable_pattern", "{ID}-result.md")
+            # Check if the pattern is exactly {ID}-verdict.md (exact match, not substring)
+            return deliverable_pattern == "{ID}-verdict.md"
+        except Exception:
+            # If we can't determine, assume it's not a verdict
+            return False
+
     def _check_completion(self, job: Job) -> bool:
         """Check if the job's FINAL deliverable exists — meaning the full chain is done.
 
@@ -415,7 +527,6 @@ class Scheduler:
             return False
 
         # Load flow steps to find the final deliverable
-        from bridge_lib import load_flow_from_db
         try:
             flow_data = load_flow_from_db(job.flow_key, db_path=self.repo.db_path)
             steps = flow_data["steps"]

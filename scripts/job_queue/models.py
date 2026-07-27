@@ -204,35 +204,61 @@ class JobRepository:
         """Atomically claim the oldest APPROVED job. Returns Job or None.
 
         Excludes jobs that have exhausted their retry budget (retry_count >= max_retries).
+        
+        For flow serial claims: only claim APPROVED jobs from a flow if no other
+        job in that flow is in RUNNING or VERIFYING state.
+        
+        This implementation iterates through ALL APPROVED jobs ordered by priority and creation time,
+        checking each one's flow is available before claiming it. This ensures that if
+        one flow has an active job, jobs from other flows can still be claimed in the same tick.
         """
         conn = self._conn()
         try:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                """SELECT job_id FROM jobs WHERE status = 'APPROVED'
+            # Get all APPROVED jobs ordered by priority and creation time
+            rows = conn.execute(
+                """SELECT job_id, flow_key FROM jobs WHERE status = 'APPROVED'
                    AND retry_count < max_retries
                    AND (parent_job_id IS NULL OR parent_job_id = ''
                         OR parent_job_id IN (SELECT job_id FROM jobs WHERE status = 'COMPLETED'))
-                   ORDER BY priority DESC, created_at ASC LIMIT 1"""
-            ).fetchone()
-            if not row:
+                   ORDER BY priority DESC, created_at ASC"""
+            ).fetchall()
+            
+            if not rows:
                 conn.rollback()
                 return None
-            job_id = row[0]
-            expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + lease_seconds))
-            conn.execute(
-                """UPDATE jobs SET status = 'QUEUED', lease_owner = ?,
-                   lease_expires_at = ?, heartbeat_at = datetime('now'),
-                   updated_at = datetime('now') WHERE job_id = ?""",
-                (worker_id, expires, job_id)
-            )
-            conn.execute(
-                """INSERT INTO job_events (job_id, event_type, from_state, to_state, actor)
-                   VALUES (?, 'claim', 'APPROVED', 'QUEUED', ?)""",
-                (job_id, worker_id)
-            )
-            conn.commit()
-            return self.get_job(job_id)
+            
+            # Try each approved job until we find one with an available flow
+            for row in rows:
+                job_id = row[0]
+                job_flow_key = row[1] 
+                
+                # Check if any job in this flow is currently RUNNING or VERIFYING
+                existing_running_job = conn.execute(
+                    """SELECT 1 FROM jobs WHERE flow_key = ? AND status IN ('RUNNING', 'VERIFYING')
+                       LIMIT 1""", (job_flow_key,)
+                ).fetchone()
+                
+                if not existing_running_job:
+                    # No running job in this flow - claim this one
+                    expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + lease_seconds))
+                    conn.execute(
+                        """UPDATE jobs SET status = 'QUEUED', lease_owner = ?,
+                           lease_expires_at = ?, heartbeat_at = datetime('now'),
+                           updated_at = datetime('now') WHERE job_id = ?""",
+                        (worker_id, expires, job_id)
+                    )
+                    conn.execute(
+                        """INSERT INTO job_events (job_id, event_type, from_state, to_state, actor)
+                           VALUES (?, 'claim', 'APPROVED', 'QUEUED', ?)""",
+                        (job_id, worker_id)
+                    )
+                    conn.commit()
+                    return self.get_job(job_id)
+            
+            # No eligible jobs found
+            conn.rollback()
+            return None
         except Exception:
             conn.rollback()
             raise
