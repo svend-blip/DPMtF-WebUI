@@ -69,6 +69,14 @@
   supervisor wake-up prompt content must be defined here, including a
   reference to `501_SUPERVISOR_AUTONOMOUS.md` (the role's
   `governance_file` points at 500, the Human-paired mode).
+- **From H319 live observation:** while imple01 edits
+  `scripts/job_queue/scheduler.py`, every cron tick crashes on the
+  half-edited file (SyntaxError) — the watchdog that guards the
+  implementer is OFF exactly while the implementer works on it. The
+  invariant preflight must py_compile the scheduler's own modules, and
+  any handoff that touches `scripts/job_queue/` should be flagged as
+  "safety net down during execution" (or the tick should run from the
+  last committed version).
 
 ### H321 — E2E smoke run
 
@@ -79,7 +87,46 @@
 
 ## Status
 
-- [x] H318 APPROVED (2026-07-27, migration `scripts/db/010_supervised_review_flow.sql`) — awaiting Human commit. Architect re-verified all 7 checklist items in DB + API.
-- [ ] H319
-- [ ] H320 (blocked on escalation-routing decision)
-- [ ] H321
+- [x] H318 APPROVED (2026-07-27, migration `scripts/db/010_supervised_review_flow.sql`) — committed `6fd3aa1`, docs `e0a5ee4`, pushed.
+- [x] H319 REJECTED (2026-07-27) — Architect verified findings 1-4 CONFIRMED
+  (duplicated outcome→transition mapping; claim() returns None instead of
+  falling through to other flows; substring verdict check; placeholder
+  test). Finding 7 (docs scope violation) = FALSE POSITIVE — the plans-file
+  edit was the Architect's own mid-run edit, not imple01's. Additional
+  Architect finding: the six required job-transition scenarios are NOT
+  actually covered (tests only exercise helpers), and the RUNNING job row
+  for 319 (+ its events) was DELETED from the production DB during
+  implementation despite an explicit constraint (final test file is
+  temp-DB-isolated; deletion likely from an intermediate debug run).
+- [x] H320 REWORK APPROVED (2026-07-27) — but verdict was a FALSE POSITIVE
+  (review01 never ran pytest; 3 test bugs remained). Architect blocked at
+  commit gate → 404 hardened with mandatory check 9 (reviewer runs pytest,
+  quotes summary, red = auto-FAIL).
+- [x] H321 test fixes — completed by ARCHITECT (Fable 5) under explicit
+  Human authorization (option A) after 5 failed imple01 attempts (2×
+  pseudo-XML tool-calls via built-in ollama provider — fixed by /v1
+  openai-compatible workaround; 2× destructive working-tree git reverts —
+  recovered from OpenCode snapshot trees; 1× premature signal). Final
+  state: 176 passed, 0 failed. Verdicts 321 (both chain iterations) are
+  VOID — they reviewed states that no longer exist. New standing rule for
+  implementer handoffs: ABSOLUTE GIT PROHIBITION (read-only git commands
+  only).
+- [ ] H321 = wake-up triggers + invariant preflight (blocked on
+  escalation-routing decision; preflight must also include DB-mutation
+  detection — row counts/critical-table checksums — motivated by the H319
+  job-row deletion)
+- [ ] H322 = E2E smoke run
+
+## Lessons (autonomous-run design input)
+
+1. The Architect must NOT edit tracked repo files while a handoff is in
+   flight — it pollutes the reviewers' `git diff` and produced a false
+   scope-violation REJECT finding in H319.
+2. "pytest green" is not a sufficient testgoal — H319's placeholder test
+   passed while testing nothing. GOAL.md testgoals should name REQUIRED
+   test scenarios, and reviews must verify tests exercise real behavior.
+3. Production-DB mutation by an implementer went undetected (job row +
+   events deleted). Invariant preflight needs DB-mutation detection.
+4. Two stall recoveries in one handoff (pseudo-XML cold start; completed
+   work but no deliverable/signal) — both were fixed by targeted nudges,
+   exactly the supervisor stall-wake-up duty in H321.

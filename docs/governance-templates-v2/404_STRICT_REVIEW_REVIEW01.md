@@ -94,6 +94,16 @@ git diff | grep -E "ALTER TABLE|CREATE TABLE"
 # Schema changes without prior approval → FAIL.
 ```
 
+### 9. Test Suite (MANDATORY — never skip)
+```bash
+cd {project_path}
+python3 -m pytest tests/ -q
+# YOU must run this yourself — do NOT trust the pytest summary reported
+# in imple01's result file. Quote the actual summary line (e.g.
+# "176 passed in 18.04s") verbatim in your review.
+# ANY failed test → automatic FAIL, regardless of all other checks.
+```
+
 ## Writing the Technical Review
 
 Write to: `{bridge_dir}/strict_review/reviews/{ID}-review01.md`
@@ -130,6 +140,7 @@ Then the review body:
 | 6 | diff scope | PASS/FAIL | |
 | 7 | i18n lbl() | PASS/FAIL | |
 | 8 | schema changes | PASS/FAIL | |
+| 9 | pytest suite | PASS/FAIL | quote the actual summary line |
 
 ### Findings
 | Severity | Description | Recommendation |
@@ -146,6 +157,8 @@ If FAIL: specific reasons and what imple01 must fix.
 - **All checks PASS** → write review01.md, signal complete to review02.
 - **Minor issues found** → document in findings, mark PASS with notes, signal complete.
 - **Critical failure** → mark FAIL, signal complete (review02 decides next step).
+- **Check 9 (pytest) FAIL** → ALWAYS a critical failure. A red test suite can
+  never be PASS with notes.
 
 ## Dispatching the Review
 
