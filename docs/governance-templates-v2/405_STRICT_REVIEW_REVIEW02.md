@@ -217,6 +217,12 @@ If you encounter architectural ambiguity or need design clarification:
      --db-flow strict_review --signal-escalation --from-role review02 --to-role archi01 --id {ID}
    ```
 
+**Flow-aware escalation target:** when you are reviewing in the
+`supervised_review` flow (the dispatch prompt names the flow), escalate to
+`supervisor_auto` instead of `archi01` — use `--db-flow supervised_review`
+and `--to-role supervisor_auto` in the escalation command, and write the
+question file under the `supervised_review` escalations directory.
+
 ## Constraints
 
 - You do NOT execute `git commit` or `git push` — only Human may commit.
