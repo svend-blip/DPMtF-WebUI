@@ -130,6 +130,23 @@
   chain on the final step, /clear queues (not executes) on a busy session.
   Follow-up: fix the agent_delivery content template before the first real
   GOAL.md run.
+- [x] TEMPLATE FIX (smoke defects 1+2) complete 2026-07-28, mixed delivery:
+  - H324 delivered migration 013 (agent_delivery content_template: ledger
+    output, new-id rule, no completion signal) — but its APPROVED WITH
+    NOTES verdict was a FALSE POSITIVE: dispatch.py untouched, placebo
+    test; review02 attributed the fix to pre-smoke commit cbbbee0.
+  - H325 (rework) STALLED: dispatch.py was chmod 444 (read-only since
+    2026-07-26) — imple01 hit genuine filesystem permission denial and
+    wrote a "conceptual" result. Root cause of BOTH implementer failures.
+  - Finished by ARCHITECT under explicit Human authorization (option B,
+    H321/H323 precedent), TDD: position-aware next-step resolution in
+    BOTH signal_complete and signal_send prompt builds (only steps
+    strictly after the current step qualify; final step → no
+    "Your Deliverable"/"Signal Completion" block). 4 real tests in
+    tests/test_dispatch_fix.py (S1/S3 red on old code, green on fix;
+    S2/S2b mid-chain regression guards). Full suite: 193 passed.
+    dispatch.py re-locked to 444 after the edit. Unstaged, awaiting
+    Human commit. Defect 3 (/clear on busy session) remains open.
 
 ## Lessons (autonomous-run design input)
 
