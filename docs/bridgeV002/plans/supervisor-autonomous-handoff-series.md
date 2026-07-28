@@ -111,11 +111,25 @@
   VOID — they reviewed states that no longer exist. New standing rule for
   implementer handoffs: ABSOLUTE GIT PROHIBITION (read-only git commands
   only).
-- [ ] H321 = wake-up triggers + invariant preflight (blocked on
-  escalation-routing decision; preflight must also include DB-mutation
-  detection — row counts/critical-table checksums — motivated by the H319
-  job-row deletion)
-- [ ] H322 = E2E smoke run
+- [x] H322 APPROVED + committed `2d9d25c` — migration 011: supervisor_auto
+  persona (session shared with 'supervisor', governance 501, /clear),
+  supervised_review steps repointed, agent_delivery convention, counter fix.
+  First run under 404 check 9 — reviewer quoted pytest verbatim.
+- [x] H323 committed `2cff743` — invariant preflight (health/DB/row-count)
+  + one-time stall wake-up to supervisor_auto. imple01 REJECTED correctly
+  by check 9 (red suite); finished by Architect under Human authorization.
+  189 tests green.
+- [x] Escalation routing committed `a8cfb43` — flow-aware lines in 404/405
+  (supervised_review escalations → supervisor_auto). Human-approved.
+- [x] E2E SMOKE smoke-001 = **SUCCESS** (2026-07-28): full supervised_review
+  chain in ~7 min, zero manual nudges; /clear sent to the claude-code
+  supervisor session (dispatch log evidence); verdict wake-up landed;
+  END-REPORT written. Three agent_delivery template defects found (see
+  {bridge_dir}/supervisor/runs/smoke-001/END-REPORT.md): deliverable path
+  points at the original handoff file, mandated signal-complete loops the
+  chain on the final step, /clear queues (not executes) on a busy session.
+  Follow-up: fix the agent_delivery content template before the first real
+  GOAL.md run.
 
 ## Lessons (autonomous-run design input)
 
