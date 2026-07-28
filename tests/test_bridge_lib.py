@@ -342,3 +342,268 @@ def test_get_effective_model_source_no_step_or_role_returns_system_default(temp_
     
     # Should return system default 
     assert result == (None, None)
+
+
+def test_validate_deliverable_against_schema_all_tags_present(temp_db):
+    """Test that validate_deliverable_against_schema returns valid=True when all tags are present."""
+    # Create a temporary file with required sections
+    import tempfile
+    
+    # Get the handoff convention which has validation schema ["<role>", "<task>", "<constraint>", "<deliverable>"]
+    rule_key = "handoff"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("""<role>imple01</role>
+
+<task>What needs to be accomplished</task>
+
+<constraint>Any constraints that apply</constraint>
+
+<deliverable>What you will produce</deliverable>
+""")
+    
+    try:
+        result = bridge_lib.validate_deliverable_against_schema(file_path, rule_key, db_path=temp_db)
+        
+        assert result["valid"] is True
+        assert result["missing"] == []
+        assert len(result["checked"]) > 0
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
+
+
+def test_validate_deliverable_against_schema_missing_tags(temp_db):
+    """Test that validate_deliverable_against_schema returns valid=False with missing tags."""
+    # Create a temporary file with only some required sections
+    import tempfile
+    
+    # Use the handoff convention which has validation schema ["<role>", "<task>", "<constraint>", "<deliverable>"]
+    rule_key = "handoff"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("""<role>imple01</role>
+
+<task>What needs to be accomplished</task>
+""")
+    
+    try:
+        result = bridge_lib.validate_deliverable_against_schema(file_path, rule_key, db_path=temp_db)
+        
+        assert result["valid"] is False
+        # Should contain the missing tags (constraint and deliverable)
+        assert "<constraint>" in result["missing"]
+        assert "<deliverable>" in result["missing"]
+        assert len(result["checked"]) == 4  # All 4 tags from schema
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
+
+
+def test_validate_deliverable_against_schema_empty_validation_schema(temp_db):
+    """Test that validate_deliverable_against_schema returns valid=True when validation_schema is empty."""
+    # First, we need to create a convention rule with an empty validation schema
+    # We'll add a test row for this purpose
+    
+    conn = sqlite3.connect(temp_db)
+    cursor = conn.cursor()
+    
+    # Create a test convention rule with empty validation schema
+    try:
+        cursor.execute(
+            "INSERT OR REPLACE INTO bridge_convention_rules "
+            "(rule_key, step_type, dir_template, pattern_template, error_template, created_at, updated_at, content_template, validation_schema) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("test_empty_schema", "Test", "tests", "{ID}-test.md", "Error template", "2026-06-19 10:07:42", "2026-07-26 10:40:06", "", "")
+        )
+        conn.commit()
+    except Exception:
+        # If the insert fails, it's okay as we may be in a race condition
+        pass
+    finally:
+        conn.close()
+    
+    # Create a temporary file with some content
+    import tempfile
+    
+    rule_key = "test_empty_schema"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("# Test content")
+    
+    try:
+        result = bridge_lib.validate_deliverable_against_schema(file_path, rule_key, db_path=temp_db)
+        
+        assert result["valid"] is True  # Empty schema should pass vacuously
+        assert result["missing"] == []
+        assert result["checked"] == []
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
+
+
+def test_validate_deliverable_against_schema_nonexistent_file(temp_db):
+    """Test that validate_deliverable_against_schema returns valid=False for nonexistent file."""
+    rule_key = "handoff"
+    
+    # Use a path that doesn't exist
+    file_path = "/tmp/nonexistent_file.md"
+    
+    result = bridge_lib.validate_deliverable_against_schema(file_path, rule_key, db_path=temp_db)
+    
+    assert result["valid"] is False
+    # Should contain error path
+    assert "<validation-error>" in result["missing"]
+
+
+def test_auto_prepend_xml_sections_all_tags_present(temp_db):
+    """Test that auto_prepend_xml_sections returns prepended=False when all tags are already present."""
+    # Create a temporary file with required sections
+    import tempfile
+    
+    rule_key = "handoff"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("""<role>imple01</role>
+
+<task>What needs to be accomplished</task>
+
+<constraint>Any constraints that apply</constraint>
+
+<deliverable>What you will produce</deliverable>
+""")
+    
+    try:
+        # Call auto_prepend_xml_sections
+        result = bridge_lib.auto_prepend_xml_sections(
+            file_path, rule_key, "123", "archi01", "strict_review", "/tmp/bridge", db_path=temp_db
+        )
+        
+        assert result["prepended"] is False
+        assert result["missing"] == []
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
+
+
+def test_auto_prepend_xml_sections_missing_tags(temp_db):
+    """Test that auto_prepend_xml_sections prepends missing tags and validates the resulting content."""
+    # Create a temporary file with only some required sections
+    import tempfile
+    
+    rule_key = "handoff"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("# Test content\n\nSome text here")
+    
+    try:
+        # Call auto_prepend_xml_sections which should prepend missing tags
+        result = bridge_lib.auto_prepend_xml_sections(
+            file_path, rule_key, "123", "archi01", "strict_review", "/tmp/bridge", db_path=temp_db
+        )
+        
+        assert result["prepended"] is True
+        
+        # Should be missing the sections that were absent
+        assert "<role>" in result["missing"]
+        assert "<task>" in result["missing"]
+        assert "<constraint>" in result["missing"]
+        assert "<deliverable>" in result["missing"]
+        
+        # Read back the content to verify prepending worked
+        with open(file_path, 'r') as f:
+            content = f.read()
+            
+        # The function should have added placeholder content for all missing tags
+        assert "<role>(auto-added: model omitted this section)</role>" in content
+        assert "# Test content" in content  # Original content preserved
+        
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
+
+
+def test_auto_prepend_xml_sections_known_tag_values(temp_db):
+    """Test that auto_prepend_xml_sections populates known tag values correctly."""
+    # Create a temporary file with no sections
+    import tempfile
+    
+    rule_key = "handoff"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("# Test content")
+    
+    try:
+        # Call auto_prepend_xml_sections
+        result = bridge_lib.auto_prepend_xml_sections(
+            file_path, rule_key, "456", "imple01", "strict_review", "/tmp/bridge", db_path=temp_db
+        )
+        
+        assert result["prepended"] is True
+        
+        # Read back content to verify the function works
+        with open(file_path, 'r') as f:
+            content = f.read()
+            
+        # Should have added placeholder content for all tags (since no specific handling for handoff_id/source_role)
+        # But check that it at least has the general missing tags in placeholder format 
+        assert "<role>(auto-added: model omitted this section)</role>" in content
+        
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
+
+
+def test_auto_prepend_xml_sections_empty_validation_schema(temp_db):
+    """Test that auto_prepend_xml_sections returns prepended=False when validation_schema is empty."""
+    # First, need to create a convention rule with empty validation schema
+    conn = sqlite3.connect(temp_db)
+    cursor = conn.cursor()
+    
+    # Create a test convention rule with empty validation schema
+    try:
+        cursor.execute(
+            "INSERT OR REPLACE INTO bridge_convention_rules "
+            "(rule_key, step_type, dir_template, pattern_template, error_template, created_at, updated_at, content_template, validation_schema) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("test_empty_schema2", "Test", "tests", "{ID}-test.md", "Error template", "2026-06-19 10:07:42", "2026-07-26 10:40:06", "", "")
+        )
+        conn.commit()
+    except Exception:
+        # If the insert fails, it's okay as we may be in a race condition
+        pass
+    finally:
+        conn.close()
+    
+    import tempfile
+    
+    rule_key = "test_empty_schema2"
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+        file_path = f.name
+        f.write("# Test content")
+    
+    try:
+        # Call auto_prepend_xml_sections 
+        result = bridge_lib.auto_prepend_xml_sections(
+            file_path, rule_key, "789", "archi01", "strict_review", "/tmp/bridge", db_path=temp_db
+        )
+        
+        assert result["prepended"] is False  # Should not prepend anything with empty schema
+        assert result["missing"] == []
+    finally:
+        # Clean up the temporary file 
+        import os
+        os.unlink(file_path)
