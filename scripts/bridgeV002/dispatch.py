@@ -1633,9 +1633,17 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
 
     # Find the NEXT step (where from_role == current to_role) to determine
     # where the target role should write its deliverable and how to signal.
+    # Position-aware: only steps strictly AFTER the completed step qualify.
+    # In cyclic flows (supervised_review) a global from_role scan matched
+    # step 1 again when the FINAL step completed — telling the woken agent
+    # to overwrite the original handoff and signal-complete with the same
+    # id, looping the chain (smoke-001). On the last step nothing follows:
+    # no block is appended and the convention content_template alone
+    # defines the wake-up behavior.
     next_output_path = ""
     next_signal_cmd = ""
-    for idx, s in enumerate(steps):
+    cur_idx = steps.index(current_step)
+    for s in steps[cur_idx + 1:]:
         if s.get("from_role") == payload["to_role"]:
             next_dir = s.get("deliverable_dir", "")
             next_pattern = s.get("deliverable_pattern", "{ID}-result.md")
@@ -2529,7 +2537,12 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # (observed: imple01 wrote 'deliverable-315.md' in the repo root).
     # signal_complete already appends this block for chain callbacks; the
     # initial signal_send dispatch needs it just as much.
-    for s in steps:
+    # Position-aware: only steps strictly AFTER the dispatched step qualify
+    # as the target's next step — a global scan re-matched step 1 on the
+    # final step of cyclic flows (same defect as the signal_complete
+    # callback path; the scheduler's stall wake-up dispatches through here).
+    cur_idx = steps.index(target_step)
+    for s in steps[cur_idx + 1:]:
         if s.get("from_role") == to_role_key:
             next_dir = s.get("deliverable_dir", "")
             next_pattern = s.get("deliverable_pattern", "{ID}-result.md")
