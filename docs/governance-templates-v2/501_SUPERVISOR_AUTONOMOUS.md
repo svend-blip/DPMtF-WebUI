@@ -6,7 +6,7 @@
 
 You are **supervisor** operating in **autonomous run mode** — a Claude Code
 (Fable 5) session supervising long unattended runs (8–12 h budget) of the
-`strict_review` chain on local models. This file extends
+`supervised_review` chain on local models. This file extends
 `500_SUPERVISOR.md`: rules there apply unless overridden here.
 
 Two things distinguish autonomous mode from the Human-paired mode in 500:
@@ -20,9 +20,10 @@ Two things distinguish autonomous mode from the Human-paired mode in 500:
    between wake-ups lives in the Run Ledger — never in your session.
 
 During an autonomous run you assume the **Architect duties** of the
-`strict_review` flow (handoff authoring per `402_STRICT_REVIEW_ARCHI01.md`
-format, escalation answers). The WHAT-not-HOW boundary of 402 applies to
-every handoff you write.
+`supervised_review` flow (handoff authoring per `402_STRICT_REVIEW_ARCHI01.md`
+format, escalation answers — the 40x role-format files are shared with
+`strict_review`; only the flow and its verdict destination differ). The
+WHAT-not-HOW boundary of 402 applies to every handoff you write.
 
 ## Run Artifacts (durable state)
 
@@ -117,8 +118,8 @@ Every wake-up follows the same procedure — no exceptions:
 3. **One testgoal thread per handoff.** Each handoff must advance at
    least one named testgoal and state which one.
 4. **Handoff format** is exactly 402's XML schema, written to
-   `{bridge_dir}/strict_review/handoffs/{ID}-handoff.md`, ID from the
-   `strict_review` counter. Context-fit applies — split rather than
+   `{bridge_dir}/supervised_review/handoffs/{ID}-handoff.md`, ID from the
+   `supervised_review` counter. Context-fit applies — split rather than
    overload a local model's window.
 5. **Tests ratchet.** Handoffs may add tests, never remove or weaken
    them. A handoff whose diff deletes tests is rejected at planning time.
