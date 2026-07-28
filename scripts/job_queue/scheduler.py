@@ -21,6 +21,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "bridgeV002"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "python-runtime"))
 
 import config
+import requests
 from job_queue.models import JobRepository, Job, IllegalTransitionError
 
 # Import these at module level for better performance and mocking 
@@ -52,6 +53,62 @@ class Scheduler:
         self.fast_nudge_minutes = int(wd.get("fast_nudge_minutes", 2))
         self.idle_confirmations = int(wd.get("idle_confirmations", 2))
         self.nudge_state_path = PROJECT_ROOT / "logs" / "job-queue-nudge-state.json"
+
+    def _preflight(self) -> dict:
+        """Invariant preflight at the start of each scheduler tick.
+
+        Never dispatch onto a broken foundation: the app must be healthy,
+        the database must answer, and the jobs table must not have lost
+        rows since the previous tick (a decrease means something deleted
+        production rows — the 2026-07-27 incident class).
+
+        Returns {'passed': bool, 'reason': str}. Tests patch this method
+        to bypass the environment-dependent checks.
+        """
+        # Check 1: App health endpoint
+        try:
+            import requests
+            health_url = f"http://{config.get_host()}:{config.get_port()}/api/health"
+            response = requests.get(health_url, timeout=5)
+            if response.status_code != 200:
+                return {
+                    "passed": False,
+                    "reason": f"App health endpoint failed with status {response.status_code}",
+                }
+        except Exception as e:
+            return {
+                "passed": False,
+                "reason": f"App health endpoint unreachable: {e}",
+            }
+
+        # Check 2: Database connectivity
+        try:
+            self.repo.list_jobs(status="DRAFT")  # simple read test
+        except Exception as e:
+            return {
+                "passed": False,
+                "reason": f"Database connectivity failed: {e}",
+            }
+
+        # Check 3: Jobs table row count invariant (non-decreasing)
+        try:
+            state = self._read_nudge_state()
+            last_count = state.get("last_jobs_count", 0)
+            current_count = len(self.repo.list_jobs())
+            if current_count < last_count:
+                return {
+                    "passed": False,
+                    "reason": f"Jobs table row count decreased from {last_count} to {current_count}",
+                }
+            state["last_jobs_count"] = current_count
+            self._write_nudge_state(state)
+        except Exception as e:
+            return {
+                "passed": False,
+                "reason": f"Jobs count check failed: {e}",
+            }
+
+        return {"passed": True, "reason": ""}
 
     @staticmethod
     def _watchdog_profile() -> dict:
@@ -107,6 +164,16 @@ class Scheduler:
 
     def tick(self) -> dict:
         """One scheduler pass. Returns summary of what happened."""
+        # 1. Invariant preflight — never claim/dispatch on a broken foundation.
+        preflight = self._preflight()
+        if not preflight["passed"]:
+            return {
+                "claimed": False,
+                "recovered": 0,
+                "completed": [],
+                "outcome": f"preflight_failed:{preflight['reason']}"
+            }
+
         # 1. Recover expired leases
         recovered = self.repo.recover_expired_leases()
 
@@ -666,6 +733,71 @@ class Scheduler:
         state[key] = state.get(key, 0) + 1
         self._write_nudge_state(state)
 
+    def _maybe_stall_wake_up(self, job: Job, from_role: str, to_role: str,
+                             hid: str, nudge_key: str, out_path: str) -> bool:
+        """Fire the stall wake-up at most ONCE per exhausted step.
+
+        The marker is persisted in the nudge state so restarts never
+        re-inject for the same flow/handoff/step. Returns True if the
+        wake-up fired on this call.
+        """
+        wake_up_key = f"wake_up::{job.flow_key}::{hid}::{nudge_key}"
+        nudge_state = self._read_nudge_state()
+        if wake_up_key in nudge_state:
+            return False
+        self._record_stall_wake_up(job, from_role, to_role, hid,
+                                   deliverable_path=out_path)
+        nudge_state = self._read_nudge_state()
+        nudge_state[wake_up_key] = True
+        self._write_nudge_state(nudge_state)
+        return True
+
+    def _record_stall_wake_up(self, job: Job, from_role: str, to_role: str,
+                              hid: str, deliverable_path: str = "") -> None:
+        """Inject a one-time stall wake-up into the supervisor_auto session.
+
+        Fired when a chain step's nudge budget is exhausted — instead of
+        silently printing 'human attention needed', the autonomous
+        supervisor gets the event context and decides. Rate limiting is
+        the CALLER's responsibility (wake_up marker in the nudge state).
+        Never raises — a failed wake-up must not crash the tick.
+        """
+        try:
+            from bridge_lib import load_role_from_db
+            supervisor_role = load_role_from_db("supervisor_auto", db_path=self.repo.db_path)
+
+            if not supervisor_role:
+                print("  Warning: supervisor_auto role not found, cannot wake up on stall")
+                return
+
+            tmux_session = supervisor_role.get("tmux_session", "")
+            if not tmux_session:
+                print("  Warning: supervisor_auto session not configured, cannot wake up on stall")
+                return
+
+            from dispatch import inject_prompt, session_alive
+            if not session_alive(tmux_session):
+                print(f"  Warning: supervisor_auto session '{tmux_session}' not alive, cannot wake up on stall")
+                return
+
+            governance = supervisor_role.get("governance_file", "501_SUPERVISOR_AUTONOMOUS.md")
+            prompt_text = (
+                f"Wake-up event: STALL.\n"
+                f"The scheduler exhausted the nudge budget for step "
+                f"{from_role} -> {to_role} (flow {job.flow_key}, handoff {hid}).\n"
+                f"The step's deliverable exists but completion was never signaled:\n"
+                f"- Deliverable: {deliverable_path or 'unknown'}\n"
+                f"\n"
+                f"Read your governance file ({governance}) and follow its "
+                f"wake-up protocol to diagnose and decide."
+            )
+
+            inject_prompt(tmux_session, prompt_text, "default",
+                          fresh_session_command=supervisor_role.get("fresh_session_command"))
+            print("  Stall wake-up injected into supervisor_auto session")
+        except Exception as e:
+            print(f"  Warning: Failed to inject stall wake-up prompt: {e}")
+
     # Idle observations expire after this many minutes — a stale count from
     # an earlier stall must not combine with a fresh one into a false
     # "consecutively idle" conclusion.
@@ -780,6 +912,10 @@ class Scheduler:
             if self._read_nudge_state().get(nudge_key, 0) >= self.max_nudges:
                 print(f"  Chain nudge SKIPPED: {nudge_key} already nudged "
                       f"{self.max_nudges}x — human attention needed")
+                # Nudge budget exhausted: wake the autonomous supervisor —
+                # exactly once per step (persisted marker survives restarts).
+                self._maybe_stall_wake_up(job, from_role, to_role, hid,
+                                          nudge_key, out_path)
                 return False
 
             self._record_nudge(nudge_key)

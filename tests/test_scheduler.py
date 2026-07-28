@@ -60,11 +60,12 @@ def test_tick_claims_and_dispatches(tmp_path):
 
     sched = Scheduler(db_path=db)
     # Mock the internal methods to avoid real dispatch
-    with patch.object(sched, '_dispatch', return_value={"status": "dispatched"}), \
-         patch.object(sched, '_check_completion', return_value=True), \
-         patch.object(sched, '_resolve_alias', return_value="archi-local"), \
-         patch.object(sched, '_compile_handoff'), \
-         patch.object(sched, '_resolve_context_window', return_value=131072):
+    with patch.object(sched, '_preflight', return_value={'passed': True, 'reason': ''}), \
+         patch.object(sched, '_dispatch', return_value={"status": "dispatched"}), \
+          patch.object(sched, '_check_completion', return_value=True), \
+          patch.object(sched, '_resolve_alias', return_value="archi-local"), \
+          patch.object(sched, '_compile_handoff'), \
+          patch.object(sched, '_resolve_context_window', return_value=131072):
         result = sched.tick()
 
     assert result["claimed"] is True
@@ -85,9 +86,10 @@ def test_tick_blocks_oversized_handoff(tmp_path):
     repo.transition(job_id, "APPROVED")
 
     sched = Scheduler(db_path=db)
-    with patch.object(sched, '_resolve_context_window', return_value=16000), \
-         patch.object(sched, '_auto_split'), \
-         patch.object(sched, '_resolve_alias', return_value='archi-local'):
+    with patch.object(sched, '_preflight', return_value={'passed': True, 'reason': ''}), \
+         patch.object(sched, '_resolve_context_window', return_value=16000), \
+          patch.object(sched, '_auto_split'), \
+          patch.object(sched, '_resolve_alias', return_value='archi-local'):
         result = sched.tick()
     
     assert result["claimed"] is True
@@ -107,11 +109,12 @@ def test_tick_writes_checkpoint(tmp_path):
     repo.transition(job_id, "APPROVED")
 
     sched = Scheduler(db_path=db)
-    with patch.object(sched, '_dispatch', return_value={"status": "ok"}), \
-         patch.object(sched, '_check_completion', return_value=True), \
-         patch.object(sched, '_resolve_alias', return_value="archi-local"), \
-         patch.object(sched, '_compile_handoff'), \
-         patch.object(sched, '_resolve_context_window', return_value=131072):
+    with patch.object(sched, '_preflight', return_value={'passed': True, 'reason': ''}), \
+         patch.object(sched, '_dispatch', return_value={"status": "ok"}), \
+          patch.object(sched, '_check_completion', return_value=True), \
+          patch.object(sched, '_resolve_alias', return_value="archi-local"), \
+          patch.object(sched, '_compile_handoff'), \
+          patch.object(sched, '_resolve_context_window', return_value=131072):
         sched.tick()
 
     job = repo.get_job(job_id)
@@ -132,11 +135,12 @@ def test_tick_records_events(tmp_path):
     repo.transition(job_id, "APPROVED")
 
     sched = Scheduler(db_path=db)
-    with patch.object(sched, '_dispatch', return_value={"status": "ok"}), \
-         patch.object(sched, '_check_completion', return_value=True), \
-         patch.object(sched, '_resolve_alias', return_value=""), \
-         patch.object(sched, '_compile_handoff'), \
-         patch.object(sched, '_resolve_context_window', return_value=131072):
+    with patch.object(sched, '_preflight', return_value={'passed': True, 'reason': ''}), \
+         patch.object(sched, '_dispatch', return_value={"status": "ok"}), \
+          patch.object(sched, '_check_completion', return_value=True), \
+          patch.object(sched, '_resolve_alias', return_value=""), \
+          patch.object(sched, '_compile_handoff'), \
+          patch.object(sched, '_resolve_context_window', return_value=131072):
         sched.tick()
 
     events = repo.get_events(job_id)
@@ -153,7 +157,8 @@ def test_tick_fails_on_exception(tmp_path):
     repo.transition(job_id, "APPROVED")
 
     sched = Scheduler(db_path=db)
-    with patch.object(sched, '_dispatch', side_effect=RuntimeError("boom")):
+    with patch.object(sched, '_preflight', return_value={'passed': True, 'reason': ''}), \
+         patch.object(sched, '_dispatch', side_effect=RuntimeError("boom")):
         result = sched.tick()
 
     assert "error" in result["outcome"]

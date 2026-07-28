@@ -13,6 +13,18 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from job_queue.models import JobRepository
 from job_queue.scheduler import Scheduler
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _preflight_ok():
+    """These tests exercise claiming/completion, not the invariant preflight.
+    The real preflight needs a live health endpoint — bypass it here; the
+    preflight itself is covered by test_scheduler_preflight_stall.py."""
+    with patch.object(Scheduler, "_preflight",
+                      return_value={"passed": True, "reason": ""}):
+        yield
+
 def test_full_pipeline_end_to_end(tmp_path):
     """Test the full end-to-end pipeline from job creation to completion."""
 

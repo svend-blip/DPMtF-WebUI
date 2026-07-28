@@ -122,7 +122,11 @@ def _run_advance(sched, job, base, monkeypatch, pane_active=False,
     active = set(active_sessions or [])
 
     def fake_run(cmd, **kwargs):
-        calls.append(cmd)
+        # Patching subprocess.run mutates the SHARED module, so tmux calls
+        # from the stall wake-up (dispatch.inject_prompt) land here too.
+        # These tests assert on signal-complete nudges only — filter tmux.
+        if not (cmd and cmd[0] == "tmux"):
+            calls.append(cmd)
         return MagicMock(returncode=0, stdout="", stderr="")
 
     def fake_pane_active(self, session):
