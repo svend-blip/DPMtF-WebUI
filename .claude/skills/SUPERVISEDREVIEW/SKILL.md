@@ -103,13 +103,25 @@ python3 scripts/bridgeV002/chain_watchdog.py --flow supervised_review --once --d
 |-----------------|---------|-------------|
 | `complete` | Final signal review02→supervisor_auto delivered | If the ledger has no entry for this verdict, the wake-up was missed — process it now per 501 (verify testgoals yourself, checkpoint, next handoff or run end) |
 | `active` | A role is working or a signal was just delivered | Wait. Do NOT dispatch. Ensure a live watchdog is running (see Rules) |
-| `nudged` (dry-run: "NOT sent") | Stall detected — output written, signal skipped | Verify via trace.log, then either let a non-dry-run watchdog pass nudge, or nudge manually per 501 (once), then ledger it |
-| `idle` | No output and no pane activity | Diagnose from trace.log + panes; re-nudge once, else park |
+| `nudged` (dry-run: "NOT sent") | Stall detected — the log line names the stalled role and which of the two forms it is | Verify via trace.log, then either let a non-dry-run watchdog pass nudge, or nudge manually per 501 (once), then ledger it |
+| `idle` | Chain not started, or the stalled role has already used its 2 nudges | Diagnose from trace.log + panes; park if the budget is spent |
 
-Known failure mode (run goal-001, handoff 5): a role writes its deliverable
-but ends its turn without signal-complete. tmux capture-pane history is
-useless (TUI redraw) — diagnose via `{bridge_dir}/trace.log` and the
-OpenCode session DB (`~/.local/share/opencode/opencode.db`, table `part`).
+Two known failure modes, both repaired by re-delivering the SENDER's
+callback but diagnosed differently:
+
+- **Sender stall** (run goal-001, handoff 5): a role writes its deliverable
+  and ends its turn without signal-complete. No signal_complete on
+  trace.log; timed by the deliverable's mtime.
+- **Receiver stall** (run goal-006, handoff 21): a role is dispatched,
+  produces NOTHING, and goes idle. The signal IS on trace.log; timed by
+  that signal's age, because the sender's file age says nothing about how
+  long the receiver has been silent.
+
+tmux capture-pane history is useless for either (TUI redraw) — the
+discriminator is a pane freeze (`capture-pane | md5sum` identical across
+90 s) plus the status line reading `ctrl+p commands` rather than
+`esc interrupt`. Diagnose via `{bridge_dir}/trace.log` and the OpenCode
+session DB (`~/.local/share/opencode/opencode.db`, table `part`).
 
 ### Step 7: Report to Human
 

@@ -12,8 +12,15 @@ Two modes, selected by --flow:
   behavior unchanged (trade-cronjob.sh compatibility).
 - any other flow key: generic DB-driven detection — chain steps, deliverable
   dirs/patterns from bridge_flow_steps, tmux sessions from bridge_roles.
-  A step counts as stalled when its deliverable exists but the next step's
-  deliverable is missing AND trace.log has no signal_complete for the step.
+  A step whose next deliverable is missing stalls in one of two ways, told
+  apart by trace.log and timed by different clocks:
+    * SENDER stall — no signal_complete for the step: from_role wrote its
+      output and ended its turn without signalling. Timed by the file mtime.
+    * RECEIVER stall — the signal WAS delivered: to_role was dispatched,
+      produced nothing, and its pane went idle. Timed by the inbound
+      signal's age (run goal-006, handoff 21). Both are repaired by
+      re-delivering from_role's callback, but the log names the role the
+      chain is actually waiting on.
 
 Runs alongside a flow (started by trade-cronjob.sh or a supervisor run),
 never as a standing service:
@@ -214,9 +221,19 @@ def sample_ollama():
             fh.write(f"{now_iso()} {ln}\n")
 
 
-def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False):
-    log(f"NUDGE: {role} wrote output for {run_id} but never signaled — "
-        f"running signal-complete")
+def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False, stalled=None,
+          why=None):
+    """Re-deliver `role`'s signal-complete for `run_id`.
+
+    `stalled` and `why` name the role the chain is actually waiting on,
+    which is not always `role`: when a receiver was dispatched and produced
+    nothing, the repair is still to re-send the SENDER's callback (that is
+    what re-prompts the receiver), but the log must point at the receiver.
+    """
+    stalled = stalled or role
+    why = why or "wrote output but never signaled"
+    log(f"NUDGE: {stalled} {why} (run {run_id}) — re-delivering "
+        f"{role}'s signal-complete")
     if dry_run:
         log("  dry-run: signal-complete NOT sent")
         return True
@@ -240,30 +257,41 @@ def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False):
         return True
 
 
-def recent_signal_delivered(role, next_role, run_id, within_minutes):
-    """True when trace.log shows a signal_complete for this step recently —
-    the callback WAS delivered; the next role is just slow (model load /
-    long generation). Prevents duplicate-callback nudges (flow 066)."""
+def signal_age_minutes(role, next_role, run_id):
+    """Minutes since the last signal_complete for this step on trace.log,
+    or None when the step has no such line.
+
+    The age of the INBOUND signal is the only honest clock for a receiver:
+    it says how long the role has had the work, which the sender's file
+    mtime does not (run goal-006, handoff 21)."""
     trace = Path(config.get_bridge_dir()) / "trace.log"
     try:
         lines = trace.read_text(encoding="utf-8").splitlines()[-200:]
     except OSError:
-        return False
+        return None
     needle = f"| {role}->{next_role} | {run_id} | signal_complete |"
     for line in reversed(lines):
         if needle not in line:
             continue
-        if within_minutes is None:
-            return True  # any-time match requested
-        cutoff = time.time() - within_minutes * 60
         try:
             ts = datetime.strptime(line.split(" | ")[0],
                                    "%Y-%m-%dT%H:%M:%SZ")
-            ts = ts.replace(tzinfo=timezone.utc)
-            return ts.timestamp() >= cutoff
         except ValueError:
-            return True  # unparseable timestamp: assume recent, stay safe
-    return False
+            return 0.0  # unparseable timestamp: assume just delivered
+        ts = ts.replace(tzinfo=timezone.utc)
+        return (time.time() - ts.timestamp()) / 60.0
+    return None
+
+
+def recent_signal_delivered(role, next_role, run_id, within_minutes):
+    """True when trace.log shows a signal_complete for this step recently —
+    the callback WAS delivered; the next role is just slow (model load /
+    long generation). Prevents duplicate-callback nudges (flow 066).
+    `within_minutes=None` matches a signal of any age."""
+    age = signal_age_minutes(role, next_role, run_id)
+    if age is None:
+        return False
+    return within_minutes is None or age <= within_minutes
 
 
 # ---------------------------------------------------------------------------
@@ -359,24 +387,41 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
         is_last = i == len(steps) - 1
         if not is_last and step_deliverable(steps[i + 1], run_id):
             continue  # step already advanced
-        if recent_signal_delivered(step["from_role"], step["to_role"],
-                                   run_id, stall_minutes * 2):
-            return "active"  # callback delivered; next role loading/slow
         if not is_last:
             session = sessions.get(step["to_role"], step["to_role"])
             if pane_active(session):
                 return "active"  # next role already working
-        age_min = (time.time() - out.stat().st_mtime) / 60.0
-        if age_min < stall_minutes:
-            return "active"
-        key = f"{flow_key}:{run_id}:{step['from_role']}"
+        signal_age = signal_age_minutes(step["from_role"], step["to_role"],
+                                        run_id)
+        if signal_age is not None:
+            # RECEIVER STALL: the callback WAS delivered, so the missing
+            # deliverable belongs to to_role — it was dispatched, produced
+            # nothing, and its pane went idle (run goal-006, handoff 21).
+            # Time it by the inbound signal, NOT by the sender's file age:
+            # the sender did its job and its mtime says nothing about how
+            # long the receiver has been silent.
+            if signal_age < stall_minutes:
+                return "active"  # receiver still inside its working window
+            stalled = step["to_role"]
+            why = (f"was dispatched {signal_age:.0f} min ago but produced no "
+                   f"deliverable and its pane is idle")
+        else:
+            # SENDER STALL: no callback on trace.log — from_role wrote its
+            # output and ended its turn without signal-complete.
+            age_min = (time.time() - out.stat().st_mtime) / 60.0
+            if age_min < stall_minutes:
+                return "active"
+            stalled = step["from_role"]
+            why = "wrote output but never signaled"
+        key = f"{flow_key}:{run_id}:{stalled}"
         if state.get(key, 0) >= MAX_NUDGES_PER_STEP:
             log(f"SKIP: {key} already nudged twice — human attention needed")
             return "idle"
         if not dry_run:
             state[key] = state.get(key, 0) + 1
             save_state(state)
-        nudge(step["from_role"], run_id, flow_key, dry_run)
+        nudge(step["from_role"], run_id, flow_key, dry_run,
+              stalled=stalled, why=why)
         return "nudged"
     return "idle"
 
