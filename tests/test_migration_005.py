@@ -78,8 +78,15 @@ def test_migration_005_imple01cloud_migrated():
     assert row[1], "imple01cloud should have a model_alias"
 
 
-def test_migration_005_imple01_unchanged():
-    """imple01 was already on allocator before migration — stays unchanged."""
+def test_migration_005_imple01_still_on_allocator():
+    """imple01 was already on allocator before migration — it stays there.
+
+    Asserts the migration's invariant (source + a non-empty alias), NOT a
+    specific alias: which model imple01 runs is live configuration the Human
+    changes at will (e.g. imple01-local -> cloud_minimax, commit ee4d8d0),
+    and pinning it here turned an intentional config change into a red
+    suite.
+    """
     conn = sqlite3.connect(_db_path())
     row = conn.execute("""
         SELECT default_model_source, default_model_alias FROM bridge_roles
@@ -88,4 +95,4 @@ def test_migration_005_imple01_unchanged():
     conn.close()
     assert row is not None
     assert row[0] == "model_allocator"
-    assert row[1] == "imple01-local"
+    assert row[1], "imple01 should have a model_alias"
