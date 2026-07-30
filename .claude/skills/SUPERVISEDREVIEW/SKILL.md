@@ -7,7 +7,7 @@ description: Reconstruct the Supervisor's full context after a cold start in the
 
 Invoke with `/supervised_review` to reconstruct the Supervisor's full context
 after a cold start in the `supervised_review` flow. The supervisor is
-stateless per wake-up BY DESIGN (501): this procedure is the same rebuild it
+stateless per wake-up BY DESIGN (451): this procedure is the same rebuild it
 performs on every verdict delivery — run it manually whenever the session
 starts cold outside a dispatch.
 
@@ -69,7 +69,7 @@ Hard rules 1-3 and 5-10 of `docs/StartUpNextSession.md` §3 apply; rule 4 is
 adapted (commits allowed ONLY on the GOAL.md feature branch under its
 Standing Approvals).
 
-### Step 5: Verify Environment (501 Invariants)
+### Step 5: Verify Environment (451 Invariants)
 
 ```bash
 cd /home/svend/DPMtF-WebUI
@@ -103,7 +103,7 @@ python3 scripts/bridgeV002/chain_watchdog.py --flow supervised_review --once --d
 |-----------------|---------|-------------|
 | `complete` | Final signal review02sup→supervisor_auto delivered | If the ledger has no entry for this verdict, the wake-up was missed — process it now per 451 (verify testgoals yourself, checkpoint, next handoff or run end) |
 | `active` | A role is working or a signal was just delivered | Wait. Do NOT dispatch. Ensure a live watchdog is running (see Rules) |
-| `nudged` (dry-run: "NOT sent") | Stall detected — the log line names the stalled role and which of the two forms it is | Verify via trace.log, then either let a non-dry-run watchdog pass nudge, or nudge manually per 501 (once), then ledger it |
+| `nudged` (dry-run: "NOT sent") | Stall detected — the log line names the stalled role and which of the two forms it is | Verify via trace.log, then either let a non-dry-run watchdog pass nudge, or nudge manually per 451 (once), then ledger it |
 | `idle` | Chain not started, or the stalled role has already used its 2 nudges | Diagnose from trace.log + panes; park if the budget is spent |
 
 Two known failure modes, both repaired by re-delivering the SENDER's
@@ -141,7 +141,7 @@ Summarize in a compact table:
 | Assessment | ready / waiting for verdict / stall — action needed / parked |
 
 Then wait for the Human (or, mid-run with all invariants green and an
-unprocessed event found in Step 6, proceed per the 501 wake-up protocol).
+unprocessed event found in Step 6, proceed per the 451 wake-up protocol).
 
 ## Rules
 
