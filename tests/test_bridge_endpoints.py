@@ -222,3 +222,42 @@ def test_update_flow_treats_blank_as_unset(client: TestClient, tmp_path) -> None
 
     after = client.get("/api/bridge-v2/flows/test_flow").json()["flow"]
     assert after["target_project_path"] is None
+
+
+# ── Flow card attach command (viewer session) ──────────────────────────
+
+
+def test_flow_list_exposes_the_viewer_session_name(client: TestClient) -> None:
+    """The flow card builds `tmux attach -t <viewer_session>` from this field."""
+    flows = client.get("/api/bridge-v2/flows").json()["flows"]
+    assert flows, "fixture must seed at least one flow"
+    for flow in flows:
+        assert flow["viewer_session"] == "flow-" + flow["flow_key"]
+
+
+def test_flow_detail_exposes_the_viewer_session_name(client: TestClient) -> None:
+    """The card renders from the detail endpoint; the list is only its fallback."""
+    body = client.get("/api/bridge-v2/flows/test_flow").json()
+    assert body["flow"]["viewer_session"] == "flow-test_flow"
+
+
+def test_viewer_session_name_tracks_attach_tmux_not_a_literal() -> None:
+    """The API must derive the name from the script that creates the session.
+
+    Spelling "flow-" into the router or the frontend would let the UI hand
+    out an attach command for a session that attach_tmux.py never builds.
+    """
+    from attach_tmux import VIEWER_SESSION_PREFIX
+    from routers.bridge import _with_viewer_session
+
+    annotated = _with_viewer_session({"flow_key": "some_flow"})
+    assert annotated["viewer_session"] == VIEWER_SESSION_PREFIX + "some_flow"
+
+
+def test_viewer_session_annotation_does_not_mutate_the_row(client: TestClient) -> None:
+    """_with_viewer_session copies; a shared row must not gain a stray key."""
+    from routers.bridge import _with_viewer_session
+
+    row = {"flow_key": "some_flow", "name": "Some Flow"}
+    _with_viewer_session(row)
+    assert "viewer_session" not in row

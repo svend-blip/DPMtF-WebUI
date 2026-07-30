@@ -311,6 +311,47 @@ function lbl(key, fallback) {
 }
 
 /**
+ * Copy text to the clipboard, reporting success to the caller.
+ *
+ * navigator.clipboard is undefined outside a secure context, and this app
+ * listens on 0.0.0.0 — reached over http from another machine, the modern
+ * API is simply not there. The textarea + execCommand path is the fallback
+ * that still works there. The callback receives false when neither
+ * succeeds, so the caller can tell the user to copy manually rather than
+ * silently doing nothing.
+ */
+function copyTextToClipboard(text, done) {
+  var report = typeof done === "function" ? done : function () {};
+
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(
+      function () { report(true); },
+      function () { report(legacyCopy(text)); }
+    );
+    return;
+  }
+  report(legacyCopy(text));
+}
+
+function legacyCopy(text) {
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  var ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (e) {
+    ok = false;
+  }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+/**
  * Factory for a model_source + model_alias control pair.
  * Simplified: model_source is fixed (model_allocator or python_runtime),
  * model_alias is a text field with a "Test OK" button, and a link to
@@ -2124,6 +2165,54 @@ function renderFlowCard(flow, steps) {
     var acBadge = el("span", "dpmtf-badge dpmtf-badge-warning");
     acBadge.textContent = lbl("lbl_bridge_flow_auto_complete", "Auto-complete enabled");
     card.appendChild(acBadge);
+  }
+
+  // Attach command — the viewer session built by "Attach tmux" groups this
+  // flow's role windows, so one command reconnects to all of them. The
+  // session name comes from the API (derived from attach_tmux.py's prefix),
+  // never spelled out here.
+  var viewerSession = flow.viewer_session || "";
+  if (viewerSession) {
+    var attachCmd = "tmux attach -t " + viewerSession;
+
+    var attachDiv = el("div", "dpmtf-form-group");
+    attachDiv.style.marginTop = "8px";
+    attachDiv.appendChild(el("label", "dpmtf-label",
+      lbl("lbl_bridge_flow_attach_command", "Attach command")));
+
+    var attachRow = el("div", null);
+    attachRow.style.display = "flex";
+    attachRow.style.gap = "8px";
+    attachRow.style.alignItems = "center";
+
+    var attachInput = el("input", null);
+    attachInput.type = "text";
+    attachInput.value = attachCmd;
+    attachInput.readOnly = true;
+    attachInput.style.flex = "1";
+    attachInput.style.fontFamily = "monospace";
+    attachInput.onclick = function () { attachInput.select(); };
+    attachRow.appendChild(attachInput);
+
+    var attachCopyBtn = el("button", "dpmtf-btn dpmtf-small");
+    attachCopyBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
+    attachCopyBtn.onclick = function () {
+      copyTextToClipboard(attachCmd, function (ok) {
+        attachCopyBtn.textContent = ok
+          ? lbl("lbl_btn_copied", "Copied!")
+          : lbl("lbl_btn_copy_failed", "Copy failed — select and copy manually");
+        setTimeout(function () {
+          attachCopyBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
+        }, 2000);
+      });
+    };
+    attachRow.appendChild(attachCopyBtn);
+
+    attachDiv.appendChild(attachRow);
+    attachDiv.appendChild(el("p", "dpmtf-muted",
+      lbl("lbl_bridge_flow_attach_hint",
+        "Run \"Attach tmux\" first to build this session, then paste the command in a terminal.")));
+    card.appendChild(attachDiv);
   }
 
   // Action buttons

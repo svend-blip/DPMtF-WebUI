@@ -54,6 +54,7 @@ from fastapi.responses import StreamingResponse
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT / "scripts" / "bridgeV002"))
 
+from attach_tmux import VIEWER_SESSION_PREFIX  # noqa: E402
 from bridge_lib import (  # noqa: E402
     _bridgev002_tables_exist,
     list_flows_from_db,
@@ -111,11 +112,23 @@ async def bridge_v2_get_role(role_key: str):
         raise HTTPException(status_code=500, detail=f"Failed to load bridge role: {e}")
 
 
+def _with_viewer_session(flow: dict) -> dict:
+    """Annotate a flow row with the tmux viewer session attach_tmux.py builds.
+
+    The name is derived from attach_tmux.VIEWER_SESSION_PREFIX rather than
+    spelled out here or in the frontend, so the UI cannot drift from the
+    script that actually creates the session.
+    """
+    flow = dict(flow)
+    flow["viewer_session"] = f"{VIEWER_SESSION_PREFIX}{flow.get('flow_key', '')}"
+    return flow
+
+
 @router.get("/flows")
 async def bridge_v2_list_flows():
     """Return all active BridgeV002 flows from database."""
     try:
-        flows = list_flows_from_db(get_db_path())
+        flows = [_with_viewer_session(f) for f in list_flows_from_db(get_db_path())]
         return {"flows": flows, "count": len(flows)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list bridge flows: {e}")
@@ -126,7 +139,11 @@ async def bridge_v2_get_flow(flow_key: str):
     """Return a BridgeV002 flow definition and its steps from database."""
     try:
         flow_data = load_flow_from_db(flow_key, get_db_path())
-        return {"flow": flow_data["flow"], "steps": flow_data["steps"], "step_count": len(flow_data["steps"])}
+        return {
+            "flow": _with_viewer_session(flow_data["flow"]),
+            "steps": flow_data["steps"],
+            "step_count": len(flow_data["steps"]),
+        }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
