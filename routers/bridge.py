@@ -579,7 +579,14 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "config_dir",  # OpenCode config directory override
         "default_model_source", "default_model_alias",  # V3A: Model Allocator source / alias
         "trade_mcp_push_mode", "max_output_tokens",  # Migration 004: runtime config
+        "workdir_mode",  # Migration 023: coding-session working directory
     ]
+    if "workdir_mode" in data and data["workdir_mode"] not in ("target_project", "father"):
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"workdir_mode must be 'target_project' or 'father', got {data['workdir_mode']!r}",
+        )
     sets = []
     params = []
     for field in updatable:

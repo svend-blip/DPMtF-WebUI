@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 from bridge_lib import (  # noqa: E402
     ensure_opencode_model_field,
     get_effective_model_source,
+    get_flow_target_project,
     resolve_placeholders,
 )
 
@@ -55,6 +56,7 @@ def get_flow_roles(db_path, flow_key):
                r.max_output_tokens,
                r.config_dir,
                r.allocator_client,
+               r.workdir_mode,
                s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
@@ -72,6 +74,7 @@ def get_flow_roles(db_path, flow_key):
                r.max_output_tokens,
                r.config_dir,
                r.allocator_client,
+               r.workdir_mode,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.to_role = r.role_key
@@ -101,6 +104,7 @@ def get_flow_roles(db_path, flow_key):
                 "max_output_tokens": row["max_output_tokens"],
                 "config_dir": row["config_dir"],
                 "allocator_client": row["allocator_client"] or "opencode",
+                "workdir_mode": row["workdir_mode"] or "target_project",
             })
 
     conn.close()
@@ -170,6 +174,17 @@ def main():
     if not roles:
         print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
         return
+
+    # Resolve the flow's target project ONCE, before any session is touched.
+    # get_flow_target_project falls back to Father when the flow sets no
+    # target, and raises loudly on a configured-but-missing directory — so a
+    # broken target fails here rather than leaving half the chain started.
+    # Which directory each role actually starts in is per-role data
+    # (bridge_roles.workdir_mode, migration 023): chain workers follow the
+    # flow's target, Father-procedure roles (supervisors, architects) stay
+    # in Father. Prompts are cwd-independent either way — dispatch injects
+    # absolute governance paths and the Target Project block.
+    target_cwd = get_flow_target_project(args.flow_key, db_path=db_path)
 
     # 2. Process each role — start coding frontend via Model Allocator
     started = []
@@ -251,7 +266,7 @@ def main():
                     timeout=60,
                 )
                 shell_str = result.stdout.strip()
-                cwd = project_root
+                cwd = project_root if role["workdir_mode"] == "father" else target_cwd
                 cmd_str = f"cd {cwd} && {shell_str}"
                 print(f"  {role['role_key']:15s} → '{session_name}'  (model_allocator) ...")
                 ok = run_cmd_in_session(

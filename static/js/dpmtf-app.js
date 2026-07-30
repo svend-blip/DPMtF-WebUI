@@ -2680,6 +2680,12 @@ function editBridgeRoleFull(roleKey) {
           body.enter_command = ec.value;
         }
 
+        // Migration 023: workdir_mode select
+        var wm = document.getElementById("bridge-edit-input-workdir_mode");
+        if (wm && wm.value) {
+          body.workdir_mode = wm.value;
+        }
+
         // Runtime config
         var pmEl = document.getElementById("bridge-edit-input-trade-mcp-push-mode");
         var moEl = document.getElementById("bridge-edit-input-max-output-tokens");
@@ -2783,6 +2789,30 @@ function editBridgeRoleFull(roleKey) {
       });
       rtDiv.appendChild(rtSelect);
       form.appendChild(rtDiv);
+
+      // Migration 023: workdir_mode select — which directory the role's
+      // coding session starts in. Prompts stay cwd-independent (dispatch
+      // injects absolute governance paths), so this only moves the shell.
+      var wmDiv = el("div", "dpmtf-form-group");
+      wmDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_workdir_mode", "Working Directory")));
+      var wmSelect = el("select", null);
+      wmSelect.id = "bridge-edit-input-workdir_mode";
+      [
+        ["target_project", lbl("lbl_bridge_workdir_target", "Flow's target project")],
+        ["father", lbl("lbl_bridge_workdir_father", "This project (Father)")]
+      ].forEach(function (pair) {
+        var opt = document.createElement("option");
+        opt.value = pair[0];
+        opt.textContent = pair[1];
+        if ((role.workdir_mode || "target_project") === pair[0]) opt.selected = true;
+        wmSelect.appendChild(opt);
+      });
+      wmDiv.appendChild(wmSelect);
+      wmDiv.appendChild(el("p", "dpmtf-muted",
+        lbl("lbl_bridge_workdir_help",
+          "Where this role's coding session starts. Chain workers follow the flow's Target Project Path; supervisors and architects stay in this project.")));
+      form.appendChild(wmDiv);
 
       // H150: enter_command select
       var ecDiv2 = el("div", "dpmtf-form-group");
