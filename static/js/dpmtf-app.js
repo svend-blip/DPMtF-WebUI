@@ -2154,6 +2154,21 @@ function renderFlowCard(flow, steps) {
   ].filter(Boolean).join(" — ");
   card.appendChild(el("p", "dpmtf-small", details));
 
+  // Target project — shown on the card itself so an unset path is visible
+  // before dispatching. Reuses the edit form's labels (migration 018).
+  var tpLine = el("p", "dpmtf-small");
+  tpLine.appendChild(el("span", "dpmtf-muted",
+    lbl("lbl_bridge_flow_target_project", "Target Project Path") + ": "));
+  if (flow.target_project_path) {
+    var tpValue = el("span", null, flow.target_project_path);
+    tpValue.style.fontFamily = "monospace";
+    tpLine.appendChild(tpValue);
+  } else {
+    tpLine.appendChild(el("span", "dpmtf-muted",
+      lbl("lbl_bridge_flow_target_project_placeholder", "Empty = this project")));
+  }
+  card.appendChild(tpLine);
+
   // Step count badge
   if (steps && steps.length) {
     card.appendChild(el("p", "dpmtf-badge dpmtf-badge-info", String(steps.length) + " step(s)"));
@@ -2165,54 +2180,6 @@ function renderFlowCard(flow, steps) {
     var acBadge = el("span", "dpmtf-badge dpmtf-badge-warning");
     acBadge.textContent = lbl("lbl_bridge_flow_auto_complete", "Auto-complete enabled");
     card.appendChild(acBadge);
-  }
-
-  // Attach command — the viewer session built by "Attach tmux" groups this
-  // flow's role windows, so one command reconnects to all of them. The
-  // session name comes from the API (derived from attach_tmux.py's prefix),
-  // never spelled out here.
-  var viewerSession = flow.viewer_session || "";
-  if (viewerSession) {
-    var attachCmd = "tmux attach -t " + viewerSession;
-
-    var attachDiv = el("div", "dpmtf-form-group");
-    attachDiv.style.marginTop = "8px";
-    attachDiv.appendChild(el("label", "dpmtf-label",
-      lbl("lbl_bridge_flow_attach_command", "Attach command")));
-
-    var attachRow = el("div", null);
-    attachRow.style.display = "flex";
-    attachRow.style.gap = "8px";
-    attachRow.style.alignItems = "center";
-
-    var attachInput = el("input", null);
-    attachInput.type = "text";
-    attachInput.value = attachCmd;
-    attachInput.readOnly = true;
-    attachInput.style.flex = "1";
-    attachInput.style.fontFamily = "monospace";
-    attachInput.onclick = function () { attachInput.select(); };
-    attachRow.appendChild(attachInput);
-
-    var attachCopyBtn = el("button", "dpmtf-btn dpmtf-small");
-    attachCopyBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
-    attachCopyBtn.onclick = function () {
-      copyTextToClipboard(attachCmd, function (ok) {
-        attachCopyBtn.textContent = ok
-          ? lbl("lbl_btn_copied", "Copied!")
-          : lbl("lbl_btn_copy_failed", "Copy failed — select and copy manually");
-        setTimeout(function () {
-          attachCopyBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
-        }, 2000);
-      });
-    };
-    attachRow.appendChild(attachCopyBtn);
-
-    attachDiv.appendChild(attachRow);
-    attachDiv.appendChild(el("p", "dpmtf-muted",
-      lbl("lbl_bridge_flow_attach_hint",
-        "Run \"Attach tmux\" first to build this session, then paste the command in a terminal.")));
-    card.appendChild(attachDiv);
   }
 
   // Action buttons
@@ -2272,6 +2239,56 @@ function renderFlowCard(flow, steps) {
   actions.appendChild(delBtn);
 
   card.appendChild(actions);
+
+  // Attach command — the viewer session built by "Attach tmux" groups this
+  // flow's role windows, so one command reconnects to all of them. The
+  // session name comes from the API (derived from attach_tmux.py's prefix),
+  // never spelled out here. Kept at the bottom of the card, below the
+  // action buttons.
+  var viewerSession = flow.viewer_session || "";
+  if (viewerSession) {
+    var attachCmd = "tmux attach -t " + viewerSession;
+
+    var attachDiv = el("div", "dpmtf-form-group");
+    attachDiv.style.marginTop = "8px";
+    attachDiv.appendChild(el("label", "dpmtf-label",
+      lbl("lbl_bridge_flow_attach_command", "Attach command")));
+
+    var attachRow = el("div", null);
+    attachRow.style.display = "flex";
+    attachRow.style.gap = "8px";
+    attachRow.style.alignItems = "center";
+
+    var attachInput = el("input", null);
+    attachInput.type = "text";
+    attachInput.value = attachCmd;
+    attachInput.readOnly = true;
+    attachInput.style.flex = "1";
+    attachInput.style.fontFamily = "monospace";
+    attachInput.onclick = function () { attachInput.select(); };
+    attachRow.appendChild(attachInput);
+
+    var attachCopyBtn = el("button", "dpmtf-btn dpmtf-small");
+    attachCopyBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
+    attachCopyBtn.onclick = function () {
+      copyTextToClipboard(attachCmd, function (ok) {
+        attachCopyBtn.textContent = ok
+          ? lbl("lbl_btn_copied", "Copied!")
+          : lbl("lbl_btn_copy_failed", "Copy failed — select and copy manually");
+        setTimeout(function () {
+          attachCopyBtn.textContent = lbl("lbl_btn_copy_command", "Copy Command");
+        }, 2000);
+      });
+    };
+    attachRow.appendChild(attachCopyBtn);
+
+    attachDiv.appendChild(attachRow);
+    attachDiv.appendChild(el("p", "dpmtf-muted",
+      lbl("lbl_bridge_flow_attach_hint",
+        "Run \"Attach tmux\" first to build this session, then paste the command in a terminal.")));
+    card.appendChild(attachDiv);
+  }
+
   return card;
 }
 
