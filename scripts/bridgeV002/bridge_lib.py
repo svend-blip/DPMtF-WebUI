@@ -590,6 +590,64 @@ def load_flow_from_db(flow_name, db_path=None):
     return {"flow": flow, "steps": steps}
 
 
+def get_flow_target_project(flow_key, db_path=None):
+    """Return the absolute path of the project a flow operates on.
+
+    Roles are shared across flows — ``imple01`` serves both
+    ``strict_review`` and ``supervised_review`` — so the target project
+    belongs to the flow, not to the role. Keying it per flow is also what
+    lets several flows run against different projects at the same time.
+
+    A flow with no ``target_project_path`` targets Father, which is the
+    historical behaviour and the default for every flow that does not set
+    one.
+
+    Args:
+        flow_key: The flow_key to look up.
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        str: absolute path to the target project. Never empty.
+
+    Raises:
+        ValueError: If the flow sets a target that does not exist on disk.
+            A dispatch onto a missing directory is the silent failure this
+            column exists to remove, so it fails loudly instead.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+
+    target = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT target_project_path FROM bridge_flows WHERE flow_key = ?",
+            (flow_key,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            target = (row[0] or "").strip()
+    except sqlite3.OperationalError:
+        # Column not present yet (migration 016 not applied) — fall back to
+        # Father, which is exactly the behaviour that predates the column.
+        target = None
+
+    if not target:
+        return config.get_project_root()
+
+    if not os.path.isdir(target):
+        raise ValueError(
+            f"Flow '{flow_key}' targets project path '{target}', which does "
+            f"not exist. Fix bridge_flows.target_project_path before "
+            f"dispatching — a role sent to a missing directory silently "
+            f"reviews the wrong repository."
+        )
+
+    return target
+
+
 def list_roles_from_db(db_path=None):
     """List all active roles from bridge_roles table.
 

@@ -33,10 +33,41 @@ from bridge_lib import (
     resolve_placeholders,
     list_scripts_from_db,
     get_effective_model_source,
+    get_flow_target_project,
 )
 
 # ── Constants ──────────────────────────────────────────────
 _STARTUP_FILE = "docs/StartUpNextSession.md"
+
+
+def build_target_project_block(flow_key):
+    """Return the authoritative Target Project preamble for an injection.
+
+    A role reads its governance file FROM DISK, so a `{project_path}`
+    placeholder written inside that file is never interpolated by anything —
+    it reaches the role as literal text. The only text this dispatcher
+    controls is the prompt it injects, so the target project has to be
+    stated here to be stated at all.
+
+    Returns an empty string when the flow targets Father, so the injection
+    for Father-targeting flows is unchanged.
+    """
+    target = get_flow_target_project(flow_key, db_path=_db_path())
+
+    if os.path.realpath(target) == os.path.realpath(str(PROJECT_ROOT)):
+        return ""
+
+    return (
+        f"## Target Project\n"
+        f"This flow operates on {target} — NOT on {PROJECT_ROOT}.\n"
+        f"`cd {target}` before running ANY check, and run every command "
+        f"there.\n"
+        f"This line is authoritative: it overrides any `{{project_path}}` "
+        f"placeholder or Father-specific path in your governance file.\n"
+        f"If a command reports that a file does not exist, or a test count "
+        f"disagrees with the delivered result, you are in the wrong "
+        f"directory — check with `pwd` before concluding anything.\n\n"
+    )
 
 # ── Trade-MCP push contexts (PILOT) ────────────────────────
 # Deterministic pre-fetched contexts injected into selected trade-role
@@ -1206,6 +1237,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
             prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
             prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+            prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
             prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
             prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
             prompt_text = prompt_text.replace("{output_file}", output_file_rs)
@@ -1217,6 +1249,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
         prompt_text = prompt_text.replace("{output_file}", output_file_rs)
@@ -1617,6 +1650,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
         prompt_text = prompt_text.replace("{output_file}", output_file_sc)
@@ -1685,6 +1719,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     if gov_file:
         gov_path = os.path.join(project_root_sc, "docs", "governance-templates-v2", gov_file)
         prompt_text = (
+            f"{build_target_project_block(payload['flow_key'])}"
             f"Read your role definition at {gov_path} before proceeding.\n\n"
             f"{prompt_text}"
         )
@@ -2030,6 +2065,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
         # Inject the actual question file path so architect knows what to read
         prompt_text += f"\n\n## Escalation Question File\nRead the escalation question from: {full_question_path}"
     else:
@@ -2045,6 +2081,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         gov_path_e = os.path.join(PROJECT_ROOT,
                                   "docs", "governance-templates-v2", gov_file)
         prompt_text = (
+            f"{build_target_project_block(flow_key)}"
             f"Your role is defined in {gov_path_e}. Read it now before proceeding.\n\n"
             f"{prompt_text}"
         )
@@ -2178,6 +2215,7 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
     else:
         prompt_text = (
             f"The role '{from_role_key}' has provided an escalation response "
@@ -2512,6 +2550,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", deliverable_dir)
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
         prompt_text = prompt_text.replace("{output_file}", output_file)
@@ -2569,6 +2608,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Prepend governance file reference for target role
     if gov_file:
         prompt_text = (
+            f"{build_target_project_block(flow_key)}"
             f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
             f"{prompt_text}"
         )

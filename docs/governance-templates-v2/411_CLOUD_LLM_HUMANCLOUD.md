@@ -40,7 +40,8 @@ The verdict contains:
 ## Commit Procedure (APPROVE only)
 
 ```bash
-cd {project_path}
+cd <the target project — see the Target Project block in your dispatch
+   # prompt, or the handoff's <project> section; Father when neither names one>
 git add <specific files from verdict>    # NEVER git add -A
 git commit -m "<commit message from verdict>"
 git push  # optional, only if you want to push immediately

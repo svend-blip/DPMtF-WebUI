@@ -45,7 +45,9 @@ Run ALL of these checks. Document each result as PASS or FAIL.
 
 ### 1. Backend Syntax
 ```bash
-cd {project_path}
+# from the target project named in the `## Target Project` block of your
+# dispatch prompt (Father when that block is absent). `pwd` first — a check
+# run in the wrong repository reports confident results about the wrong code.
 python3 -m py_compile app.py
 # and for each changed Python file:
 python3 -m py_compile <changed_file>

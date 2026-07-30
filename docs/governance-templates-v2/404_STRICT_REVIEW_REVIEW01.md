@@ -39,13 +39,33 @@ From imple01, via the bridge directory:
 {bridge_dir}/strict_review/results/{ID}-notification.md   ← completion notification
 ```
 
+## Target Project — resolve this BEFORE any check
+
+**You are not necessarily reviewing Father.** A flow's target project is
+configured per flow (`bridge_flows.target_project_path`) and is stated in a
+`## Target Project` block at the top of your dispatch prompt. When that block
+is present, `cd` to the path it names and run EVERY command below there. When
+it is absent, the flow targets Father and you stay in `/home/svend/DPMtF-WebUI`.
+The handoff's own `<project>` section names the same path.
+
+`pwd` before you conclude anything. If a file the result file claims does not
+exist, or a test count disagrees with the delivered one, the first hypothesis
+is that you are in the wrong repository — not that the implementer lied. A
+review run in the wrong directory produces confident FAILs on true-of-Father
+grounds, and confident PASSes on checks that never ran against the code.
+
+The checklist below is written for a Father-shaped project (`app.py`,
+`static/js/`, `templates/`). Against a different target, apply each check to
+that project's equivalent and mark the ones that do not apply `N/A` — do not
+report a PASS for a check whose files do not exist there.
+
 ## Technical Validation Checklist
 
 Run ALL of these checks. Document each result as PASS or FAIL.
 
 ### 1. Backend Syntax
 ```bash
-cd {project_path}
+# from the target project resolved above
 python3 -m py_compile app.py
 # and for each changed Python file:
 python3 -m py_compile <changed_file>
@@ -96,12 +116,16 @@ git diff | grep -E "ALTER TABLE|CREATE TABLE"
 
 ### 9. Test Suite (MANDATORY — never skip)
 ```bash
-cd {project_path}
+# from the target project resolved above — NOT from Father
 python3 -m pytest tests/ -q
 # YOU must run this yourself — do NOT trust the pytest summary reported
 # in imple01's result file. Quote the actual summary line (e.g.
 # "176 passed in 18.04s") verbatim in your review.
 # ANY failed test → automatic FAIL, regardless of all other checks.
+#
+# A count that disagrees with the result file by a large margin is
+# evidence about YOUR cwd first and the implementer second: confirm with
+# `pwd` and `git branch --show-current` before reporting a discrepancy.
 ```
 
 ## Writing the Technical Review
