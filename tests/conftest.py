@@ -60,6 +60,7 @@ _BRIDGE_SCHEMA_SQL = [
         use_machine_profile INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
         auto_complete_enabled INTEGER DEFAULT 0,
+        target_project_path TEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )

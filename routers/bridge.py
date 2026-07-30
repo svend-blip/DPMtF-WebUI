@@ -788,9 +788,25 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
         conn.close()
         raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
 
+    # A flow's target project must exist before it is stored: dispatch sends
+    # roles there, and a role pointed at a missing directory silently reviews
+    # whatever repository its session happens to be sitting in.
+    if "target_project_path" in data:
+        target = (data["target_project_path"] or "").strip()
+        if target and not os.path.isdir(target):
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Target project path '{target}' does not exist. "
+                    f"Leave it empty for flows that operate on this project."
+                ),
+            )
+        data["target_project_path"] = target or None
+
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
-        "auto_complete_enabled", "use_machine_profile",
+        "auto_complete_enabled", "use_machine_profile", "target_project_path",
     ]
     sets = []
     params = []

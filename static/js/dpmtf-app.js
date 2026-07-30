@@ -2821,12 +2821,24 @@ function editBridgeFlowFull(flowKey) {
         var acInput = document.getElementById("bridge-edit-input-auto_complete_enabled");
         if (acInput) body.auto_complete_enabled = acInput.checked ? 1 : 0;
 
+        var tpInput = document.getElementById("bridge-edit-input-target_project_path");
+        if (tpInput) body.target_project_path = tpInput.value.trim();
+
         fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         })
-          .then(function (res) { return res.json(); })
+          .then(function (res) {
+            // A rejected target path returns 400 — surface it instead of
+            // reporting success for a change the server refused to store.
+            return res.json().then(function (payload) {
+              if (!res.ok) {
+                throw new Error(payload.detail || res.status);
+              }
+              return payload;
+            });
+          })
           .then(function () {
             alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + flowKey);
             loadBridgeFlows();
@@ -2869,6 +2881,24 @@ function editBridgeFlowFull(flowKey) {
       descInput.value = flow.description || "";
       descDiv.appendChild(descInput);
       form.appendChild(descDiv);
+
+      // target_project_path — the repository this flow's roles operate in.
+      // Empty means this project (Father). Dispatch states the resolved path
+      // in a Target Project block at the top of every injected prompt.
+      var tpDiv = el("div", "dpmtf-form-group");
+      tpDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_target_project", "Target Project Path")));
+      var tpInput = el("input", null);
+      tpInput.id = "bridge-edit-input-target_project_path";
+      tpInput.type = "text";
+      tpInput.value = flow.target_project_path || "";
+      tpInput.placeholder = lbl("lbl_bridge_flow_target_project_placeholder",
+        "Empty = this project");
+      tpDiv.appendChild(tpInput);
+      tpDiv.appendChild(el("p", "dpmtf-muted",
+        lbl("lbl_bridge_flow_target_project_help",
+          "Absolute path to the repository this flow's roles work in. Must exist. Leave empty for flows that operate on this project.")));
+      form.appendChild(tpDiv);
 
       // auto_complete_enabled checkbox
       var acDiv = el("div", null);

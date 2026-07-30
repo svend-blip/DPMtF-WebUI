@@ -151,3 +151,74 @@ def test_bridge_v2_flows_returns_empty_when_no_tables(
         )
         conn.commit()
         conn.close()
+
+# ── Per-flow target project (migration 016) ────────────────────────────
+
+
+def test_flow_list_exposes_target_project_path(client: TestClient) -> None:
+    """The frontend edit form reads this field straight off the flow row."""
+    response = client.get("/api/bridge-v2/flows")
+    assert response.status_code == 200
+    flows = response.json()["flows"]
+    assert flows, "fixture must seed at least one flow"
+    assert "target_project_path" in flows[0]
+
+
+def test_update_flow_rejects_a_target_that_does_not_exist(
+    client: TestClient, tmp_path
+) -> None:
+    """A stored path that is not there sends roles into the wrong repository.
+
+    This is the goal-009 failure in a different disguise: dispatch would name
+    a directory nobody can cd to, and the role would run its checks wherever
+    its session happened to be sitting. Refuse at write time instead.
+    """
+    missing = tmp_path / "not-created"
+    response = client.put(
+        "/api/bridge-v2/flows/test_flow",
+        json={"target_project_path": str(missing)},
+    )
+    assert response.status_code == 400
+    assert str(missing) in response.json()["detail"]
+
+    # and nothing was written
+    after = client.get("/api/bridge-v2/flows/test_flow").json()["flow"]
+    assert after["target_project_path"] is None
+
+
+def test_update_flow_accepts_an_existing_directory(
+    client: TestClient, tmp_path
+) -> None:
+    target = tmp_path / "some-repo"
+    target.mkdir()
+
+    response = client.put(
+        "/api/bridge-v2/flows/test_flow",
+        json={"target_project_path": str(target)},
+    )
+    assert response.status_code == 200
+
+    after = client.get("/api/bridge-v2/flows/test_flow").json()["flow"]
+    assert after["target_project_path"] == str(target)
+
+
+def test_update_flow_treats_blank_as_unset(client: TestClient, tmp_path) -> None:
+    """A cleared field must store NULL, not an empty string.
+
+    get_flow_target_project() reads "" as unset and falls back to Father, but
+    only NULL says so unambiguously to anything reading the row directly.
+    """
+    target = tmp_path / "some-repo"
+    target.mkdir()
+    client.put(
+        "/api/bridge-v2/flows/test_flow",
+        json={"target_project_path": str(target)},
+    )
+
+    response = client.put(
+        "/api/bridge-v2/flows/test_flow", json={"target_project_path": "   "}
+    )
+    assert response.status_code == 200
+
+    after = client.get("/api/bridge-v2/flows/test_flow").json()["flow"]
+    assert after["target_project_path"] is None
