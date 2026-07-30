@@ -2,7 +2,7 @@
 
 > Copy to `{bridge_dir}/supervisor/runs/{run_id}/GOAL.md`, fill in together
 > with the Human, get explicit Human approval, then start the run.
-> This file is IMMUTABLE during the run (501_SUPERVISOR_AUTONOMOUS.md).
+> This file is IMMUTABLE during the run (451_SUPERVISED_REVIEW_SUPERVISOR.md).
 
 ## Objective
 
@@ -49,7 +49,7 @@ Non-goals (explicitly out of scope):
 - Push to remote feature branch: {yes/no}
 - {other pre-authorized decisions, or "none"}
 
-## Stop Conditions (run-specific, in addition to 501 §Stop)
+## Stop Conditions (run-specific, in addition to 451 §Stop)
 
 - {e.g. "park if TG2 requires touching the scheduler", or "none"}
 

@@ -174,7 +174,7 @@ def _job(hid="42"):
 def test_stall_wake_up_injects_into_supervisor_session(tmp_path):
     sched = _mk_sched(tmp_path)
     role = {"tmux_session": "supervisor", "fresh_session_command": "/clear",
-            "governance_file": "501_SUPERVISOR_AUTONOMOUS.md"}
+            "governance_file": "451_SUPERVISED_REVIEW_SUPERVISOR.md"}
     with patch("bridge_lib.load_role_from_db", return_value=role) as mock_role, \
          patch("dispatch.session_alive", return_value=True), \
          patch("dispatch.inject_prompt") as mock_inject:
@@ -189,7 +189,7 @@ def test_stall_wake_up_injects_into_supervisor_session(tmp_path):
     prompt = args[1]
     assert "42" in prompt                             # handoff id
     assert "/x/results/42-result.md" in prompt        # actual deliverable path
-    assert "501_SUPERVISOR_AUTONOMOUS.md" in prompt   # governance reference
+    assert "451_SUPERVISED_REVIEW_SUPERVISOR.md" in prompt   # governance reference
     assert kwargs.get("fresh_session_command") == "/clear"
 
 
@@ -197,7 +197,7 @@ def test_stall_wake_up_fires_exactly_once(tmp_path):
     """The persisted marker must survive across calls AND instances."""
     sched = _mk_sched(tmp_path)
     role = {"tmux_session": "supervisor", "fresh_session_command": "/clear",
-            "governance_file": "501_SUPERVISOR_AUTONOMOUS.md"}
+            "governance_file": "451_SUPERVISED_REVIEW_SUPERVISOR.md"}
     with patch("bridge_lib.load_role_from_db", return_value=role), \
          patch("dispatch.session_alive", return_value=True), \
          patch("dispatch.inject_prompt") as mock_inject:
@@ -220,7 +220,7 @@ def test_stall_wake_up_fires_exactly_once(tmp_path):
 def test_stall_wake_up_dead_session_never_crashes(tmp_path):
     sched = _mk_sched(tmp_path)
     role = {"tmux_session": "supervisor", "fresh_session_command": "/clear",
-            "governance_file": "501_SUPERVISOR_AUTONOMOUS.md"}
+            "governance_file": "451_SUPERVISED_REVIEW_SUPERVISOR.md"}
     with patch("bridge_lib.load_role_from_db", return_value=role), \
          patch("dispatch.session_alive", return_value=False), \
          patch("dispatch.inject_prompt") as mock_inject:

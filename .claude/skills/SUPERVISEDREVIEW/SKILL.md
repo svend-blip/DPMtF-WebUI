@@ -57,7 +57,7 @@ Do not investigate gaps or compare against files on disk.
 
 ### Step 4: Read Role Definitions
 
-Read `docs/governance-templates-v2/501_SUPERVISOR_AUTONOMOUS.md` (extends
+Read `docs/governance-templates-v2/451_SUPERVISED_REVIEW_SUPERVISOR.md` (extends
 `500_SUPERVISOR.md`). Confirm:
 - Wake-up protocol (rebuild → stop-check → act → persist → stop)
 - Event handling table (verdict APPROVED/REJECTED, escalation, watchdog,
@@ -80,7 +80,7 @@ git status --porcelain      # no changes outside the Scope Fence
                             # (M databases/dpmtf.db = live bookkeeping, expected)
 
 # Verify chain tmux sessions
-for s in imple01 review01 review02; do
+for s in imple01sup review01sup review02sup supervisor_auto; do
   tmux has-session -t "$s" 2>/dev/null && echo "  $s: running" || echo "  $s: NOT RUNNING"
 done
 ```
@@ -101,7 +101,7 @@ python3 scripts/bridgeV002/chain_watchdog.py --flow supervised_review --once --d
 
 | Watchdog status | Meaning | Your action |
 |-----------------|---------|-------------|
-| `complete` | Final signal review02→supervisor_auto delivered | If the ledger has no entry for this verdict, the wake-up was missed — process it now per 501 (verify testgoals yourself, checkpoint, next handoff or run end) |
+| `complete` | Final signal review02sup→supervisor_auto delivered | If the ledger has no entry for this verdict, the wake-up was missed — process it now per 451 (verify testgoals yourself, checkpoint, next handoff or run end) |
 | `active` | A role is working or a signal was just delivered | Wait. Do NOT dispatch. Ensure a live watchdog is running (see Rules) |
 | `nudged` (dry-run: "NOT sent") | Stall detected — the log line names the stalled role and which of the two forms it is | Verify via trace.log, then either let a non-dry-run watchdog pass nudge, or nudge manually per 501 (once), then ledger it |
 | `idle` | Chain not started, or the stalled role has already used its 2 nudges | Diagnose from trace.log + panes; park if the budget is spent |
@@ -136,7 +136,7 @@ Summarize in a compact table:
 | Last handoff | {ID + title from BACKLOG.md} |
 | Chain position | {watchdog status + which deliverables exist} |
 | Next handoff ID | {from database counter} |
-| tmux sessions | imple01/review01/review02 running / NOT RUNNING |
+| tmux sessions | imple01sup/review01sup/review02sup/supervisor_auto running / NOT RUNNING |
 | Invariants | green / FAILED: {which} |
 | Assessment | ready / waiting for verdict / stall — action needed / parked |
 

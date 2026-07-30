@@ -1,7 +1,7 @@
 # Handoff Series — Supervisor Autonomous Loop (H318–H321)
 
 > Architect planning document for wiring the autonomous supervisor loop
-> (governance: `501_SUPERVISOR_AUTONOMOUS.md`). One handoff dispatched at a
+> (governance: `451_SUPERVISED_REVIEW_SUPERVISOR.md`). One handoff dispatched at a
 > time through `strict_review` (hard rule 3 — no batch dispatch). This file
 > is the durable series plan across Architect cold starts.
 
@@ -60,14 +60,14 @@
 - Dispatch the supervisor with event context on: REJECTED verdict
   (rework), watchdog stall timeout, backlog empty while a run is active.
   (APPROVED verdict wake-up already covered by flow step 4.)
-- Invariant preflight before every dispatch (501 §Invariants): health
+- Invariant preflight before every dispatch (451 §Invariants): health
   endpoint, DB opens, correct branch, no changes outside the scope fence.
   Failure → job HUMAN_ACTION_REQUIRED, no dispatch.
 - Escalation-routing decision (see Open decision above) lands here.
 - **From H318 verification:** the step-4 rule_key `agent_delivery` has no
   row in `bridge_convention_rules` (empty prompt_template fallback) — the
   supervisor wake-up prompt content must be defined here, including a
-  reference to `501_SUPERVISOR_AUTONOMOUS.md` (the role's
+  reference to `451_SUPERVISED_REVIEW_SUPERVISOR.md` (the role's
   `governance_file` points at 500, the Human-paired mode).
 - **From H319 live observation:** while imple01 edits
   `scripts/job_queue/scheduler.py`, every cron tick crashes on the

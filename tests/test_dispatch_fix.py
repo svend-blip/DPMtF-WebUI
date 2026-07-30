@@ -1,7 +1,7 @@
 """Regression tests for cyclic-flow final-step prompt composition (H324/H325).
 
-In cyclic flows (supervised_review: supervisor_auto -> imple01 -> review01
--> review02 -> supervisor_auto) dispatch.py resolved "the target role's next
+In cyclic flows (supervised_review: supervisor_auto -> imple01sup ->
+review01sup -> review02sup -> supervisor_auto) dispatch.py resolved "the target role's next
 step" by scanning ALL steps for from_role == target role. When the FINAL
 step completed, that scan matched step 1 again, so the woken supervisor was
 told to (1) write its result to the ORIGINAL handoffs/{ID}-handoff.md and
@@ -132,11 +132,11 @@ def test_s1_final_step_callback_has_no_signal_block(cyclic_env):
     chain deliverable or to signal-complete — that loops the chain."""
     verdict = cyclic_env.bridge / "verdicts" / f"{HID}-verdict.md"
     verdict.write_text(
-        _xml_header("review02", "(review input)") + "\n## Verdict\nAPPROVED\n",
+        _xml_header("review02sup", "(review input)") + "\n## Verdict\nAPPROVED\n",
         encoding="utf-8")
 
     with pytest.raises(_InjectionCaptured):
-        dispatch.signal_complete(FLOW, None, "review02", HID,
+        dispatch.signal_complete(FLOW, None, "review02sup", HID,
                                  bridge_dir=str(cyclic_env.bridge))
 
     prompt = cyclic_env.captured["prompt"]
@@ -153,18 +153,18 @@ def test_s2_mid_chain_callback_keeps_deliverable_and_signal(cyclic_env):
     deliverable path, XML header requirement, and the mandatory signal."""
     result = cyclic_env.bridge / "results" / f"{HID}-result.md"
     result.write_text(
-        _xml_header("imple01", "(handoff input)") + "\n## Summary\ndone\n",
+        _xml_header("imple01sup", "(handoff input)") + "\n## Summary\ndone\n",
         encoding="utf-8")
 
     with pytest.raises(_InjectionCaptured):
-        dispatch.signal_complete(FLOW, None, "imple01", HID,
+        dispatch.signal_complete(FLOW, None, "imple01sup", HID,
                                  bridge_dir=str(cyclic_env.bridge))
 
     prompt = cyclic_env.captured["prompt"]
     assert "Your Deliverable" in prompt
     assert "Signal Completion" in prompt
     assert "--signal-complete" in prompt
-    assert "--from-role review01" in prompt
+    assert "--from-role review01sup" in prompt
     assert f"--id {HID}" in prompt
     # review01's own deliverable (next step's file), not the original handoff:
     assert f"{HID}-review01.md" in prompt
@@ -176,11 +176,11 @@ def test_s3_signal_send_final_step_has_no_signal_block(cyclic_env):
     shape) must not append a mandatory-signal block with the same id."""
     verdict = cyclic_env.bridge / "verdicts" / f"{HID}-verdict.md"
     verdict.write_text(
-        _xml_header("review02", "(review input)") + "\n## Verdict\nAPPROVED\n",
+        _xml_header("review02sup", "(review input)") + "\n## Verdict\nAPPROVED\n",
         encoding="utf-8")
 
     with pytest.raises(_InjectionCaptured):
-        dispatch.signal_send(FLOW, "review02", "supervisor_auto", HID,
+        dispatch.signal_send(FLOW, "review02sup", "supervisor_auto", HID,
                              bridge_dir=str(cyclic_env.bridge))
 
     prompt = cyclic_env.captured["prompt"]
@@ -199,11 +199,11 @@ def test_s2b_signal_send_mid_chain_keeps_signal_block(cyclic_env):
         encoding="utf-8")
 
     with pytest.raises(_InjectionCaptured):
-        dispatch.signal_send(FLOW, "supervisor_auto", "imple01", HID,
+        dispatch.signal_send(FLOW, "supervisor_auto", "imple01sup", HID,
                              bridge_dir=str(cyclic_env.bridge))
 
     prompt = cyclic_env.captured["prompt"]
     assert "Your Deliverable" in prompt
     assert "Signal Completion" in prompt
-    assert "--from-role imple01" in prompt
+    assert "--from-role imple01sup" in prompt
     assert f"{HID}-result.md" in prompt
