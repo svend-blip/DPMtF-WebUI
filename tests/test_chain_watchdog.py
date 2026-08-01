@@ -74,14 +74,21 @@ def flow(tmp_path, monkeypatch):
                 os.utime(p, (stamp, stamp))
             return p
 
-        def signal(self, from_role, to_role, run_id, age_minutes):
-            """Append a signal_complete line to trace.log, backdated."""
+        def signal(self, from_role, to_role, run_id, age_minutes,
+                   signal_type="signal_complete"):
+            """Append a signal line to trace.log, backdated."""
             ts = (datetime.now(timezone.utc)
                   - timedelta(minutes=age_minutes)).strftime(
                       "%Y-%m-%dT%H:%M:%SZ")
             with open(self.trace, "a", encoding="utf-8") as fh:
                 fh.write(f"{ts} | {from_role}->{to_role} | {run_id} | "
-                         f"signal_complete | manual | Callback dispatched\n")
+                         f"{signal_type} | manual | Callback dispatched\n")
+
+        def dispatch(self, from_role, to_role, run_id, age_minutes):
+            """Append the dispatcher's `dispatched` line (the type the
+            supervisor->imple handoff dispatch actually logs)."""
+            self.signal(from_role, to_role, run_id, age_minutes,
+                        signal_type="dispatched")
 
         def active_panes(self, *roles, monkeypatch=monkeypatch):
             monkeypatch.setattr(cw, "pane_active",
@@ -126,6 +133,43 @@ def test_signal_age_ignores_other_runs_and_other_steps(flow):
     flow.signal("review01", "review02", "21", age_minutes=5)
 
     assert cw.signal_age_minutes("imple01", "review01", "21") is None
+
+
+# ── Dispatch step: the dispatcher logs `dispatched`, not
+# `signal_complete` (run goal-016, watchdog-063: the step-1 receiver
+# branch never fired and the pass fell through to sender-stall timing
+# on the handoff file's mtime) ────────────────────────────────────────
+
+def test_signal_age_counts_the_dispatchers_dispatched_line(flow):
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=15)
+
+    age = cw.signal_age_minutes("supervisor_auto", "imple01", "21")
+
+    assert age == pytest.approx(15, abs=1)
+
+
+def test_step1_receiver_is_timed_by_the_dispatch_not_the_handoff_mtime(flow):
+    """The handoff was authored long before the dispatch went out (063:
+    12 min gap). Inside the receiver's window this is 'active', however
+    old the handoff file is."""
+    flow.write(0, "21", age_minutes=30)   # handoff authored, then queued
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=5)
+    flow.record_nudges()
+
+    assert flow.check() == "active"
+    assert flow.nudges == []
+
+
+def test_step1_receiver_stall_names_imple_not_the_supervisor(flow):
+    """Dispatched, produced nothing, pane idle, window elapsed — the
+    stalled role is the receiver, not the sender the old fallback blamed."""
+    flow.write(0, "21", age_minutes=30)
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=15)
+    flow.record_nudges()
+
+    assert flow.check() == "nudged"
+    assert flow.nudges[0]["stalled"] == "imple01"
+    assert "dispatched" in flow.nudges[0]["why"]
 
 
 # ── Receiver stall: dispatched, produced nothing, pane idle ──────────

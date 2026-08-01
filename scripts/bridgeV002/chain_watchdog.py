@@ -258,8 +258,14 @@ def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False, stalled=None,
 
 
 def signal_age_minutes(role, next_role, run_id):
-    """Minutes since the last signal_complete for this step on trace.log,
-    or None when the step has no such line.
+    """Minutes since this step's last delivery line on trace.log, or None
+    when the step has no such line.
+
+    Both line types are delivery evidence: role-to-role callbacks log
+    `signal_complete`, but the flow owner's handoff dispatch logs
+    `dispatched` (run goal-016, watchdog-063: matching only the former
+    made the step-1 receiver branch unreachable, so step-1 stalls were
+    mistimed by the handoff file's mtime and blamed on the sender).
 
     The age of the INBOUND signal is the only honest clock for a receiver:
     it says how long the role has had the work, which the sender's file
@@ -269,9 +275,10 @@ def signal_age_minutes(role, next_role, run_id):
         lines = trace.read_text(encoding="utf-8").splitlines()[-200:]
     except OSError:
         return None
-    needle = f"| {role}->{next_role} | {run_id} | signal_complete |"
+    needles = tuple(f"| {role}->{next_role} | {run_id} | {sig} |"
+                    for sig in ("signal_complete", "dispatched"))
     for line in reversed(lines):
-        if needle not in line:
+        if not any(n in line for n in needles):
             continue
         try:
             ts = datetime.strptime(line.split(" | ")[0],
