@@ -344,13 +344,20 @@ def step_deliverable(step, run_id):
 
 
 def latest_generic_id(steps):
-    """Newest {ID} seen in the first step's deliverable dir."""
+    """Newest {ID} seen in the first step's deliverable dir.
+
+    Returns the id EXACTLY as written on disk (zero-padding preserved):
+    every downstream lookup — deliverable paths, trace.log needles, nudge
+    --id — must use the same string the dispatcher used, and that is the
+    padded one ("058", not "58"). Stripping the padding made the watchdog
+    blind to deliverables and signals for padded runs."""
     first = steps[0]
     if not first["dir"] or "{ID}" not in (first["pattern"] or ""):
         return None
     rx = re.compile(
         "^" + re.escape(first["pattern"]).replace(r"\{ID\}", r"(\d+)") + "$")
     best = None
+    best_raw = None
     try:
         names = os.listdir(first["dir"])
     except OSError:
@@ -361,7 +368,8 @@ def latest_generic_id(steps):
             n = int(m.group(1))
             if best is None or n > best:
                 best = n
-    return str(best) if best is not None else None
+                best_raw = m.group(1)
+    return best_raw
 
 
 def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
