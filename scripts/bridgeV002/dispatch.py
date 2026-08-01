@@ -1228,6 +1228,10 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     # Resolve model_name for {model_name} placeholder (via allocator alias)
     target_model_name_rs = to_role.get("default_model_alias", "")
 
+    # Resolve output_file: the filename the TO role should write
+    output_pattern_rs = payload.get("deliverable_pattern", "{ID}_{role_key}.json")
+    output_file_rs = output_pattern_rs.replace("{ID}", payload["handoff_id"]).replace("{role_key}", payload["to_role"])
+
     prompt_text = payload.get("prompt_template", "")
     if not prompt_text:
         ctemplate = resolve_content_template_from_db(rule_key, db_path=_db_path())

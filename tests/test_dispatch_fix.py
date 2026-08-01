@@ -190,6 +190,27 @@ def test_s3_signal_send_final_step_has_no_signal_block(cyclic_env):
     assert "Your Deliverable" not in prompt
 
 
+def test_s5_plain_path_dispatch_composes_prompt(cyclic_env):
+    """S5 (regression, 2026-08-01): the plain dispatch path
+    (run_flow_step_db, `dispatch.py --db-flow <flow>` with no signal flag)
+    crashed with NameError on `output_file_rs` — commit 109bfa4's model-field
+    cleanup deleted the variable's definition but left both uses. The path
+    must compose and inject a prompt with every placeholder resolved."""
+    handoff = cyclic_env.bridge / "handoffs" / f"{HID}-handoff.md"
+    handoff.write_text(
+        _xml_header("supervisor_auto", "(goal)") + "\n## Task\ndo it\n",
+        encoding="utf-8")
+
+    with pytest.raises(_InjectionCaptured):
+        dispatch.run_flow_step_db(FLOW, None, HID,
+                                  bridge_dir=str(cyclic_env.bridge))
+
+    prompt = cyclic_env.captured["prompt"]
+    assert "{output_file}" not in prompt
+    assert "{model_name}" not in prompt
+    assert f"<handoff_id>{HID}</handoff_id>" in prompt or HID in prompt
+
+
 def test_s2b_signal_send_mid_chain_keeps_signal_block(cyclic_env):
     """S2b (regression guard): signal_send on step 1 still gives the target
     its own deliverable path and mandatory signal command."""
