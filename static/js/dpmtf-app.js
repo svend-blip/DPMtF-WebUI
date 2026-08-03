@@ -2232,6 +2232,12 @@ function renderFlowCard(flow, steps) {
   stopTmuxBtn.onclick = function () { stopTmuxForFlow(flow.flow_key); };
   actions.appendChild(stopTmuxBtn);
 
+  // --- STOP SERVERS button ---
+  var stopServersBtn = el("button", "dpmtf-btn dpmtf-btn-warning");
+  stopServersBtn.textContent = lbl("lbl_bridge_stop_servers", "Stop servers");
+  stopServersBtn.onclick = function () { stopServersForFlow(flow.flow_key); };
+  actions.appendChild(stopServersBtn);
+
   // --- DELETE button (moved to end of row by handoff 002) ---
   var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
   delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
@@ -2332,6 +2338,25 @@ function stopTmuxForFlow(flowKey) {
     .then(function(data) {
       if (data.status === "ok") {
         alert("✅ " + data.message);
+      } else {
+        alert("❌ " + lbl("lbl_error_prefix", "Error: ") + (data.detail || lbl("lbl_unknown_error", "Unknown error")));
+      }
+    })
+    .catch(function(err) {
+      alert(lbl("lbl_network_error_prefix", "Network error: ") + err.message);
+    });
+}
+
+// ---- STOP SERVERS FOR FLOW ----
+function stopServersForFlow(flowKey) {
+  if (!confirm(lbl("lbl_confirm_stop_servers", "Stop all model servers (llama.cpp, SGLang) for '{flowKey}'?").replace("{flowKey}", flowKey))) return;
+  fetch("/api/bridge-v2/flows/" + flowKey + "/stop-servers", { method: "POST" })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data.status === "ok") {
+        alert("✅ " + data.message);
+      } else if (data.status === "partial") {
+        alert("⚠️ " + data.message);
       } else {
         alert("❌ " + lbl("lbl_error_prefix", "Error: ") + (data.detail || lbl("lbl_unknown_error", "Unknown error")));
       }

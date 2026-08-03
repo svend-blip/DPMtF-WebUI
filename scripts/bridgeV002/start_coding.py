@@ -263,7 +263,7 @@ def main():
                     capture_output=True,
                     text=True,
                     check=True,
-                    timeout=60,
+                    timeout=300,
                 )
                 shell_str = result.stdout.strip()
                 cwd = project_root if role["workdir_mode"] == "father" else target_cwd

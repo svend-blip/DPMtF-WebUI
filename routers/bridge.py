@@ -975,6 +975,69 @@ async def bridge_v2_stop_tmux_for_flow(flow_key: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/flows/{flow_key}/stop-servers")
+async def bridge_v2_stop_servers_for_flow(flow_key: str):
+    """Stop all model servers (llama.cpp, SGLang) used by a flow's roles."""
+    db_path = config.get_db_path()
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=500, detail="Database not found")
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        # Get unique model aliases for this flow's roles
+        rows = conn.execute(
+            """SELECT DISTINCT br.default_model_alias
+               FROM bridge_flow_steps bfs
+               JOIN bridge_roles br ON br.role_key IN (bfs.from_role, bfs.to_role)
+               WHERE bfs.flow_key = ? AND br.default_model_source = 'model_allocator'
+                 AND br.default_model_alias IS NOT NULL""",
+            (flow_key,)
+        ).fetchall()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    aliases = [r["default_model_alias"] for r in rows]
+    if not aliases:
+        return {"status": "ok", "message": "No model servers to stop for flow '" + flow_key + "'", "stopped": []}
+
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts", "model-allocator",
+    )
+
+    stopped = []
+    errors = []
+    for alias in aliases:
+        try:
+            result = subprocess.run(
+                [allocator_script, "stop", "--alias", alias],
+                capture_output=True, text=True, timeout=45
+            )
+            if result.returncode == 0:
+                stopped.append(alias)
+            else:
+                errors.append(alias + ": " + (result.stderr.strip()[:200] if result.stderr else "unknown error"))
+        except subprocess.TimeoutExpired:
+            errors.append(alias + ": timed out")
+        except Exception as e:
+            errors.append(alias + ": " + str(e))
+
+    if errors:
+        return {
+            "status": "partial",
+            "message": "Stopped: " + ", ".join(stopped) + ". Errors: " + "; ".join(errors),
+            "stopped": stopped,
+            "errors": errors,
+        }
+    return {
+        "status": "ok",
+        "message": "Stopped servers: " + ", ".join(stopped),
+        "stopped": stopped,
+    }
+
+
 @router.post("/flows/{flow_key}/attach-tmux")
 async def bridge_v2_attach_tmux_for_flow(flow_key: str):
     """Attach to all tmux sessions for a BridgeV002 flow via attach_tmux.py."""
