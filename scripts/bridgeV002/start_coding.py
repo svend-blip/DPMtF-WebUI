@@ -190,7 +190,7 @@ def main():
     started = []
     skipped = []
     errors = []
-    for role in roles:
+    for i, role in enumerate(roles):
         session_name = role["tmux_session"]
 
         if not role.get("default_model_source"):
@@ -258,6 +258,11 @@ def main():
                 # Pass per-role max_output_tokens from DB
                 if role.get("max_output_tokens"):
                     run_cmd += ["--max-output-tokens", str(role["max_output_tokens"])]
+                # Only the first role in the chain auto-starts its server.
+                # Other roles get their server started by pre_dispatch_script
+                # when the flow advances to them (avoids VRAM conflicts).
+                if i > 0:
+                    run_cmd.append("--no-auto-start")
                 result = subprocess.run(
                     run_cmd,
                     capture_output=True,
