@@ -930,7 +930,7 @@ async def bridge_v2_start_coding_for_flow(flow_key: str):
 
         result = subprocess.run(
             ["python3", script_path, flow_key],
-            capture_output=True, text=True, timeout=30
+            capture_output=True, text=True, timeout=310
         )
 
         if result.returncode == 0:
@@ -942,7 +942,7 @@ async def bridge_v2_start_coding_for_flow(flow_key: str):
             raise HTTPException(status_code=500, detail=result.stderr.strip())
 
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=500, detail="start_coding timed out after 30s")
+        raise HTTPException(status_code=500, detail="start_coding timed out after 310s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
