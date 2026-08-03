@@ -107,6 +107,10 @@ CLAUDE.md summarizes; in case of conflict, the governance file rules.
 Flow-specific 400-series files take precedence over general 01-04 files
 for that role when operating within a BridgeV002 flow.
 
+Active flows: `strict_review` (40x), `cloud_llm` (41x), `cloud_pay` (42x),
+`trade_cockpit_*` (43x-44x), `supervised_review` (45x), `llama_SG` (46x),
+`supervisor` (50x).
+
 ## 8. BridgeV002 — Principles
 
 BridgeV002 is the **database-driven dispatch system**. It replaces `claude-bridge/` entirely.
