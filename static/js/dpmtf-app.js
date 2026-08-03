@@ -2217,6 +2217,8 @@ function renderFlowCard(flow, steps) {
   // --- START CODING button (new for BridgeV002) ---
   var startCodingBtn = el("button", "dpmtf-btn dpmtf-btn-info");
   startCodingBtn.textContent = lbl("lbl_bridge_start_coding", "Start code interface");
+  startCodingBtn.setAttribute("data-flow", flow.flow_key);
+  startCodingBtn.setAttribute("data-action", "start-coding");
   startCodingBtn.onclick = function () { startCodingForFlow(flow.flow_key); };
   actions.appendChild(startCodingBtn);
 
@@ -2316,9 +2318,27 @@ function startTmuxForFlow(flowKey) {
 
 // ---- START CODING FOR FLOW (BridgeV002) ----
 function startCodingForFlow(flowKey) {
+  // Find the button that was clicked and show "Starting..." state
+  var btn = document.querySelector('button[data-flow="' + flowKey + '"][data-action="start-coding"]');
+  if (!btn) {
+    // Fallback: find by traversing from the event target if possible
+    var allBtns = document.querySelectorAll('.dpmtf-btn-info');
+    for (var i = 0; i < allBtns.length; i++) {
+      if (allBtns[i].textContent.indexOf('Start code interface') !== -1 || allBtns[i].textContent.indexOf('Starting') !== -1) {
+        btn = allBtns[i];
+        break;
+      }
+    }
+  }
+  var origText = btn ? btn.textContent : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = lbl("lbl_bridge_starting", "Starting...");
+  }
   fetch("/api/bridge-v2/flows/" + flowKey + "/start-coding", { method: "POST" })
     .then(function(res) { return res.json(); })
     .then(function(data) {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
       if (data.status === "ok") {
         alert("✅ " + data.message);
       } else {
@@ -2326,6 +2346,7 @@ function startCodingForFlow(flowKey) {
       }
     })
     .catch(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
       alert(lbl("lbl_network_error_prefix", "Network error: ") + err.message);
     });
 }
