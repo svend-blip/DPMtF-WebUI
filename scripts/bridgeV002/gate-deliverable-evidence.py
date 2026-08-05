@@ -156,12 +156,39 @@ def claimed_paths(text):
             in_change_section = bool(CHANGE_HEADING.match(line))
             saw_change_section = saw_change_section or in_change_section
             continue
-        is_list_item = bool(re.match(r"^\s*(?:[-*+]|\d+\.)\s", line))
-        if in_change_section or (not saw_change_section and is_list_item):
+        # Claims come from a "Files Changed" section and nowhere else. The
+        # previous fallback — scan every list item when no such section
+        # exists — produced three separate false rejections in one day, each
+        # time on a deliverable doing exactly what the contract asked. It
+        # read the commands a reviewer ran as files it had changed, then the
+        # files where each environment variable is defined, then a filename
+        # that happened to exist in an unrelated project.
+        #
+        # The distinction it kept getting wrong is not decidable from prose:
+        # a filename in a sentence may be a claim, a reference, a command
+        # argument or an example. Only a Files Changed section says "these
+        # are mine". Absent one, there are no claims to check — and nothing
+        # is lost, because undeclared_changes() still compares the working
+        # tree against the scope fence, and a verdict must still carry real
+        # evidence.
+        # Inside the section, a claim is the line that names the file. An
+        # indented continuation under it describes the change — "Added a
+        # reference to SETUP.md" names the file the change points at, not a
+        # second file that was edited.
+        is_continuation = bool(re.match(r"^\s{2,}\S", line))
+        if in_change_section and not is_continuation:
             candidates.append(line)
 
     found = []
     for line in candidates:
+        # An inline code span containing a space is a command, not a
+        # filename: `node --check static/js/*.js` names the files it
+        # checked. A claim is a bare path — `.env.example` — with no space
+        # in it. Strip the commands before looking for paths, or a verdict
+        # is accused of having changed everything it validated. That is
+        # what the contract asks the reviewer to run, so the gate must not
+        # punish it for running them.
+        line = re.sub(r"`[^`]*\s[^`]*`", " ", line)
         cleaned = line.replace("`", " ").replace("*", " ").replace("**", " ")
         for token in PATH_TOKEN.findall(cleaned):
             token = token.strip("._-")
@@ -224,13 +251,13 @@ def locate(path_claim, roots, prefer=None):
         if os.path.exists(full):
             return root, path_claim
 
-    # 3. Last resort: drop a leading directory that named no known repo.
-    if len(segments) > 1:
-        remainder = "/".join(segments[1:])
-        for root in roots:
-            full = os.path.join(root, remainder)
-            if os.path.exists(full):
-                return root, remainder
+    # Deliberately no third attempt. Stripping a leading directory that
+    # named no known repository and searching every root again is guesswork:
+    # it resolved `new-webui-skeleton/static/js/app.js` to an unrelated
+    # project's `static/js/app.js` and accused a verdict of changing a file
+    # in a repository the flow has never touched. A path that resolves
+    # neither as given nor under a named repo is not a file claim, and the
+    # safe reading of "I cannot tell what this is" is to say nothing.
     return (None, None)
 
 

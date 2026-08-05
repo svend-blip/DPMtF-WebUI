@@ -1,0 +1,131 @@
+"""Tests for the evidence gate's claim extraction.
+
+Every case here is a real deliverable shape from llama_SG runs 002-005. The
+gate rejected three honest ones in a single day before the extraction rule
+was narrowed, so the false-positive cases matter as much as the fabrication
+case: a gate that punishes a role for doing what the contract asked is worse
+than no gate, because it also teaches the role to write less.
+"""
+
+import importlib.util
+import unittest
+from pathlib import Path
+
+_GATE = (Path(__file__).resolve().parent.parent
+         / "scripts" / "bridgeV002" / "gate-deliverable-evidence.py")
+_spec = importlib.util.spec_from_file_location("gate_evidence", _GATE)
+gate = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gate)
+
+
+class ClaimExtraction(unittest.TestCase):
+
+    def test_files_changed_section_yields_claims(self):
+        """The one place a deliverable says "these are mine"."""
+        text = """## Implementation Report
+
+### Files Changed
+1. **model-allocator/README.md** — added the SETUP.md reference
+"""
+        self.assertEqual(gate.claimed_paths(text), ["model-allocator/README.md"])
+
+    def test_only_first_path_on_a_line_is_the_claim(self):
+        """A row names the file changed, then describes the change.
+
+        "README.md | Modified — added SETUP.md reference" changes one file
+        and mentions another. Treating both as claims rejected a report that
+        said, in the same table, "No other files were modified".
+        """
+        text = """### Files Changed
+| `/home/svend/model-allocator/README.md` | Modified — added SETUP.md reference |
+"""
+        self.assertEqual(gate.claimed_paths(text),
+                         ["/home/svend/model-allocator/README.md"])
+
+    def test_verification_commands_are_not_claims(self):
+        """A verdict's Test Results section lists what it ran.
+
+        The contract requires the reviewer to run these. Reading the files
+        named inside the commands as changes accused it of modifying app.py
+        and every file node --check had validated.
+        """
+        text = """## Test Results
+
+- `python3 -m py_compile app.py config.py` -> EXIT: 0
+- `node --check static/js/*.js` -> EXIT: 0
+"""
+        self.assertEqual(gate.claimed_paths(text), [])
+
+    def test_file_references_in_prose_are_not_claims(self):
+        """Naming where a variable is read is documentation, not a change."""
+        text = """## Findings
+
+- `DPMTF_MODEL_START_TIMEOUT` is read by `scripts/job_queue/model_lease.py`
+- `DPMTF_VRAM_RELEASE_TIMEOUT` is read by `scripts/bridgeV002/dispatch.py`
+"""
+        self.assertEqual(gate.claimed_paths(text), [])
+
+    def test_fenced_output_is_evidence_not_claims(self):
+        """Pasted git status is what the gate asked for, not a confession."""
+        text = """### Files Changed
+Based on actual git status --short:
+```
+ M config.py
+ M scripts/bridgeV002/dispatch.py
+```
+"""
+        self.assertEqual(gate.claimed_paths(text), [])
+
+    def test_fabricated_report_still_yields_its_claims(self):
+        """The case the gate exists for — run 002's handoff 005."""
+        text = """## Implementation Report
+
+### Files Changed
+
+1. **model-allocator/README.md**
+   - Added reference to DPMtF-WebUI SETUP.md
+2. **DPMtF-WebUI/scripts/bridgeV002/pre-dispatch-import.py**
+   - Replaced hardcoded path in argparse help string
+"""
+        self.assertEqual(
+            gate.claimed_paths(text),
+            ["model-allocator/README.md",
+             "DPMtF-WebUI/scripts/bridgeV002/pre-dispatch-import.py"])
+
+
+class PathResolution(unittest.TestCase):
+
+    def setUp(self):
+        self.roots = ["/home/svend/DPMtF-WebUI", "/home/svend/model-allocator"]
+
+    def test_repo_name_prefix_selects_that_repo(self):
+        """Both repos hold a README.md; the prefix says which one."""
+        root, rel = gate.locate("model-allocator/README.md", self.roots)
+        self.assertEqual(root, "/home/svend/model-allocator")
+        self.assertEqual(rel, "README.md")
+
+    def test_scope_fence_breaks_ties_for_a_bare_name(self):
+        """A bare name means the file the handoff asked about.
+
+        Resolving to whichever repo sorts first turned the gate's own
+        ambiguity into an accusation of scope breach.
+        """
+        allowed = {"/home/svend/model-allocator/README.md"}
+        root, _ = gate.locate("README.md", self.roots, prefer=allowed)
+        self.assertEqual(root, "/home/svend/model-allocator")
+
+    def test_unknown_prefix_does_not_reach_into_another_project(self):
+        """`new-webui-skeleton/static/js/app.js` is not some other repo's app.js.
+
+        Stripping an unrecognised leading directory and searching every root
+        again resolved this to an unrelated project and accused a verdict of
+        changing a file in a repository the flow has never touched.
+        """
+        root, rel = gate.locate(
+            "new-webui-skeleton/static/js/app.js", self.roots)
+        self.assertIsNone(root)
+        self.assertIsNone(rel)
+
+
+if __name__ == "__main__":
+    unittest.main()
