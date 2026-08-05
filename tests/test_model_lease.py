@@ -47,9 +47,25 @@ def test_release_stops_when_no_leases():
     """Release should stop model when no leases remain."""
     with patch.object(LeaseRegistry, "_start_model"), \
          patch.object(LeaseRegistry, "_stop_model") as mock_stop:
+        mock_stop.return_value = True
         LeaseRegistry.acquire("JOB-1", "archi-local")
         stopped = LeaseRegistry.release("JOB-1", "archi-local")
         assert stopped is True
+        mock_stop.assert_called_once_with("archi-local")
+
+
+def test_release_reports_failed_stop():
+    """A stop that did not confirm must not be reported as success.
+
+    Returning True on a failed stop orphaned an SGLang server: the caller
+    believed the GPU was free and warmed the next model into a full GPU.
+    """
+    with patch.object(LeaseRegistry, "_start_model"), \
+         patch.object(LeaseRegistry, "_stop_model") as mock_stop:
+        mock_stop.return_value = False
+        LeaseRegistry.acquire("JOB-1", "archi-local")
+        stopped = LeaseRegistry.release("JOB-1", "archi-local")
+        assert stopped is False
         mock_stop.assert_called_once_with("archi-local")
 
 

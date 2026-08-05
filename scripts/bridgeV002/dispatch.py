@@ -291,28 +291,143 @@ def _model_allocator_path():
     )
 
 
-def _run_allocator_start(model_alias, timeout=180):
+# Large local runtimes (SGLang on a 30B AWQ model, llama.cpp on a 100B+ GGUF)
+# need far longer than the allocator CLI's 120s default to reach a healthy
+# health endpoint — weight load, CUDA graph capture and FlashInfer JIT all
+# happen before the port answers. When the CLI timeout expires the adapter
+# KILLS the server it just started, so a too-short timeout does not merely
+# report failure: it guarantees the role never gets a model.
+_MODEL_START_TIMEOUT = int(os.environ.get("DPMTF_MODEL_START_TIMEOUT", "900"))
+_VRAM_RELEASE_TIMEOUT = int(os.environ.get("DPMTF_VRAM_RELEASE_TIMEOUT", "120"))
+
+
+def _gpu_free_mib():
+    """Return (free_mib, total_mib) for GPU 0, or (None, None) if unknown."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--id=0", "--query-gpu=memory.free,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return None, None
+        free_s, total_s = result.stdout.strip().splitlines()[0].split(",")
+        return int(free_s.strip()), int(total_s.strip())
+    except Exception:
+        return None, None
+
+
+def _host_mem_mib():
+    """Return (available_mib, shmem_mib) from /proc/meminfo, or (None, None).
+
+    Shmem matters as much as VRAM for this chain: llama.cpp with
+    --n-cpu-moe keeps the CPU-resident experts in shared memory (38 GB for
+    Laguna), and unlike page cache that memory is NOT reclaimable — it is
+    freed only when the server process exits. The next model cannot load
+    its weights until it is gone.
+    """
+    try:
+        values = {}
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for line in handle:
+                key, _, rest = line.partition(":")
+                if key in ("MemAvailable", "Shmem"):
+                    values[key] = int(rest.strip().split()[0]) // 1024
+        return values.get("MemAvailable"), values.get("Shmem")
+    except Exception:
+        return None, None
+
+
+def _wait_for_vram_release(timeout=None, min_free_ratio=0.85):
+    """Block until the GPU has actually handed back its memory.
+
+    A process dying returns control long before the driver has reclaimed
+    its allocation, so the next model would load into a GPU that is still
+    full. The adapters now confirm a stop against the server port, which
+    means this wait is only ever waiting on the driver — usually a second
+    or two, not the tens of seconds a fixed sleep would have to assume.
+
+    So it converges on two conditions instead of one deadline: the target
+    free memory being reached, or the reading going flat. Flat means the
+    reclaim has finished and no amount of further waiting will change the
+    number. Without that second condition an unreachable target burns the
+    entire budget — observed twice, 120 seconds of dead time each, when
+    another process legitimately held part of the GPU.
+
+    Returns True when the GPU settled, False on timeout (the caller
+    continues anyway — a slow release is better than a dead chain).
+    """
+    timeout = _VRAM_RELEASE_TIMEOUT if timeout is None else timeout
+    free, total = _gpu_free_mib()
+    if free is None:
+        time.sleep(2.0)  # no nvidia-smi — fall back to a blind wait
+        return False
+
+    target = int(total * min_free_ratio)
+    started = time.time()
+    deadline = started + timeout
+    stable_polls = 0
+    previous = free
+
+    def _report(reason, value):
+        avail, shmem = _host_mem_mib()
+        host = ""
+        if avail is not None:
+            host = f"; host RAM {avail} MiB available, {shmem} MiB shmem"
+        print(f"  VRAM {reason}: {value} MiB free of {total} MiB "
+              f"after {time.time() - started:.1f}s{host}")
+
+    while time.time() < deadline:
+        if free >= target:
+            _report("released", free)
+            return True
+        # Give the driver a moment before trusting a flat reading: the
+        # reclaim can start a beat after the process exits.
+        if time.time() - started >= 2.0:
+            stable_polls = stable_polls + 1 if free <= previous else 0
+            if stable_polls >= 3:
+                _report("settled below target", free)
+                return True
+        previous = free
+        time.sleep(0.5)
+        free, total = _gpu_free_mib()
+        if free is None:
+            return False
+
+    print(f"  WARNING: VRAM only {free}/{total} MiB free after {timeout}s "
+          f"(target {target} MiB) — starting next model anyway")
+    return False
+
+
+def _run_allocator_start(model_alias, timeout=None):
     """Warm up an allocator-managed model before prompt injection.
 
     Runs `model-allocator start --alias <model_alias>` with an outer timeout.
     Returns True on success, False on failure (dispatch continues anyway).
     """
-    start_cmd = [_model_allocator_path(), "start", "--alias", model_alias]
+    start_timeout = _MODEL_START_TIMEOUT if timeout is None else timeout
+    start_cmd = [_model_allocator_path(), "start", "--alias", model_alias,
+                 "--timeout", str(start_timeout)]
     try:
+        t0 = time.time()
         result = subprocess.run(
             start_cmd,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=start_timeout + 60,
         )
+        elapsed = int(time.time() - t0)
         if result.returncode != 0:
             stderr = result.stderr.strip() if result.stderr else ""
-            print(f"  WARNING: model-allocator start returned {result.returncode}: {stderr}")
+            stdout = result.stdout.strip() if result.stdout else ""
+            print(f"  WARNING: model-allocator start returned "
+                  f"{result.returncode} after {elapsed}s: {stderr or stdout}")
             return False
-        print(f"  Warmed allocator model '{model_alias}'")
+        print(f"  Warmed allocator model '{model_alias}' in {elapsed}s")
         return True
     except subprocess.TimeoutExpired:
-        print(f"  WARNING: model-allocator start timed out for '{model_alias}'")
+        print(f"  WARNING: model-allocator start timed out for '{model_alias}' "
+              f"after {start_timeout + 60}s")
         return False
     except Exception as exc:
         print(f"  WARNING: model-allocator start failed: {exc}")
@@ -405,6 +520,7 @@ def _release_from_model_first(handoff_id, from_alias, to_alias):
             if stopped:
                 print(f"  VRAM-first swap: stopped '{from_alias}' before "
                       f"warming '{to_alias}'")
+                _wait_for_vram_release()
             else:
                 remaining = LeaseRegistry.lease_count(from_alias)
                 if remaining == 0:
@@ -412,12 +528,23 @@ def _release_from_model_first(handoff_id, from_alias, to_alias):
                     # (historic key mismatches) — the model is unclaimed,
                     # free the VRAM anyway.
                     _run_allocator_stop(from_alias)
+                    _wait_for_vram_release()
                 else:
-                    print(f"  Model '{from_alias}' still leased "
-                          f"({remaining} active) — not stopping")
+                    # The leases belong to earlier handoffs — the lease key is
+                    # the handoff id, but a model outlives the handoff that
+                    # claimed it. Honouring them here kept the predecessor
+                    # resident and loaded the target into a full GPU, which is
+                    # how every outbound swap stalled. The models differ (the
+                    # same_real branch above already handled the shared case),
+                    # so on one GPU the old one cannot stay.
+                    print(f"  Model '{from_alias}' carries {remaining} lease(s) "
+                          f"from earlier handoffs — stale, clearing and stopping")
+                    LeaseRegistry.release_all(from_alias)
+                    _wait_for_vram_release()
     except Exception:
         if not same_real:
             _run_allocator_stop(from_alias)
+            _wait_for_vram_release()
     return True
 
 
@@ -838,6 +965,153 @@ def log(direction, handoff_id, status, message, source="manual"):
         f.write(entry)
 
 
+_GATE_MAX_REJECTIONS = int(os.environ.get("DPMTF_GATE_MAX_REJECTIONS", "2"))
+
+
+def _gate_rejection_count(from_role, handoff_id):
+    """How many times the gate has already turned this handoff back."""
+    return _gate_rejection_state(from_role, handoff_id)[0]
+
+
+def _gate_rejection_state(from_role, handoff_id):
+    """(count, epoch of the most recent rejection) for this sender+handoff."""
+    trace_log = os.path.join(_bridge_dir(), "trace.log")
+    count = 0
+    last_ts = 0.0
+    try:
+        with open(trace_log, encoding="utf-8") as handle:
+            for line in handle:
+                parts = [p.strip() for p in line.split("|")]
+                # Match the SENDER exactly. A substring test counts the
+                # wrong role: "review01SG" is inside "imple01SG->review01SG",
+                # so the implementer's rejection was charged to the reviewer
+                # and it escalated on its first offence instead of getting
+                # its one chance to fix the deliverable.
+                if (len(parts) >= 4 and parts[2] == str(handoff_id)
+                        and parts[3] == "gate_rejected"
+                        and parts[1].split("->")[0].strip() == from_role):
+                    count += 1
+                    try:
+                        stamp = datetime.strptime(
+                            parts[0], "%Y-%m-%dT%H:%M:%SZ"
+                        ).replace(tzinfo=timezone.utc).timestamp()
+                        last_ts = max(last_ts, stamp)
+                    except ValueError:
+                        pass
+    except OSError:
+        pass
+    return count, last_ts
+
+
+def _handle_gate_rejection(payload, handoff_id, bridge_dir):
+    """Return a blocked deliverable to the role that wrote it.
+
+    Without this the gate stops the chain in silence: the deliverable is
+    refused, the rejection note is written, and nobody is told. The author
+    believes it finished, the reviewer is never called, and the supervisor
+    cannot park on a failure it never hears about.
+
+    The rejection goes back to the role that produced the deliverable, which
+    is still on the model it just used — so the round trip costs no GPU
+    swap. Its context is deliberately preserved (no fresh_session_command):
+    the role needs to remember what it was doing to fix it.
+
+    After `DPMTF_GATE_MAX_REJECTIONS` attempts the loop stops. Sending the
+    same work back to the same model a third time is how a chain spins
+    forever, and by then the supervisor should rewrite the handoff or park.
+    """
+    from_role = payload.get("from_role", "")
+    to_role = payload.get("to_role", "")
+    direction = f"{from_role}->{to_role}"
+
+    deliverable_dir = payload.get("deliverable_dir", "") or ""
+    base = (deliverable_dir if os.path.isabs(deliverable_dir)
+            else os.path.join(bridge_dir, deliverable_dir))
+    note_path = os.path.join(base, f"{handoff_id}-gate-rejection.md")
+    try:
+        detail = Path(note_path).read_text(encoding="utf-8")
+    except OSError:
+        detail = "(the gate wrote no rejection note — check the dispatch log)"
+
+    prior, last_rejection = _gate_rejection_state(from_role, handoff_id)
+
+    # Re-running the gate over a deliverable nobody has touched since the
+    # last refusal is the same refusal, not a new one. Counting it burned
+    # the role's one chance while it was still working — a role that
+    # re-signals reflexively, or a watchdog nudge arriving mid-fix, ran the
+    # retry budget to zero in seconds.
+    deliverable_path = os.path.join(
+        base, payload.get("deliverable_file", "") or "")
+    try:
+        unchanged_since_rejection = (
+            last_rejection > 0
+            and os.stat(deliverable_path).st_mtime <= last_rejection)
+    except OSError:
+        unchanged_since_rejection = False
+
+    if unchanged_since_rejection:
+        print(f"  Gate refused {handoff_id} again, but the deliverable has "
+              f"not changed since the last rejection — same offence, not "
+              f"counting it. {from_role} still has the rejection.")
+        return True
+
+    attempts = prior + 1
+    if attempts >= _GATE_MAX_REJECTIONS:
+        log(direction, handoff_id, "gate_escalation_required",
+            f"Gate blocked {handoff_id} {attempts}x — not returning it again; "
+            f"supervisor must rewrite the handoff or park")
+        print(f"  Gate has now blocked {handoff_id} {attempts} times — "
+              f"NOT returning it to {from_role} again.")
+        print(f"  This needs the supervisor: rewrite the handoff or park.")
+        print(f"  Rejection detail: {note_path}")
+        return False
+
+    try:
+        role_data = load_role_from_db(from_role, db_path=_db_path())
+    except ValueError:
+        print(f"  Cannot return the rejection — role '{from_role}' unknown")
+        return False
+
+    session = role_data.get("tmux_session")
+    if not session or not wait_session_ready(session, timeout=3):
+        print(f"  Cannot return the rejection — session '{session}' not running")
+        log(direction, handoff_id, "gate_rejection_undelivered",
+            f"session '{session}' not running")
+        return False
+
+    project_root = PROJECT_ROOT
+    flow_key = payload.get("flow_key", "")
+    prompt = (
+        f"## Your deliverable was blocked before it reached {to_role}\n\n"
+        f"An automatic evidence gate compared your report against the "
+        f"working tree and refused it. This is not a review opinion — it "
+        f"read the filesystem.\n\n"
+        f"{detail}\n"
+        f"## What to do now\n\n"
+        f"Do NOT rewrite the report to look more convincing. Either make "
+        f"the changes for real, or state plainly which ones you did not "
+        f"make and why. Declining a change with a reason passes the gate; "
+        f"claiming one that did not happen never will.\n\n"
+        f"Check your own work first:\n\n"
+        f"    cd {project_root} && git status --short\n\n"
+        f"Then rewrite {handoff_id}-result.md so it matches what that "
+        f"command actually shows, and signal again:\n\n"
+        f"    nohup python3 {project_root}/scripts/bridgeV002/dispatch.py "
+        f"--db-flow {flow_key} --signal-complete --from-role {from_role} "
+        f"--id {handoff_id} > /tmp/bridge-signal-{handoff_id}.log 2>&1 &\n"
+    )
+
+    inject_prompt(session, prompt,
+                  enter_command=role_data.get("enter_command", "default"),
+                  fresh_session_command=None)
+    log(direction, handoff_id, "gate_rejected",
+        f"Evidence gate blocked the deliverable; returned to {from_role} "
+        f"(attempt {attempts}/{_GATE_MAX_REJECTIONS})")
+    print(f"  Gate rejection returned to '{from_role}' "
+          f"(attempt {attempts}/{_GATE_MAX_REJECTIONS}) — no model swap needed")
+    return True
+
+
 def _update_cycle_state(handoff_id, flow_key, active_role, title=None,
                         design_notes=None, verification_checklist=None):
     """Update docs/bridgeV002/current-cycle.json after a successful dispatch.
@@ -1026,6 +1300,13 @@ def resolve_script_key(script_key, bridge_dir=None):
 
     # Resolve placeholders in the stored path
     resolved = resolve_placeholders(script_path, bridge_dir=bridge_dir)
+    # bridge_scripts stores paths relative to the project root. Roles run
+    # dispatch from their own working directory — the flow's target project,
+    # which for cloud_pay is a different repository entirely — so a relative
+    # path resolved against the caller's CWD points at nothing. The script
+    # was then reported missing and silently skipped.
+    if resolved and not os.path.isabs(resolved):
+        resolved = os.path.join(PROJECT_ROOT, resolved)
     return resolved
 
 
@@ -1042,8 +1323,14 @@ def execute_script_with_params(script_path, payload):
     if not script_path:
         return True
     if not os.path.exists(script_path):
-        print(f"  WARNING: Script not found: {script_path}")
-        return True
+        # Configured but absent. Continuing here is how a gate disables
+        # itself without anyone noticing: the step still ran, nothing was
+        # checked, and the log said only "not found". A hook someone
+        # deliberately configured is not optional.
+        print(f"  ERROR: Configured script not found: {script_path}")
+        print(f"         Refusing to continue — a configured check that "
+              f"cannot run must not pass silently.")
+        return False
 
     cli_args = step_to_cli_args(payload)
     cmd = ["python3", script_path] + cli_args
@@ -1183,6 +1470,32 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     # Step 6
     ensure_subdir(bridge_dir, payload["deliverable_dir"])
 
+    # ── Model lifecycle: swap from-role model → to-role model ──
+    # Handled automatically for every step. Stop the predecessor's model
+    # first (free GPU), wait for VRAM offload, then warm the target model.
+    # Pre/post scripts are reserved for flow-specific logic (import gates,
+    # validation) — NOT for model management.
+    from_role_data = load_role_from_db(payload["from_role"],
+                                       db_path=_db_path())
+    from_source, from_alias = get_effective_model_source(
+        from_role_data["role_key"],
+        step_key=target_step.get("step_key"),
+        flow_key=flow_key,
+        db_path=_db_path(),
+    )
+    to_source, to_alias = get_effective_model_source(
+        payload["to_role"],
+        step_key=target_step.get("step_key"),
+        flow_key=flow_key,
+        db_path=_db_path(),
+    )
+    if from_source == "model_allocator" and from_alias and from_alias != to_alias:
+        _run_allocator_stop(from_alias)
+        if to_source == "model_allocator" and to_alias:
+            _wait_for_vram_release()
+    if to_source == "model_allocator" and to_alias:
+        _run_allocator_start(to_alias)
+
     pre_script = target_step.get("pre_dispatch_script")
     if pre_script:
         resolved_path = resolve_script_key(pre_script, bridge_dir=bridge_dir)
@@ -1265,17 +1578,8 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
                   fresh_session_command=to_role.get("fresh_session_command"))
     time.sleep(0.5)
 
-    # Post-dispatch: offload predecessor's model to free VRAM
-    from_role = load_role_from_db(payload["from_role"],
-                                  db_path=_db_path())
-    from_source, from_alias = get_effective_model_source(
-        from_role["role_key"],
-        step_key=target_step.get("step_key"),
-        flow_key=flow_key,
-        db_path=_db_path(),
-    )
-    if from_source == "model_allocator" and from_alias:
-        _run_allocator_stop(from_alias)
+    # Post-dispatch: run post-script (cleanup/verification).
+    # Model stop was handled before the pre-script above.
 
     post_script = target_step.get("post_dispatch_script")
     if post_script:
@@ -1550,6 +1854,35 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # Ensure deliverable subdirectory exists (for symlink)
     ensure_subdir(bridge_dir, payload["deliverable_dir"])
 
+    # ── Model lifecycle: swap from-role model → to-role model ──
+    # Runs AFTER the pre-script and before injection. Swapping first cost a
+    # 40-second GPU round trip on deliverables the gate then refused — and
+    # worse, it pulled the model out from under the role the rejection was
+    # about to be handed back to, so the author could not act on it.
+    # Validate first, pay for the swap once the deliverable is accepted.
+    # Pre-scripts are for flow-specific logic (import gates, validation)
+    # — never for model management.
+    from_source_sc, from_alias_sc = "", ""
+    try:
+        from_source_sc, from_alias_sc = get_effective_model_source(
+            payload["from_role"],
+            step_key=current_step.get("step_key"),
+            flow_key=flow_key,
+            db_path=_db_path(),
+        )
+    except Exception:
+        pass
+    to_source_sc, to_alias_sc = "", ""
+    try:
+        to_source_sc, to_alias_sc = get_effective_model_source(
+            payload["to_role"],
+            step_key=current_step.get("step_key"),
+            flow_key=flow_key,
+            db_path=_db_path(),
+        )
+    except Exception:
+        pass
+
     # Run pre_dispatch_script if configured (e.g. import before portfolio01)
     pre_script = current_step.get("pre_dispatch_script")
     if pre_script:
@@ -1558,6 +1891,9 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             print(f"  Running pre-dispatch script: {resolved_path}")
             if not execute_script_with_params(resolved_path, payload):
                 print(f"  Pre-dispatch script failed -- aborting")
+                # Aborting alone leaves the author believing it succeeded.
+                # Hand the refusal back so the chain can repair itself.
+                _handle_gate_rejection(payload, handoff_id, bridge_dir)
                 return False
             # The pre-dispatch import moves the deliverable: to processed/
             # (leaving a pending symlink) on success, to rejected/ on gate
@@ -1580,6 +1916,15 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
                     "chain stopped",
                 )
                 return False
+
+    # The deliverable survived the gate — now it is worth paying for the
+    # GPU swap, and the target's model is up well before injection.
+    if from_source_sc == "model_allocator" and from_alias_sc:
+        _release_from_model_first(
+            handoff_id, from_alias_sc,
+            to_alias_sc if to_source_sc == "model_allocator" else "")
+    if to_source_sc == "model_allocator" and to_alias_sc:
+        _run_allocator_start(to_alias_sc)
 
     # Step 7: Auto-prepend missing XML sections, then validate + build callback
     step_validation_required = current_step.get("validation_required", 0)
@@ -1669,6 +2014,35 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             f"Read and proceed with: {full_deliverable_path}"
         )
 
+    # If the evidence gate refused earlier versions of this deliverable, say
+    # so in the prompt. The role that fixed it and the role receiving it are
+    # different, and the fix never reaches the recipient: it sees a clean
+    # deliverable with no reason to look harder at one that needed three
+    # attempts to pass a mechanical check. Blocking here would be wrong —
+    # a rewritten deliverable that now passes is exactly what the loop is
+    # for, and blocking it would have stopped two legitimate recoveries on
+    # 2026-08-05 — but silence is what let the history die in trace.log.
+    prior_rejections = _gate_rejection_count(payload["from_role"], handoff_id)
+    if prior_rejections:
+        note_dir = payload.get("deliverable_dir", "") or ""
+        if not os.path.isabs(note_dir):
+            note_dir = os.path.join(bridge_dir, note_dir)
+        prompt_text += (
+            f"\n\n## Provenance — the gate refused this deliverable "
+            f"{prior_rejections} time(s) before this version\n"
+            f"The evidence gate blocked earlier versions of "
+            f"`{payload['deliverable_file']}` from `{payload['from_role']}`. "
+            f"The gate compares claims against the working tree, so each "
+            f"refusal means a version asserted something the repository did "
+            f"not support.\n"
+            f"The refusal notes are at "
+            f"`{os.path.join(note_dir, handoff_id + '-gate-rejection.md')}` "
+            f"if they were not overwritten.\n"
+            f"This version passed, but a deliverable that needed rewriting to "
+            f"survive a mechanical check has earned a closer reading. Verify "
+            f"its claims against the repository yourself before acting."
+        )
+
     # Find the NEXT step (where from_role == current to_role) to determine
     # where the target role should write its deliverable and how to signal.
     # Position-aware: only steps strictly AFTER the completed step qualify.
@@ -1744,26 +2118,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         flow_key=flow_key,
         db_path=_db_path(),
     )
-    from_source_sc, from_alias_sc = "", ""
-    try:
-        from_source_sc, from_alias_sc = get_effective_model_source(
-            payload["from_role"],
-            step_key=current_step.get("step_key"),
-            flow_key=flow_key,
-            db_path=_db_path(),
-        )
-    except Exception:
-        pass  # from_role without a model (e.g. human) — nothing to free
-
-    from_model_handled = False
-    if from_source_sc == "model_allocator" and from_alias_sc:
-        from_model_handled = _release_from_model_first(
-            handoff_id, from_alias_sc,
-            to_alias_sc if to_source_sc == "model_allocator" else "")
-
-    # Warm the target role's model via allocator before injection
-    if to_source_sc == "model_allocator" and to_alias_sc:
-        _run_allocator_start(to_alias_sc)
+    # Model swap was handled before the pre-script above.
 
     # Acquire model lease for the target role (reference-counted unload)
     try:
@@ -1855,8 +2210,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # released BEFORE warm-up (VRAM-first swap) — this fallback only covers
     # the same-alias case, where releasing before the target's acquire would
     # have stopped the model the target needs.
+    # _release_from_model_first() returns without touching the model when
+    # both roles share the alias, so the same-alias test alone is the
+    # condition — there is no separate "handled" flag any more.
     from_source, from_alias = from_source_sc, from_alias_sc
-    if (not from_model_handled and from_source == "model_allocator"
+    if (from_source == "model_allocator"
             and from_alias and from_alias == to_alias_sc):
         # Same alias for both roles: the model must stay loaded for the
         # target. The target's acquire refreshed the lease row (same

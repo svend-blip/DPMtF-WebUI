@@ -200,10 +200,32 @@ class LeaseRegistry:
         total = len(active) + len(in_mem)
         
         if total == 0 and had_lease and stop_model:
-            # No more leases — stop the model
-            cls._stop_model(alias)
-            return True
+            # No more leases — stop the model, and report what actually
+            # happened. A False here makes dispatch retry the stop and wait
+            # for the GPU instead of warming the next model on faith.
+            return cls._stop_model(alias)
 
+        return False
+
+    @classmethod
+    def release_all(cls, alias: str, stop_model: bool = True) -> bool:
+        """Drop every lease on an alias, then optionally stop the model.
+
+        Leases are keyed by handoff id, but a model's lifetime spans
+        handoffs: the lease taken when handoff N's verdict was delivered is
+        still open when handoff N+1 dispatches, and release(N+1, alias)
+        never matches it. The stale lease then blocked the swap and the
+        next model was loaded into a GPU the predecessor still owned.
+
+        Use this only when swapping to a *different* real model. Two models
+        cannot share one GPU, so a lease claiming the old one must stay
+        resident is bookkeeping that reality has already overruled.
+        """
+        for lease in cls._load_from_db(alias):
+            cls._delete_lease_from_db(lease.job_id, alias)
+        cls._leases[alias] = []
+        if stop_model:
+            return cls._stop_model(alias)
         return False
 
     @classmethod
@@ -225,25 +247,61 @@ class LeaseRegistry:
 
     @classmethod
     def _start_model(cls, alias: str):
-        """Start the model via allocator."""
+        """Start the model via allocator.
+
+        The allocator CLI defaults to a 120s start timeout, and the SGLang
+        adapter KILLS the server it just started when that expires. A 30B
+        AWQ model needs 3-6 minutes for weight load plus CUDA graph
+        capture, so the default guaranteed the role never got a model —
+        this is the same defect dispatch.py had, in a second place.
+        """
+        start_timeout = int(os.environ.get("DPMTF_MODEL_START_TIMEOUT", "900"))
         try:
-            subprocess.run(
-                [ALLOCATOR_SCRIPT, "start", "--alias", alias],
-                capture_output=True, text=True, timeout=180,
+            result = subprocess.run(
+                [ALLOCATOR_SCRIPT, "start", "--alias", alias,
+                 "--timeout", str(start_timeout)],
+                capture_output=True, text=True, timeout=start_timeout + 60,
             )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "").strip()
+                print(f"  WARNING: model start returned {result.returncode} "
+                      f"for '{alias}': {detail}", file=sys.stderr)
         except Exception as e:
             print(f"  WARNING: model start failed for '{alias}': {e}", file=sys.stderr)
 
     @classmethod
-    def _stop_model(cls, alias: str):
-        """Stop the model via allocator."""
+    def _stop_model(cls, alias: str) -> bool:
+        """Stop the model via allocator. Returns True only if it really stopped.
+
+        The previous version discarded the allocator's exit code, so a
+        failed stop was indistinguishable from a successful one. On
+        2026-08-05 that silence orphaned an SGLang server: the stop
+        reported success, the adapter had already deleted the pid file, and
+        the caller warmed the next model into a GPU that was still full.
+        A stop that cannot be verified must say so.
+        """
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [ALLOCATOR_SCRIPT, "stop", "--alias", alias],
                 capture_output=True, text=True, timeout=45,
             )
         except Exception as e:
             print(f"  WARNING: model stop failed for '{alias}': {e}", file=sys.stderr)
+            return False
+
+        stopped = result.returncode == 0
+        try:
+            payload = json.loads(result.stdout or "{}")
+            if isinstance(payload, dict) and "stopped" in payload:
+                stopped = bool(payload["stopped"])
+        except (ValueError, TypeError):
+            pass  # non-JSON output — fall back to the exit code
+
+        if not stopped:
+            detail = (result.stderr or result.stdout or "").strip()
+            print(f"  WARNING: model stop did NOT confirm for '{alias}' "
+                  f"(exit {result.returncode}): {detail}", file=sys.stderr)
+        return stopped
 
     @classmethod
     def reset(cls):

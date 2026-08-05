@@ -45,6 +45,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import config  # Father config — trade inbox dir, db path, bridge dir
 
+
+def _db_path():
+    """Absolute database path, independent of the working directory.
+
+    config.get_db_path() returns "databases/dpmtf.db" — relative to the
+    project root, not to wherever the watchdog was started. Combined with
+    deliverable_dir being relative to the *bridge* root, the two paths
+    could never be satisfied from the same directory: run from the project
+    and the deliverables were invisible, run from the bridge dir and the
+    database would not open. Both are resolved explicitly now.
+    """
+    p = config.get_db_path()
+    if not os.path.isabs(p):
+        p = os.path.join(str(PROJECT_ROOT), p)
+    return p
+
+
 TRADE_FLOW_KEY = "trade_cockpit_simulation_v001"
 FLOW_KEY = TRADE_FLOW_KEY  # legacy alias — trade helpers below use it
 # Fallback chain order — the live order is read from bridge_flow_steps
@@ -310,7 +327,7 @@ def recent_signal_delivered(role, next_role, run_id, within_minutes):
 def load_flow_steps(flow_key):
     """Active steps (from_role, to_role, dir, pattern) in chain order."""
     import sqlite3
-    conn = sqlite3.connect(config.get_db_path())
+    conn = sqlite3.connect(_db_path())
     rows = conn.execute(
         "SELECT from_role, to_role, deliverable_dir, deliverable_pattern "
         "FROM bridge_flow_steps WHERE flow_key = ? AND is_active = 1 "
@@ -318,16 +335,25 @@ def load_flow_steps(flow_key):
         (flow_key,),
     ).fetchall()
     conn.close()
-    return [
-        {"from_role": r[0], "to_role": r[1], "dir": r[2], "pattern": r[3]}
-        for r in rows
-    ]
+    # deliverable_dir is stored relative to the bridge root
+    # ("llama_SG/handoffs"). Resolving it against the process CWD is what
+    # made the watchdog blind to generic flows' deliverables and report a
+    # working chain as idle all night.
+    bridge_dir = config.get_bridge_dir()
+    steps = []
+    for r in rows:
+        deliverable_dir = r[2]
+        if deliverable_dir and not os.path.isabs(deliverable_dir):
+            deliverable_dir = os.path.join(bridge_dir, deliverable_dir)
+        steps.append({"from_role": r[0], "to_role": r[1],
+                      "dir": deliverable_dir, "pattern": r[3]})
+    return steps
 
 
 def load_tmux_sessions():
     """role_key -> tmux session for pane-activity checks (agents only)."""
     import sqlite3
-    conn = sqlite3.connect(config.get_db_path())
+    conn = sqlite3.connect(_db_path())
     rows = conn.execute(
         "SELECT role_key, tmux_session FROM bridge_roles "
         "WHERE is_active = 1 AND role_type != 'human'"
