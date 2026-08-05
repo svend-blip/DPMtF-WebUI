@@ -146,6 +146,24 @@ grep -rn "lbl(" static/js/ | wc -l         # verify i18n coverage
 - `createElement()` / `textContent` / `appendChild()` used instead.
 - Event delegation on container elements.
 
+## Evidence Discipline — applies to every verdict
+
+Full rules: [[04_REVIEW]], "Evidence Discipline". The essentials, because
+this file's verdict format takes precedence over the base one:
+
+- **You review the working tree, never the result file.** The result is the
+  implementer's claim, not evidence for it.
+- **Every accepted claim needs a command you ran**, with its real output in
+  the verdict. Never copy output out of the result file.
+- **Start from `git status --short`** in the resolved target project. A file
+  the result claims to have changed that is absent there was not changed —
+  that alone is REJECTED.
+- **Unverified means REJECTED.** Name the claim and why you could not check
+  it. Absence of evidence is never approval.
+
+The verdict MUST carry an Evidence section with the actual commands and
+their actual output. Without one it is invalid and gets rejected back.
+
 ## Writing the Final Verdict
 
 Write to: `{bridge_dir}/cloud_pay/verdicts/{ID}-verdict.md`

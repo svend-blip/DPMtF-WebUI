@@ -95,6 +95,34 @@ Review MUST verify Frontend Impact following [[30_FRONTEND_GOVERNANCE]]:
 
 **Missing Frontend Impact = fail**
 
+## Evidence Discipline
+
+**You review the working tree. You never review the result file.**
+
+The result file is the Implementor's *claim* about what it did. It is input
+to the review, not the subject of it, and never evidence for it.
+
+| Rule | Meaning |
+|---|---|
+| **Run the commands yourself** | Every accepted claim is backed by a command *you* executed, with its real output in the verdict. |
+| **Never copy output from the result** | Repeating the Implementor's grep or test output launders a claim into evidence. If a number appears in your verdict, you produced it. |
+| **Start from `git status --short`** | A file the result claims to have changed that is absent there was not changed. That alone is REJECTED — stop and report it. |
+| **Check the assertion, not the area** | "Added a reference to SETUP.md" is verified by `grep -n "SETUP.md" <file>` returning a line, not by the file existing. |
+| **Unverified means REJECTED** | Name the claim you could not check and why. Absence of evidence is never approval. |
+| **A check you did not run does not exist** | Never write "validation passed" without the output that says so. |
+
+Every verdict MUST contain an Evidence section holding the actual commands
+and their actual output. A verdict without one is invalid and will be
+rejected back to you.
+
+**Why this is absolute:** on 2026-08-05 an Implementor reported three file
+changes in convincing detail — including a quoted link it claimed to have
+inserted and a pasted grep output reading "Returns ZERO results after
+changes" — having changed nothing. The files had not been modified in weeks.
+The Reviewer read that report, agreed point by point, and returned APPROVED.
+Two models fabricated in the same direction and confirmed each other. Two
+roles concurring is not evidence. The working tree is.
+
 ## Validation Workflow
 
 When the Implementor signals completion:

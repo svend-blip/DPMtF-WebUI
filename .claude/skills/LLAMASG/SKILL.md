@@ -39,10 +39,19 @@ run has one, there is no active run — report that and wait for the Human
 
 For the active run, read IN THIS ORDER:
 1. `GOAL.md` — the immutable Mission Contract (objective, testgoals, scope
-   fence, budgets, standing approvals)
+   fence, budgets, standing approvals, and **`First handoff id:`**)
 2. `RUN-LEDGER.md` — tail (last 2-3 entries): what happened, what was
    dispatched, what the scheduler should expect next
 3. `BACKLOG.md` — planned/dispatched handoffs and their status
+
+**Note the `First handoff id:` as you read GOAL.md** — it is the counter
+value at the moment the run opened, and it is what separates this run's work
+from every earlier run's. Handoff ids, `trace.log` and the handoffs
+directory are flow-wide and never reset, so without that number a fresh run
+cannot tell its own chain from a closed one's. Step 6 depends on it.
+
+Every new run's GOAL.md must state it. When opening a run, read the counter
+(Step 3) and record that value.
 
 The ledger is your memory. Never reconstruct state from summaries or
 recollection — only from these files plus the checks below.
@@ -87,11 +96,38 @@ done
 
 ### Step 6: Determine Chain Position
 
-Let `{ID}` be the highest handoff id present in
-`{bridge_dir}/llama_SG/handoffs/`. Check which chain deliverables exist for
-it (`results/{ID}-result.md`, `verdicts/{ID}-verdict.md`) and what
-`{bridge_dir}/trace.log` shows as the last signal for `{ID}`. The watchdog
-does this mechanically:
+**First: establish this run's handoff floor.**
+
+Handoff ids are allocated from a flow-wide counter and never reset, so the
+handoffs directory, `trace.log` and the watchdog all carry every run's work
+mixed together. A run owns only the ids allocated **after it opened**.
+
+GOAL.md records `First handoff id:` for the run. Every id below it belongs
+to an earlier run that is already closed, and is none of your business —
+however unfinished it looks, and however empty your own ledger is.
+
+This matters because the two obvious signals point the wrong way for a fresh
+run: the highest id on disk belongs to the *previous* run, and your ledger
+has no entry for it precisely because it was never yours. On 2026-08-05 run
+004 cold-started, found run 003's handoff 006, re-validated a verdict that
+run 003's END-REPORT had already settled, and parked run 004 on the previous
+run's exhausted budget.
+
+If GOAL.md carries no `First handoff id:`, take it from the run's opening
+ledger entry. If neither states it, treat the run as not started and ask the
+Human rather than adopting whatever is on disk.
+
+Let `{ID}` be the highest handoff id in `{bridge_dir}/llama_SG/handoffs/`
+**that is greater than or equal to the run's first handoff id**. If no id
+qualifies, the chain has not started for this run: write the first handoff
+per 461 and do not process anything older.
+
+Then check which chain deliverables exist for `{ID}`
+(`results/{ID}-result.md`, `verdicts/{ID}-verdict.md`) and what
+`{bridge_dir}/trace.log` shows as the last signal for it. The watchdog does
+this mechanically, but note it has **no notion of run boundaries** — it
+locks onto the newest id on disk regardless of which run owns it. Apply the
+floor yourself before believing what it reports:
 
 ```bash
 python3 scripts/bridgeV002/chain_watchdog.py --flow llama_SG --once --dry-run
@@ -99,7 +135,7 @@ python3 scripts/bridgeV002/chain_watchdog.py --flow llama_SG --once --dry-run
 
 | Watchdog status | Meaning | Your action |
 |-----------------|---------|-------------|
-| `complete` | Final signal review01SG→supervisor01_llama delivered | If the ledger has no entry for this verdict, the wake-up was missed — process it now per 461 |
+| `complete` | Final signal review01SG→supervisor01_llama delivered | **Check the floor first.** If the id is below this run's first handoff id, it belongs to a closed run — ignore it entirely. Otherwise, if the ledger has no entry for this verdict, the wake-up was missed — process it now per 461 |
 | `active` | A role is working or a signal was just delivered | Wait. Do NOT dispatch. Ensure a live watchdog is running |
 | `nudged` (dry-run: "NOT sent") | Stall detected | Verify via trace.log, then either let a non-dry-run watchdog pass nudge, or nudge manually per 461 (once), then ledger it |
 | `idle` | Chain not started, or the stalled role has already used its 2 nudges | Diagnose from trace.log + panes; park if the budget is spent |

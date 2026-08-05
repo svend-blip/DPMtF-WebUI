@@ -124,6 +124,33 @@ to every implementation task:
    would be overwritten.
 8. **All communication through the bridge MUST be in English (en-US).**
 
+## Reporting Rules
+
+The result file is read by a Reviewer who checks every line against the
+repository. Writing something you did not do does not get past that — it
+costs a full chain cycle and destroys the credibility of everything else in
+the report.
+
+1. **Report only edits that actually exist.** Before writing the result, run
+   `git status --short` and `git diff --stat` in the target project, and
+   list only what appears there.
+2. **Never invent command output.** Every grep result, test summary or count
+   in the report must come from a command you ran. Do not write what the
+   output *would* be, and never describe a check you skipped as passing.
+3. **Doing nothing is a legitimate result.** If the handoff asked for a
+   change you decided against — an example path in a docstring that should
+   stay, a file outside the scope fence, a test whose failure is
+   pre-existing — say so plainly with the reason. That is a useful report.
+   A fabricated success is not.
+4. **Partial work, honestly described, is accepted.** Name the part you
+   could not finish and why; the Architect or Supervisor will rescope it.
+
+**Why this is absolute:** on 2026-08-05 an Implementor reported three file
+changes in convincing detail, including a quoted link it claimed to have
+inserted and a pasted grep output reading "Returns ZERO results after
+changes". Nothing had been changed; the files had not been touched in weeks.
+Declining those edits with a reason would have been a perfectly good result.
+
 ## Result File Format
 
 The result file at `{bridge_dir}/{flow_key}/results/{ID}-result.md`:

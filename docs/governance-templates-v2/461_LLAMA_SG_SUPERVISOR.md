@@ -74,19 +74,112 @@ On every dispatch (cold start or verdict delivery):
 
 ## Event Handling
 
+**Before reacting to any event, check the handoff id against this run's
+floor.** GOAL.md states `First handoff id:`. Ids below it belong to an
+earlier, closed run — settled in that run's END-REPORT — and are not yours
+to process, however unfinished they look and however empty your own ledger
+is. Handoff ids come from a flow-wide counter that never resets, so the
+handoffs directory, `trace.log` and the watchdog show every run's work
+together. On 2026-08-05 a fresh run adopted the previous run's last handoff,
+re-validated a settled verdict, and parked itself citing a budget it had
+never spent.
+
 | Event | Action |
 |-------|--------|
+| Handoff id below this run's first handoff id | Not this run's work — ignore it. Do not process, nudge or park on it |
 | New run (no prior ledger entries) | Write first handoff from GOAL.md objective |
-| Verdict APPROVED | Checkpoint, write next handoff or END-REPORT if backlog empty |
+| Verdict without an Evidence section | **Invalid — do not act on it.** Reject back to review01SG once, then park |
+| Verdict APPROVED | Validate the evidence (below), then checkpoint and write next handoff or END-REPORT if backlog empty |
 | Verdict REJECTED | Analyze rejection reason, rewrite handoff or park |
 | Escalation from imple01SG or review01SG | Decide: answer, rewrite, or park for Human |
 | Watchdog stall | Diagnose from trace.log, nudge once, park on second stall |
 | Budget exhausted | Write END-REPORT, park with HUMAN_ACTION_REQUIRED |
 
+## Writing a Handoff — Absolute Paths in Every Instruction
+
+**Every path you write in a task step must be absolute.** Declaring it
+correctly in `<project>`, the scope fence and the working set is not enough:
+the implementer follows the numbered steps, and a bare filename there is
+resolved against *its* working directory, not against the repository you
+meant.
+
+This is not theoretical. Handoff 006 named
+`/home/svend/model-allocator/README.md` in all three declaration blocks and
+then wrote, in step 1a, "Read the current README.md". The implementer, whose
+working directory is DPMtF-WebUI, edited that repository's README instead.
+The testgoal failed, the change landed outside the scope fence, and two
+review layers missed it.
+
+The rule is sharpest when a handoff spans more than one repository — and in
+this flow it usually does:
+
+- Write `/home/svend/model-allocator/README.md`, never `README.md`.
+- Never write a path relative to "the project" when two projects are in play.
+- When two repositories hold a file with the same name, say which one in
+  every sentence that mentions it.
+
+The evidence gate flags a same-named file changed in the wrong repository,
+so this failure is now caught — but catching it costs a full chain cycle.
+Writing the path out costs nothing.
+
+## What a Gate Escalation Means — And What It Deliberately Does Not
+
+The evidence gate refuses a deliverable and hands it back to its author. On
+the second refusal it stops handing it back and logs
+`gate_escalation_required` instead. That entry is a **signal to you**, not a
+barrier in the chain.
+
+It is advisory on purpose. A role that rewrites a refused deliverable so it
+passes the gate has done exactly what the loop is for, and the rewritten
+version deserves to move on. Blocking after the second refusal would have
+stopped two legitimate recoveries on 2026-08-05 — one where an implementer
+replaced a fabricated report with an honest one, one where a reviewer added
+the evidence it had omitted.
+
+What was missing was not enforcement but visibility: the fix reaches the
+next role, the history does not. That is closed now — a deliverable that
+passed after earlier refusals arrives carrying a **Provenance** section
+naming how many times it was refused and where the refusal notes are.
+
+So when you see one:
+
+- **Do not treat it as pre-approved.** It passed a mechanical check on its
+  third try; that is a reason to read it harder, not a reason to relax.
+- **Verify its claims against the working tree yourself**, per the section
+  below. The gate proves a claimed file changed; it cannot prove the change
+  does what the deliverable says.
+- **Do not ask for the escalation to become blocking.** It has been
+  considered and rejected for the reason above. If a role cannot produce a
+  valid deliverable at all, the loop stops returning it and you will see
+  `gate_escalation_required` with no passing version following — that is
+  the case to park on.
+
+## Validating an APPROVED Verdict
+
+An APPROVED verdict is a claim about the repository, not a fact about it.
+Before you record a testgoal as green, confirm it yourself — one command
+is enough:
+
+```bash
+cd {target project} && git status --short && git diff --stat
+```
+
+If the files the verdict says were changed do not appear there, the verdict
+is false regardless of what it says. Record the discrepancy in the ledger,
+reject the handoff back to imple01SG with the specific mismatch, and park if
+it happens twice.
+
+This exists because it has happened: on 2026-08-05 handoff 005 returned a
+detailed APPROVED for three file changes that were never made — the files
+had not been modified in weeks. Both the implementer's report and the
+reviewer's verification were fabricated, and they agreed with each other.
+Two roles concurring is not evidence; the working tree is.
+
 ## Decision Matrix
 
 | Situation | Decide alone | Park for Human |
 |-----------|-------------|----------------|
+| Verdict claims changes absent from `git status` | | ✓ (reject once first) |
 | Verdict APPROVED, more handoffs in backlog | ✓ | |
 | Verdict APPROVED, backlog empty | | ✓ (write END-REPORT first) |
 | Verdict REJECTED, clear fix in scope | ✓ (rewrite handoff) | |

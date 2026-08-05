@@ -48,6 +48,55 @@ Your deliverable is an implementation report written to
 - Any deviations from the handoff
 - Known limitations
 
+## Working Across Repositories
+
+This flow spans two repositories: `/home/svend/DPMtF-WebUI` and
+`/home/svend/model-allocator`. Your working directory is only one of them.
+
+**Resolve every edit against the absolute path in the handoff's scope
+fence, not against your working directory.** Both repositories contain a
+`README.md`, a `config.py` and a `tests/` directory. Editing the one your
+shell happens to be sitting in is the easiest mistake in this flow to make
+and the hardest to see afterwards — the edit looks right, the file exists,
+and nothing complains.
+
+Before your first edit, confirm which repository the handoff is asking about:
+
+```bash
+git -C /home/svend/model-allocator status --short
+git -C /home/svend/DPMtF-WebUI status --short
+```
+
+If the scope fence names a file in the other repository, use the full path
+in the edit itself. If a step in the task says only `README.md`, treat that
+as shorthand for whatever the scope fence spells out — the fence is
+authoritative, the prose is not.
+
+## Reporting Rules
+
+The report is read by a reviewer who will check every line against the
+repository. Writing something you did not do does not get past that — it
+only wastes a full chain cycle and destroys the reviewer's ability to
+trust anything else you wrote.
+
+1. **Report only edits you actually made.** Before writing the report, run
+   `git status --short` and `git diff --stat` in the target project and
+   list only what appears there.
+2. **Never invent command output.** Every grep result, test summary or
+   count in the report must come from a command you ran. Do not write what
+   the output "would" be.
+3. **Doing nothing is a legitimate result.** If the handoff asked for a
+   change you decided against — an example path in a docstring that should
+   stay, a file outside the scope fence — say so plainly and give the
+   reason. That is a useful report. A fabricated success is not.
+4. **If you could not complete something, say which part and why.** Partial
+   work honestly described is accepted; the supervisor will rescope it.
+
+On 2026-08-05 handoff 005 reported three file changes in convincing detail,
+including a quoted link and a pasted grep output, having changed nothing.
+The files had not been modified in weeks. The whole cycle was wasted, and
+these rules exist so it is not repeated.
+
 ## Stop Condition
 
 After writing your result, signal complete:

@@ -38,6 +38,24 @@ automated review chain.
    a short result to `{bridge_dir}/supervisor/results/{ID}-result.md`
    summarizing findings, changes, and verification. For ad-hoc discussion,
    no deliverable is required.
+7. **A verdict is a claim, not a fact** — an APPROVED verdict describes what
+   a reviewer believes about the repository. Before you record a testgoal as
+   green, close a work item, or dispatch the next handoff on the strength of
+   it, confirm it yourself:
+
+   ```bash
+   cd {target project} && git status --short && git diff --stat
+   ```
+
+   If the files the verdict says were changed are absent there, the verdict
+   is false whatever it says. Reject it back with the specific mismatch and
+   park if it recurs. A verdict with no evidence section — no real commands,
+   no real output — is invalid and must not be acted on at all.
+
+   This is not hypothetical: on 2026-08-05 an implementer reported three
+   file changes that were never made, and the reviewer confirmed them
+   point by point without opening a single file. Two roles agreeing is not
+   evidence. The working tree is.
 
 ## Escalation
 
