@@ -1,5 +1,18 @@
--- 005_llama_sg_flow.sql
+-- 025_llama_sg_flow.sql
 -- Add llama_SG flow with 3 roles and 3 steps
+--
+-- Numbered 025, not 005, because the INSERT below writes three columns that
+-- later migrations create: allocator_client (008), fresh_session_command
+-- (009) and workdir_mode (023). The runner sorts by filename, so at 005 this
+-- ran before all three existed and aborted every fresh install on
+-- "table bridge_roles has no column named allocator_client". Existing
+-- databases never noticed: they had already applied 001-024 before this file
+-- was written, so the column was there when it first ran.
+--
+-- Every statement is INSERT OR IGNORE against a PRIMARY KEY or UNIQUE
+-- constraint, so re-running it on a database that already has the llama_SG
+-- flow changes nothing — in particular it does not reset bridge_id_counters
+-- or overwrite a tuned model alias.
 
 -- Roles
 INSERT OR IGNORE INTO bridge_roles (role_key, tmux_session, role_type, governance_file, default_model_source, default_model_alias, allocator_client, workdir_mode, fresh_session_command)

@@ -33,6 +33,24 @@ _MIGRATION_FILENAME_RE = re.compile(r"^\d{3}_.+\.sql$")
 
 
 def _discover_migrations() -> list[Path]:
+    """Migration files in apply order — sorted by the WHOLE filename.
+
+    Two consequences worth knowing before adding a file here:
+
+    1. A migration must be numbered after every migration whose columns it
+       writes. `025_llama_sg_flow.sql` was originally `005_`, and it inserts
+       allocator_client (added by 008), fresh_session_command (009) and
+       workdir_mode (023). Existing databases never noticed, because they had
+       applied 001-024 before the file was written. Every fresh install died
+       on it. Number by dependency, not by when you wrote it.
+
+    2. Duplicate numbers sort by the text after the number, so
+       `007_job_queue_tables` runs before `007_remove_deprecated_columns`.
+       That order is correct and already applied everywhere. Do not renumber
+       them to tidy up: `schema_migrations` tracks a migration by filename, so
+       a rename makes it pending again — and re-running a migration that
+       rebuilds tables to drop columns is not a no-op.
+    """
     if not MIGRATIONS_DIR.is_dir():
         return []
     files = [
