@@ -22,10 +22,16 @@ and `superpowertemplates/superpowers.md` Section 1.
 
 | Project | Port | Path | Governance | Role |
 |---------|------|------|------------|------|
-| **DPMtF-WebUI** | 9130 | `/home/svend/DPMtF-WebUI` | Master in `docs/governance-templates-v2/` | Father project — governance engine |
-| **ENO** | 9131 | `/home/svend/ENO` | Project-specific only in `docs/dpmtf/`; structural ref from Father | First Child project |
-| **ai-pc-resource-webui-v3** | 9123 | `/home/svend/ai-pc-resource-webui-v3` | Project-specific only in `docs/dpmtf/`; structural ref from Father | Reference project |
+| **DPMtF-WebUI** | 9130 | `config.get_project_path("DPMtF-WebUI")` | Master in `docs/governance-templates-v2/` | Father project — governance engine |
+| **ENO** | 9131 | `config.get_project_path("ENO")` | Project-specific only in `docs/dpmtf/`; structural ref from Father | First Child project |
+| **ai-pc-resource-webui-v3** | 9123 | `config.get_project_path("ai-pc-resource-webui-v3")` | Project-specific only in `docs/dpmtf/`; structural ref from Father | Reference project |
 | **BridgeV002** | — | `scripts/bridgeV002/` (integrated in DPMtF-WebUI) | Database-driven | Bridge infrastructure — replaces legacy claude-bridge |
+
+The registry holds project **names**, not locations. Which projects exist is
+`[projects]` in `dpmtf.ini` (`father_project`, `child_projects`,
+`reference_projects`); where they live is `projects_base_dir` under `[paths]`,
+which falls back to `DPMTF_HOME_DIR` or `$HOME`. A machine with a different
+layout changes the ini or the environment, not this table.
 
 ---
 
@@ -34,7 +40,7 @@ and `superpowertemplates/superpowers.md` Section 1.
 | Classification | Files | Sync Rule | Description |
 |---------------|-------|-----------|-------------|
 | **Role definitions** | 01-04 | **Father only** — Child projects do not receive role files (they are governed by Father's roles) | Role definitions are Father's operational concern. |
-| **Structural reference** | 12-24 | **Father only** — Child projects reference Father's copies at /home/svend/DPMtF-WebUI/docs/governance-templates-v2/. No local copies. | Rules that apply equally to all projects. Father's version is the single authoritative source. |
+| **Structural reference** | 12-24 | **Father only** — Child projects reference Father's copies in its docs/governance-templates-v2/. No local copies. | Rules that apply equally to all projects. Father's version is the single authoritative source. |
 | **Project-specific** | 10, 11, 25, 26, 27, 28, 29 | **Independent** — each Child maintains its own version | Project name, port, repository, phase, history, status. MUST reflect project's own identity. |
 | **Interaction & Bridge** | 99, 100 | **Father only** — operational protocols | Role interaction and bridge protocol are Father's operational concern. |
 
@@ -99,7 +105,7 @@ validation automation):
 When a new project is added:
 
 1. Add to Project Registry above.
-2. Verify Child references Father's governance paths at `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/`.
+2. Verify Child references Father's governance paths at `config.get_governance_dir_abs()`.
 3. Evaluate existing features for rollout.
 4. Update project-specific files to reflect the new project's identity.
 

@@ -75,11 +75,14 @@ Files safe to modify within the current scope:
 
 All project paths are resolved via `config.py`:
 
-| Path | Getter | Example Value |
+| Path | Getter | What it returns on the author's machine — yours will differ |
 |------|--------|---------------|
 | Project root | `config.get_project_root()` | `/home/svend/DPMtF-WebUI` |
 | Bridge directory | `config.get_bridge_dir()` | `/home/svend/flows` (configured via `DPMTF_BRIDGE_DIR`) |
 | Governance docs | `config.get_governance_dir_abs()` | `/home/svend/DPMtF-WebUI/docs/governance-templates-v2` |
+
+Never copy a value from that third column into code or a prompt. Call the
+getter — the column exists to show the shape of what comes back, nothing more.
 
 When writing handoff prompts, validation scripts, or scope definitions,
 use config getters instead of hardcoding `/home/svend/...`.

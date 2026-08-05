@@ -23,12 +23,11 @@ All files within the new project directory:
 
 ## Forbidden Files
 
-- `/home/svend/DPMtF-WebUI/` — Father project (READ-ONLY reference)
-- `/home/svend/DPMtF-WebUI/config.py` — Father config (DO NOT MODIFY)
-- `/home/svend/DPMtF-WebUI/dpmtf.ini` — Father config (DO NOT MODIFY)
-- `/home/svend/flows/` — Bridge infrastructure (DO NOT MODIFY)
-- `/home/svend/ENO/` — Other Child project (DO NOT MODIFY)
-- `/home/svend/ai-pc-resource-webui-v3/` — Reference project (DO NOT MODIFY)
+- the Father project checkout — READ-ONLY reference
+- the Father's `config.py` and `dpmtf.ini` — DO NOT MODIFY
+- `$DPMTF_BRIDGE_DIR/` — Bridge infrastructure (DO NOT MODIFY)
+- every other Child project checkout (DO NOT MODIFY)
+- every reference project checkout (DO NOT MODIFY)
 
 ## Notes
 

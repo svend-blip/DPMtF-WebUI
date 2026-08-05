@@ -33,8 +33,8 @@ If mcp-light is unavailable, continue without it but explicitly report:
 ## Target Project Resolution — CRITICAL (do this FIRST)
 
 The `cloud_pay` flow operates on a **Child project**, NOT the Father project.
-Your tmux session was likely launched from `/home/svend/DPMtF-WebUI` (the
-Father project) — that is NOT your review target. If you run `git diff` there,
+Your tmux session was likely launched from the Father checkout — that is NOT
+your review target. If you run `git diff` there,
 you will see NO implementation changes (only Father's own uncommitted edits)
 and produce a **false-negative REJECTED verdict**. This has happened before
 (handoffs 15 and 16). Do NOT repeat it.
@@ -43,17 +43,17 @@ Before running any check:
 
 1. **Read the handoff's `<project>` section** (from
    `{bridge_dir}/cloud_pay/handoffs/{ID}-handoff.md`). It states the absolute
-   path of the target project. For the `cloud_pay` flow this is
-   `/home/svend/trade-ui`.
+   path of the target project. Dispatch also states it in the Target Project
+   block at the top of your prompt; that block is authoritative.
 2. **`cd` to that path** and confirm:
    ```bash
-   cd /home/svend/trade-ui    # or whatever <project> states
+   cd <the path <project> states>
    pwd
    ```
 3. **Run ALL validation checks from within the target project directory.**
    Every `git diff --stat` and relative path below is relative to the **target
    project**, NOT the Father project.
-4. **The Father project** (`/home/svend/DPMtF-WebUI`) is read-only reference.
+4. **The Father project** is read-only reference.
    Its `git diff` is irrelevant to your verdict — never run checks there.
 5. **Sanity check before writing REJECTED:** if `git diff --stat` shows changes
    to `CLAUDE.md`, `README.md`, `docs/governance-templates-v2/*`, or
@@ -83,12 +83,11 @@ Also review the original implementation artifacts:
 
 ### 1. Scope Boundaries
 ```bash
-# Run from the TARGET project (e.g. /home/svend/trade-ui), NOT the Father project.
+# Run from the TARGET project named by <project>, NOT the Father project.
 git diff --stat
 ```
 Verify changes match the approved scope. Any out-of-scope change → FAIL.
-Cross-reference with `docs/dpmtf/11_SCOPE.md` in the target project
-(`/home/svend/trade-ui/docs/dpmtf/11_SCOPE.md` for cloud_pay).
+Cross-reference with `docs/dpmtf/11_SCOPE.md` in the target project.
 CRITICAL: if output shows `CLAUDE.md` / `README.md` /
 `docs/governance-templates-v2/*` / `scripts/bridgeV002/*` you are in the FATHER
 project — `cd` to the target project and re-run before deciding.

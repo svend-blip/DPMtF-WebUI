@@ -34,14 +34,14 @@ the endpoint for all trade cockpit outputs.
 
 ```bash
 # Daily simulation flow (weekdays 08:57)
-57 8 * * 1-5 cd /home/svend/DPMtF-WebUI && python3 scripts/bridgeV002/dispatch.py \
+57 8 * * 1-5 cd "$HOME/DPMtF-WebUI" && python3 scripts/bridgeV002/dispatch.py \
   --db-flow trade_cockpit_simulation_v001 \
   --signal-send \
   --from-role humantrade \
   --to-role trend01_trade
 
 # Weekly scoring flow (Sundays 18:00)
-0 18 * * 0 cd /home/svend/DPMtF-WebUI && python3 scripts/bridgeV002/dispatch.py \
+0 18 * * 0 cd "$HOME/DPMtF-WebUI" && python3 scripts/bridgeV002/dispatch.py \
   --db-flow trade_cockpit_scoring_v001 \
   --signal-send \
   --from-role humantrade \

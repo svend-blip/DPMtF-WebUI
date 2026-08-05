@@ -17,9 +17,9 @@
 - `{project_root}/templates/index.html` — Main HTML template
 - `{project_root}/static/` — All frontend assets (JS, CSS)
 - `{project_root}/docs/` — All documentation and governance
-- `/home/svend/flows/` — Bridge infrastructure
-- `/home/svend/ENO/` — Other Child project
-- `/home/svend/ai-pc-resource-webui-v3/` — Reference project
+- `$DPMTF_BRIDGE_DIR/` — Bridge infrastructure
+- every other Child project checkout
+- every reference project checkout
 
 ## Notes
 

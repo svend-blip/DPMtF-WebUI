@@ -43,8 +43,8 @@ directory structure, key modules. Adapt per project.}
 
 After Spor D (Governance Centralization): Child projects' docs/dpmtf/ contains
 ONLY project-specific files (10_PROJECT.md, 11_SCOPE.md). All structural
-governance files (12-24, 99, 100) are referenced from the Father project at
-/home/svend/DPMtF-WebUI/docs/governance-templates-v2/.
+governance files (12-24, 99, 100) are referenced from the Father project's
+docs/governance-templates-v2/ (config.get_governance_dir_abs()).
 └── databases/
     └── {project}.db         # SQLite database
 ```

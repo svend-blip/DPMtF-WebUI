@@ -98,8 +98,8 @@ Files you MAY modify:
 
 Files you MUST NOT touch:
 - {full paths to forbidden files}
-- /home/svend/DPMtF-WebUI/ (Father project)
-- /home/svend/ENO/ (other Child projects)
+- the Father project checkout, unless this flow targets it
+- every other Child project checkout
 </scope>
 
 <validation>

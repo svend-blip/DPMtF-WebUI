@@ -29,7 +29,7 @@ under the `N/A` sentinel).
 
 ## Output Contract
 
-You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
+You produce a JSON file written to the Trade Cockpit inbox (`config.get_trade_inbox_dir()`).
 
 Required wrapper (`trade_output_v001` standard — all 15 top-level fields are mandatory; the trade-ui import script rejects files that fail to validate):
 ```json

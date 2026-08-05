@@ -55,7 +55,7 @@ injectes i din prompt ved dispatch. Se dit prompt for det aktuelle modelnavn.
 
 ## Output Contract
 
-You produce a JSON file written to `/home/svend/trade-ui/inbox/pending/`.
+You produce a JSON file written to the Trade Cockpit inbox (`config.get_trade_inbox_dir()`).
 
 Required wrapper (`trade_output_v001` standard — all 15 top-level fields are
 mandatory; the trade-ui import script rejects files that fail to validate):
@@ -125,7 +125,7 @@ python3 scripts/portfolio_allocator.py --run <flow_run_id>
 The CLI loads the approved candidates + the latest stored portfolio snapshot,
 calls `build_allocation_plan` + `save_allocation_plan`, wraps the result in the
 `trade_output_v001` envelope above, and writes the JSON file to
-`/home/svend/trade-ui/inbox/pending/`. Your job:
+the Trade Cockpit inbox (`config.get_trade_inbox_dir()`). Your job:
 
 1. Read the `flow_run_id` from the dispatch context.
 2. Run the CLI above.

@@ -55,10 +55,13 @@ cd {PROJECT_PATH}
 
 ## Related Projects
 
-- **DPMtF-WebUI** (/home/svend/DPMtF-WebUI, port 9130) — Father project.
+Locations come from `config.get_project_path(name)`; the names below are the
+`[projects]` entries in `dpmtf.ini`.
+
+- **DPMtF-WebUI** (port 9130) — Father project.
   Governance engine that owns all master governance templates.
-- **ENO** (/home/svend/ENO, port 9131) — First Child project.
-- **ai-pc-resource-webui-v3** (/home/svend/ai-pc-resource-webui-v3, port 9123) —
+- **ENO** (port 9131) — First Child project.
+- **ai-pc-resource-webui-v3** (port 9123) —
   Reference project for testing the DPMtF prompt compiler.
 - **BridgeV002** — Integrated into DPMtF-WebUI (`scripts/bridgeV002/`).
   Database-driven dispatch system replacing the legacy `claude-bridge`.
@@ -77,7 +80,7 @@ DPMtF-WebUI's identity — not a generic template.
 
 After Spor D (Governance Centralization): Child projects **do not receive copies**
 of structural reference files (12-24). Instead, they reference Father's files at
-`/home/svend/DPMtF-WebUI/docs/governance-templates-v2/`. **Project-specific files**
+`config.get_governance_dir_abs()`. **Project-specific files**
 (10, 11, 25, 26, 27, 28, 29) are maintained independently in each Child's
 `docs/dpmtf/` directory to reflect its own identity, phase, and history.
 

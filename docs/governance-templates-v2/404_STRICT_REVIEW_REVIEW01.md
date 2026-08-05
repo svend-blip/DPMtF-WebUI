@@ -45,7 +45,7 @@ From imple01, via the bridge directory:
 configured per flow (`bridge_flows.target_project_path`) and is stated in a
 `## Target Project` block at the top of your dispatch prompt. When that block
 is present, `cd` to the path it names and run EVERY command below there. When
-it is absent, the flow targets Father and you stay in `/home/svend/DPMtF-WebUI`.
+it is absent, the flow targets Father and you stay in the Father checkout.
 The handoff's own `<project>` section names the same path.
 
 `pwd` before you conclude anything. If a file the result file claims does not

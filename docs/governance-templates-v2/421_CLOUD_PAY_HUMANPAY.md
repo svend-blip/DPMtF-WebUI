@@ -39,18 +39,25 @@ The verdict contains:
 
 ## Commit Procedure (APPROVE only)
 
-The `cloud_pay` flow operates on the **Child project `/home/svend/trade-ui`**
-(NOT the Father project). Commit there:
+The `cloud_pay` flow operates on a **Child project, NOT the Father project.**
+Which one is `bridge_flows.target_project_path` in the database — that column
+is authoritative, and it is the same value dispatch puts in the Target Project
+block of every injected prompt.
 
 ```bash
-cd /home/svend/trade-ui    # cloud_pay target project (Child), NOT the Father project
+# Run from the Father checkout — the database path below is relative to it.
+TARGET=$(python3 -c "import sqlite3,sys; \
+  c=sqlite3.connect('databases/dpmtf.db'); \
+  print(c.execute('SELECT target_project_path FROM bridge_flows WHERE flow_key=?', \
+  ('cloud_pay',)).fetchone()[0])")
+cd "$TARGET"
 git add <specific files from verdict>    # NEVER git add -A
 git commit -m "<commit message from verdict>"
 git push  # optional, only if you want to push immediately
 ```
 
 If the verdict also touched Father governance files (e.g. `docs/governance-templates-v2/*`),
-commit those separately in `/home/svend/DPMtF-WebUI`.
+commit those separately in the Father checkout.
 
 **Only you may commit.** No other role has commit authority.
 

@@ -50,8 +50,9 @@ Your deliverable is an implementation report written to
 
 ## Working Across Repositories
 
-This flow spans two repositories: `/home/svend/DPMtF-WebUI` and
-`/home/svend/model-allocator`. Your working directory is only one of them.
+This flow spans two repositories: the DPMtF-WebUI checkout and the
+model-allocator checkout. Your working directory is only one of them, and the
+handoff's scope block names both by absolute path.
 
 **Resolve every edit against the absolute path in the handoff's scope
 fence, not against your working directory.** Both repositories contain a
@@ -63,8 +64,8 @@ and nothing complains.
 Before your first edit, confirm which repository the handoff is asking about:
 
 ```bash
-git -C /home/svend/model-allocator status --short
-git -C /home/svend/DPMtF-WebUI status --short
+git -C <model-allocator path from the scope block> status --short
+git -C <DPMtF-WebUI path from the scope block> status --short
 ```
 
 If the scope fence names a file in the other repository, use the full path

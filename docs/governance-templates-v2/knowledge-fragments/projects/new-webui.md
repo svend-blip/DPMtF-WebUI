@@ -60,9 +60,11 @@ Panel groups are fixed. Subgroups are optional and database-driven via
 ## Governance Reference
 
 All projects reference DPMtF-WebUI's authoritative governance:
-- `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/12_CODING_STANDARD.md`
-- `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/16_FILE_ACCESS.md`
-- `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/14_ARCHITECTURE.md`
+In the Father's governance directory (`config.get_governance_dir_abs()`):
+
+- `12_CODING_STANDARD.md`
+- `16_FILE_ACCESS.md`
+- `14_ARCHITECTURE.md`
 
 Project-specific files (10_PROJECT, 11_SCOPE) live in the project's own
 `docs/dpmtf/` directory. After Spor D centralization, this directory contains

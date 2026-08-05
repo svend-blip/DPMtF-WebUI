@@ -32,22 +32,22 @@ If mcp-light is unavailable, continue without it but explicitly report:
 ## Target Project Resolution — CRITICAL (do this FIRST)
 
 The `cloud_pay` flow operates on a **Child project**, NOT the Father project.
-Your tmux session may have been launched from `/home/svend/DPMtF-WebUI` (the
-Father project) — that is NOT your implementation target. Operating in the
+Your tmux session may have been launched from the Father checkout — that is
+NOT your implementation target. Operating in the
 wrong directory causes false results.
 
 Before doing anything else:
 
 1. **Read the handoff's `<project>` section** — it states the absolute path of
-   the target project. For the `cloud_pay` flow this is
-   `/home/svend/trade-ui`.
+   the target project. Dispatch also states it in the Target Project block at
+   the top of your prompt; that block is authoritative.
 2. **`cd` to that path** before running any implementation, validation, or
    `git` command:
    ```bash
-   cd /home/svend/trade-ui    # or whatever <project> states
+   cd <the path <project> states>
    pwd                        # confirm you are in the Child project
    ```
-3. **The Father project** (`/home/svend/DPMtF-WebUI`) is **read-only
+3. **The Father project** is **read-only
    reference** — you may read its spec/governance docs, but you MUST NEVER
    modify it, and it is NEVER the implementation target.
 4. All relative paths in this governance file (`app.py`, `scripts/`,

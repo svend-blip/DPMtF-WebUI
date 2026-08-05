@@ -33,8 +33,8 @@ If mcp-light is unavailable, continue without it but explicitly report:
 ## Target Project Resolution — CRITICAL (do this FIRST)
 
 The `cloud_pay` flow operates on a **Child project**, NOT the Father project.
-Your tmux session was likely launched from `/home/svend/DPMtF-WebUI` (the
-Father project) — that is NOT your review target. If you run checks there, you
+Your tmux session was likely launched from the Father checkout — that is NOT
+your review target. If you run checks there, you
 will see NO implementation changes and produce a **false-negative FAIL**. This
 has happened before (handoffs 15 and 16). Do NOT repeat it.
 
@@ -43,17 +43,18 @@ Before running any check:
 1. **Read the handoff's `<project>` section** (from the handoff file referenced
    in `{bridge_dir}/cloud_pay/handoffs/{ID}-handoff.md`, or the result file's
    referenced input). It states the absolute path of the target project. For
-   the `cloud_pay` flow this is `/home/svend/trade-ui`.
+   Dispatch also states it in the Target Project block at the top of your
+   prompt; that block is authoritative.
 2. **`cd` to that path** and confirm:
    ```bash
-   cd /home/svend/trade-ui    # or whatever <project> states
+   cd <the path <project> states>
    pwd
    ```
 3. **Run ALL validation checks from within the target project directory.**
    Every relative path below (`app.py`, `scripts/`, `static/`, `templates/`,
    `git diff --stat`) is relative to the **target project**, NOT the Father
    project.
-4. **The Father project** (`/home/svend/DPMtF-WebUI`) is read-only reference.
+4. **The Father project** is read-only reference.
    You may read its governance/spec docs, but its `git diff` is irrelevant to
    your review — never run checks there.
 5. **Sanity check before writing FAIL:** if `git diff --stat` shows changes to
@@ -78,7 +79,7 @@ PASS or FAIL.
 
 ### 1. Backend Syntax
 ```bash
-# You MUST be in the target project (e.g. /home/svend/trade-ui), NOT the Father project.
+# You MUST be in the target project named by <project>, NOT the Father project.
 python3 -m py_compile app.py
 # and for each changed Python file:
 python3 -m py_compile <changed_file>

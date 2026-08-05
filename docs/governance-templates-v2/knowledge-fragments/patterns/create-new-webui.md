@@ -21,7 +21,7 @@ following the manual 11-step pattern below.
 
 1. **Run the init script:**
    ```bash
-   python3 /home/svend/DPMtF-WebUI/scripts/initialize_new_webui.py \
+   python3 <Father checkout>/scripts/initialize_new_webui.py \
      --name {project_name} \
      --port {port} \
      --title "{project_title}"
@@ -48,7 +48,7 @@ following the manual 11-step pattern below.
 
 3. **Start the app persistently:**
    ```bash
-   cd /home/svend/{project_name}
+   cd {project_root}
    .venv/bin/uvicorn app:app --host 0.0.0.0 --port {port} --reload &
    ```
 
@@ -75,7 +75,7 @@ The manual 11-step pattern below is used when `deployment_strategy = "standard"`
 
 1. **Create project directory structure.**
    ```bash
-   mkdir -p /home/svend/{project_name}/{templates,static/js,static/css,scripts,databases,docs/dpmtf}
+   mkdir -p {project_root}/{templates,static/js,static/css,scripts,databases,docs/dpmtf}
    ```
 
 2. **Create minimal app.py.**
@@ -140,9 +140,11 @@ All structural governance rules (coding standards, validation, architecture,
 file access) are defined in the Father project at docs/governance-templates-v2/.
 
 The new project references DPMtF-WebUI for all other governance:
-- `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/12_CODING_STANDARD.md`
-- `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/14_ARCHITECTURE.md`
-- `/home/svend/DPMtF-WebUI/docs/governance-templates-v2/16_FILE_ACCESS.md`
+In the Father's governance directory (`config.get_governance_dir_abs()`):
+
+- `12_CODING_STANDARD.md`
+- `14_ARCHITECTURE.md`
+- `16_FILE_ACCESS.md`
 
 #### Verification Commands
 

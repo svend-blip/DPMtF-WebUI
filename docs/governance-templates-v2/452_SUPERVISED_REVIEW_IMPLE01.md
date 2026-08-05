@@ -21,7 +21,7 @@ change your behaviour are few but load-bearing:
 
 ## Target Project — resolve this FIRST
 
-**You are not necessarily working in `/home/svend/DPMtF-WebUI`.** The flow's
+**You are not necessarily working in the Father checkout.** The flow's
 target project is configured per flow (`bridge_flows.target_project_path`) and
 is stated in a `## Target Project` block at the top of your dispatch prompt. The
 handoff's `<project>` section names the same path.

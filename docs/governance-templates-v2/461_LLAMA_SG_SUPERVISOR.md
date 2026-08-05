@@ -113,7 +113,8 @@ review layers missed it.
 The rule is sharpest when a handoff spans more than one repository — and in
 this flow it usually does:
 
-- Write `/home/svend/model-allocator/README.md`, never `README.md`.
+- Write the model-allocator checkout's full path to README.md, never a bare
+  `README.md`.
 - Never write a path relative to "the project" when two projects are in play.
 - When two repositories hold a file with the same name, say which one in
   every sentence that mentions it.

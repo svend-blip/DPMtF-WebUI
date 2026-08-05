@@ -11,7 +11,7 @@ authoritative governance templates and serves as the Prompt Compiler for all
 projects (including itself).
 
 - **Port:** 9130 (configurable via `config.get_port()`)
-- **Repository:** /home/svend/DPMtF-WebUI
+- **Repository:** the DPMtF-WebUI checkout (`config.get_project_root()`)
 - **Runtime:** `.venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130`
 
 ## Directory Structure

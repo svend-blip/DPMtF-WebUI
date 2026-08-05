@@ -13,6 +13,14 @@ session state after a restart. This is the operational runbook for all roles.
 - **When restarting the application:** Runtime commands.
 - **After cold start:** Use `/STRICTREVIEW` skill for Architect context reconstruction.
 
+## Paths in This Runbook
+
+Commands below assume the default layout, where projects sit directly under
+your home directory — that is what `config.get_projects_base_dir()` falls back
+to. If `projects_base_dir` in `dpmtf.ini` or `DPMTF_HOME_DIR` points somewhere
+else, substitute that directory for `~` throughout. Bridge paths use
+`$DPMTF_BRIDGE_DIR`, which must already be exported.
+
 ---
 
 ## Application Restart
@@ -20,7 +28,7 @@ session state after a restart. This is the operational runbook for all roles.
 ### DPMtF-WebUI (Port 9130)
 
 ```bash
-cd /home/svend/DPMtF-WebUI
+cd ~/DPMtF-WebUI
 source venv/bin/activate
 uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 ```
@@ -28,7 +36,7 @@ uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 ### ENO (Port 9131)
 
 ```bash
-cd /home/svend/ENO
+cd ~/ENO
 source venv/bin/activate
 uvicorn app:app --host 0.0.0.0 --port 9131
 ```
@@ -36,7 +44,7 @@ uvicorn app:app --host 0.0.0.0 --port 9131
 ### ai-pc-resource-webui-v3 (Port 9123)
 
 ```bash
-cd /home/svend/ai-pc-resource-webui-v3
+cd ~/ai-pc-resource-webui-v3
 source venv/bin/activate
 uvicorn app:app --host 0.0.0.0 --port 9123
 ```
@@ -81,7 +89,7 @@ When a role session restarts, reconstruct context in this order:
 2. **Read [[10_PROJECT]]** — confirm project identity, port, repository.
 3. **Read [[11_SCOPE]]** — confirm phase boundaries.
 4. **Check the trace log** for recent dispatch events:
-   `tail -20 {bridge_dir}/trace.log`
+   `tail -20 $DPMTF_BRIDGE_DIR/trace.log`
 5. **Check current.md symlink** in each deliverable directory for latest artifact.
 6. **Run git baseline checks** per [[15_GIT_POLICY]]:
    - `git status --short`
@@ -99,7 +107,7 @@ When a role session restarts, reconstruct context in this order:
 tmux ls | grep <session_name>
 
 # Check if deliverable was written
-ls -la {bridge_dir}/{flow_key}/results/
+ls -la $DPMTF_BRIDGE_DIR/{flow_key}/results/
 
 # If deliverable exists → run signal_complete manually
 python3 scripts/bridgeV002/dispatch.py \
@@ -112,7 +120,7 @@ tmux attach -t <session_name>
 ### Scenario B: Local Session Is Dead
 
 ```bash
-/home/svend/start_review_claude.sh
+~/start_review_claude.sh
 # Wait for model to be ready, then resend handoff
 ```
 
@@ -120,7 +128,7 @@ tmux attach -t <session_name>
 
 ```bash
 # Check latest dispatch events
-tail -20 {bridge_dir}/trace.log
+tail -20 $DPMTF_BRIDGE_DIR/trace.log
 
 # Check current counter value
 python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(conn.execute(\"SELECT next_id FROM bridge_id_counters WHERE flow_key='strict_review'\").fetchone()[0]); conn.close()"
@@ -133,7 +141,7 @@ python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(co
 tmux ls | grep archi01
 
 # Check if response was written
-ls -la {bridge_dir}/{flow_key}/escalations/
+ls -la $DPMTF_BRIDGE_DIR/{flow_key}/escalations/
 
 # If response exists → run signal_answer manually
 python3 scripts/bridgeV002/dispatch.py \
@@ -148,7 +156,7 @@ tmux attach -t archi01
 When starting a brand new session, use the BridgeV002 UI or:
 
 ```bash
-cd /home/svend/DPMtF-WebUI
+cd ~/DPMtF-WebUI
 # For Architect (Claude Code):
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 claude --model qwen3.6:35b-a3b-64k
 # For other roles (OpenCode): use Start Coding button in UI
@@ -157,9 +165,9 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 claude --model qwen3.6:35b-a3b-64k
 First prompt:
 ```
 Read and apply:
-/home/svend/DPMtF-WebUI/docs/governance-templates-v2/{ROLE_FILE}.md
+~/DPMtF-WebUI/docs/governance-templates-v2/{ROLE_FILE}.md
 Read:
-/home/svend/DPMtF-WebUI/docs/governance-templates-v2/27_NEXT_CONTEXT.md
+~/DPMtF-WebUI/docs/governance-templates-v2/27_NEXT_CONTEXT.md
 Continue where we left off.
 ```
 
