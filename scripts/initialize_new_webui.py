@@ -11,7 +11,7 @@ Usage:
         --title "My Project Title"
 
 After running:
-    cd /home/svend/my-project
+    cd {PROJECT_ROOT}
     .venv/bin/uvicorn app:app --host 0.0.0.0 --port 9132 --reload &
 """
 

@@ -20,7 +20,7 @@ def parse_args():
         description="Pre-dispatch: import pending JSON into trade-ui database"
     )
     parser.add_argument("--deliverable-dir", required=True,
-                        help="Deliverable directory (e.g. /home/svend/trade-ui/inbox/pending)")
+                        help="Deliverable directory (e.g. {PROJECT_ROOT}/inbox/pending)")
     parser.add_argument("--handoff-id", default="",
                         help="Handoff ID (for logging)")
     parser.add_argument("--step-key", default="",
@@ -39,7 +39,7 @@ def parse_args():
 def derive_project_root(deliverable_dir):
     """Derive trade-ui project root from deliverable_dir.
 
-    deliverable_dir is e.g. /home/svend/trade-ui/inbox/pending
+    deliverable_dir is e.g. {PROJECT_ROOT}/inbox/pending
     The inbox/ directory is a direct child of the project root.
     Returns the project root path, or None if it cannot be derived.
     """

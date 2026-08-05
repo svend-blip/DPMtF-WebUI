@@ -87,7 +87,15 @@ def get_bridge_dir() -> str:
     return str(Path(get_project_root()) / "flows")
 
 def get_bridge_base_path() -> str:
-    """Bridge base path. .ini [bridge] base_path, or fallback to project_root/flows."""
+    """Bridge base path. Env var DPMTF_BRIDGE_DIR, or .ini [bridge] base_path, or fallback to project_root/flows.
+    
+    This getter now mirrors get_bridge_dir() behavior to ensure consistency.
+    When DPMTF_BRIDGE_DIR is set, it takes precedence over .ini settings,
+    ensuring both getters return the same value when the environment variable is present.
+    """
+    env = os.environ.get("DPMTF_BRIDGE_DIR")
+    if env:
+        return env
     configured = _config.get("bridge", "base_path", fallback=None)
     if configured:
         return configured

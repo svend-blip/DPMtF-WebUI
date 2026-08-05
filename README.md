@@ -277,7 +277,7 @@ export DPMTF_BRIDGE_DIR=/home/<you>/flows   # BridgeV002 deliverable directory
 export DPMTF_PROJECT_ROOT=/home/<you>/DPMtF-WebUI  # Project root
 ```
 
-See `docs/governance-templates-v2/300_SETUPINSTRUCTION.md` for full setup guide.
+See `SETUP.md` for full setup guide.
 
 ## Tmux Session Management
 
