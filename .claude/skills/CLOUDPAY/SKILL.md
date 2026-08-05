@@ -14,13 +14,15 @@ Execute these steps in order. Do not skip any step.
 
 ### Step 1: Resolve Bridge Directory
 
-The bridge directory is configured by `DPMTF_BRIDGE_DIR` (env var, default `/home/svend/flows`).
+The bridge directory is configured by `DPMTF_BRIDGE_DIR`. When that is unset,
+`config.get_bridge_dir()` falls back to `[paths] bridge_dir` in `dpmtf.ini`,
+and failing that to `{project_root}/flows`.
 Resolve it:
 ```bash
-echo $DPMTF_BRIDGE_DIR   # should be /home/svend/flows
+echo $DPMTF_BRIDGE_DIR   # must name an existing directory
 ```
-If empty or pointing to `/home/svend/claude-bridge`, the environment is stale —
-`export DPMTF_BRIDGE_DIR=/home/svend/flows` before proceeding.
+If empty, or still pointing at a `claude-bridge` directory, the environment is
+stale — export it to your flows directory before proceeding.
 
 All bridge paths below use `{bridge_dir}` as shorthand for this resolved directory.
 
@@ -62,7 +64,7 @@ Read `docs/governance-templates-v2/422_CLOUD_PAY_ARCHI01PAY.md`. Confirm:
 
 Run these checks:
 ```bash
-cd /home/svend/DPMtF-WebUI
+cd "$(git rev-parse --show-toplevel)"
 python3 -m py_compile app.py && echo "app.py OK"
 curl -s http://localhost:9130/api/health
 curl -s http://localhost:9130/api/bridge-v2/status

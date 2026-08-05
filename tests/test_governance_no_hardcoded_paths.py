@@ -17,8 +17,11 @@ an allowed one.
 import unittest
 from pathlib import Path
 
-GOVERNANCE = (Path(__file__).resolve().parent.parent
-              / "docs" / "governance-templates-v2")
+ROOT = Path(__file__).resolve().parent.parent
+GOVERNANCE = ROOT / "docs" / "governance-templates-v2"
+# Cold-start procedures instruct a session the same way governance instructs a
+# role, so they are held to the same rule.
+SKILLS = ROOT / ".claude" / "skills"
 
 NEEDLE = "/home/svend"
 
@@ -77,12 +80,14 @@ class GovernancePaths(unittest.TestCase):
 
     def test_no_unjustified_absolute_home_paths(self):
         offenders = []
-        for path in sorted(GOVERNANCE.rglob("*.md")):
-            rel = str(path.relative_to(GOVERNANCE))
-            for n, line in enumerate(
-                    path.read_text(encoding="utf-8").splitlines(), 1):
-                if NEEDLE in line and not _is_allowed(rel, line):
-                    offenders.append(f"{rel}:{n}: {line.strip()}")
+        for base in (GOVERNANCE, SKILLS):
+            for path in sorted(base.rglob("*.md")):
+                rel = str(path.relative_to(base))
+                for n, line in enumerate(
+                        path.read_text(encoding="utf-8").splitlines(), 1):
+                    if NEEDLE in line and not _is_allowed(rel, line):
+                        offenders.append(
+                            f"{path.relative_to(ROOT)}:{n}: {line.strip()}")
 
         self.assertEqual(offenders, [], "\n\nGovernance files name a specific "
                          "machine's paths. Use a config getter, "
