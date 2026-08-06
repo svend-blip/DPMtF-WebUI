@@ -54,6 +54,25 @@ Concretely, and these are the mistakes to avoid:
 - **Backlog items 5, 6 and 7 in `RUNS-BACKLOG.md` do not apply.** Those are
   lease and VRAM defects in the local flow. Do not diagnose them here.
 
+**One correction, found by a supervisor on 2026-08-06 and worth knowing before
+you see it yourself.** Dispatch's lease machinery runs on *every* flow, not
+only local ones. Handoff 001 logged:
+
+```
+Stopped allocator model 'opus5'
+<VRAM settle check>
+Lease acquired for 'cloud_minimax'
+```
+
+That is real output, and it is harmless: all three aliases are `cloud_noop`,
+so start and stop are credential checks and the settle check finds nothing to
+wait for. But this file previously said the swap-failure defects "cannot
+occur", which was too strong — the code path runs, it simply has nothing to
+do. What is true is narrower and still the point: **there are no lifecycle
+scripts on this flow's steps, nothing is loaded or unloaded, and no swap can
+fail because there is no card to contend for.** If you see those lines, note
+them and move on.
+
 **What replaces them is cost and quota.** Every token in this flow is billed.
 Two consequences:
 
