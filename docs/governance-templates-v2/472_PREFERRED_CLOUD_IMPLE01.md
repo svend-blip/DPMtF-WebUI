@@ -109,6 +109,19 @@ against itself. Two consequences:
   You are not responsible for it, but an unexplained file will be read as
   yours.
 
+**A validation step you cannot run is not a step you must find a way around.**
+Run 005's handoff asked for `git status --porcelain` inside the allocator
+repository — one the same handoff's fence forbade you to touch, and whose
+`.git` your permission allowlist deliberately does not grant. That is a defect
+in the handoff, not a puzzle. **Report it and move on:** "the fence denies this
+role read access to that repository's `.git`, so I did not run it" is a true
+and complete answer.
+
+Never satisfy such a step by reconstructing what its output would have been.
+The properties a fence keeps you away from are measured outside your session,
+by a testgoal and by the reviewer, and both are better evidence than your
+word.
+
 ## Stop Condition
 
 After writing your result, signal complete:

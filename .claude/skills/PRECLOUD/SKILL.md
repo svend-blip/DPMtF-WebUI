@@ -145,6 +145,20 @@ model swap; there is none here, so the effects land almost together:
 Only step 4 means delivered. If you need to know whether a dispatch worked,
 read `trace.log`.
 
+## Two GOAL.md Files — Always Say Which
+
+| Path | What it is |
+|---|---|
+| `{bridge_dir}/preferred_cloud/runs/{id}/GOAL.md` | this run's Mission Contract |
+| `{target_project}/GOAL.md` | the product specification |
+
+`{target_project}` comes from `bridge_flows.target_project_path` — ask
+mcp-light's `get_flow` rather than assuming it.
+
+Write the path, never the bare name. Roles have confused the two twice — once
+citing a path that exists nowhere, once reporting a contract's tables missing
+after grepping the specification for them.
+
 ## Validating A Verdict
 
 ```bash

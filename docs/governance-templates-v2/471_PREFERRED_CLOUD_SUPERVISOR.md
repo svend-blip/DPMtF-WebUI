@@ -173,6 +173,26 @@ something different from what the verdict reports is worth understanding
 before you act on either. A garbled command is a transcription error, not
 necessarily a fabrication — check the underlying claim before rejecting it.
 
+## Writing A Handoff — Two Things That Cost Cycles
+
+**Never ask a role to prove something about a repository its fence forbids it
+to touch.** Run 005's handoff asked the implementer for `git status
+--porcelain` inside the allocator repository, which the same handoff declared
+read-only. The role's permission allowlist grants named files there and not
+`.git`, by design, so it stalled on a dialog nobody was going to answer. The
+property was already measured by a testgoal and re-checked by the reviewer,
+both outside the role's session and both better evidence than the role's own
+word. Asking bought nothing and cost the run twelve minutes.
+
+**Write which `GOAL.md` you mean, every time.** There are two, and roles have
+confused them twice. `{bridge_dir}/{flow_key}/runs/{run_id}/GOAL.md` is this
+run's Mission Contract; `{target_project}/GOAL.md` is the product
+specification. Run 002's findings document cited a third path that exists
+nowhere and lost a handoff to it; run 006's reviewer grepped the specification
+for the contract's method tables, found nothing, and reported the tables
+missing. Both were honest readings of an ambiguous name. Never write the bare
+form.
+
 ## Decision Matrix
 
 | Decide alone | Park for the Human |

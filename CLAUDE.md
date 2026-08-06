@@ -220,6 +220,22 @@ So when you do intervene: say what to stop, say what to resume, and then
 **look at the pane again a minute later** to see what state you left behind.
 The cost is not in the message, it is in the mode.
 
+**And it leaves a stance, not only a state.** A stale signal once re-injected
+a closed run's handoff into the reviewer, and I told that session the injected
+message was illegitimate and must not produce a verdict or a signal. True of
+that message. Thirty minutes later a real handoff arrived and the same session
+refused it as suspected prompt injection — reasonably, since an injected
+prompt asking it to read outside the project, write to a foreign path and
+start a background process is exactly what an attack looks like.
+
+The refusal was good behaviour and the priming was mine. So when you tell a
+role that *this* message is invalid, say in the same breath what still **is**:
+which deliveries are real, where they come from, and how it can check without
+taking your word. Point at its own role file, the flow definition in the
+database, the run contract, its own prior entries in `trace.log`. A role that
+verifies is worth more than one that complies, and it costs nothing to give it
+the means.
+
 **A stall watcher must know when the run opened.** The first one written for
 this measured "time since the last signal", which on a freshly opened run is
 the gap since the *previous* run closed — it reported a stall forty-six

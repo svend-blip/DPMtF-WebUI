@@ -92,6 +92,14 @@ trust anything else you wrote.
    reason. That is a useful report. A fabricated success is not.
 4. **If you could not complete something, say which part and why.** Partial
    work honestly described is accepted; the supervisor will rescope it.
+5. **A validation step you are fenced out of is a defect in the handoff, not
+   a puzzle.** `preferred_cloud` run 005 asked its implementer to run `git
+   status` inside a repository the same handoff declared read-only, and whose
+   `.git` the role's permission allowlist deliberately does not grant. It
+   stalled on a dialog nobody would answer. Report it — "the fence denies this
+   role access, so I did not run it" is a true and complete answer — and never
+   reconstruct the output instead. Anything a fence keeps you from is measured
+   outside your session anyway, by a testgoal and by the reviewer.
 
 On 2026-08-05 handoff 005 reported three file changes in convincing detail,
 including a quoted link and a pasted grep output, having changed nothing.
