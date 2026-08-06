@@ -8,6 +8,22 @@ This guide walks you through installing and setting up the DPMtF-WebUI project o
 - CUDA 13.0
 - tmux
 - SQLite 3
+- **NVIDIA GPU with sufficient VRAM for at least one role model** (see below)
+
+### Hardware and Models
+
+The DPMtF-WebUI autonomous flow uses three distinct models, one per role:
+
+| Alias | Role | VRAM Required | Notes |
+|-------|------|---------------|-------|
+| `laguna-local` | supervisor01_llama | ~29 GB | MoE model; offloads via `--n-cpu-moe 31`, consuming ~37 GB host memory. Context: 262144 tokens, one slot. |
+| `imple-fast` | imple01SG | ~20 GB | `qwen3.6:27b-q4_K_M`, full GPU residency. |
+| `review02-local` | review01SG | ~22 GB | `qwen3.6:35b-a3b-64k`, full GPU residency. |
+
+**The roles are never co-resident.** Dispatch stops the outgoing model, waits for
+nvidia-smi to confirm freed memory, and only then loads the incoming model. A 32 GB
+GPU is sufficient because at most one model occupies the card at any time — it would
+not work with two models loaded simultaneously.
 
 ## Clone Repositories
 
@@ -80,6 +96,20 @@ Install SGLang in a virtual environment and set `SGLANG_VENV_PATH` to the path o
 Install Ollama from https://ollama.com and ensure it's running.
 The DPMtF-WebUI will use Ollama to manage models via the ollama client.
 Set `OLLAMA_BASE_URL` environment variable to `http://127.0.0.1:11434` for default Ollama instance.
+
+#### Fetching the Models
+
+Two of the three role models are pulled via Ollama:
+
+```bash
+ollama pull qwen3.6:27b-q4_K_M      # imple-fast (imple01SG — Implementer)
+ollama pull qwen3.6:35b-a3b-64k     # review02-local (review01SG — Reviewer)
+```
+
+The third model, `laguna-local` (supervisor01_llama), is served from a local GGUF
+directory using llama.cpp. Download a compatible GGUF file (e.g., Laguna-S 2.1 IQ4_XS),
+place it in a directory on your machine, and set `MODEL_ROOT_GGUF` in `.env` to point
+to that directory.
 
 ### OpenCode
 Install OpenCode from https://opencode.ai and set `DPMTF_OPENCODE_BIN` to the path of the opencode executable.
