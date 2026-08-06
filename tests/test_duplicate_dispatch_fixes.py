@@ -472,3 +472,68 @@ def test_auto_prepend_only_adds_missing_tags(tmp_path):
 
     assert content.count("<handoff_id>") == 1, "existing tag must not be duplicated"
     assert "<source_role>imple01</source_role>" in content
+
+
+# ---------------------------------------------------------------------------
+# The idempotency guard is unbounded in time (preferred_cloud runs 004-005)
+#
+# The guard's own docstring said a transition happens at most once per handoff
+# id — and then bounded it to ten minutes, which contradicts that rule. Four
+# re-run signals landed at ~12.4 minutes, cleared the window, re-validated the
+# handoff as a fresh deliverable, wrote an auto-prepended <deliverable> tag
+# into it and injected it into a role already working on it. A fifth arrived
+# nineteen minutes after its run had closed, aimed at a reviewer that would
+# have overwritten an approved verdict.
+# ---------------------------------------------------------------------------
+
+def test_delivery_outside_the_old_window_is_still_a_duplicate(tmp_path):
+    """12.4 minutes cleared the old 10-minute bound four times in one day."""
+    base = tmp_path / "bridge"
+    _trace_line(base, "Pre-super-cl", "Pre-imple-cl", "007", "dispatched",
+                age_minutes=12.4)
+    assert transition_recently_delivered(
+        str(base), "Pre-super-cl", "Pre-imple-cl", "007") is True
+
+
+def test_a_closed_runs_delivery_is_still_a_duplicate(tmp_path):
+    """A stale signal for a closed run must not re-enter the chain."""
+    base = tmp_path / "bridge"
+    _trace_line(base, "Pre-imple-cl", "Pre-review-cl", "006", "signal_complete",
+                age_minutes=17 * 60)
+    assert transition_recently_delivered(
+        str(base), "Pre-imple-cl", "Pre-review-cl", "006") is True
+
+
+def test_a_gate_rejected_role_may_still_signal_again(tmp_path):
+    """The rework path must survive the stricter guard.
+
+    A rejection logs `gate_rejected`, not a delivery, so the implementer that
+    rewrites its report can signal the same id again.
+    """
+    base = tmp_path / "bridge"
+    _trace_line(base, "Pre-imple-cl", "Pre-review-cl", "005", "gate_rejected",
+                age_minutes=30)
+    assert transition_recently_delivered(
+        str(base), "Pre-imple-cl", "Pre-review-cl", "005") is False
+
+
+def test_an_explicit_window_is_still_honoured(tmp_path):
+    """Callers that want a bound keep one; only the default changed."""
+    base = tmp_path / "bridge"
+    _trace_line(base, "review01", "review02", "42", "signal_complete",
+                age_minutes=30)
+    assert transition_recently_delivered(
+        str(base), "review01", "review02", "42", within_minutes=10) is False
+    assert transition_recently_delivered(
+        str(base), "review01", "review02", "42") is True
+
+
+def test_the_guard_still_distinguishes_roles_and_ids(tmp_path):
+    """Field comparison, not substring — ids repeat across flows and eras."""
+    base = tmp_path / "bridge"
+    _trace_line(base, "Pre-super-cl", "Pre-imple-cl", "007", "dispatched",
+                age_minutes=60)
+    assert transition_recently_delivered(
+        str(base), "Pre-imple-cl", "Pre-review-cl", "007") is False
+    assert transition_recently_delivered(
+        str(base), "Pre-super-cl", "Pre-imple-cl", "070") is False

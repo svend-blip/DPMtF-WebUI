@@ -806,40 +806,49 @@ _ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
 _PASTE_STUCK_MARKER = "paste again to expand"
 
 
-def _delivery_grace_minutes():
-    """Idempotency window for duplicate signal suppression.
-
-    From the machine profile [watchdog] section (delivery_grace_minutes,
-    default 10) — the same profile the chain watchdog and scheduler nudges
-    read their thresholds from.
-    """
-    try:
-        profile_path = os.path.join(PROJECT_ROOT, "profiles", "machine.local.json")
-        with open(profile_path, "r", encoding="utf-8") as f:
-            wd = json.load(f).get("watchdog", {})
-        return int(wd.get("delivery_grace_minutes", 10))
-    except (OSError, ValueError, json.JSONDecodeError):
-        return 10
+# How far back the idempotency guard reads trace.log. The log is flow-wide,
+# so this must comfortably outlast a single run's worth of entries.
+_TRACE_SCAN_LINES = 4000
 
 
 def transition_recently_delivered(bridge_dir, from_role, to_role, handoff_id,
-                                  within_minutes):
-    """True when trace.log shows this exact transition was delivered recently.
+                                  within_minutes=None):
+    """True when trace.log shows this exact transition was already delivered.
 
     Delivery events are 'dispatched' (signal_send) and 'signal_complete'
     (callback injection). Failed attempts do not count. Used as an
     idempotency guard: a transition happens at most once per handoff id, so
-    a recent delivery means any further signal for the same
-    (from_role->to_role, id) is a duplicate — the model's own late signal
-    racing the scheduler nudge, or a re-run command.
+    any further signal for the same (from_role->to_role, id) is a duplicate —
+    the model's own late signal racing the scheduler nudge, or a re-run
+    command.
+
+    `within_minutes=None` means **ever**, and it is the right default: handoff
+    ids never repeat within a flow, so a delivered transition stays delivered
+    and age cannot make a duplicate legitimate. The bound used to be ten
+    minutes, which contradicted the rule stated above. preferred_cloud runs
+    004 and 005 paid for it four times: a re-run signal landing at ~12.4
+    minutes cleared the window, re-validated the handoff as if it were a fresh
+    deliverable, wrote an auto-prepended `<deliverable>` tag into it, and
+    injected it into a role that was already working on it. A fifth arrived
+    nineteen minutes after its run had closed and would have had the reviewer
+    overwrite an approved verdict.
+
+    A retry after a *failed* delivery is unaffected — `gate_rejected`,
+    `signal_complete_failed` and `gate_rejection_undelivered` are not delivery
+    events, so a role that was rejected can always signal again. For the case
+    this cannot foresee — a `dispatched` that was logged but genuinely did not
+    land — `--force` bypasses the guard.
+
+    The scan reads the tail of a flow-wide log, so "ever" means "within the
+    last `_TRACE_SCAN_LINES` entries". That is far past any live handoff.
     """
     trace = os.path.join(bridge_dir, "trace.log")
     try:
         with open(trace, "r", encoding="utf-8") as f:
-            lines = f.read().splitlines()[-400:]
+            lines = f.read().splitlines()[-_TRACE_SCAN_LINES:]
     except OSError:
         return False
-    cutoff = time.time() - within_minutes * 60
+    cutoff = None if within_minutes is None else time.time() - within_minutes * 60
     for line in reversed(lines):
         parts = line.split(" | ")
         if len(parts) < 4:
@@ -849,6 +858,8 @@ def transition_recently_delivered(bridge_dir, from_role, to_role, handoff_id,
         if parts[3] not in ("dispatched", "signal_complete",
                             "signal_complete_to_human"):
             continue
+        if cutoff is None:
+            return True
         try:
             ts = datetime.strptime(
                 parts[0], "%Y-%m-%dT%H:%M:%SZ"
@@ -1772,7 +1783,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         # Harmless (no injection) but pollutes the trace bookkeeping.
         if not force and transition_recently_delivered(
                 bridge_dir, payload["from_role"], payload["to_role"],
-                handoff_id, _delivery_grace_minutes()):
+                handoff_id):
             print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "
                   f"#{handoff_id} already delivered to human — duplicate "
                   f"suppressed (use --force to override)")
@@ -1824,11 +1835,10 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             pass  # lock unavailable (fs issue) — trace guard still applies
         if transition_recently_delivered(
                 bridge_dir, payload["from_role"], payload["to_role"],
-                handoff_id, _delivery_grace_minutes()):
+                handoff_id):
             print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "
-                  f"#{handoff_id} already delivered within the last "
-                  f"{_delivery_grace_minutes()} min — duplicate suppressed "
-                  f"(use --force to override)")
+                  f"#{handoff_id} was already delivered — duplicate "
+                  f"suppressed (use --force to override)")
             log(
                 f"{payload['from_role']}->{payload['to_role']}",
                 handoff_id,
