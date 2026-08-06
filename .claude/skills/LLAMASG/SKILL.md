@@ -25,6 +25,36 @@ a fresh `runs/{id}/` directory, and `/llama_SG`. The approved GOAL.md *is* the
 authorisation to begin; Step 7 says what to do when it finds a run that has
 opened but not started.
 
+## Step 0: Get the State In One Call
+
+```bash
+python3 scripts/bridgeV002/supervisor_state.py
+```
+
+This answers Steps 1, 2, 3, 5 and 6 at once, and **applies the run floor while
+doing so** — which `chain_watchdog` cannot, because it locks onto the newest
+handoff id on disk regardless of which run owns it. It reports the resolved
+bridge directory, the active run and which of its four artefacts exist, the
+`First handoff id` parsed from GOAL.md, the flow counter, the handoffs this
+run owns, what has been written for the current one, its last `trace.log`
+signal, whether the WebUI, database, Laguna and the three tmux sessions are
+up, what is missing, and a one-line assessment.
+
+Read the assessment, then act on it:
+
+| Assessment | What it means |
+|---|---|
+| `NO ACTIVE RUN` | Every run has an END-REPORT. A new run needs a Human-approved GOAL.md — never open one yourself. |
+| `PARK` | GOAL.md or the handoff floor is missing. Report and wait; do not adopt what is on disk. |
+| `RUN OPENED, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
+| `HANDOFF nnn DISPATCHED` / `RESULT DELIVERED` | A role is working. Wait. Do not dispatch. |
+| `VERDICT READY for nnn` | Validate the testgoals yourself, then act per 461. |
+
+You still need Step 4 — the role definitions — and Step 7's report. **Steps
+1-6 below are the long form**, kept because the script can fail and because
+they explain *why* each check matters. Run them by hand only when the script
+does not run or its answer looks wrong.
+
 ## Procedure
 
 Execute these steps in order. Do not skip any step.
@@ -185,6 +215,93 @@ The Human opens a run by writing and approving GOAL.md. That approval is the
 authorisation to start the chain; it does not need to be repeated in the
 invocation.
 
+## Framework Questions Go To mcp-light
+
+`mcp-light` is registered in `~/.mcp.json` at `http://127.0.0.1:9135/mcp`, and
+every role's `bridge_roles.config_dir` is `NULL`, so this session already has
+it. **Use it for anything about how the
+flow is wired.** It answers from the database in one call, with structured
+output:
+
+| Question | Tool |
+|---|---|
+| Where does a deliverable go, and under what filename? | `get_flow_steps("llama_SG")` |
+| What does 461 or 500 say? | `get_governance_file("461_LLAMA_SG_SUPERVISOR.md")` |
+| How is a role configured? | `get_role("supervisor01_llama")` |
+| What did an earlier verdict conclude? | `search_verdicts(query)` |
+
+`get_flow_steps` returns exactly this:
+
+```json
+{"step_key": "supervisor-imple01", "deliverable_dir": "llama_SG/handoffs",
+ "deliverable_pattern": "{ID}-handoff.md", "rule_key": "handoff"}
+```
+
+On 2026-08-06 a cold start spent fourteen minutes deriving that from
+`dispatch.py`'s argument parsing. The tool was connected the whole time. **If a
+question is about the framework rather than the run's actual work, it is a
+lookup — not something to reason out.**
+
+mcp-light knows the database and the governance templates. It knows nothing
+about `{bridge_dir}/llama_SG/runs/` — the active run, GOAL.md, the ledger, the
+handoff floor. Those come from Steps 1-6.
+
+## Standing Run Context — True Of Every Run
+
+These held for runs 005-008 and hold until this file says otherwise. **A
+GOAL.md must not repeat them.** Four consecutive contracts carried
+near-identical copies of the blocks below — roughly 3 KB re-read on every
+wake-up, describing nothing specific to the run at hand.
+
+### The models
+
+Each role runs the model that suits its work, and they are never resident at
+the same time. Dispatch stops the outgoing model, waits for nvidia-smi to
+confirm the memory came back, and only then loads the next.
+
+| Role | Model | Context |
+|------|-------|---------|
+| `supervisor01_llama` | `laguna-local` (Laguna-S-2.1-IQ4_XS) | 262144, one slot |
+| `imple01SG` | `imple-fast` (qwen3.6:27b-q4_K_M) | 65536 |
+| `review01SG` | `review02-local` (qwen3.6:35b-a3b-64k) | 65536 |
+
+### Verdict discipline
+
+The reviewer reviews the working tree, never the result file. Every accepted
+claim is backed by a command the reviewer ran, with its real output in the
+verdict. `git status --short` comes first. Unverified means REJECTED. Two
+roles agreeing is not evidence. Paste the command you actually ran — a garbled
+one costs the supervisor a re-derivation.
+
+### What counts as a scope breach
+
+**`databases/dpmtf.db` is never a scope breach.** The flow writes to it on
+every dispatch — the id counter, `jobs`, `job_events`, `model_leases`. It is
+exhaust, not deliverable. Run 006's contract failed to say so and cost the
+supervisor twenty minutes proving it harmless.
+
+A scope breach is any modified tracked file outside GOAL.md's Scope Fence,
+`databases/dpmtf.db` excepted. Untracked clutter — stray `.log` files, the
+`docs/superpowers/` documents — is pre-existing. Ignore it; never delete or
+commit it.
+
+### Budgets
+
+Measure the chain's **active** working time from `trace.log`, not the wall
+clock. Run 007 read 7h45m against a 3h budget because the clock ran while the
+supervisor slept between signals, while the chain itself worked six minutes.
+
+Park on a blocked dependency, a scope-fence breach, a gate rejection that
+repeats, two consecutive failed nudges, or a verdict without an Evidence
+section (reject once, then park) — not on the clock alone, and never on a
+known infrastructure defect.
+
+### What a GOAL.md should therefore contain
+
+Only what is true of *this* run: why it exists, the measured work, the
+testgoals with their mechanical green criteria, the Scope Fence file list, the
+budget numbers, and the Standing Approvals. Nothing above.
+
 ## Dispatching — The Exact Commands
 
 **You do not need to read `dispatch.py` to use it, and you should not.** On
@@ -266,6 +383,13 @@ still active. See the END-REPORT rule below. Backlog item 17.
 ## Rules
 
 - **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**
+- **Do not delegate to a subagent.** Everything this procedure needs is a file
+  read, a `grep`, an `ls`, a database query or an mcp-light call you can make
+  directly. On 2026-08-05 a cold start spawned a `general-purpose` agent to
+  "find supervisor run state files" — a question `ls` answers — and it consumed
+  55,900 tokens and fourteen minutes before returning. That is the single most
+  expensive thing measured in this flow. If a task looks big enough to
+  delegate, it is a task the Human should have scoped: park and say so.
 - **Do not read the source of the tools you are told to run.** `dispatch.py`,
   `chain_watchdog.py` and `gate-deliverable-evidence.py` are infrastructure
   you invoke, not code you audit — their invocations are documented above and
