@@ -129,3 +129,46 @@ class PathResolution(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DenialsAreNotClaims(unittest.TestCase):
+    """Saying what was NOT changed is what the contract asks for.
+
+    03_IMPLEMENTOR and every flow's role file require it: "doing nothing is a
+    legitimate result — say so plainly". Reading such a line as a claim
+    punishes the behaviour the contract requires, and did: preferred_cloud
+    handoff 002 was rejected for writing that GOAL.md was untouched, which was
+    both true and the point.
+    """
+
+    def test_untouched_line_is_not_a_claim(self):
+        text = """## Files changed
+
+The only thing this handoff created is `docs/phase0-findings.md`.
+`GOAL.md`, `README.md`, `pyproject.toml` are untouched.
+"""
+        self.assertEqual(gate.claimed_paths(text), ["docs/phase0-findings.md"])
+
+    def test_read_but_never_written_is_not_a_claim(self):
+        text = """## Files changed
+
+* `/home/svend/DPMtF-WebUI/`, `/home/svend/model-allocator/` were read but
+  never written.
+"""
+        self.assertEqual(gate.claimed_paths(text), [])
+
+    def test_the_real_claim_beside_a_denial_still_counts(self):
+        """A denial must not swallow the section it sits in."""
+        text = """## Files changed
+
+1. **src/dpmtf_lightworker/models.py** — added the envelope
+2. `tests/` is unchanged
+"""
+        self.assertEqual(gate.claimed_paths(text), ["src/dpmtf_lightworker/models.py"])
+
+    def test_negations_covered(self):
+        for phrase in ("is untouched", "was not modified", "were not changed",
+                       "is unchanged", "never written", "no changes to"):
+            with self.subTest(phrase=phrase):
+                text = f"## Files changed\n\n`GOAL.md` {phrase}.\n"
+                self.assertEqual(gate.claimed_paths(text), [])

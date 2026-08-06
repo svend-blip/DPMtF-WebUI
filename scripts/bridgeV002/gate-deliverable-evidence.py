@@ -128,6 +128,30 @@ def git_dirty_files(repo_root):
     return dirty
 
 
+# Phrases that turn a sentence naming files into a statement about what was
+# NOT done. 03_IMPLEMENTOR and every flow's role file ask for exactly this —
+# "doing nothing is a legitimate result, say so plainly" — so reading such a
+# line as a claim punishes the behaviour the contract requires.
+#
+# preferred_cloud handoff 002, 2026-08-06: a report pasted real `git status`
+# output showing one new file, then wrote "GOAL.md, README.md, pyproject.toml,
+# .env.example, .gitignore are untouched." The gate took GOAL.md from that
+# line, found it unchanged — which was the point — and rejected an honest
+# report. Fourth false-positive shape in this function's history, and the
+# first where the deliverable was penalised for being explicit.
+_DENIAL = re.compile(
+    r"\b(untouched|unchanged|not (?:modified|changed|touched|edited)|"
+    r"never (?:written|modified|touched|changed)|no changes? to|"
+    r"left alone|read but never written)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_denial(line):
+    """True when the line says these files were NOT changed."""
+    return bool(_DENIAL.search(line))
+
+
 def claimed_paths(text):
     """File paths the deliverable says it changed.
 
@@ -176,7 +200,7 @@ def claimed_paths(text):
         # reference to SETUP.md" names the file the change points at, not a
         # second file that was edited.
         is_continuation = bool(re.match(r"^\s{2,}\S", line))
-        if in_change_section and not is_continuation:
+        if in_change_section and not is_continuation and not _is_denial(line):
             candidates.append(line)
 
     found = []
