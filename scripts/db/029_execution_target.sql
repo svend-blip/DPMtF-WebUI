@@ -1,0 +1,53 @@
+-- 029: Where a role executes, as opposed to which model it uses.
+--
+-- Answers §8 of the DPMtF-LightWorker specification, which said a
+-- Father-side worker mapping "may require a new field or mapping" and left
+-- it open. preferred_cloud run 002 was the research run that closed it;
+-- this is that decision as schema.
+--
+-- WHAT THE EXISTING COLUMNS ALREADY MEAN, and why none of them fits:
+--
+--   default_model_alias (bridge_roles)   which alias the role uses
+--   model_alias         (bridge_flow_steps)  a per-step override of the same
+--   runtime_profile                      how that alias is served
+--   tmux_session        (bridge_roles)   the FATHER-LOCAL tmux session the
+--                                        role attaches to
+--
+-- The first three pick a model. The fourth is the closest thing to a
+-- location and it is still wrong: it names a session on the Father host.
+-- A role executing on a remote worker has no Father-side session at all.
+--
+-- Overloading tmux_session with a worker id was the obvious shortcut and it
+-- is the one to refuse. It would make a single column mean "session name"
+-- for some rows and "machine" for others, and every reader would need to
+-- know which — the same defect migration 023 avoided by making
+-- workdir_mode data rather than inferring it from the client type.
+--
+-- WHY bridge_roles AND NOT bridge_flow_steps: where a role runs is a
+-- property of the role. Putting it on steps would allow the same role to
+-- execute in two places within one flow, which nothing needs, and would
+-- create a four-way resolution between role, step, flow and default for no
+-- present benefit.
+--
+-- SEMANTICS:
+--
+--   execution_target IS NULL   the role runs on the Father host, in its
+--                              tmux_session. This is every role today, and
+--                              the NULL default is what keeps them working.
+--
+--   execution_target = '<id>'  the role runs on the named remote worker.
+--                              Dispatch must then push the role envelope to
+--                              that worker rather than injecting into tmux.
+--
+-- THIS MIGRATION ADDS THE COLUMN AND NOTHING ELSE. No row is given a value,
+-- because no LightWorker exists to receive one and dispatch has no code that
+-- reads the field. Setting a target before both exist would route a live
+-- role at a machine that cannot answer. The dispatcher change and the first
+-- populated row belong to the run that builds the Father-side endpoints of
+-- §20 — until then this column is inert by construction, which is the point.
+--
+-- Idempotent: ADD COLUMN runs once, tracked by filename in
+-- schema_migrations. There is no UPDATE to re-assert.
+
+ALTER TABLE bridge_roles
+    ADD COLUMN execution_target TEXT DEFAULT NULL;
