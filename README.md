@@ -14,8 +14,7 @@ The commands below assume the prerequisites from SETUP.md are already in place:
 ```bash
 pip install -r requirements.txt
 python3 scripts/init_db.py      # schema + canonical defaults (idempotent)
-python3 scripts/seed_bridge.py  # bridge seed data (fresh DB only)
-python3 scripts/migrate.py      # apply versioned SQL migrations
+python3 scripts/migrate.py      # apply versioned SQL migrations, incl. bridge seed data
 uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 ```
 
