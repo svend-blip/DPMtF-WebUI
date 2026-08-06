@@ -64,11 +64,15 @@ def db(tmp_path):
     conn = sqlite3.connect(path)
     conn.executescript(
         "CREATE TABLE bridge_flow_steps (flow_key TEXT, from_role TEXT, to_role TEXT);"
+        "CREATE TABLE bridge_roles (role_key TEXT, tmux_session TEXT,"
+        " default_model_alias TEXT);"
         "CREATE TABLE bridge_id_counters (flow_key TEXT PRIMARY KEY, next_id INTEGER);"
     )
     conn.executemany("INSERT INTO bridge_flow_steps VALUES (?,?,?)",
                      [(FLOW, ROLES[0], ROLES[1]), (FLOW, ROLES[1], ROLES[2]),
                       (FLOW, ROLES[2], ROLES[0])])
+    conn.executemany("INSERT INTO bridge_roles VALUES (?,?,?)",
+                     [(r, r, "laguna-local") for r in ROLES])
     conn.execute("INSERT INTO bridge_id_counters VALUES (?,?)", (FLOW, 13))
     conn.commit()
     conn.close()

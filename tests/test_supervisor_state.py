@@ -39,6 +39,8 @@ def db(tmp_path):
         """
         CREATE TABLE bridge_flow_steps (
             flow_key TEXT, step_key TEXT, from_role TEXT, to_role TEXT);
+        CREATE TABLE bridge_roles (
+            role_key TEXT, tmux_session TEXT, default_model_alias TEXT);
         CREATE TABLE bridge_id_counters (flow_key TEXT PRIMARY KEY, next_id INTEGER);
         """
     )
@@ -47,6 +49,12 @@ def db(tmp_path):
         [(FLOW, "a", ROLES[0], ROLES[1]),
          (FLOW, "b", ROLES[1], ROLES[2]),
          (FLOW, "c", ROLES[2], ROLES[0])],
+    )
+    # collect() reads sessions and model aliases from here, so the flow it is
+    # asked about describes itself rather than a hardcoded one.
+    conn.executemany(
+        "INSERT INTO bridge_roles VALUES (?,?,?)",
+        [(r, r, "laguna-local" if "llama" in r else "imple-fast") for r in ROLES],
     )
     conn.execute("INSERT INTO bridge_id_counters VALUES (?,?)", (FLOW, 12))
     conn.commit()
@@ -183,3 +191,56 @@ class TestAssessment:
         _run(env, "008", goal="a contract with no floor stated")
         result = state.collect(FLOW)
         assert result["assessment"].startswith("PARK")
+
+
+class TestFlowAwareness:
+    """The report must describe the flow it was asked about.
+
+    Hardcoding llama_SG's three sessions and its :8080 probe made this lie the
+    moment preferred_cloud existed: it named the wrong sessions and reported a
+    local model server missing for a flow that has none.
+    """
+
+    @pytest.fixture
+    def two_flows(self, tmp_path):
+        path = tmp_path / "two.db"
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            "CREATE TABLE bridge_flow_steps (flow_key TEXT, from_role TEXT, to_role TEXT);"
+            "CREATE TABLE bridge_roles (role_key TEXT, tmux_session TEXT,"
+            " default_model_alias TEXT);"
+            "CREATE TABLE bridge_id_counters (flow_key TEXT PRIMARY KEY, next_id INTEGER);"
+        )
+        conn.executemany("INSERT INTO bridge_flow_steps VALUES (?,?,?)", [
+            ("llama_SG", "supervisor01_llama", "imple01SG"),
+            ("llama_SG", "imple01SG", "review01SG"),
+            ("preferred_cloud", "Pre-super-cl", "Pre-imple-cl"),
+            ("preferred_cloud", "Pre-imple-cl", "Pre-review-cl"),
+        ])
+        conn.executemany("INSERT INTO bridge_roles VALUES (?,?,?)", [
+            ("supervisor01_llama", "supervisor01_llama", "laguna-local"),
+            ("imple01SG", "imple01SG", "imple-fast"),
+            ("review01SG", "review01SG", "review02-local"),
+            ("Pre-super-cl", "Pre-super-cl", "opus5"),
+            ("Pre-imple-cl", "Pre-imple-cl", "cloud_minimax"),
+            ("Pre-review-cl", "Pre-review-cl", "sonnet5"),
+        ])
+        conn.commit()
+        conn.close()
+        return str(path)
+
+    def test_sessions_come_from_the_flows_own_roles(self, two_flows):
+        assert state.flow_tmux_sessions("preferred_cloud", db_path=two_flows) == {
+            "Pre-super-cl", "Pre-imple-cl", "Pre-review-cl"}
+        assert state.flow_tmux_sessions("llama_SG", db_path=two_flows) == {
+            "supervisor01_llama", "imple01SG", "review01SG"}
+
+    def test_cloud_flow_needs_no_local_model_server(self, two_flows):
+        assert state.flow_uses_local_models("preferred_cloud", db_path=two_flows) is False
+
+    def test_local_flow_still_wants_the_probe(self, two_flows):
+        assert state.flow_uses_local_models("llama_SG", db_path=two_flows) is True
+
+    def test_unknown_flow_claims_nothing(self, two_flows):
+        assert state.flow_tmux_sessions("nope", db_path=two_flows) == set()
+        assert state.flow_uses_local_models("nope", db_path=two_flows) is False

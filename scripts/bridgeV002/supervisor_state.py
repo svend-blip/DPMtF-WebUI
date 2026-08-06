@@ -162,6 +162,47 @@ def last_trace_signal(bridge_dir, flow_key, handoff_id, db_path=None):
     return found
 
 
+def flow_tmux_sessions(flow_key, db_path=None):
+    """tmux session names for a flow's roles, from bridge_roles."""
+    roles = flow_role_keys(flow_key, db_path=db_path)
+    if not roles:
+        return set()
+    conn = sqlite3.connect(db_path or config.get_db_path())
+    try:
+        marks = ",".join("?" * len(roles))
+        rows = conn.execute(
+            f"SELECT tmux_session FROM bridge_roles WHERE role_key IN ({marks})",
+            tuple(roles),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {row[0] for row in rows if row[0]}
+
+
+def flow_uses_local_models(flow_key, db_path=None):
+    """True if any role in the flow runs a locally served model.
+
+    Read from the alias name rather than the allocator: a cloud flow probing
+    a local port reports a failure that means nothing, and a local flow that
+    skipped the probe would hide a real one.
+    """
+    roles = flow_role_keys(flow_key, db_path=db_path)
+    if not roles:
+        return False
+    conn = sqlite3.connect(db_path or config.get_db_path())
+    try:
+        marks = ",".join("?" * len(roles))
+        rows = conn.execute(
+            f"SELECT default_model_alias FROM bridge_roles WHERE role_key IN ({marks})",
+            tuple(roles),
+        ).fetchall()
+    finally:
+        conn.close()
+    cloud = ("opus5", "sonnet5", "fable5", "cloud_minimax", "review-cloud",
+             "archi-pay", "imple-pay", "company-knowledge", "openrouter-test")
+    return any(r[0] and r[0] not in cloud for r in rows)
+
+
 def flow_role_keys(flow_key, db_path=None):
     """Role keys belonging to a flow, from its steps."""
     conn = sqlite3.connect(db_path or config.get_db_path())
@@ -214,11 +255,20 @@ def collect(flow_key):
         state["deliverables"] = deliverables_for(bridge_dir, flow_key, state["current"])
         state["last_signal"] = last_trace_signal(bridge_dir, flow_key, state["current"])
 
+    # A flow needs a local model server only if one of its roles resolves to a
+    # locally served alias. preferred_cloud's three are all cloud_noop, so
+    # probing :8080 there reports a failure that means nothing.
+    local = flow_uses_local_models(flow_key)
+
     state["environment"] = {
         "webui": _probe(f"http://localhost:{config.get_port()}/api/health"),
         "database": Path(config.get_db_path()).exists(),
-        "laguna": _probe("http://127.0.0.1:8080/health"),
-        "tmux": _tmux_sessions(["supervisor01_llama", "imple01SG", "review01SG"]),
+        # Sessions come from the flow's own roles. Hardcoding llama_SG's three
+        # made this report lie the moment a second flow existed: it named the
+        # wrong sessions and probed a local model server that preferred_cloud
+        # does not have.
+        "local_model": _probe("http://127.0.0.1:8080/health") if local else None,
+        "tmux": _tmux_sessions(sorted(flow_tmux_sessions(flow_key))),
     }
 
     state["missing"], state["assessment"] = _assess(state)
@@ -245,8 +295,8 @@ def _assess(state):
     for name, ok in env["tmux"].items():
         if not ok:
             missing.append(f"tmux session {name} is not running")
-    if not env["laguna"]:
-        missing.append("laguna-local is not reachable on :8080")
+    if env["local_model"] is False:
+        missing.append("the local model server is not reachable on :8080")
     if not env["webui"]:
         missing.append(f"WebUI is not answering on :{config.get_port()}")
 
@@ -299,7 +349,8 @@ def render(state):
     tmux = ", ".join(f"{n}{'' if ok else ' NOT RUNNING'}" for n, ok in env["tmux"].items())
     add(f"WebUI           {'ok' if env['webui'] else 'NOT ANSWERING'}")
     add(f"Database        {'ok' if env['database'] else 'MISSING'}")
-    add(f"laguna-local    {'reachable' if env['laguna'] else 'NOT REACHABLE'}")
+    if env["local_model"] is not None:
+        add(f"local model     {'reachable' if env['local_model'] else 'NOT REACHABLE'}")
     add(f"tmux            {tmux}")
 
     if state["missing"]:
