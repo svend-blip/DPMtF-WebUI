@@ -7,6 +7,10 @@ automated chain execution with durable state management.
 
 ## Quick Start
 
+For the full installation guide — including system requirements (Python 3.12, CUDA, tmux), repository layout, virtual environment setup, `.env` configuration, and local runtime installations — see [SETUP.md](SETUP.md).
+
+The commands below assume the prerequisites from SETUP.md are already in place:
+
 ```bash
 pip install -r requirements.txt
 python3 scripts/init_db.py      # schema + canonical defaults (idempotent)
@@ -271,11 +275,17 @@ Two files control all configurable values:
   port, host, database path, governance dir, log dir, project paths
 - **`.env`** — Secrets + infrastructure vars (NEVER commit)
 
-Key environment variables:
+For the complete list of environment variables (~20 documented entries), see
+[`.env.example`](.env.example). Notable examples:
+
 ```bash
 export DPMTF_BRIDGE_DIR=/home/<you>/flows   # BridgeV002 deliverable directory
-export DPMTF_PROJECT_ROOT=/home/<you>/DPMtF-WebUI  # Project root
 ```
+
+Note: `DPMTF_PROJECT_ROOT` is read by bridge and shell scripts (e.g.
+`scripts/bridgeV002/dispatch.py`, `trade-cronjob.sh`), not by
+`config.get_project_root()` — which resolves the project path from
+`dpmtf.ini` `[paths]` section instead.
 
 See `SETUP.md` for full setup guide.
 
