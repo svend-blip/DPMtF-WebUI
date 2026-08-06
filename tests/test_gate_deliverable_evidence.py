@@ -230,3 +230,50 @@ class ScopeFenceExtraction(unittest.TestCase):
     def test_indented_tags_are_still_a_fence(self):
         text = f"  <scope>\n  - `{self.WRITTEN}`\n  </scope>\n"
         self.assertIn(f"{self.ROOT}/{self.WRITTEN}", self._fence(text))
+
+
+class DenyingHeadingsAreNotChangeSections(unittest.TestCase):
+    """A heading that names a change only to deny it lists no claims.
+
+    preferred_cloud run 007 blocked a verdict whose heading read "Scope
+    compliance — no file outside the fence was edited". It contains `file`
+    and `edited`, so every path named in prose beneath it became a claim, and
+    the gate then found — correctly — that none had changed. The word "no"
+    was invisible.
+
+    The report was proving `app.py`'s mtime predated the run: the exact
+    safety property that run existed to establish. A gate must not make
+    naming a file to prove it did not change the risky thing to do.
+    """
+
+    def test_no_file_was_edited_is_not_a_change_section(self):
+        text = ("## Scope compliance — no file outside the fence was edited\n"
+                "\n"
+                "`app.py` is from 4 July, so the router was not mounted.\n")
+        self.assertEqual(gate.claimed_paths(text), [])
+
+    def test_other_denials_in_a_heading_also_count(self):
+        for phrase in ("no files changed", "files not modified",
+                       "files unchanged", "without files modified",
+                       "never edited any file"):
+            with self.subTest(phrase=phrase):
+                text = f"## {phrase}\n\n`app.py` stayed as it was.\n"
+                self.assertEqual(gate.claimed_paths(text), [])
+
+    def test_a_real_change_section_still_yields_its_claims(self):
+        text = ("## Files changed\n"
+                "\n"
+                "- `src/dpmtf_lightworker/allocator.py`\n")
+        self.assertEqual(gate.claimed_paths(text),
+                         ["src/dpmtf_lightworker/allocator.py"])
+
+    def test_a_denying_heading_does_not_suppress_a_later_real_one(self):
+        """The denial applies to its own section, not to the rest of the file."""
+        text = ("## Scope compliance — no file outside the fence was edited\n"
+                "\n"
+                "`app.py` is from 4 July.\n"
+                "\n"
+                "## Files changed\n"
+                "\n"
+                "- `routers/lightworkers.py`\n")
+        self.assertEqual(gate.claimed_paths(text), ["routers/lightworkers.py"])

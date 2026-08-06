@@ -54,6 +54,26 @@ CHANGE_HEADING = re.compile(
     r"^#{1,6}\s*.*\bfiles?\b.*\b(chang|modif|edit|updat|touch)", re.I)
 ANY_HEADING = re.compile(r"^#{1,6}\s")
 
+# ...unless the heading denies the change it names. preferred_cloud run 007
+# blocked a verdict whose heading read "Scope compliance — no file outside the
+# fence was edited": it contains `file` and `edited`, so every path named in
+# prose beneath it became a claim, and the gate then found — correctly — that
+# none of them had changed. The word "no" was invisible to the pattern above.
+#
+# This is `_is_denial` one level up. That taught the gate that a *sentence*
+# saying a file is untouched is not a claim; nothing said the same of a
+# *heading*. The report being punished was proving `app.py`'s mtime predated
+# the run, which was the whole safety property that run existed to establish —
+# a gate must never make naming a file to prove it did not change the risky
+# thing to do.
+_HEADING_DENIAL = re.compile(
+    r"\b(no|none|not|never|without|un(chang|modif|touch|edit)ed)\b", re.I)
+
+
+def _heading_denies(line):
+    """True when a heading names a change only to deny it."""
+    return bool(_HEADING_DENIAL.search(line))
+
 # A path-like token: at least one slash or a bare filename with a suffix.
 PATH_TOKEN = re.compile(r"[A-Za-z0-9._/\-]+")
 
@@ -177,7 +197,8 @@ def claimed_paths(text):
             # is how an honest report gets accused of taking credit.
             continue
         if ANY_HEADING.match(line):
-            in_change_section = bool(CHANGE_HEADING.match(line))
+            in_change_section = (bool(CHANGE_HEADING.match(line))
+                                 and not _heading_denies(line))
             saw_change_section = saw_change_section or in_change_section
             continue
         # Claims come from a "Files Changed" section and nowhere else. The
