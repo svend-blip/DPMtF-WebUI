@@ -64,6 +64,13 @@ ALLOWED_LINES = {
     "461_LLAMA_SG_SUPERVISOR.md": {
         "`/home/svend/model-allocator/README.md` in all three declaration blocks and",
     },
+    # The worked example of a testgoals block, showing run 008's real
+    # criterion. That run's TG2 existed precisely to stop a blanket
+    # search-and-replace from destroying .env.example's "# Example:" lines,
+    # and the criterion cannot be written without naming the string it counts.
+    "LLAMASG/SKILL.md": {
+        "run: grep -c '^# Example: /home/svend' .env.example",
+    },
 }
 
 
@@ -99,7 +106,12 @@ class GovernancePaths(unittest.TestCase):
         """A justified line that gets edited should force re-justification."""
         stale = []
         for rel_name, lines in ALLOWED_LINES.items():
-            path = GOVERNANCE / rel_name
+            # Entries are keyed relative to whichever root holds the file, so
+            # a skill entry and a governance entry look the same here.
+            for base in (GOVERNANCE, SKILLS):
+                path = base / rel_name
+                if path.exists():
+                    break
             if not path.exists():
                 stale.append(f"{rel_name} (file is gone)")
                 continue

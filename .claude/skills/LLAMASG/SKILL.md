@@ -302,6 +302,43 @@ Only what is true of *this* run: why it exists, the measured work, the
 testgoals with their mechanical green criteria, the Scope Fence file list, the
 budget numbers, and the Standing Approvals. Nothing above.
 
+### Testgoals go in a machine-readable block
+
+Alongside the prose, a GOAL.md carries its criteria in a fenced `testgoals`
+block so they can be run rather than re-derived:
+
+```
+​```testgoals
+id: TG1
+what: No "# Default:" line states one machine's answer
+run: grep -n '^# Default:' .env.example | grep '/home/'
+expect: empty
+
+id: TG2
+what: The four "# Example:" lines are untouched
+run: grep -c '^# Example: /home/svend' .env.example
+expect: equals 4
+​```
+```
+
+`expect:` takes `empty`, `equals N`, `at least N`, `at most N`,
+`contains TEXT` or `exit 0`. Validate with:
+
+```bash
+python3 scripts/bridgeV002/check_testgoals.py {bridge_dir}/llama_SG/runs/{run_id}/GOAL.md
+```
+
+**This settles the facts, not the verdict.** It tells you what each criterion
+returned against what the contract asked. Whether the verdict's claims are
+honest, whether its evidence was really gathered, and whether a green testgoal
+was reached the right way remain yours to judge — that judgement is the only
+thing a supervisor is genuinely needed for.
+
+It also catches garbled evidence outright. Run 007's verdict cited
+`grep -icE "VRAM\|GPU"`, which under extended regex matches the literal string
+and returns 0 while the contract's form returns 5; the checker reports both in
+a second instead of costing a re-derivation.
+
 ## Dispatching — The Exact Commands
 
 **You do not need to read `dispatch.py` to use it, and you should not.** On
