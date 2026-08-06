@@ -7,15 +7,15 @@
 # If FLOW_ID is omitted, the next ID from the database counter is used.
 #
 # Designed for cron:
-#   0 9 * * 1-5 /home/svend/DPMtF-WebUI/scripts/trade-cronjob.sh >> /home/svend/DPMtF-WebUI/logs/trade-cronjob.log 2>&1
+#   0 9 * * 1-5 $PROJECT_ROOT/scripts/trade-cronjob.sh >> $PROJECT_ROOT/logs/trade-cronjob.log 2>&1
 
 set -euo pipefail
 
-PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-/home/svend/DPMtF-WebUI}"
+PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# cd FIRST — cron runs with CWD=$HOME (/home/svend), so a relative
+# cd FIRST — cron runs with CWD=$HOME, so a relative
 # config.get_db_path() ("databases/dpmtf.db") would resolve to
-# /home/svend/databases/dpmtf.db and break stop_tmuxflow/start_tmuxflow.
+# $HOME/databases/dpmtf.db and break stop_tmuxflow/start_tmuxflow.
 # All child scripts must inherit the project root as CWD.
 cd "$PROJECT_ROOT"
 

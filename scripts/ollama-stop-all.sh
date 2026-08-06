@@ -6,11 +6,11 @@
 #
 # Designed for cron (e.g. 08:45 before trade-cronjob at 09:00 Mon-Fri,
 # and before scoring-cronjob at 10:00 Sunday):
-#   45 8 * * * /home/svend/DPMtF-WebUI/scripts/ollama-stop-all.sh >> /home/svend/DPMtF-WebUI/logs/ollama-stop-all.log 2>&1
+#   45 8 * * * $PROJECT_ROOT/scripts/ollama-stop-all.sh >> $PROJECT_ROOT/logs/ollama-stop-all.log 2>&1
 
 set -euo pipefail
 
-PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-/home/svend/DPMtF-WebUI}"
+PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 echo "═══════════════════════════════════════════════════════════"
 echo "  Ollama Stop-All — Free context on local models"

@@ -5,15 +5,15 @@
 #   ./scripts/scoring-cronjob.sh [FLOW_ID]
 #
 # Designed for cron (weekly, e.g. Sunday 10:00):
-#   0 10 * * 0 /home/svend/DPMtF-WebUI/scripts/scoring-cronjob.sh >> /home/svend/DPMtF-WebUI/logs/scoring-cronjob.log 2>&1
+#   0 10 * * 0 $PROJECT_ROOT/scripts/scoring-cronjob.sh >> $PROJECT_ROOT/logs/scoring-cronjob.log 2>&1
 
 set -euo pipefail
 
-PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-/home/svend/DPMtF-WebUI}"
+PROJECT_ROOT="${DPMTF_PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# cd FIRST — cron runs with CWD=$HOME (/home/svend), so a relative
+# cd FIRST — cron runs with CWD=$HOME, so a relative
 # config.get_db_path() ("databases/dpmtf.db") would resolve to
-# /home/svend/databases/dpmtf.db and break stop_tmuxflow/start_tmuxflow.
+# $HOME/databases/dpmtf.db and break stop_tmuxflow/start_tmuxflow.
 # All child scripts must inherit the project root as CWD.
 cd "$PROJECT_ROOT"
 
