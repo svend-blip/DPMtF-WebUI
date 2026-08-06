@@ -11,6 +11,20 @@ wake-up BY DESIGN (461): this procedure is the same rebuild it performs on
 every verdict delivery — run it manually whenever the session starts cold
 outside a dispatch.
 
+**The invocation carries no arguments, and needs none.** Everything about the
+current run is discoverable and this procedure discovers it: Step 2 finds the
+active run (the newest without an END-REPORT) and reads its GOAL.md, Step 3
+reads the flow counter, Step 6 establishes the handoff floor that separates
+this run's work from every closed run's. If you find yourself being told the
+run number, the first handoff id, or that a watchdog is already running, the
+procedure should be learning that itself — fix the procedure rather than the
+prompt.
+
+**Starting a new run therefore takes two things:** a Human-approved GOAL.md in
+a fresh `runs/{id}/` directory, and `/llama_SG`. The approved GOAL.md *is* the
+authorisation to begin; Step 7 says what to do when it finds a run that has
+opened but not started.
+
 ## Procedure
 
 Execute these steps in order. Do not skip any step.
@@ -158,17 +172,71 @@ Summarize in a compact table:
 | Laguna | reachable / NOT REACHABLE |
 | Assessment | ready / waiting for verdict / stall — action needed / parked |
 
-Then wait for the Human (or, mid-run with all invariants green and an
-unprocessed event found in Step 6, proceed per the 461 wake-up protocol).
+Then act on what you found, without waiting to be told again:
+
+| What Step 6 found | What to do |
+|---|---|
+| **A run with GOAL.md but no BACKLOG.md, and no handoff at or above the floor** | The run has just opened. Author BACKLOG.md, then write and dispatch the first handoff per GOAL.md's Standing Approvals. Do not report and stop — opening the run *is* the Human's instruction. |
+| An unprocessed event at or above the floor, all invariants green | Proceed per the 461 wake-up protocol. |
+| Anything below the floor | Ignore it. It belongs to a closed run. |
+| A scope breach, a repeated gate rejection, a missing GOAL.md, or a budget spent | Park with `HUMAN_ACTION_REQUIRED` and report. |
+
+The Human opens a run by writing and approving GOAL.md. That approval is the
+authorisation to start the chain; it does not need to be repeated in the
+invocation.
+
+## Known Infrastructure Defects — Do Not Investigate These
+
+These are open, recorded in `{bridge_dir}/llama_SG/RUNS-BACKLOG.md`, and are
+Human work. They are not any role's failure and not any run's work. Recognise
+them, note them in the ledger, and carry on.
+
+**The model swap can fail between review01SG and supervisor01_llama.**
+`model_leases` records nothing, so dispatch has nothing to release. Ollama
+evicts its own previous model — which is why the earlier swaps in a cycle
+succeed — but Laguna is a separate llama.cpp server, so nothing evicts the
+reviewer's model and Laguna may not fit. It then exits early, and dispatch
+injects your callback anyway. **If you wake to `ConnectionRefused` or
+`503 Loading model`, wait.** It failed this way in run 006 and succeeded by
+timing in run 007. Do not conclude the run is broken; do not spend a handoff.
+Backlog items 5, 6 and 7.
+
+**A `model-allocator stop` can report success without stopping.** The Ollama
+adapter returns `{"stopped": true}` while the model is still resident. Confirm
+against `/api/ps` or `nvidia-smi` before believing it. Backlog item 6.
+
+**Nothing checks your bookkeeping.** The evidence gate runs on results and
+verdicts, not on RUN-LEDGER, BACKLOG or END-REPORT. In run 007 the supervisor
+composed the END-REPORT in its reply, recorded "END-REPORT written" in the
+ledger, and never wrote the file — then ended its turn believing the run was
+closed. Nothing caught it, and the next cold start would have read run 007 as
+still active. See the END-REPORT rule below. Backlog item 17.
 
 ## Rules
 
 - **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**
+- **Write the END-REPORT to disk, then prove it.** Before recording a run as
+  closed, run `ls -la {bridge_dir}/llama_SG/runs/{run_id}/END-REPORT.md` and
+  read the real output. Composing the report in your reply is not writing it.
+  The same applies to any ledger entry claiming a file exists.
+- **When you validate a verdict, re-run the commands it cites.** Run 007's
+  verdict cited `grep -icE "VRAM\|GPU"`, which under extended regex matches
+  the literal string `VRAM|GPU` and returns 0. The claim was true; the
+  evidence was garbled. A wrong command in the evidence is a transcription
+  error, not a fabrication — check the underlying claim before rejecting.
 - **A run without an approved GOAL.md must not start** — park with
   `HUMAN_ACTION_REQUIRED`.
 - **Loop guard:** never send signal-complete for a verdict delivery you are
   processing — the next handoff gets a NEW id via the flow counter.
-- **Run a watchdog alongside every autonomous run:**
+- **Run a watchdog alongside every autonomous run — but check for one first:**
+  ```bash
+  pgrep -af 'chain_watchdog|watchdog-loop' | grep -v pgrep
+  ```
+  If that prints anything, a watchdog is already running. **Do not start a
+  second one.** On 2026-08-05 this rule was followed blindly while a wrapper
+  was already live; both nudged the same stalled handoff and produced three
+  gate escalations in 23 seconds, burning the rejection budget on a
+  deliverable nobody had touched. Only if nothing is running:
   `python3 scripts/bridgeV002/chain_watchdog.py --flow llama_SG --max-minutes {run budget}`
 - **Append a ledger entry for every action taken after a cold start** — the
   ledger, not the session, is the run's memory.
