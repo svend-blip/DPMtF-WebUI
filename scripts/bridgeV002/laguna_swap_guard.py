@@ -117,10 +117,34 @@ def undelivered_verdict(bridge_dir, flow_key, floor, min_age):
     if age < min_age:
         return None                      # dispatch may simply be in progress
 
-    last = _state.last_trace_signal(bridge_dir, flow_key, current)
-    if last and "review01SG->supervisor01_llama" in last and "signal_complete" in last:
+    if delivered_to_supervisor(bridge_dir, flow_key, current):
         return None                      # delivered; nothing owed
     return current, int(age)
+
+
+def delivered_to_supervisor(bridge_dir, flow_key, handoff_id):
+    """True only if the verdict actually reached the supervisor.
+
+    The event field must equal `signal_complete` exactly. Matching it as a
+    substring accepts `signal_complete_failed`, which means the opposite —
+    dispatch looked for the deliverable, did not find it, and gave up. Run 011
+    produced exactly that line at 10:22:56Z when the reviewer wrote
+    `014-review-verdict.md` and signalled before renaming it, and a substring
+    check read the stall as a success.
+
+    This is the third substring bug of the day in the same shape: `" 009 "`
+    matched a 2026-06-14 trace entry from a different era of the bridge, and
+    `"review01SG" in "imple01SG->review01SG"` charged a rejection to the wrong
+    role. Split the line and compare the field.
+    """
+    last = _state.last_trace_signal(bridge_dir, flow_key, handoff_id)
+    if not last:
+        return False
+    parts = [p.strip() for p in last.split("|")]
+    if len(parts) < 4:
+        return False
+    return (parts[1] == "review01SG->supervisor01_llama"
+            and parts[3] == "signal_complete")
 
 
 def failure_state(flow_key, min_age):

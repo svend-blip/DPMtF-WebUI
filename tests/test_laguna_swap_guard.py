@@ -214,3 +214,34 @@ class TestDryRun:
         monkeypatch.setattr(sys, "argv", ["laguna_swap_guard.py", "--once"])
         assert guard.main() == 0
         assert called == [["qwen3.6:35b-a3b-64k"]]
+
+
+class TestDeliveryDetection:
+    """`signal_complete_failed` is not `signal_complete`.
+
+    Run 011: the reviewer wrote 014-review-verdict.md, signalled, and dispatch
+    logged `signal_complete_failed | Deliverable missing`. A substring check
+    read that stall as a delivery and the guard stayed silent while the chain
+    sat blocked.
+    """
+
+    FAILED = ("2026-08-06T10:22:56Z | review01SG->supervisor01_llama | 013 | "
+              "signal_complete_failed | manual | Deliverable missing\n")
+
+    def test_failed_signal_is_not_a_delivery(self, world):
+        (world["bridge"] / "trace.log").write_text(self.FAILED, encoding="utf-8")
+        _write_verdict(world["bridge"], age_seconds=600)
+        found = guard.failure_state(FLOW, 180)
+        assert found is not None, "a failed signal must not count as delivered"
+        assert found["handoff"] == 13
+
+    def test_real_delivery_still_counts(self, world):
+        (world["bridge"] / "trace.log").write_text(DELIVERED, encoding="utf-8")
+        _write_verdict(world["bridge"], age_seconds=600)
+        assert guard.failure_state(FLOW, 180) is None
+
+    def test_wrong_role_pair_is_not_a_delivery(self, world):
+        """imple01SG->review01SG contains neither role of the final leg."""
+        (world["bridge"] / "trace.log").write_text(REVIEWER_WORKING, encoding="utf-8")
+        _write_verdict(world["bridge"], age_seconds=600)
+        assert guard.failure_state(FLOW, 180) is not None
