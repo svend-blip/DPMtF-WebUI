@@ -303,7 +303,13 @@ def scope_allowed(handoff_path, roots):
     except OSError:
         return None
 
-    match = re.search(r"<scope>(.*?)</scope>", text, re.S | re.I)
+    # The tag must open a line. A handoff that mentions `<scope>` in prose —
+    # "the model-allocator repo will be tempting, see `<scope>`" — used to win
+    # this match 170 lines above the real block, and the gate then enforced the
+    # handoff's *read* list as if it were the write list. Run 004's handoff 005
+    # was rejected that way for changing three files its fence allowed.
+    match = re.search(r"^[ \t]*<scope>(.*?)^[ \t]*</scope>", text,
+                      re.S | re.I | re.M)
     block = match.group(1) if match else None
     if block is None:
         match = re.search(r"^#{1,6}\s*scope\s+fence\s*$(.*?)(?=^#{1,6}\s|\Z)",

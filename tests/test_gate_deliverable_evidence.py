@@ -172,3 +172,61 @@ The only thing this handoff created is `docs/phase0-findings.md`.
             with self.subTest(phrase=phrase):
                 text = f"## Files changed\n\n`GOAL.md` {phrase}.\n"
                 self.assertEqual(gate.claimed_paths(text), [])
+
+
+class ScopeFenceExtraction(unittest.TestCase):
+    """The fence must come from the real block, not from a prose mention.
+
+    preferred_cloud run 004: handoff 005 wrote "the model-allocator repo will
+    be tempting -- see `<scope>`" inside its governance block, 170 lines above
+    the actual fence. The old regex took the first `<scope>` anywhere in the
+    file, so it captured from that sentence and enforced the handoff's Step 1
+    *read* list as if it were the write list. Three files the fence expressly
+    allowed were rejected as out of scope, and the implementer could not have
+    fixed it.
+
+    Paths here are real files in a real repo because `locate()` resolves
+    against the filesystem.
+    """
+
+    ROOT = "/home/svend/DPMtF-LightWorker"
+    WRITTEN = "src/dpmtf_lightworker/allocator.py"
+    READ_ONLY = "src/dpmtf_lightworker/father_client.py"
+
+    def _fence(self, text):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(text)
+            path = fh.name
+        return gate.scope_allowed(path, [self.ROOT])
+
+    def test_prose_mention_does_not_win_over_the_real_block(self):
+        text = (
+            "<governance>\n"
+            "The other repository will be tempting -- see `<scope>`.\n"
+            "</governance>\n"
+            "\n"
+            "<task>\n"
+            f"Read first: `{self.READ_ONLY}`\n"
+            "</task>\n"
+            "\n"
+            "<scope>\n"
+            f"- `{self.WRITTEN}`\n"
+            "</scope>\n"
+        )
+        allowed = self._fence(text)
+        self.assertIn(f"{self.ROOT}/{self.WRITTEN}", allowed)
+        self.assertNotIn(f"{self.ROOT}/{self.READ_ONLY}", allowed)
+
+    def test_an_ordinary_handoff_still_resolves(self):
+        text = f"<scope>\n- `{self.WRITTEN}`\n</scope>\n"
+        self.assertIn(f"{self.ROOT}/{self.WRITTEN}", self._fence(text))
+
+    def test_no_fence_is_none_not_an_empty_set(self):
+        """An unreadable fence must not be mistaken for 'nothing is allowed'."""
+        self.assertIsNone(self._fence("no fence here at all\n"))
+
+    def test_indented_tags_are_still_a_fence(self):
+        text = f"  <scope>\n  - `{self.WRITTEN}`\n  </scope>\n"
+        self.assertIn(f"{self.ROOT}/{self.WRITTEN}", self._fence(text))
