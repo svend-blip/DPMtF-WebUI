@@ -249,3 +249,21 @@ Three in one week measured the wrong thing while the work was sound:
 
 Write the criterion so it cannot pass on an empty repository, and check it
 red before the run starts.
+
+**But red before the run proves only that it is not trivially green.** On
+2026-08-06 a criterion feeding a config loader a `paths:`-only fixture was
+measured red before the run, as this rule requires — red with
+`ModuleNotFoundError`, because the module did not exist yet. The import error
+masked the real defect: the loader validates the whole config structure and
+rightly rejects a fragment. It stayed red after correct work landed.
+
+**An import error masks every other defect in a criterion that imports the
+module it tests.** So when a fixture stubs a structure the code will validate,
+check the criterion against a *complete* fixture as well — otherwise its red
+tells you nothing about what it will measure once the module exists.
+
+The run cost nothing that time, because the supervisor parked instead of
+rejecting and the evidence was already in the ledger. The failure mode it
+came close to is worse than a wasted handoff: an implementer "fixing" a red
+criterion by loosening the validation that made it red, leaving weaker code
+behind a green tick.
