@@ -234,9 +234,10 @@ prompt parsing.
 
 ### External Integrations
 
-- **mcp-light** — read-only MCP context server (separate repo) exposing
-  governance, panels, flows, roles, and verdicts as tools on
-  `http://127.0.0.1:9135/mcp`
+- **mcp-light** — required MCP context server providing real-time access to
+  governance, panels, flows, roles, and verdicts via tools on
+  `http://127.0.0.1:9135/mcp`. Must be running before any flow starts; roles
+  depend on it for cold-start initialization and will degrade without it.
 - **model-allocator** — standalone CLI + web UI (port 9140) for model
   lifecycle management and allocation model CRUD
 - **opencode** — AI coding frontend running in tmux sessions, configured per

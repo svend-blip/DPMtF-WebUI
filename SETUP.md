@@ -20,6 +20,13 @@ The DPMtF-WebUI autonomous flow uses three distinct models, one per role:
 | `imple-fast` | imple01SG | ~20 GB | `qwen3.6:27b-q4_K_M`, full GPU residency. |
 | `review02-local` | review01SG | ~22 GB | `qwen3.6:35b-a3b-64k`, full GPU residency. |
 
+**mcp-light is a mandatory prerequisite.** The LLAMASG cold-start procedure directs every framework question to mcp-light (`get_flow_steps`, `get_governance_file`). A role that wakes without it silently falls back to reading source, which costs significant time. Install and start mcp-light *before* your first dispatch, not after a role has already woken up:
+
+1. Clone the repository (see Clone Repositories section below) and check out `main`.
+2. Install the systemd unit: copy `mcp-light.service` to `/etc/systemd/system/`, enable it at boot.
+3. **Unit-file discrepancy:** the unit file shipped in the repo declares `ExecStart=/usr/bin/python3 …` while a working installation uses the virtual-environment interpreter (`…/venv/bin/python …`). Copying the repo's verbatim line produces a service that starts under system Python without the venv's dependencies and will fail at runtime. Always use the venv path for `ExecStart`.
+4. Verify: `curl -s http://127.0.0.1:9135/mcp` should return MCP transport data.
+
 **The roles are never co-resident.** Dispatch stops the outgoing model, waits for
 nvidia-smi to confirm freed memory, and only then loads the incoming model. A 32 GB
 GPU is sufficient because at most one model occupies the card at any time — it would
@@ -27,19 +34,21 @@ not work with two models loaded simultaneously.
 
 ## Clone Repositories
 
-Clone both the DPMtF-WebUI and model-allocator repositories as siblings under your projects base directory (default: $HOME):
+Clone all three repositories as siblings under your projects base directory (default: $HOME):
 
 ```bash
 cd $HOME
 git clone https://github.com/your-org/DPMtF-WebUI.git
 git clone https://github.com/your-org/model-allocator.git
+git clone https://github.com/svend-blip/mcp-light.git
 ```
 
 > Note: Replace `your-org` with the actual organization name if different. The layout should be:
 > ```
 > $HOME/
 >   ├── DPMtF-WebUI/
->   └── model-allocator/
+>   ├── model-allocator/
+>   └── mcp-light/
 > ```
 
 ## Python Environment
