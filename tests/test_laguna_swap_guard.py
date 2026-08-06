@@ -20,6 +20,7 @@ shows no delivery for it.
 """
 
 import importlib.util
+import sys
 import sqlite3
 import time
 from pathlib import Path
@@ -173,3 +174,43 @@ class TestLagunaProbe:
 
         monkeypatch.setattr(guard.urllib.request, "urlopen", refuse)
         assert guard.laguna_up() is False
+
+
+class TestDryRun:
+    """A dry run must reach the same decision and touch nothing.
+
+    The point of the mode is to earn trust after two wrong triggers, so the
+    thing to prove is that its judgement is identical — only the action is
+    withheld.
+    """
+
+    def test_reaches_the_same_verdict(self, world, monkeypatch):
+        _write_verdict(world["bridge"], age_seconds=600)
+        called = []
+        monkeypatch.setattr(guard, "free_and_restart",
+                            lambda m, log: called.append(m) or True)
+
+        found = guard.failure_state(FLOW, 180)
+        assert found is not None          # the decision itself is unchanged
+        assert called == []               # and nothing acted on it
+
+    def test_does_not_stop_anything(self, world, monkeypatch, capsys):
+        _write_verdict(world["bridge"], age_seconds=600)
+        stopped = []
+        monkeypatch.setattr(guard.subprocess, "run",
+                            lambda *a, **k: stopped.append(a) or None)
+        monkeypatch.setattr(sys, "argv",
+                            ["laguna_swap_guard.py", "--once", "--dry-run"])
+        assert guard.main() == 0
+        assert stopped == []
+        assert "WOULD stop" in capsys.readouterr().out
+
+    def test_armed_run_does_act(self, world, monkeypatch):
+        """The contrast — without --dry-run the same state triggers recovery."""
+        _write_verdict(world["bridge"], age_seconds=600)
+        called = []
+        monkeypatch.setattr(guard, "free_and_restart",
+                            lambda m, log: called.append(m) or True)
+        monkeypatch.setattr(sys, "argv", ["laguna_swap_guard.py", "--once"])
+        assert guard.main() == 0
+        assert called == [["qwen3.6:35b-a3b-64k"]]

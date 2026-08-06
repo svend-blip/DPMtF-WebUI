@@ -172,21 +172,39 @@ def main():
                              "dispatch legitimately takes 40-60)")
     parser.add_argument("--max-minutes", type=int, default=300)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Report what it would do and change nothing. Two "
+                             "earlier triggers had green tests and were still "
+                             "wrong; run a whole flow this way and compare the "
+                             "decisions against what happened before arming it.")
     args = parser.parse_args()
 
     def log(message):
         print(f"[{time.strftime('%FT%TZ', time.gmtime())}] {message}", flush=True)
 
     deadline = time.time() + args.max_minutes * 60
+    mode = "DRY RUN — will change nothing" if args.dry_run else "ARMED"
     log(f"watching {args.flow} for a verdict that cannot reach the supervisor "
-        f"(min-age {args.min_age}s)")
+        f"(min-age {args.min_age}s) — {mode}")
 
+    announced = set()
     while time.time() < deadline:
         found = failure_state(args.flow, args.min_age)
         if found:
             log(f"FAILURE STATE — verdict {found['handoff']:03d} written "
                 f"{found['verdict_age']}s ago, never delivered; laguna down; "
                 f"resident: {found['models']}")
+            if args.dry_run:
+                # Say it once per handoff, then keep quiet. A dry run that
+                # repeats every interval buries the one line worth reading.
+                if found["handoff"] not in announced:
+                    log(f"WOULD stop {found['models']} and start laguna-local "
+                        f"— not doing it")
+                    announced.add(found["handoff"])
+                if args.once:
+                    return 0
+                time.sleep(args.interval)
+                continue
             recovered = free_and_restart(found["models"], log)
             log("laguna: UP — the callback should now go through"
                 if recovered else "laguna: STILL DOWN — needs a Human")
