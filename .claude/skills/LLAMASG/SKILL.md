@@ -185,6 +185,57 @@ The Human opens a run by writing and approving GOAL.md. That approval is the
 authorisation to start the chain; it does not need to be repeated in the
 invocation.
 
+## Dispatching — The Exact Commands
+
+**You do not need to read `dispatch.py` to use it, and you should not.** On
+2026-08-06 a cold start spent fourteen minutes reading the dispatcher's
+argument parsing to work out how `--id` locates the handoff file. Everything
+it was looking for is below, taken from `bridge_flow_steps` and the argument
+definitions themselves.
+
+Write the handoff first, to the path the flow step defines:
+
+| Step | Deliverable path (under `{bridge_dir}`) |
+|---|---|
+| `supervisor-imple01` | `llama_SG/handoffs/{ID}-handoff.md` |
+| `imple01-review01` | `llama_SG/results/{ID}-result.md` |
+| `review01-supervisor` | `llama_SG/verdicts/{ID}-verdict.md` |
+
+`{ID}` is the handoff id, **zero-padded to three digits** — `011`, not `11`.
+
+Then dispatch it, from the project root:
+
+```bash
+python3 scripts/bridgeV002/dispatch.py --db-flow llama_SG \
+    --signal-send --from-role supervisor01_llama --to-role imple01SG --id {ID}
+```
+
+`--id` is optional — omitted, the dispatcher allocates the next value from
+`bridge_id_counters`. **Always pass it explicitly anyway**, so the file you
+just wrote is provably the file that goes out. Omitting it makes the id a
+side effect of when you happened to run the command.
+
+The other signals follow the same shape:
+
+```bash
+--signal-complete   --from-role {role} --id {ID}
+--signal-escalation --from-role {from} --to-role {to} --id {ID}
+--signal-answer     --from-role {from} --to-role {to} --id {ID}
+```
+
+**A dispatch takes 40-60 seconds, and its effects land in this order:**
+
+1. the handoff file exists — you wrote it, it proves nothing about dispatch
+2. `bridge_id_counters` advances
+3. the outgoing model stops and the incoming one loads — most of the elapsed time
+4. the prompt is injected into the target session
+5. `trace.log` records `| {ID} | dispatched |`
+
+Only step 5 means the handoff is delivered. Checking between steps 1 and 5
+looks like failure and is not — the file existing is too early a signal, and
+a silent `trace.log` during the swap is too early a conclusion. If you need
+to know whether a dispatch succeeded, read `trace.log`.
+
 ## Known Infrastructure Defects — Do Not Investigate These
 
 These are open, recorded in `{bridge_dir}/llama_SG/RUNS-BACKLOG.md`, and are
@@ -215,6 +266,12 @@ still active. See the END-REPORT rule below. Backlog item 17.
 ## Rules
 
 - **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**
+- **Do not read the source of the tools you are told to run.** `dispatch.py`,
+  `chain_watchdog.py` and `gate-deliverable-evidence.py` are infrastructure
+  you invoke, not code you audit — their invocations are documented above and
+  in CLAUDE.md §8. If a command's behaviour is genuinely undocumented, say so
+  in the ledger and ask the Human; do not derive it from the source. Reading
+  the dispatcher has cost two runs a quarter-hour each and changed no outcome.
 - **Write the END-REPORT to disk, then prove it.** Before recording a run as
   closed, run `ls -la {bridge_dir}/llama_SG/runs/{run_id}/END-REPORT.md` and
   read the real output. Composing the report in your reply is not writing it.
