@@ -21,18 +21,24 @@ VALUES ('supervisor', 'Supervisor',
         'Human-paired senior engineering session: discuss issues and apply fixes (Claude Code / Fable 5)',
         1);
 
+-- deliverable_dir is stored relative to the bridge directory.
+-- dispatch.py resolves it with os.path.join(bridge_dir, …) when it is
+-- not absolute, which is the convention llama_SG has used since it was
+-- added. Writing the author's own /home/svend/flows/… here gave every
+-- fresh install a database pointing at another person's directories.
+
 INSERT OR IGNORE INTO bridge_flow_steps
     (flow_key, step_key, from_role, to_role, deliverable_dir,
      deliverable_pattern, rule_key, sort_order, is_active, validation_required)
 VALUES ('supervisor', 'human-supervisor', 'human', 'supervisor',
-        '/home/svend/flows/supervisor/handoffs', '{ID}-handoff.md',
+        'supervisor/handoffs', '{ID}-handoff.md',
         'handoff', 1, 1, 0);
 
 INSERT OR IGNORE INTO bridge_flow_steps
     (flow_key, step_key, from_role, to_role, deliverable_dir,
      deliverable_pattern, rule_key, sort_order, is_active, validation_required)
 VALUES ('supervisor', 'supervisor-human', 'supervisor', 'human',
-        '/home/svend/flows/supervisor/results', '{ID}-result.md',
+        'supervisor/results', '{ID}-result.md',
         'human_delivery', 2, 1, 0);
 
 INSERT OR IGNORE INTO bridge_id_counters (flow_key, next_id)

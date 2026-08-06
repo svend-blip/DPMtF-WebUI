@@ -16,32 +16,38 @@ VALUES ('supervised_review', 'Supervised Review',
         1);
 
 -- Add the 4 steps for supervised_review flow
+-- deliverable_dir is stored relative to the bridge directory.
+-- dispatch.py resolves it with os.path.join(bridge_dir, …) when it is
+-- not absolute, which is the convention llama_SG has used since it was
+-- added. Writing the author's own /home/svend/flows/… here gave every
+-- fresh install a database pointing at another person's directories.
+
 INSERT OR IGNORE INTO bridge_flow_steps
     (flow_key, step_key, from_role, to_role, deliverable_dir,
      deliverable_pattern, rule_key, sort_order, is_active, auto_chain_to_next)
 VALUES ('supervised_review', 'supervisor-imple01', 'supervisor', 'imple01',
-        '/home/svend/flows/supervised_review/handoffs', '{ID}-handoff.md',
+        'supervised_review/handoffs', '{ID}-handoff.md',
         'handoff', 1, 1, 1);
 
 INSERT OR IGNORE INTO bridge_flow_steps
     (flow_key, step_key, from_role, to_role, deliverable_dir,
      deliverable_pattern, rule_key, sort_order, is_active, auto_chain_to_next)
 VALUES ('supervised_review', 'imple01-review01', 'imple01', 'review01',
-        '/home/svend/flows/supervised_review/results', '{ID}-result.md',
+        'supervised_review/results', '{ID}-result.md',
         'technical_review', 2, 1, 1);
 
 INSERT OR IGNORE INTO bridge_flow_steps
     (flow_key, step_key, from_role, to_role, deliverable_dir,
      deliverable_pattern, rule_key, sort_order, is_active, auto_chain_to_next)
 VALUES ('supervised_review', 'review01-review02', 'review01', 'review02',
-        '/home/svend/flows/supervised_review/reviews', '{ID}-review01.md',
+        'supervised_review/reviews', '{ID}-review01.md',
         'verdict', 3, 1, 1);
 
 INSERT OR IGNORE INTO bridge_flow_steps
     (flow_key, step_key, from_role, to_role, deliverable_dir,
      deliverable_pattern, rule_key, sort_order, is_active, auto_chain_to_next)
 VALUES ('supervised_review', 'review02-supervisor', 'review02', 'supervisor',
-        '/home/svend/flows/supervised_review/verdicts', '{ID}-verdict.md',
+        'supervised_review/verdicts', '{ID}-verdict.md',
         'agent_delivery', 4, 1, 0);
 
 -- Add the counter for supervised_review flow
