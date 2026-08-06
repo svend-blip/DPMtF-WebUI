@@ -209,6 +209,23 @@ guard: one written here stopped a working implementer's model four seconds
 after its handoff was dispatched, on the theory that a blocked supervisor
 meant a failed swap. It meant the ordinary state after every dispatch.
 
+**An intervention leaves the session somewhere.** Telling an OpenCode
+implementer to stop investigating worked — and left it in Plan mode, where it
+could not execute. Its next handoff was two commands and a report, and it sat
+composing a plan it was not allowed to run. Switching it back to Build then
+surfaced a plan-approval modal, which blocked it again. One message, two
+blockages, twenty-eight minutes.
+
+So when you do intervene: say what to stop, say what to resume, and then
+**look at the pane again a minute later** to see what state you left behind.
+The cost is not in the message, it is in the mode.
+
+**A stall watcher must know when the run opened.** The first one written for
+this measured "time since the last signal", which on a freshly opened run is
+the gap since the *previous* run closed — it reported a stall forty-six
+minutes into a run that was six minutes old. Measure from the later of the
+run's opening and the last signal.
+
 ### Stop and ask
 
 - a scope-fence breach
@@ -267,3 +284,24 @@ rejecting and the evidence was already in the ledger. The failure mode it
 came close to is worse than a wasted handoff: an implementer "fixing" a red
 criterion by loosening the validation that made it red, leaving weaker code
 behind a green tick.
+
+**Rehearse it the way the harness runs it — same shell, same directory.** The
+very next contract applied the rule above, measured three criteria green
+against a complete reference implementation, and shipped them broken anyway.
+They were rehearsed with `bash -c`; `check_testgoals.py` runs
+`subprocess.run(shell=True)`, and `/bin/sh` here is **dash**, which has no
+`$'...\n...'` quoting. Under dash the literal `$from ...` reached Python and
+died. All three would have stayed red against perfect work.
+
+A different shell is the same error as a different fixture, and it fails the
+more dangerous way: the fixture mistake produced a false red, the shell
+mistake produced a false green. Keep contract commands POSIX — no `$'...'`,
+no arrays, no `[[ ]]` — and rehearse under `dash -c`.
+
+**Ask only for evidence the command can produce.** Handoff 005 required a
+paste of `pytest tests -q` showing the pass count, but `pyproject.toml`
+already sets `addopts = "-q"`, so the flag doubles and pytest prints no
+summary line at all. The implementer pasted a count that command has never
+emitted, and the verdict rejected it — correctly, and for a defect the
+contract had invited. Before asking for a paste, run the command and look at
+what comes out.
