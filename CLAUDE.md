@@ -298,6 +298,20 @@ more dangerous way: the fixture mistake produced a false red, the shell
 mistake produced a false green. Keep contract commands POSIX — no `$'...'`,
 no arrays, no `[[ ]]` — and rehearse under `dash -c`.
 
+**A reference implementation inherits the contract's blind spots.** Rehearsing
+against one is still right — it catches unrunnable criteria and proves they
+can go green. But it is written by the contract's own author, so where the
+contract is silent the reference quietly picks a reading and the rehearsal
+certifies it. Run 005 bound seven method names and said each "returns its
+path" without binding the type. The reference returned `str`; the chain
+returned `Path`, which was the better choice. Six of ten criteria concatenated
+a `PosixPath` with a string and went red against correct work.
+
+So: where a contract binds a name, bind the type — or write the criterion so
+it does not care. `str(value)` costs nothing and assumes nothing. And when a
+criterion fails, read the *error* before reading the blame; a `TypeError` is
+never a statement about the property being measured.
+
 **Ask only for evidence the command can produce.** Handoff 005 required a
 paste of `pytest tests -q` showing the pass count, but `pyproject.toml`
 already sets `addopts = "-q"`, so the flag doubles and pytest prints no
