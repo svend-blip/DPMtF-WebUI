@@ -174,6 +174,27 @@ it harmless, as one did.
 tree is clean, and append a RUN-LEDGER entry. The ledger is the only durable
 channel into a stateless supervisor.
 
+### Arm the watchers before the run, and cover run closure
+
+A monitor that writes to a file is not a monitor. Background tasks notify on
+**exit**, so a poll loop with a four-hour budget says nothing for four hours,
+however faithfully it records events.
+
+Arm three things at the start of every run:
+
+1. **Chain progress** — the trace-log signals, so each dispatch and callback
+   is visible.
+2. **Run closure** — a watcher that exits when `END-REPORT.md` appears in the
+   active run directory. **The supervisor's closing turn produces no signal
+   and no gate event**: it writes a file and stops. On 2026-08-06 run 001
+   closed and nothing told me; the Human did. Everything else was watched.
+3. **The opposite of closure** — the supervisor idle for a long stretch with
+   no END-REPORT. That is the state that actually needs a person, and it is
+   the one most easily mistaken for progress.
+
+Re-arm after each fires. A watcher that has completed is not watching, and the
+gap after a verdict lands is exactly where a run finishes.
+
 ### Intervene on blockage, never on slowness
 
 A role thinking for thirty minutes is not a blockage. These are:
