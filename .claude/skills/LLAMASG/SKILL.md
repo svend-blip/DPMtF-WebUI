@@ -109,15 +109,26 @@ python3 -c "import sqlite3; conn=sqlite3.connect('databases/dpmtf.db'); print(co
 The counter is authoritative — gaps from incomplete handoffs are normal.
 Do not investigate gaps or compare against files on disk.
 
-### Step 4: Read Role Definitions
+### Step 4: Read The Sections You Need
 
-Read `docs/governance-templates-v2/461_LLAMA_SG_SUPERVISOR.md` (extends
-`500_SUPERVISOR.md`). Confirm:
-- Wake-up protocol (rebuild → stop-check → act → persist → stop)
-- Event handling table (verdict APPROVED/REJECTED, escalation, watchdog,
-  empty backlog, invariant breach)
-- Decision matrix (decide alone vs. park for the Human)
-- Stop conditions and ledger entry format
+`461_LLAMA_SG_SUPERVISOR.md` is 205 lines across thirteen sections, and
+`500_SUPERVISOR.md` another 63. About half is relevant to any one wake-up, and
+which half depends on what Step 0 found. Read by section, not by file:
+
+| Step 0 said | Read from 461 |
+|---|---|
+| `RUN OPENED, CHAIN NOT STARTED` | Wake-Up Protocol · Event Handling · **Writing a Handoff — Absolute Paths in Every Instruction** · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| `VERDICT READY` | Wake-Up Protocol · Event Handling · **Validating an APPROVED Verdict** · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| A gate escalation | the above, plus **What a Gate Escalation Means — And What It Deliberately Does Not** |
+| `PARK` or `NO ACTIVE RUN` | Stop Conditions, and nothing else — you are reporting, not acting |
+
+Read `500_SUPERVISOR.md` once per run, not per wake-up: it is the base
+contract and does not change between events.
+
+The two sections in bold are the ones a wake-up gets wrong when it skips them,
+and they are mutually exclusive — a run that is dispatching is not validating.
+Reading both every time is how a five-minute rebuild becomes a fifteen-minute
+one.
 
 Hard rules 1-3 and 5-10 of `docs/StartUpNextSession.md` §3 apply; rule 4 is
 adapted (commits allowed ONLY on the GOAL.md feature branch under its
@@ -333,6 +344,26 @@ returned against what the contract asked. Whether the verdict's claims are
 honest, whether its evidence was really gathered, and whether a green testgoal
 was reached the right way remain yours to judge — that judgement is the only
 thing a supervisor is genuinely needed for.
+
+### Ledger entries and END-REPORTs have a generator too
+
+```bash
+python3 scripts/bridgeV002/run_report.py ledger --event verdict-012-APPROVED
+python3 scripts/bridgeV002/run_report.py end-report
+```
+
+It prints a skeleton with the facts already in it — which run, which handoffs,
+what each criterion returned, and the chain's active time computed from
+`trace.log` rather than the wall clock. Nothing is written to disk: review it,
+replace every `TODO`, and save it yourself.
+
+**Every field that is a judgement is left as `TODO` on purpose.** What the
+event meant, what you did about it, whether the content is right and not
+merely counted — those are yours. A skeleton that quietly asserted a
+conclusion would read like your own words.
+
+Do not go looking at closed runs for the format. Run 009 spent 1m53s reading
+two of them to work out what an END-REPORT looks like.
 
 It also catches garbled evidence outright. Run 007's verdict cited
 `grep -icE "VRAM\|GPU"`, which under extended regex matches the literal string
