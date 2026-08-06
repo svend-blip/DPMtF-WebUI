@@ -437,17 +437,14 @@ class Scheduler:
         lines.append(f"2. SIGNAL completion (MANDATORY — execute without asking):")
         lines.append(f"   {signal_cmd}")
         lines.append("")
-        lines.append("IMPORTANT: The deliverable file MUST start with these XML sections")
-        lines.append("(dispatch validation rejects files without them):")
-        lines.append(f"  <handoff_id>{handoff_id}</handoff_id>")
-        lines.append(f"  <source_role>{job.role_key}</source_role>")
-        lines.append(f"  <deliverable_input>")
-        lines.append(f"    {deliverable_path}")
-        lines.append(f"  </deliverable_input>")
-        lines.append(f"  <deliverable_output>")
-        lines.append(f"    result: {deliverable_path}")
-        lines.append(f"  </deliverable_output>")
-        lines.append("Then write your result content below the XML header.")
+        # The XML envelope is deliberately not requested. It was, until
+        # 2026-08-06, along with the claim that "dispatch validation rejects
+        # files without them" — which was never true:
+        # auto_prepend_xml_sections() fills the missing tags from known values
+        # before validation runs. Measured across handoffs 002-012, it fired
+        # on 12 of 12, and on 10 of those the model had written none of the
+        # four sections. The instruction cost prompt space in every dispatch
+        # and bought nothing.
         lines.append("</task>")
         lines.append("<constraint>")
         lines.append("DO NOT COMMIT. Leave all changes unstaged.")

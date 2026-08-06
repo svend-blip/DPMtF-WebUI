@@ -2078,12 +2078,17 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             f"Write your result to: {next_output_path}\n"
             f"Write ONLY to that exact path — do not create extra copies or "
             f"invented filenames in the project working directory.\n"
-            f"The result file MUST start with these XML sections:\n"
-            f"  <handoff_id>{handoff_id}</handoff_id>\n"
-            f"  <source_role>{payload['to_role']}</source_role>\n"
-            f"  <deliverable_input>\n    {full_deliverable_path}\n  </deliverable_input>\n"
-            f"  <deliverable_output>\n    result: {next_output_path}\n  </deliverable_output>\n"
-            f"Then write your content below the XML header.\n\n"
+            # The XML envelope is deliberately NOT requested here.
+            # auto_prepend_xml_sections() supplies <handoff_id>,
+            # <source_role>, <deliverable_input> and <deliverable_output>
+            # from known values before validation, on every step (all three
+            # llama_SG steps carry validation_required=1). Asking for it too
+            # produced nothing but noise: across handoffs 002-012 the
+            # auto-prepend fired on 12 of 12, and in 10 of those the model
+            # had written none of the four sections. Six lines of every
+            # injected prompt, for every role, instructing something the
+            # machine always supplied anyway. Write content; the envelope
+            # is dispatch's job.
             f"## Signal Completion (MANDATORY — do not ask, just execute)\n"
             f"After writing the deliverable, run this command:\n"
             f"{next_signal_cmd}"
