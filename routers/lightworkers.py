@@ -433,7 +433,10 @@ def require_worker_auth(authorization: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
 
-def create_router(store: LightWorkerStore) -> APIRouter:
+def create_router(
+    store: LightWorkerStore,
+    on_complete: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+) -> APIRouter:
     """Build the LightWorkers router bound to ``store``.
 
     This function does not touch ``store`` — every method call below
@@ -505,9 +508,18 @@ def create_router(store: LightWorkerStore) -> APIRouter:
         if error is not None:
             raise HTTPException(status_code=422, detail=error)
         # Idempotent: returns 200 on both first and repeat calls.
-        store.complete(
+        changed = store.complete(
             execution_id, body.worker_id, body.attempt_id, body.result
         )
+        # §23: worker completion is not Father acceptance. The result is
+        # recorded either way — the worker did what it did — but the chain
+        # advances only on the first report, and only if Father accepts it.
+        # A rejection is 422 and leaves the recorded completion in place.
+        if changed and on_complete is not None:
+            try:
+                on_complete(execution_id, body.result)
+            except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"status": "recorded", "execution_id": execution_id}
 
     # --- fail ----------------------------------------------------------
