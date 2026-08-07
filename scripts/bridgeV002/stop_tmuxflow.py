@@ -84,6 +84,13 @@ def kill_remote_sessions(remote_roles):
             "for s in $(tmux ls -F '#{session_name}' 2>/dev/null "
             f"| grep '^dpmtf-'); do tmux kill-session -t \"$s\"; "
             "echo \"killed $s\"; done; "
+            # The daemon may run either way: as the systemd user unit
+            # (deploy/lightworker-daemon.service — Restart=always, so
+            # killing only a process would resurrect it behind the
+            # button's back) or hand-started in a tmux session for
+            # debugging. Stop both; each reports only if it acted.
+            "systemctl --user stop lightworker-daemon 2>/dev/null "
+            "&& echo 'stopped lightworker-daemon.service'; "
             "tmux kill-session -t =lightworker-daemon 2>/dev/null "
             "&& echo 'killed lightworker-daemon' || true"
         )
