@@ -277,3 +277,43 @@ class DenyingHeadingsAreNotChangeSections(unittest.TestCase):
                 "\n"
                 "- `routers/lightworkers.py`\n")
         self.assertEqual(gate.claimed_paths(text), ["routers/lightworkers.py"])
+
+
+class TheFenceBelongsToOneRole(unittest.TestCase):
+    """A handoff fences the role it addresses, and only that role's own
+    deliverable can be held to it.
+
+    preferred_cloud run 010: an implementer temporarily reverted a file under
+    its handoff's explicit authorisation, restored it, declared it, and
+    passed. Four minutes later the same file blocked the reviewer's verdict.
+    The second thing that had advanced the mtime was the reviewer re-running
+    the implementer's demonstration during review — the thing 473 asks of it.
+
+    Two properties follow. The check must still run for the role that owns the
+    fence, because that is the breach it exists to catch. And it must not run
+    for a verdict, because a reviewer inherits the tree it was handed and
+    cannot declare an edit it did not make.
+    """
+
+    def test_a_result_is_held_to_the_fence(self):
+        self.assertTrue(gate.owns_the_fence("{ID}-result.md", ""))
+
+    def test_a_handoff_is_held_to_the_fence(self):
+        self.assertTrue(gate.owns_the_fence("{ID}-handoff.md", ""))
+
+    def test_a_verdict_is_not(self):
+        self.assertFalse(gate.owns_the_fence("{ID}-verdict.md", ""))
+
+    def test_a_review_deliverable_is_not(self):
+        self.assertFalse(gate.owns_the_fence("{ID}-review01.md", ""))
+
+    def test_the_filename_is_used_when_no_pattern_is_given(self):
+        self.assertFalse(gate.owns_the_fence("", "016-verdict.md"))
+        self.assertTrue(gate.owns_the_fence("", "016-result.md"))
+
+    def test_an_unknown_shape_is_still_held_to_the_fence(self):
+        """Default to checking. A deliverable nobody classified is more
+        likely a role's own work than a verdict, and the breach this catches
+        is worth a false alarm."""
+        self.assertTrue(gate.owns_the_fence("", ""))
+        self.assertTrue(gate.owns_the_fence("{ID}-something.md", ""))

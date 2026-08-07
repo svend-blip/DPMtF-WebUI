@@ -389,6 +389,18 @@ def same_name_in_scope(full, allowed):
     return None
 
 
+def owns_the_fence(deliverable_pattern, deliverable_file):
+    """True when this deliverable belongs to the role the handoff fenced.
+
+    A handoff addresses one role and fences that role's files. Only that
+    role's own deliverable can be held to the fence: every later step in the
+    cycle inherits the same working tree and has no way to change what it
+    finds there.
+    """
+    kind = (deliverable_pattern or deliverable_file or "").lower()
+    return not ("verdict" in kind or "review" in kind)
+
+
 def undeclared_changes(roots, dirty_by_root, allowed, since):
     """Files changed during this handoff that the scope fence does not allow.
 
@@ -550,7 +562,23 @@ def main():
     # to every other check. It happened on 2026-08-05 — an implementer edited
     # DPMtF-WebUI's README instead of model-allocator's, said nothing, and
     # neither the gate, the reviewer nor the supervisor noticed.
-    undeclared = undeclared_changes(roots, dirty_by_root, allowed, since)
+    # ...but only against the role the fence belongs to. preferred_cloud run
+    # 010 paid for the difference. An implementer temporarily reverted a file
+    # under its handoff's explicit authorisation, restored it, declared it,
+    # and passed. Four minutes later the same file blocked the REVIEWER's
+    # verdict — and the second thing that had advanced its mtime was the
+    # reviewer re-running the implementer's demonstration during review, which
+    # is exactly what 473 asks of it. The gate punished independent
+    # verification.
+    #
+    # Worse, the remedy it prints is unavailable to a reviewer: a verdict
+    # cannot carry a "Files changed" heading without stating a falsehood, and
+    # claimed_paths() reads declarations from nothing else. The reviewer wrote
+    # an honest "Note on <file>'s mtime" section and the gate could not see it.
+    if owns_the_fence(args.deliverable_pattern, args.deliverable_file):
+        undeclared = undeclared_changes(roots, dirty_by_root, allowed, since)
+    else:
+        undeclared = []
 
     if unchanged:
         problems.append(
