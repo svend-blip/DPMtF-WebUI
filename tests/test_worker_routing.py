@@ -34,16 +34,27 @@ class TestItIsInertUntilARoleIsGivenATarget:
         a live role off-box because the string was falsy-but-present."""
         assert worker_target({"execution_target": value}) is None
 
-    def test_every_role_in_the_live_database_runs_here(self):
-        """The guarantee this change rests on, asserted against real data."""
+    def test_only_the_intended_roles_route_off_box(self):
+        """Asserted against the live database, not against fixtures.
+
+        This began as "no role routes off-box", which held until migration
+        031 gave imple01LW a target on purpose. The protection is worth
+        keeping, so it became a list: a role that acquires an
+        execution_target without being named here still fails, and being
+        named here means somebody decided it.
+        """
         import sqlite3
         import config
+        expected = {"imple01LW": "svend3060"}
         conn = sqlite3.connect(config.get_db_path())
         rows = conn.execute(
             "SELECT role_key, execution_target FROM bridge_roles").fetchall()
         conn.close()
-        routed = [r[0] for r in rows if worker_target({"execution_target": r[1]})]
-        assert not routed, f"roles would now route off-box: {routed}"
+        routed = {r[0]: worker_target({"execution_target": r[1]})
+                  for r in rows if worker_target({"execution_target": r[1]})}
+        assert routed == expected, (
+            f"off-box routing changed: {routed} (expected {expected}). "
+            "Add a role here only when its remote execution is intended.")
 
 
 class TestWhenATargetIsSet:
