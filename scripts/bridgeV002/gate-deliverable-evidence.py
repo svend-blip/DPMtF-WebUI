@@ -444,14 +444,35 @@ def undeclared_changes(roots, dirty_by_root, allowed, since):
     return found
 
 
-def handoff_mtime(bridge_dir, flow_key, handoff_id):
-    """When this handoff was written — the clock a change must postdate."""
+def handoff_mtime(bridge_dir, flow_key, handoff_id, gated_deliverable=""):
+    """The clock a change must postdate: when THIS STEP started.
+
+    This used to be the handoff's own mtime, for every step of the chain.
+    preferred_cloud run 010 paid for that: the implementer edited a file,
+    DECLARED it, and the gate accepted -- then blocked the reviewer's
+    verdict two steps later, because the same edit still postdated the
+    handoff and the verdict's fence did not allow the file. An mtime was
+    read as authorship. The declared-and-accepted change bought exactly one
+    step of peace.
+
+    The comparison point is now the newest of the handoff and every earlier
+    deliverable of the same chain id -- i.e. when the step being gated
+    actually began. Work done before the previous role handed over cannot
+    be this role's doing, whoever did it. The deliverable being gated is
+    excluded from the scan, or it would always win.
+    """
+    times = []
     if bridge_dir and flow_key and handoff_id:
-        path = Path(bridge_dir) / flow_key / "handoffs" / f"{handoff_id}-handoff.md"
-        try:
-            return path.stat().st_mtime
-        except OSError:
-            pass
+        gated = os.path.realpath(gated_deliverable) if gated_deliverable else ""
+        for path in Path(bridge_dir, flow_key).glob(f"*/{handoff_id}-*.md"):
+            if gated and os.path.realpath(str(path)) == gated:
+                continue
+            try:
+                times.append(path.stat().st_mtime)
+            except OSError:
+                pass
+    if times:
+        return max(times)
     return time.time() - 24 * 3600      # fall back to "today"
 
 
@@ -528,7 +549,8 @@ def main():
 
     roots = target_projects(args.flow_key)
     dirty_by_root = {root: git_dirty_files(root) for root in roots}
-    since = handoff_mtime(bridge_dir, args.flow_key, args.handoff_id)
+    since = handoff_mtime(bridge_dir, args.flow_key, args.handoff_id,
+                          gated_deliverable=path)
 
     handoff_path = os.path.join(
         bridge_dir, args.flow_key, "handoffs", f"{args.handoff_id}-handoff.md")

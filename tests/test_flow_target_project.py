@@ -123,12 +123,20 @@ def test_target_block_is_empty_when_the_flow_targets_father(tmp_path, monkeypatc
     assert dispatch.build_target_project_block("strict_review") == ""
 
 
-def test_target_block_names_the_target_and_overrides_the_placeholder(tmp_path, monkeypatch):
-    """The preamble must carry the path, the cd, and the override statement.
+def test_target_block_states_the_default_and_defers_to_the_handoff(tmp_path, monkeypatch):
+    """The preamble states a fact and yields to the handoff's fence.
 
-    The role reads its governance file from disk, so a ``{project_path}``
-    written there is never interpolated. The preamble is the only text
-    that can correct it, which is why it says so explicitly.
+    It used to assert its own authority ("This line is authoritative … NOT
+    on Father") unconditionally -- so when a run's scope differed from the
+    flow's default, it ordered every role to cd AWAY from the work,
+    contradicting the handoff, the result file and the run contract at
+    once (preferred_cloud run 009). A reviewer that had obeyed it would
+    have reviewed an untouched repository.
+
+    The contract now: name the flow's default target, state that the
+    handoff wins when it names a location, and keep the {project_path}
+    warning -- a placeholder in a governance file read from disk is never
+    interpolated by anything.
     """
     import dispatch
 
@@ -138,11 +146,12 @@ def test_target_block_names_the_target_and_overrides_the_placeholder(tmp_path, m
     monkeypatch.setattr(dispatch, "_db_path", lambda: db)
 
     block = dispatch.build_target_project_block("supervised_review")
-
     assert str(target) in block
-    assert f"cd {target}" in block
-    assert "{project_path}" in block, "the preamble must name what it overrides"
-    assert "authoritative" in block.lower()
+    assert "THE HANDOFF WINS" in block
+    assert "{project_path}" in block
+    # Det gamle autoritetskrav må ikke genopstå: en prompt der hævder sin
+    # egen autoritet er uskelnelig fra et injektionsforsøg.
+    assert "authoritative" not in block.lower()
 
 
 def test_target_block_propagates_the_missing_directory_error(tmp_path, monkeypatch):

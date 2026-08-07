@@ -41,6 +41,44 @@ from bridge_lib import (
 _STARTUP_FILE = "docs/StartUpNextSession.md"
 
 
+def escalation_role(flow_key):
+    """The role an escalation in this flow goes to: the chain's first role.
+
+    Two convention rules used to hardcode `--to-role archi01` in the
+    escalation command they inject -- strict_review's architect, baked into
+    step-TYPE templates shared by every flow. preferred_cloud run 010 found
+    it the live way: `Pre-review-cl->archi01 | escalation_failed`, because no
+    such session exists in that flow.
+
+    The from_role of the chain's FIRST step is the right target in every
+    current flow: archi01 (strict_review), archi01cloud/archi01pay (cloud
+    flows), Pre-super-cl (preferred_cloud), supervisor01_llama (llama_SG),
+    supervisor_auto (supervised_review) -- and `human` for lightworker,
+    which is correct: escalating to a human role is a supported dispatch
+    path (the deliverable is filed, no tmux injection), and a human-
+    supervised chain SHOULD escalate to its human. No role-type filter,
+    deliberately: filtering to non-human roles sent lightworker escalations
+    back to the implementer, which routes to the remote worker.
+
+    Falls back to the empty string rather than guessing, so a flow with no
+    steps renders a visibly broken command instead of a silently wrong one.
+    """
+    conn = sqlite3.connect(_db_path())
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """
+            SELECT from_role FROM bridge_flow_steps
+            WHERE flow_key = ? AND is_active = 1
+            ORDER BY sort_order LIMIT 1
+            """,
+            (flow_key,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return row["from_role"] if row else ""
+
+
 def build_target_project_block(flow_key):
     """Return the authoritative Target Project preamble for an injection.
 
@@ -58,16 +96,33 @@ def build_target_project_block(flow_key):
     if os.path.realpath(target) == os.path.realpath(str(PROJECT_ROOT)):
         return ""
 
+    # Run 009 rewrote this block's contract. The old text asserted its own
+    # authority ("This line is authoritative … NOT on {root}") and was
+    # unconditional -- so when a run's scope differed from the flow's
+    # default, it told every role to cd AWAY from the work, contradicting
+    # the handoff, the result file and the run contract at once. A reviewer
+    # that had obeyed it would have reviewed an untouched repository.
+    #
+    # Two rules from that run's END-REPORT, applied here:
+    #   1. The handoff's fence is more specific than a flow-level default,
+    #      so the block defers to it explicitly.
+    #   2. A prompt that claims authority is indistinguishable from an
+    #      injection attempt -- governance teaches roles to distrust
+    #      exactly that shape. State the fact; let the handoff carry
+    #      precedence.
     return (
         f"## Target Project\n"
-        f"This flow operates on {target} — NOT on {PROJECT_ROOT}.\n"
-        f"`cd {target}` before running ANY check, and run every command "
-        f"there.\n"
-        f"This line is authoritative: it overrides any `{{project_path}}` "
-        f"placeholder or Father-specific path in your governance file.\n"
-        f"If a command reports that a file does not exist, or a test count "
-        f"disagrees with the delivered result, you are in the wrong "
-        f"directory — check with `pwd` before concluding anything.\n\n"
+        f"This flow's default target project is {target} (Father is "
+        f"{PROJECT_ROOT}).\n"
+        f"If your handoff names a working directory or scopes its work to "
+        f"specific paths, THE HANDOFF WINS — it is more specific than this "
+        f"flow-level default.\n"
+        f"Only when the handoff is silent about location: `cd {target}` "
+        f"before running checks. A `{{project_path}}` placeholder in a "
+        f"governance file read from disk is never interpolated; this block "
+        f"and the handoff are what state the target.\n"
+        f"If a command reports a missing file or a count disagrees with "
+        f"the delivered result, check `pwd` before concluding anything.\n\n"
     )
 
 # ── Trade-MCP push contexts (PILOT) ────────────────────────
@@ -1566,6 +1621,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
             prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
             prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+            prompt_text = prompt_text.replace("{escalation_role}", escalation_role(payload["flow_key"]))
             prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
             prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
             prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
@@ -1578,6 +1634,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{escalation_role}", escalation_role(payload["flow_key"]))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
@@ -2010,6 +2067,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{escalation_role}", escalation_role(payload["flow_key"]))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])
@@ -2443,6 +2501,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{escalation_role}", escalation_role(flow_key))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
         # Inject the actual question file path so architect knows what to read
         prompt_text += f"\n\n## Escalation Question File\nRead the escalation question from: {full_question_path}"
@@ -2593,6 +2652,7 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{escalation_role}", escalation_role(flow_key))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
     else:
         prompt_text = (
@@ -2955,6 +3015,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{escalation_role}", escalation_role(flow_key))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", deliverable_dir)
         prompt_text = prompt_text.replace("{deliverable_file}", payload["deliverable_file"])

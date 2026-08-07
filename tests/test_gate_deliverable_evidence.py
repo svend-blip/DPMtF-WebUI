@@ -317,3 +317,71 @@ class TheFenceBelongsToOneRole(unittest.TestCase):
         is worth a false alarm."""
         self.assertTrue(gate.owns_the_fence("", ""))
         self.assertTrue(gate.owns_the_fence("{ID}-something.md", ""))
+
+
+class TestTheClockResetsPerStep:
+    """An mtime must not be read as authorship.
+
+    preferred_cloud run 010: the implementer edited a file, DECLARED it, and
+    the gate accepted -- then blocked the reviewer's verdict two steps later,
+    because the same edit still postdated the HANDOFF and the verdict's fence
+    did not allow the file. The declared-and-accepted change bought exactly
+    one step of peace.
+
+    The comparison point is now when the step being gated began: the newest
+    of the handoff and every earlier deliverable of the same chain id.
+    """
+
+    def _chain(self, tmp_path, monkeypatch):
+        flow = tmp_path / "flowX"
+        for d in ("handoffs", "results", "verdicts"):
+            (flow / d).mkdir(parents=True)
+        return flow
+
+    def test_the_implementers_edit_predates_the_reviewers_step(self, tmp_path, monkeypatch):
+        import os, time
+        flow = self._chain(tmp_path, monkeypatch)
+        h = flow / "handoffs" / "016-handoff.md"
+        h.write_text("h", encoding="utf-8")
+        os.utime(h, (time.time() - 3000, time.time() - 3000))
+        # Implementeren redigerer (t-2000) og afleverer sit resultat (t-1000).
+        edit_time = time.time() - 2000
+        result = flow / "results" / "016-result.md"
+        result.write_text("r", encoding="utf-8")
+        os.utime(result, (time.time() - 1000, time.time() - 1000))
+        # Verdictet gates nu: uret skal stå ved RESULTATETS mtime, ikke handoffens.
+        verdict = flow / "verdicts" / "016-verdict.md"
+        verdict.write_text("v", encoding="utf-8")
+        since = gate.handoff_mtime(str(tmp_path), "flowX", "016",
+                                   gated_deliverable=str(verdict))
+        assert since > edit_time, (
+            "the implementer's declared edit would be attributed to the reviewer")
+
+    def test_the_gated_deliverable_does_not_move_its_own_clock(self, tmp_path, monkeypatch):
+        """Excluding the gated file matters: it is always the newest, and
+        counting it would make every change predate the step -- the check
+        would never fire again."""
+        import os, time
+        flow = self._chain(tmp_path, monkeypatch)
+        h = flow / "handoffs" / "017-handoff.md"
+        h.write_text("h", encoding="utf-8")
+        old = time.time() - 3000
+        os.utime(h, (old, old))
+        gated = flow / "results" / "017-result.md"
+        gated.write_text("r", encoding="utf-8")  # frisk mtime
+        since = gate.handoff_mtime(str(tmp_path), "flowX", "017",
+                                   gated_deliverable=str(gated))
+        assert abs(since - old) < 2, "the gated deliverable moved its own clock"
+
+    def test_first_step_still_measures_from_the_handoff(self, tmp_path, monkeypatch):
+        import os, time
+        flow = self._chain(tmp_path, monkeypatch)
+        h = flow / "handoffs" / "018-handoff.md"
+        h.write_text("h", encoding="utf-8")
+        old = time.time() - 500
+        os.utime(h, (old, old))
+        gated = flow / "results" / "018-result.md"
+        gated.write_text("r", encoding="utf-8")
+        since = gate.handoff_mtime(str(tmp_path), "flowX", "018",
+                                   gated_deliverable=str(gated))
+        assert abs(since - old) < 2
