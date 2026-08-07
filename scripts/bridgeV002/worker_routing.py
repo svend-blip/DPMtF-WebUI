@@ -160,6 +160,45 @@ def _git(args, cwd):
     return p.stdout.strip() if p.returncode == 0 else ""
 
 
+def outgoing_deliverable(flow_key: str, role_key: str, handoff_id: str) -> str:
+    """The relative path of the deliverable ``role_key`` produces in this flow.
+
+    A role's own deliverable sits on the step it *sends*, not the step that
+    delivers to it. The distinction is invisible until a result carries
+    content, at which point Father writes it to whatever the envelope named.
+
+    Raises rather than falling back: a role with no outgoing step has nowhere
+    to put a result, and inventing a path would put it somewhere nobody reads.
+    """
+    import sqlite3
+
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+    import config as dpmtf_config  # noqa: E402
+
+    conn = sqlite3.connect(dpmtf_config.get_db_path())
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT deliverable_dir, deliverable_pattern "
+            "FROM bridge_flow_steps "
+            "WHERE flow_key = ? AND from_role = ? AND is_active = 1 "
+            "ORDER BY sort_order LIMIT 1",
+            (flow_key, role_key),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        raise EnvelopeIncomplete(
+            f"role {role_key!r} has no outgoing step in flow {flow_key!r}, so "
+            "Father cannot say where its result belongs")
+
+    pattern = (row["deliverable_pattern"] or "").replace("{ID}", handoff_id)
+    pattern = pattern.replace("{role_key}", role_key)
+    return os.path.join(row["deliverable_dir"] or "", pattern)
+
+
 def build_envelope(
     *,
     worker_id: str,
@@ -216,9 +255,19 @@ def build_envelope(
                 "Father sends the governance rather than granting the worker "
                 "a path into Father's tree") from exc
 
-    # Relative by construction: the validator rejects absolute paths and `..`.
-    expected = os.path.join(payload.get("deliverable_dir", ""),
-                            payload.get("deliverable_file", ""))
+    # What the role PRODUCES, not what it receives.
+    #
+    # `payload` describes the step delivering this handoff, so its
+    # deliverable is the handoff itself. Using it told the worker to produce
+    # `lightworker/handoffs/005-handoff.md` — and Father's return path writes
+    # the result to whatever this names, so an accepted result would have
+    # overwritten the handoff that produced it. Nothing caught it because no
+    # result had ever carried content.
+    #
+    # The role's own deliverable is the one on the step it sends: for
+    # imple01LW that is `imple01LW-review01LW` → `lightworker/results/{ID}-result.md`.
+    expected = outgoing_deliverable(
+        payload.get("flow_key", ""), payload.get("to_role", ""), handoff_id)
     if not expected or os.path.isabs(expected) or ".." in expected.split(os.sep):
         raise EnvelopeIncomplete(
             f"deliverable path {expected!r} is not a safe relative path")

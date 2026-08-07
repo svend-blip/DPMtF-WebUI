@@ -244,9 +244,9 @@ def test_after_completion_a_new_execution_is_offered(
         "worker_id": "w1",
         "attempt_id": "a1",
         "result": {
-            "mode": "deliverable_only",
-            "deliverable": "x",
-            "checksum": "y",
+            "status": "role_execution_completed",
+            "result_mode": "deliverable_only",
+            "deliverable": {"path": "x", "content": "a document\n"},
         },
     }
     r = client.post("/api/lightworkers/executions/E1/complete", json=body)
@@ -273,9 +273,9 @@ def test_complete_twice_returns_200_but_changes_state_once(
         "worker_id": "w1",
         "attempt_id": "a1",
         "result": {
-            "mode": "deliverable_only",
-            "deliverable": "x",
-            "checksum": "y",
+            "status": "role_execution_completed",
+            "result_mode": "deliverable_only",
+            "deliverable": {"path": "x", "content": "a document\n"},
         },
     }
     r1 = client.post("/api/lightworkers/executions/E1/complete", json=body)
@@ -298,9 +298,9 @@ def test_complete_different_attempts_each_count(
     base = {
         "worker_id": "w1",
         "result": {
-            "mode": "deliverable_only",
-            "deliverable": "x",
-            "checksum": "y",
+            "status": "role_execution_completed",
+            "result_mode": "deliverable_only",
+            "deliverable": {"path": "x", "content": "a document\n"},
         },
     }
     r1 = client.post(
@@ -358,16 +358,21 @@ def test_fail_twice_changes_state_once(
 
 
 def _deliverable_only_result() -> dict:
+    # `result_mode`, and a deliverable that is an OBJECT carrying the content.
+    # It used to be `mode` and a bare path string, which is the vocabulary the
+    # return path never spoke -- a result could pass here and be refused where
+    # the file actually gets written. tests/test_result_contract.py holds both
+    # validators to one literal so they cannot drift apart again.
     return {
-        "mode": "deliverable_only",
-        "deliverable": "doc.md",
-        "checksum": "sha256:...",
+        "status": "role_execution_completed",
+        "result_mode": "deliverable_only",
+        "deliverable": {"path": "doc.md", "content": "a document\n"},
     }
 
 
 def _patch_result() -> dict:
     return {
-        "mode": "patch",
+        "result_mode": "patch",
         "patch": "diff --git ...",
         "base_commit": "abc123",
         "result_commit": "def456",
@@ -377,7 +382,8 @@ def _patch_result() -> dict:
 
 def _patch_and_deliverable_result() -> dict:
     out = _patch_result()
-    out["deliverable"] = "doc.md"
+    out["result_mode"] = "patch_and_deliverable"
+    out["deliverable"] = {"path": "doc.md", "content": "a document\n"}
     return out
 
 
@@ -405,7 +411,7 @@ def test_complete_with_unknown_mode_is_refused(
         json={
             "worker_id": "w1",
             "attempt_id": "a1",
-            "result": {"mode": "guess", "k": "v"},
+            "result": {"result_mode": "guess", "k": "v"},
         },
     )
     assert r.status_code >= 400
@@ -414,7 +420,7 @@ def test_complete_with_unknown_mode_is_refused(
 def test_complete_with_missing_mode_is_refused(
     client: TestClient, store: InMemoryStore
 ) -> None:
-    """A result without a ``mode`` is refused."""
+    """A result without a ``result_mode`` is refused."""
     _seed(store, "E1", "w1")
     _claim(client, "E1", "w1")
     r = client.post(
@@ -422,7 +428,7 @@ def test_complete_with_missing_mode_is_refused(
         json={
             "worker_id": "w1",
             "attempt_id": "a1",
-            "result": {"deliverable": "x", "checksum": "y"},
+            "result": {"deliverable": {"content": "x"}},
         },
     )
     assert r.status_code >= 400
@@ -431,7 +437,7 @@ def test_complete_with_missing_mode_is_refused(
 def test_complete_deliverable_only_with_missing_keys_is_refused(
     client: TestClient, store: InMemoryStore
 ) -> None:
-    """``deliverable_only`` requires ``deliverable`` and ``checksum``."""
+    """``deliverable_only`` requires a deliverable carrying content."""
     _seed(store, "E1", "w1")
     _claim(client, "E1", "w1")
     r = client.post(
@@ -439,7 +445,7 @@ def test_complete_deliverable_only_with_missing_keys_is_refused(
         json={
             "worker_id": "w1",
             "attempt_id": "a1",
-            "result": {"mode": "deliverable_only", "deliverable": "x"},
+            "result": {"result_mode": "deliverable_only"},
         },
     )
     assert r.status_code >= 400
@@ -480,7 +486,7 @@ def test_complete_patch_and_deliverable_requires_union(
         "worker_id": "w1",
         "attempt_id": "a1",
         "result": {
-            "mode": "patch_and_deliverable",
+            "result_mode": "patch_and_deliverable",
             "patch": "diff",
             "base_commit": "abc",
             "result_commit": "def",
@@ -499,12 +505,12 @@ def test_complete_patch_and_deliverable_requires_union(
         "worker_id": "w1",
         "attempt_id": "a2",
         "result": {
-            "mode": "patch_and_deliverable",
+            "result_mode": "patch_and_deliverable",
             "patch": "diff",
             "base_commit": "abc",
             "result_commit": "def",
             "checksum": "y",
-            "deliverable": "doc",
+            "deliverable": {"path": "doc", "content": "a document\n"},
         },
     }
     r2 = client.post("/api/lightworkers/executions/E1/complete", json=ok_body)

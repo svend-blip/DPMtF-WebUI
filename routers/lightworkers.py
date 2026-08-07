@@ -343,12 +343,24 @@ class FailBody(BaseModel):
     failure: Dict[str, Any]
 
 
+# The store raises this when a second attempt reports on an execution that
+# already reached a terminal state. Imported lazily-safe: the durable store
+# module owns the class, and the in-memory store in this file raises the same
+# one, so a single except clause covers both backends.
+try:  # pragma: no cover - trivial import guard
+    from routers.lightworker_store import (
+        ExecutionAlreadyCompleted as _AlreadyTerminal,
+    )
+except ImportError:  # pragma: no cover
+    _AlreadyTerminal = ValueError  # type: ignore[assignment,misc]
+
+
 # ---------------------------------------------------------------------------
 # Result validation (§17)
 # ---------------------------------------------------------------------------
 
 _REQUIRED_KEYS_BY_MODE: Dict[str, Set[str]] = {
-    "deliverable_only": {"deliverable", "checksum"},
+    "deliverable_only": {"deliverable"},
     "patch": {"patch", "base_commit", "result_commit", "checksum"},
     "patch_and_deliverable": {
         "patch",
@@ -359,33 +371,71 @@ _REQUIRED_KEYS_BY_MODE: Dict[str, Set[str]] = {
     },
 }
 
+# The vocabulary is `worker_results.validate_result`'s, not this file's.
+# Until lightworker run 001 they were different: this validator asked for
+# `mode` and a `checksum` beside a deliverable path, while the return path
+# that publishes the deliverable asked for `result_mode` and a deliverable
+# *object* carrying `content` and `sha256`.
+#
+# A result could therefore pass here and be refused there, which is what
+# EXEC-005 did — 422 on a completion the store had already recorded, and no
+# way for the worker to report it because the execution was terminal by then.
+#
+# The return path is canonical because it is the one that has to produce a
+# file. §17.2 lists what the worker reports *about* a deliverable; with no
+# artifact transfer in this version, the content itself has to travel, which
+# run 001's contract states outright. `tests/test_result_contract.py` asserts
+# both validators against one literal so the two cannot drift apart again.
+_MODE_KEY = "result_mode"
+
 
 def _validate_result(result: Dict[str, Any]) -> Optional[str]:
     """Return ``None`` if ``result`` is valid; an error message otherwise.
 
-    The shape is fixed by §17:
+    This is the cheap gate: shape and required keys. Whether the content is
+    usable — non-empty, checksum matching — belongs to the return path, which
+    refuses with a reason rather than a status code.
 
-    * ``result`` must be a dict.
-    * It must not be empty.
-    * ``mode`` must be one of the three known modes.
-    * All required keys for that mode must be present.
-    * ``summary`` and ``logs`` are recorded if present and are NOT
-      required — §17.2 lists them in prose but this run does not
-      demand them, and that narrowing is a deliberate choice.
+    ``summary`` and ``logs`` are recorded if present and are NOT required —
+    §17.2 lists them in prose but this run does not demand them, and that
+    narrowing is a deliberate choice.
     """
     if not isinstance(result, dict):
         return "result must be an object"
     if not result:
         return "result must not be empty"
-    mode = result.get("mode")
+    mode = result.get(_MODE_KEY)
     if not isinstance(mode, str):
-        return "result.mode must be a string"
+        return f"result.{_MODE_KEY} must be a string"
     required = _REQUIRED_KEYS_BY_MODE.get(mode)
     if required is None:
-        return f"unknown result.mode: {mode!r}"
+        return f"unknown result.{_MODE_KEY}: {mode!r}"
     missing = [k for k in sorted(required) if k not in result]
     if missing:
         return f"missing required keys for mode {mode!r}: {missing}"
+    if "deliverable" in required:
+        deliverable = result.get("deliverable")
+        if not isinstance(deliverable, dict):
+            # A bare path string is what the worker used to send. It reads as
+            # a deliverable and carries nothing, so the endpoint accepted a
+            # result that could never produce a file.
+            return (
+                "result.deliverable must be an object carrying the content, "
+                f"not a {type(deliverable).__name__}"
+            )
+        content = deliverable.get("content")
+        if not isinstance(content, str) or not content.strip():
+            # Checked here rather than only in the return path so an empty
+            # result is refused *before* the store records a completion.
+            # EXEC-005 was recorded as completed and then refused, which left
+            # the execution terminal — the worker's follow-up fail could not
+            # land, and the record said "completed" for something Father had
+            # rejected.
+            #
+            # The checksum is deliberately NOT verified here. §23 makes that
+            # Father's authoritative validation, and duplicating it in two
+            # places is how the two validators drifted apart to begin with.
+            return "result.deliverable.content is empty"
     return None
 
 
@@ -526,9 +576,22 @@ def create_router(
 
     @router.post("/api/lightworkers/executions/{execution_id}/fail")
     def fail(execution_id: str, body: FailBody) -> Dict[str, Any]:
-        store.fail(
-            execution_id, body.worker_id, body.attempt_id, body.failure
-        )
+        try:
+            store.fail(
+                execution_id, body.worker_id, body.attempt_id, body.failure
+            )
+        except _AlreadyTerminal as exc:
+            # 409, not 500. `ExecutionAlreadyCompleted` says in its own
+            # docstring that it is named so the mounting run can map it to a
+            # status code -- the mapping was never built, so it escaped as an
+            # unhandled server error.
+            #
+            # EXEC-005 hit it: the completion was recorded, the return path
+            # refused the result, and the worker's follow-up fail arrived at
+            # an execution that was already terminal. A 500 tells the worker
+            # Father is broken. A 409 tells it the truth, which is that
+            # Father already has an answer for this execution.
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"status": "recorded", "execution_id": execution_id}
 
     return router

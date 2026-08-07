@@ -141,7 +141,9 @@ class TestTheRouterHookRefusesRatherThanSwallows:
         c.post("/api/lightworkers/executions/E1/claim", json={"worker_id": "w1"})
         r = c.post("/api/lightworkers/executions/E1/complete", json={
             "worker_id": "w1", "attempt_id": "a1",
-            "result": {"mode": "deliverable_only", "deliverable": "x", "checksum": "y"}})
+            "result": {"status": "role_execution_completed",
+                       "result_mode": "deliverable_only",
+                       "deliverable": {"path": "x", "content": "a doc\n"}}})
         assert r.status_code == 422
         assert "Father says no" in r.text
         assert store.completion_count("E1", "a1") == 1, \
