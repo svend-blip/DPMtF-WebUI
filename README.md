@@ -353,6 +353,28 @@ order, remote roles mirrored over ssh. The viewer is rebuilt automatically
 by `start_tmuxflow.py` and the start-coding endpoint; after any manual
 session surgery, run `python3 scripts/bridgeV002/attach_tmux.py <flow>`.
 
+**LightWorker capabilities (completed 2026-08-07):**
+
+- **Per-worker credentials** — tokens minted with
+  `scripts/bridgeV002/mint_worker_token.py --worker-id <id>`, stored as
+  sha256 (Father never persists a usable secret). The token authenticates
+  AND identifies: a body asserting another worker's id is 403. While no
+  token is minted the shared `LIGHTWORKER_AUTH_TOKEN` still works; the
+  first minted token retires it. Rollout order: mint → install → restart.
+- **Artifact transfer** — `POST /api/lightworkers/artifacts` stores blobs
+  content-addressed under their sha256 (filesystem, not the git-committed
+  database). Results reference `artifact_sha256`; Father re-hashes on
+  redemption. Workers switch to references above 256 KiB.
+- **Patch mode** — `patch_and_deliverable` results carry a binary-safe
+  git patch. Father validates (checksum, base_commit cross-checked
+  against the dispatched envelope) and applies it in a throwaway worktree
+  at that exact base; only the branch `lightworker/<flow>-<handoff>`
+  survives. No existing ref moves — review and merge stay human-gated.
+- **Claim expiry** — a claimed execution whose heartbeats stop is failed
+  by Father when its worker next polls (300s silence with heartbeats,
+  900s grace before the first — model load is legitimately silent), so
+  the queue heals itself.
+
 **Stop buttons:** *Stop tmux* kills the flow's local sessions, its viewer,
 and — for roles with an `execution_target` — the worker's `dpmtf-*`
 execution sessions and daemon over ssh. *Stop servers* stops local
