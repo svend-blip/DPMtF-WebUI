@@ -144,9 +144,21 @@ def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
         cmd_str, bridge_dir=bridge_dir, project_root=project_root
     )
     print(f"  Command: {resolved}")
-    cmd = ["tmux", "send-keys", "-t", "=" + session_name + ":0", resolved, "Enter"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return result.returncode == 0
+    # Literal text and the Enter KEY as two calls. Without -l, send-keys
+    # parses the string as key names, and a long allocator command with
+    # quotes can land mangled -- observed 2026-08-07: review01LW's launch
+    # arrived with a broken quote and the shell sat at a `>` continuation
+    # prompt while the chain believed a client was starting. Same family as
+    # tmux_session._submit's "Enter typed as five letters", fixed the same
+    # way.
+    target = "=" + session_name + ":0"
+    first = subprocess.run(
+        ["tmux", "send-keys", "-t", target, "-l", resolved],
+        capture_output=True, text=True)
+    second = subprocess.run(
+        ["tmux", "send-keys", "-t", target, "Enter"],
+        capture_output=True, text=True)
+    return first.returncode == 0 and second.returncode == 0
 
 
 def main():
