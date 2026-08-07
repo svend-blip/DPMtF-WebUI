@@ -414,11 +414,13 @@ def test_execution_heartbeat_upserts(
 # ---------------------------------------------------------------------------
 
 
-def test_router_drop_in(tmp_path: Path) -> None:
+def test_router_drop_in(tmp_path: Path, monkeypatch) -> None:
     """Mounting the router with this store preserves the §20 shape."""
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from routers.lightworkers import create_router
+
+    monkeypatch.setenv("LIGHTWORKER_AUTH_TOKEN", "test-worker-token")
 
     store = SqliteLightWorkerStore(str(tmp_path / "router.db"))
     store.offer({
@@ -430,6 +432,7 @@ def test_router_drop_in(tmp_path: Path) -> None:
     app = FastAPI()
     app.include_router(create_router(store))
     client = TestClient(app)
+    client.headers.update({"Authorization": "Bearer test-worker-token"})
 
     assert (
         client.get("/api/lightworkers/w1/executions/next").json() or {}

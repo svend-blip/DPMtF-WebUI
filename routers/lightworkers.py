@@ -37,10 +37,12 @@ complete. An accepted completion is a record; it continues nothing.
 
 from __future__ import annotations
 
+import hmac
+import os
 import threading
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 
@@ -392,6 +394,45 @@ def _validate_result(result: Dict[str, Any]) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
+def _expected_token() -> Optional[str]:
+    """The shared secret Father accepts, or None when none is configured."""
+    token = os.environ.get("LIGHTWORKER_AUTH_TOKEN", "")
+    return token or None
+
+
+def require_worker_auth(authorization: str = Header(default="")) -> None:
+    """Authenticate the caller as a known worker (GOAL.md §27).
+
+    §27 requires worker identity to be authenticated and states plainly
+    that Tailscale membership must not be the sole authorization
+    mechanism. This is the second mechanism.
+
+    **What it provides:** only a caller holding the shared secret may
+    reach these endpoints. **What it does not:** it does not distinguish
+    one worker from another — every worker presenting the secret is
+    accepted, and the `worker_id` in the body is still self-asserted.
+    Per-worker credentials are the next step and are not this. Say so
+    rather than letting a green check imply more.
+
+    Refusing when no token is configured is deliberate. A server that
+    silently accepts everyone because its secret is unset is worse than
+    one that refuses: the failure is invisible exactly when it matters.
+    """
+    expected = _expected_token()
+    if expected is None:
+        raise HTTPException(
+            status_code=503,
+            detail="LIGHTWORKER_AUTH_TOKEN is not configured on Father",
+        )
+    scheme, _, presented = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not presented:
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    # Constant-time: a plain == leaks the shared secret one byte at a time
+    # to anyone who can measure the response.
+    if not hmac.compare_digest(presented, expected):
+        raise HTTPException(status_code=401, detail="invalid bearer token")
+
+
 def create_router(store: LightWorkerStore) -> APIRouter:
     """Build the LightWorkers router bound to ``store``.
 
@@ -400,7 +441,7 @@ def create_router(store: LightWorkerStore) -> APIRouter:
     with ``object()`` purely to enumerate the routes, so the store
     must not be queried at build time.
     """
-    router = APIRouter()
+    router = APIRouter(dependencies=[Depends(require_worker_auth)])
 
     # --- register / heartbeat (worker-level) ----------------------------
 

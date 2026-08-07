@@ -28,12 +28,28 @@ def store() -> InMemoryStore:
     return InMemoryStore()
 
 
+TEST_TOKEN = "test-worker-token"
+
+
+@pytest.fixture(autouse=True)
+def _auth_token(monkeypatch) -> None:
+    """Every endpoint requires a bearer token (§27).
+
+    Set for all tests in this module so the cases below stay about §20's
+    protocol. The authentication behaviour itself is tested separately —
+    see tests/test_lightworker_auth.py.
+    """
+    monkeypatch.setenv("LIGHTWORKER_AUTH_TOKEN", TEST_TOKEN)
+
+
 @pytest.fixture()
 def client(store: InMemoryStore) -> TestClient:
     """A TestClient bound to a fresh app with the router mounted."""
     app = FastAPI()
     app.include_router(create_router(store))
-    return TestClient(app)
+    c = TestClient(app)
+    c.headers.update({"Authorization": f"Bearer {TEST_TOKEN}"})
+    return c
 
 
 # ---------------------------------------------------------------------------
