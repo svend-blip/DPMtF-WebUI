@@ -103,11 +103,24 @@ def offer_to_worker(
         "handoff_path": handoff_path,
     }
     if payload is not None and to_role_data is not None and target_project:
-        offer["envelope"] = build_envelope(
+        envelope = build_envelope(
             worker_id=worker_id, handoff_id=handoff_id, payload=payload,
             to_role_data=to_role_data, target_project=target_project,
             handoff_path=handoff_path,
         )
+        # §13: what is offered to a worker IS an envelope. The envelope's own
+        # fields go at the top level, not nested under a key, because the
+        # worker validates what it is handed.
+        #
+        # lightworker run 001 found this on its first execution: the worker
+        # claimed, validated the OFFER, and failed with "schema_version is
+        # required" at VALIDATING_ENVELOPE. Father's bookkeeping had become
+        # the shape the worker saw. The envelope validator tolerates extra
+        # keys, so Father's own fields ride alongside and the worker ignores
+        # them; the reverse — asking the worker to know Father's wrapper —
+        # would put Father's storage layout into the protocol.
+        offer.update(envelope)
+        offer["envelope"] = envelope
         offer["envelope_complete"] = True
     else:
         offer["envelope_complete"] = False

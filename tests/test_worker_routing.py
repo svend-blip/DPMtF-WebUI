@@ -215,3 +215,39 @@ def test_a_role_without_an_alias_is_refused(tmp_path):
                        to_role_data=role,
                        target_project="/home/svend/DPMtF-LightWorker",
                        handoff_path=str(handoff))
+
+
+@requires_worker
+def test_what_is_offered_to_a_worker_is_itself_a_valid_envelope(tmp_path):
+    """§13: the thing a worker is handed IS an envelope, not a wrapper.
+
+    lightworker run 001 found this on the first real execution. Father nested
+    the envelope under an `envelope` key beside its own bookkeeping, the
+    worker validated what it was handed, and failed at VALIDATING_ENVELOPE
+    with "schema_version is required". Father's storage layout had become part
+    of the protocol.
+    """
+    sys.path.insert(0, str(LIGHTWORKER_SRC))
+    from dpmtf_lightworker.envelope_validator import (  # noqa: E402
+        ValidatorConfig, validate_envelope)
+    from routers.lightworker_store import SqliteLightWorkerStore
+    from worker_routing import offer_to_worker
+
+    handoff = tmp_path / "001-handoff.md"
+    handoff.write_text("<task>x</task>", encoding="utf-8")
+    payload, role = _payload_and_role()
+    store = SqliteLightWorkerStore(str(tmp_path / "s.db"))
+    offer_to_worker(
+        worker_id="svend3060", handoff_id="001", flow_key="lightworker",
+        to_role_key=payload["to_role"], handoff_path=str(handoff),
+        payload=payload, to_role_data=role,
+        target_project="/home/svend/DPMtF-LightWorker", store=store)
+
+    offered = store.offer_next("svend3060")
+    # validated exactly as the worker does: on what offer_next returned
+    validated = validate_envelope(offered, config=ValidatorConfig(
+        worker_id="svend3060",
+        supported_schema_versions=frozenset({"1"}),
+        supported_clients=frozenset({"opencode", "claude-code"}),
+        repository_root=Path("/home/svend/lightworker/repos")))
+    assert validated.execution_id == offered["execution_id"]
