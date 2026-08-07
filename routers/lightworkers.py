@@ -440,7 +440,11 @@ def _validate_result(result: Dict[str, Any]) -> Optional[str]:
     required = _REQUIRED_KEYS_BY_MODE.get(mode)
     if required is None:
         return f"unknown result.{_MODE_KEY}: {mode!r}"
-    missing = [k for k in sorted(required) if k not in result]
+    present = set(result)
+    ref = str(result.get("patch_artifact_sha256", "") or "")
+    if (len(ref) == 64 and all(c in "0123456789abcdef" for c in ref)):
+        present.add("patch")     # the patch travels as an artifact reference
+    missing = [k for k in sorted(required) if k not in present]
     if missing:
         return f"missing required keys for mode {mode!r}: {missing}"
     if "deliverable" in required:

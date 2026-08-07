@@ -38,7 +38,12 @@ import tempfile
 from typing import Any, Dict, Optional
 
 ACCEPTED_STATUS = "role_execution_completed"
-SUPPORTED_RESULT_MODES = {"deliverable_only"}
+# `patch` alone is deliberately absent: chains advance on deliverables, and
+# a patch-only result has nothing to hand the next role. An implementer that
+# changes code AND writes its result document is `patch_and_deliverable` --
+# which is also what §17.3 describes and what the envelope builder emits for
+# roles with primary_output_type='patch'.
+SUPPORTED_RESULT_MODES = {"deliverable_only", "patch_and_deliverable"}
 
 
 class ResultRejected(RuntimeError):
@@ -66,10 +71,17 @@ def validate_result(result: Dict[str, Any]) -> str:
             "partial execution does not advance the chain")
 
     mode = str(result.get("result_mode", "")).strip()
+    if mode == "patch":
+        raise ResultRejected(
+            "result_mode 'patch' has no deliverable and chains advance on "
+            "deliverables — use 'patch_and_deliverable'")
     if mode not in SUPPORTED_RESULT_MODES:
         raise ResultRejected(
-            f"result_mode {mode!r} is not supported here; Father applies no "
-            "patches yet, so only {sorted(SUPPORTED_RESULT_MODES)} is accepted")
+            f"result_mode {mode!r} is not supported; accepted: "
+            f"{sorted(SUPPORTED_RESULT_MODES)}")
+
+    if mode == "patch_and_deliverable":
+        _validate_patch_fields(result)
 
     deliverable = result.get("deliverable")
     if not isinstance(deliverable, dict) or not deliverable:
@@ -129,6 +141,91 @@ def _read_artifact(sha256: str) -> str:
             "are not a thing a reviewer can read")
 
 
+def _validate_patch_fields(result: Dict[str, Any]) -> None:
+    """§17.1's fields, checked before anything touches a repository."""
+    base = str(result.get("base_commit", "")).strip().lower()
+    if len(base) != 40 or not all(c in "0123456789abcdef" for c in base):
+        raise ResultRejected(
+            f"base_commit {base!r} is not a full 40-hex sha — a patch "
+            "against an unknown base is a patch against the wrong tree")
+    patch = resolve_patch_text(result)
+    if patch.strip():
+        declared = str(result.get("checksum", "")).strip().lower()
+        actual = _sha256(patch)
+        if declared != actual:
+            raise ResultRejected(
+                f"patch checksum mismatch: declared {declared[:12]}…, "
+                f"patch hashes to {actual[:12]}…")
+
+
+def resolve_patch_text(result: Dict[str, Any]) -> str:
+    """The patch, inline or redeemed from an artifact reference."""
+    if "patch" in result and result.get("patch") is not None:
+        return str(result.get("patch", ""))
+    ref = str(result.get("patch_artifact_sha256", "")).strip().lower()
+    if ref:
+        return _read_artifact(ref)
+    return ""
+
+
+def apply_patch_to_branch(
+    *,
+    target_project: str,
+    base_commit: str,
+    patch: str,
+    branch: str,
+    message: str,
+) -> str:
+    """Apply a worker's patch on a dedicated branch; return the new commit.
+
+    Never the working tree, never master: the patch lands in a throwaway
+    worktree checked out at the EXACT base commit the worker built against
+    (§16.1 cuts both ways), is committed there, and only the branch ref
+    survives. Reviewing and merging stay human-gated — §16.6 keeps the
+    push pen in Father's hand, and this keeps the merge pen in the
+    Human's. The branch is force-moved on re-application so a rework of
+    the same handoff owns its own branch rather than colliding with its
+    first attempt.
+    """
+    import subprocess
+    import tempfile
+
+    def _git(args, **kw):
+        r = subprocess.run(["git", "-C", target_project] + args,
+                           capture_output=True, text=True, timeout=120, **kw)
+        if r.returncode != 0:
+            raise ResultRejected(
+                f"git {' '.join(args[:2])} failed while applying the patch: "
+                f"{(r.stderr or r.stdout).strip()[:300]}")
+        return r.stdout.strip()
+
+    _git(["cat-file", "-e", f"{base_commit}^{{commit}}"])
+    tmp = tempfile.mkdtemp(prefix="lw-apply-")
+    try:
+        _git(["worktree", "add", "--detach", tmp, base_commit])
+        apply = subprocess.run(
+            ["git", "-C", tmp, "apply", "--index", "--whitespace=nowarn"],
+            input=patch, capture_output=True, text=True, timeout=120)
+        if apply.returncode != 0:
+            raise ResultRejected(
+                "the patch does not apply cleanly at its own base_commit: "
+                + (apply.stderr or apply.stdout).strip()[:300])
+        subprocess.run(
+            ["git", "-C", tmp, "-c", "user.name=lightworker",
+             "-c", "user.email=lightworker@dpmtf.local",
+             "commit", "-m", message],
+            capture_output=True, text=True, timeout=120, check=True)
+        sha = subprocess.run(
+            ["git", "-C", tmp, "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=30, check=True
+        ).stdout.strip()
+        _git(["branch", "-f", branch, sha])
+        return sha
+    finally:
+        subprocess.run(["git", "-C", target_project, "worktree", "remove",
+                        "--force", tmp], capture_output=True, timeout=60)
+
+
 def write_deliverable(content: str, path: str) -> str:
     """Publish the deliverable atomically. Returns the path written.
 
@@ -165,6 +262,37 @@ def accept_and_advance(
     content = validate_result(result)
 
     envelope = execution.get("envelope") or {}
+    mode = str(result.get("result_mode", "")).strip()
+    if mode == "patch_and_deliverable":
+        repo = (envelope.get("repository") or {})
+        envelope_base = str(repo.get("base_commit", "")).strip().lower()
+        result_base = str(result.get("base_commit", "")).strip().lower()
+        if envelope_base and result_base != envelope_base:
+            # The worker built where Father told it to, or the patch is
+            # against the wrong tree. Cross-checked HERE because only the
+            # envelope knows what Father dispatched.
+            raise ResultRejected(
+                f"patch base_commit {result_base[:12]}… is not the "
+                f"envelope's {envelope_base[:12]}…")
+        patch = resolve_patch_text(result)
+        if patch.strip():
+            import bridge_lib
+            target = bridge_lib.get_flow_target_project(
+                envelope.get("flow_key") or execution.get("flow_key"))
+            flow = envelope.get("flow_key") or execution.get("flow_key")
+            hid = envelope.get("handoff_id") or execution.get("handoff_id")
+            sha = apply_patch_to_branch(
+                target_project=target,
+                base_commit=result_base,
+                patch=patch,
+                branch=f"lightworker/{flow}-{hid}",
+                message=(f"lightworker {execution.get('execution_id','')}: "
+                         f"handoff {hid} by "
+                         f"{envelope.get('target_role','unknown role')}\n\n"
+                         f"Applied by Father from a verified patch; review "
+                         f"and merge stay human-gated."),
+            )
+            result["applied_commit"] = sha
     handoff = envelope.get("handoff") or {}
     relative = handoff.get("expected_deliverable") or ""
     if not relative:
