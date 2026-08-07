@@ -54,10 +54,15 @@ class TestWhatFatherRefuses:
         with pytest.raises(ResultRejected, match="result_mode"):
             validate_result(_result(result_mode="patch_and_deliverable"))
 
-    def test_an_artifact_reference_alone_is_refused_with_the_reason(self):
+    def test_a_contentless_deliverable_without_a_reference_is_refused(self):
+        """This test used to pin "Father cannot fetch artifacts yet" -- it
+        can now (§23 artifact_sha256, 2026-08-07), so what remains refusable
+        is a deliverable carrying NEITHER content NOR a reference. The old
+        free-form `artifact_reference` string never became a contract; the
+        reference IS the sha256."""
         r = _result()
         r["deliverable"] = {"path": "x.md", "artifact_reference": "art://1"}
-        with pytest.raises(ResultRejected, match="cannot fetch artifacts"):
+        with pytest.raises(ResultRejected, match="no artifact_sha256"):
             validate_result(r)
 
     def test_a_mismatched_checksum_is_refused(self):

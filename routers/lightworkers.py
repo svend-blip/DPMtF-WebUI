@@ -454,6 +454,11 @@ def _validate_result(result: Dict[str, Any]) -> Optional[str]:
                 f"not a {type(deliverable).__name__}"
             )
         content = deliverable.get("content")
+        ref = str(deliverable.get("artifact_sha256", "") or "")
+        if len(ref) == 64 and all(c in "0123456789abcdef" for c in ref):
+            # §23 artifact_reference: the content was uploaded first and is
+            # redeemed -- and hash-verified -- by the return path.
+            return None
         if not isinstance(content, str) or not content.strip():
             # Checked here rather than only in the return path so an empty
             # result is refused *before* the store records a completion.
@@ -513,9 +518,23 @@ def require_worker_auth(authorization: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="invalid bearer token")
 
 
+class ArtifactBody(BaseModel):
+    worker_id: str
+    sha256: str
+    content_b64: str
+
+
+# Decoded size cap for one artifact. Base64-over-JSON is the wire format the
+# existing FatherClient transport already speaks; the 33% inflation is the
+# price of not inventing a second transport for the first artifact. Raise it
+# when something real hits it.
+ARTIFACT_MAX_BYTES = 32 * 1024 * 1024
+
+
 def create_router(
     store: LightWorkerStore,
     on_complete: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    artifacts_dir: str = "",
 ) -> APIRouter:
     """Build the LightWorkers router bound to ``store``.
 
@@ -565,6 +584,56 @@ def create_router(
                        f"request asserts {asserted!r}")
 
     router = APIRouter()
+
+    # --- artifacts (§23 artifact_reference) -----------------------------
+
+    @router.post("/api/lightworkers/artifacts")
+    def upload_artifact(body: ArtifactBody,
+                        worker: str = Depends(authenticated_worker)
+                        ) -> Dict[str, Any]:
+        """Store a content-addressed artifact; §23's artifact_reference.
+
+        A deliverable or patch too large to travel inline in the result
+        JSON is uploaded first; the result then carries only the sha256.
+        Content-addressed on purpose: the name IS the integrity check, a
+        re-upload of identical bytes is a no-op, and nothing needs a
+        cleanup policy tied to execution ids.
+
+        Father verifies the declared sha against the decoded bytes before
+        writing -- the same never-trust-the-checksum stance §23 takes on
+        results -- and writes atomically so a crashed upload leaves no
+        half-artifact behind the hash that promises its content.
+        """
+        enforce_identity(worker, body.worker_id)
+        if not artifacts_dir:
+            raise HTTPException(status_code=503,
+                                detail="artifact storage is not configured")
+        import base64
+        import hashlib as _hl
+        try:
+            data = base64.b64decode(body.content_b64, validate=True)
+        except Exception:
+            raise HTTPException(status_code=422,
+                                detail="content_b64 is not valid base64")
+        if len(data) > ARTIFACT_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"artifact exceeds {ARTIFACT_MAX_BYTES} bytes")
+        actual = _hl.sha256(data).hexdigest()
+        if actual != body.sha256:
+            raise HTTPException(
+                status_code=422,
+                detail=f"declared sha256 {body.sha256[:12]}… does not match "
+                       f"content ({actual[:12]}…)")
+        os.makedirs(artifacts_dir, exist_ok=True)
+        final = os.path.join(artifacts_dir, actual)
+        if not os.path.exists(final):
+            import tempfile
+            fd, tmp = tempfile.mkstemp(dir=artifacts_dir, suffix=".part")
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            os.replace(tmp, final)
+        return {"status": "stored", "sha256": actual, "size": len(data)}
 
     # --- register / heartbeat (worker-level) ----------------------------
 

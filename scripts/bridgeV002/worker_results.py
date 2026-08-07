@@ -77,11 +77,13 @@ def validate_result(result: Dict[str, Any]) -> str:
 
     content = deliverable.get("content")
     if content is None:
-        ref = deliverable.get("artifact_reference")
-        raise ResultRejected(
-            f"deliverable has no inline content"
-            + (f" — only artifact_reference {ref!r}, and Father cannot fetch "
-               "artifacts yet" if ref else ""))
+        # §23 artifact_reference: content too large for the result JSON was
+        # uploaded first (content-addressed) and the result names its hash.
+        ref = str(deliverable.get("artifact_sha256", "")).strip().lower()
+        if not ref:
+            raise ResultRejected("deliverable has no inline content and no "
+                                 "artifact_sha256 reference")
+        content = _read_artifact(ref)
     if not isinstance(content, str) or not content.strip():
         raise ResultRejected("deliverable content is empty")
 
@@ -93,6 +95,38 @@ def validate_result(result: Dict[str, Any]) -> str:
                 f"deliverable sha256 mismatch: declared {declared[:12]}…, "
                 f"content hashes to {actual[:12]}…")
     return content
+
+
+def _artifacts_dir() -> str:
+    import config as _config
+    return os.path.join(_config.get_bridge_dir(), "lightworker", "artifacts")
+
+
+def _read_artifact(sha256: str) -> str:
+    """Resolve an artifact reference to text, verifying the hash.
+
+    The name promises the content; the promise is still checked, because a
+    filesystem is writable by more than this code path and §23's stance is
+    that Father verifies rather than trusts.
+    """
+    if len(sha256) != 64 or not all(c in "0123456789abcdef" for c in sha256):
+        raise ResultRejected(f"artifact_sha256 {sha256!r} is not a sha256")
+    path = os.path.join(_artifacts_dir(), sha256)
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        raise ResultRejected(
+            f"artifact {sha256[:12]}… was referenced but never uploaded")
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise ResultRejected(
+            f"artifact {sha256[:12]}… does not hash to its own name")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ResultRejected(
+            f"artifact {sha256[:12]}… is not utf-8 text; binary deliverables "
+            "are not a thing a reviewer can read")
 
 
 def write_deliverable(content: str, path: str) -> str:

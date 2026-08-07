@@ -45,4 +45,12 @@ def _on_complete(execution_id: str, result: Dict[str, Any]) -> None:
     )
 
 
-router = create_router(store, on_complete=_on_complete)
+# Artifacts live on the filesystem, content-addressed, NOT in the SQLite
+# store: the database is the rollback anchor committed to git, and blobs
+# in it would bloat every snapshot.
+router = create_router(
+    store,
+    on_complete=_on_complete,
+    artifacts_dir=os.path.join(config.get_bridge_dir(),
+                               "lightworker", "artifacts"),
+)

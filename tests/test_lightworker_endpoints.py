@@ -80,8 +80,8 @@ def _claim(client: TestClient, execution_id: str,
 # ---------------------------------------------------------------------------
 
 
-def test_router_exposes_eight_endpoints() -> None:
-    """Exactly the eight endpoints from the contract.
+def test_router_exposes_nine_endpoints() -> None:
+    """The eight §20 endpoints plus §23's artifact upload (2026-08-07).
     ``create_router`` must not touch the store while building, so we
     pass ``object()`` rather than a real store.
     """
@@ -92,7 +92,9 @@ def test_router_exposes_eight_endpoints() -> None:
         if hasattr(route, "methods")
         for method in (route.methods or set())
     }
+    assert "POST /api/lightworkers/artifacts" in paths
     expected = {
+        "POST /api/lightworkers/artifacts",
         "POST /api/lightworkers/register",
         "POST /api/lightworkers/heartbeat",
         "GET /api/lightworkers/{worker_id}/executions/next",

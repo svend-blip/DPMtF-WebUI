@@ -225,3 +225,60 @@ def test_a_result_without_status_is_refused_by_both():
     assert _validate_result(result) is not None
     with pytest.raises(ResultRejected):
         validate_result(result)
+
+
+class TestArtifactReferences:
+    """§23's artifact_reference: content too large for the result JSON is
+    uploaded content-addressed, and the result carries only its sha256.
+
+    The reference is redeemed with the same stance §23 takes on results:
+    Father verifies rather than trusts -- the filename promises the hash,
+    and the promise is still checked, because a filesystem is writable by
+    more than this code path.
+    """
+
+    @pytest.fixture
+    def artifact(self, tmp_path, monkeypatch):
+        import hashlib as hl
+
+        import worker_results as wr
+        adir = tmp_path / "artifacts"
+        adir.mkdir()
+        monkeypatch.setattr(wr, "_artifacts_dir", lambda: str(adir))
+        data = ("x" * 1000 + "\n").encode()
+        sha = hl.sha256(data).hexdigest()
+        (adir / sha).write_bytes(data)
+        return sha, data, adir
+
+    def _ref_result(self, sha):
+        r = a_good_result()
+        del r["deliverable"]["content"]
+        r["deliverable"]["artifact_sha256"] = sha
+        r["deliverable"]["sha256"] = sha
+        return r
+
+    def test_a_reference_redeems_to_its_content(self, artifact):
+        sha, data, _ = artifact
+        assert validate_result(self._ref_result(sha)) == data.decode()
+
+    def test_a_never_uploaded_reference_is_refused(self, artifact):
+        sha, _, _ = artifact
+        missing = "0" * 64
+        with pytest.raises(ResultRejected) as e:
+            validate_result(self._ref_result(missing))
+        assert "never uploaded" in str(e.value)
+
+    def test_a_tampered_artifact_is_refused(self, artifact):
+        """The name IS the integrity promise; a file that no longer hashes
+        to its own name is not the artifact the result referenced."""
+        sha, _, adir = artifact
+        (adir / sha).write_bytes(b"tampered")
+        with pytest.raises(ResultRejected) as e:
+            validate_result(self._ref_result(sha))
+        assert "does not hash to its own name" in str(e.value)
+
+    def test_the_endpoint_accepts_the_reference_form_too(self, artifact):
+        """The property test's guarantee must hold for this shape as well:
+        what the return path accepts, the endpoint must not refuse."""
+        sha, _, _ = artifact
+        assert _validate_result(self._ref_result(sha)) is None
