@@ -62,6 +62,26 @@ class ExecutionAlreadyCompleted(ValueError):
     """
 
 
+# Lazy claim expiry -- the queue must heal itself.
+#
+# A claimed execution blocks every future offer to its worker (§5.3), and
+# nothing timed it out: EXEC-013 jammed the queue until a human closed it
+# through the API, and two supervisor mistakes earlier the same day each
+# cost a full 30-minute wait for the same reason. The heartbeats built on
+# 2026-08-07 are what make a timeout SAFE: without them a timeout kills
+# live, slow executions along with dead ones.
+#
+# Two thresholds, because the silent phases differ:
+# - An execution that has heartbeats beats every ~15s while its role runs.
+#   Five minutes of silence is a dead worker, not a slow model.
+# - Before the FIRST heartbeat lies the loud part of the §14 sequence --
+#   mirror fetch, allocator preflight, model load. Loading the 35B took
+#   minutes on svend3060, legitimately heartbeat-free. Fifteen minutes
+#   covers it with margin.
+CLAIM_STALE_WITH_HEARTBEATS_SECONDS = 300
+CLAIM_GRACE_NO_HEARTBEAT_SECONDS = 900
+
+
 class SqliteLightWorkerStore(LightWorkerStore):
     """SQLite implementation of the ``LightWorkerStore`` interface."""
 
@@ -174,7 +194,66 @@ class SqliteLightWorkerStore(LightWorkerStore):
         ).fetchone()
         return json.loads(row[0]) if row else None
 
+    def _expire_stale_claims(self, worker_id: str) -> None:
+        """Fail claimed executions whose worker has stopped proving life.
+
+        Called from offer_next -- lazy expiry, deliberately: the moment the
+        worker polls again is the moment the queue can safely unblock, and
+        it needs no new daemon. A worker that never polls again blocks
+        nobody's offers either; the chain-watchdog's CRITICAL line covers
+        alerting the Human in that case.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        stale_cut = (now - timedelta(
+            seconds=CLAIM_STALE_WITH_HEARTBEATS_SECONDS)).isoformat()
+        grace_cut = (now - timedelta(
+            seconds=CLAIM_GRACE_NO_HEARTBEAT_SECONDS)).isoformat()
+
+        rows = self._conn.execute(
+            """
+            SELECT e.execution_id, e.attempt_id, e.updated_at,
+                   (SELECT MAX(h.heartbeat_at)
+                      FROM lightworker_execution_heartbeats h
+                     WHERE h.execution_id = e.execution_id) AS last_beat
+              FROM lightworker_executions e
+             WHERE e.worker_id = ? AND e.state = 'claimed'
+            """,
+            (worker_id,),
+        ).fetchall()
+        for execution_id, attempt_id, updated_at, last_beat in rows:
+            if last_beat is not None:
+                if last_beat >= stale_cut:
+                    continue
+                why = (f"claim expired: last heartbeat {last_beat} is older "
+                       f"than {CLAIM_STALE_WITH_HEARTBEATS_SECONDS}s")
+            else:
+                if updated_at >= grace_cut:
+                    continue
+                why = (f"claim expired: no heartbeat ever arrived and the "
+                       f"claim from {updated_at} exceeded the "
+                       f"{CLAIM_GRACE_NO_HEARTBEAT_SECONDS}s grace for the "
+                       f"pre-heartbeat phase (mirror/preflight/model load)")
+            try:
+                self.fail(
+                    execution_id,
+                    worker_id,
+                    attempt_id or "ATTEMPT-1",
+                    {
+                        "execution_id": execution_id,
+                        "attempt_id": attempt_id or "ATTEMPT-1",
+                        "category": "WORKER_INTERRUPTED",
+                        "retryability": True,
+                        "summary": ("Expired by Father, not reported by the "
+                                    "worker: " + why),
+                    },
+                )
+            except ExecutionAlreadyCompleted:
+                pass    # someone else closed it between SELECT and fail
+
     def offer_next(self, worker_id: str) -> Optional[Dict[str, Any]]:
+        self._expire_stale_claims(worker_id)
         # §5.3: max_parallel_executions == 1. A worker holding a
         # live execution is offered no second one. 'claimed' is the
         # only live state we treat as "the worker is holding this";
