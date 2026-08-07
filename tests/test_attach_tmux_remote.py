@@ -59,6 +59,36 @@ def test_local_roles_are_still_linked(db):
     assert "reviewL" in attach_tmux.get_flow_tmux_sessions(db, "f")
 
 
+def test_windows_follow_the_chain_not_the_machine(db):
+    """Reading the viewer left to right has to be reading the flow.
+
+    Placing local roles first and remote ones after put the implementer to
+    the right of the reviewer that judges its work.
+    """
+    order = [r["role_key"] for r in attach_tmux.get_flow_roles(db, "f")]
+    assert order == ["human", "impleR", "reviewL"]
+
+
+def test_a_role_that_only_ever_receives_is_last_not_absent(db, tmp_path):
+    """A terminal role is never a from_role. Ordering on send alone drops it
+    from the viewer entirely, which is how portfolio01_trade went unseen."""
+    import sqlite3
+    path = tmp_path / "t2.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        "CREATE TABLE bridge_flow_steps (flow_key TEXT, from_role TEXT,"
+        " to_role TEXT, sort_order INTEGER, is_active INTEGER);"
+        "CREATE TABLE bridge_roles (role_key TEXT, tmux_session TEXT,"
+        " is_active INTEGER, execution_target TEXT);")
+    conn.executemany("INSERT INTO bridge_flow_steps VALUES (?,?,?,?,1)", [
+        ("g", "a", "b", 0), ("g", "b", "last", 1)])
+    conn.executemany("INSERT INTO bridge_roles VALUES (?,?,1,NULL)", [
+        ("a", "a"), ("b", "b"), ("last", "last")])
+    conn.commit(); conn.close()
+    assert attach_tmux.get_flow_tmux_sessions(str(path), "g") == [
+        "a", "b", "last"]
+
+
 def test_the_follow_command_is_valid_shell():
     """It carries a tmux format string — braces and a hash — inside an ssh
     argument. Quoting it wrong ends the argument early and the window dies

@@ -23,30 +23,54 @@ import sys
 VIEWER_SESSION_PREFIX = "flow-"
 
 
-def get_flow_tmux_sessions(db_path, flow_key):
-    """Fetch all tmux session names for active steps in a flow, in step order."""
+def get_flow_roles(db_path, flow_key):
+    """Every role in the flow, in the order the chain visits them.
+
+    One query, because the window order has to be one order. A role's
+    position is the earliest step it takes part in: as a sender that is the
+    step's own sort_order, as a receiver it is half a step later, so the role
+    that receives a handoff comes after the one that sends it. That places
+    the terminal role, which is never a sender, last instead of nowhere.
+
+    Returns dicts with role_key, tmux_session and execution_target.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-
     rows = conn.execute(
         """
-        SELECT DISTINCT r.tmux_session, s.sort_order
+        SELECT r.role_key, r.tmux_session, r.execution_target,
+               MIN(CASE WHEN s.from_role = r.role_key
+                        THEN s.sort_order * 2 ELSE s.sort_order * 2 + 1 END) AS pos
         FROM bridge_flow_steps s
-        JOIN bridge_roles r ON s.from_role = r.role_key
+        JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role)
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
-          AND r.tmux_session IS NOT NULL
-          AND (r.execution_target IS NULL OR TRIM(r.execution_target) = '')
-        ORDER BY s.sort_order
+        GROUP BY r.role_key, r.tmux_session, r.execution_target
+        ORDER BY pos
         """,
         (flow_key,),
     ).fetchall()
-
     conn.close()
-    return [row["tmux_session"] for row in rows]
+    return [dict(row) for row in rows]
+
+
+def is_remote(role):
+    """A role executes elsewhere if it names a machine to execute on."""
+    return bool((role["execution_target"] or "").strip())
+
+
+def get_flow_tmux_sessions(db_path, flow_key):
+    """Local session names for a flow, in chain order.
+
+    A role with an execution_target has no session on this machine — its pane
+    lives on the worker — so linking one here would show an empty window that
+    reads exactly like a role that never started.
+    """
+    return [r["tmux_session"] for r in get_flow_roles(db_path, flow_key)
+            if r["tmux_session"] and not is_remote(r)]
 
 
 def get_remote_roles(db_path, flow_key):
-    """Roles in this flow that execute on another machine.
+    """Roles in this flow that execute on another machine, in chain order.
 
     Their panes cannot be linked — a linked window is one tmux server's
     window, and theirs is on a different host. They get a window that ssh's
@@ -54,29 +78,8 @@ def get_remote_roles(db_path, flow_key):
     `attach -t flow-<key>` shows the whole chain regardless of where each
     role runs.
     """
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
-        SELECT DISTINCT r.role_key, r.execution_target, s.sort_order
-        FROM bridge_flow_steps s
-        JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role)
-        WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
-          AND r.execution_target IS NOT NULL
-          AND TRIM(r.execution_target) != ''
-        ORDER BY s.sort_order
-        """,
-        (flow_key,),
-    ).fetchall()
-    conn.close()
-    # A role is both the to_role of one step and the from_role of the next,
-    # so DISTINCT over the row does not deduplicate it. One window per role.
-    seen, out = set(), []
-    for r in rows:
-        if r["role_key"] not in seen:
-            seen.add(r["role_key"])
-            out.append((r["role_key"], r["execution_target"]))
-    return out
+    return [(r["role_key"], r["execution_target"])
+            for r in get_flow_roles(db_path, flow_key) if is_remote(r)]
 
 
 def remote_follow_command(worker):
@@ -109,74 +112,74 @@ def session_exists(session_name):
     return result.returncode == 0
 
 
-def build_viewer_session(viewer_name, flow_sessions):
-    """Create a viewer tmux session with one window per flow session.
+def build_viewer_session(viewer_name, roles):
+    """One window per role, in chain order, whichever machine it runs on.
 
-    Each window is linked from the corresponding flow session, so the
-    user sees exactly what each role sees.
+    Local roles get their own window linked in, so the viewer shows exactly
+    what the role sees. A remote role's window cannot be linked — a linked
+    window belongs to one tmux server — so it ssh's into the worker instead.
+    Both kinds are placed at the role's position in the chain: reading the
+    viewer left to right has to be reading the flow.
+
+    A role whose session is not running leaves its index empty rather than
+    pulling the rest forward. tmux does not require contiguous indices, and
+    the alternative is a viewer whose order silently changes with whatever
+    happened to be up.
     """
-    # Kill existing viewer session if present (from a previous run)
     if session_exists(viewer_name):
         subprocess.run(
             ["tmux", "kill-session", "-t", "=" + viewer_name],
             capture_output=True, text=True,
         )
 
-    # Create fresh viewer session (detached, one empty window)
     subprocess.run(
         ["tmux", "new-session", "-d", "-s", viewer_name, "-n", "dummy"],
         capture_output=True, text=True,
     )
 
-    linked = []
-    for i, session in enumerate(flow_sessions):
-        if not session_exists(session):
-            print(f"  Skipping '{session}' — not running")
-            continue
-
-        # Link flow session's window 0 into viewer at index i
-        # -k kills the target window first if it exists (e.g. the dummy window at index 0)
-        result = subprocess.run(
-            ["tmux", "link-window", "-k", "-s", f"{session}:0", "-t", f"{viewer_name}:{i}"],
-            capture_output=True, text=True,
-        )
-        if result.returncode == 0:
-            # Rename window to show which session it belongs to
-            subprocess.run(
-                ["tmux", "rename-window", "-t", f"{viewer_name}:{i}", session],
+    shown = []
+    for index, role in enumerate(roles):
+        target = f"{viewer_name}:{index}"
+        if is_remote(role):
+            worker = role["execution_target"].strip()
+            name = f"{role['role_key']}@{worker}"
+            # -k replaces whatever occupies the index, including the dummy
+            # window, exactly as the link path does.
+            result = subprocess.run(
+                ["tmux", "new-window", "-d", "-k", "-t", target,
+                 "-n", name, remote_follow_command(worker)],
                 capture_output=True, text=True,
             )
-            linked.append(session)
-            print(f"  Linked '{session}' → window {i}")
-        else:
-            print(f"  WARNING: Failed to link '{session}': {result.stderr.strip()}")
+            if result.returncode == 0:
+                shown.append(role["role_key"])
+                print(f"  Attached '{role['role_key']}' on {worker} "
+                      f"→ window {index}")
+            else:
+                print(f"  WARNING: could not attach '{role['role_key']}' on "
+                      f"{worker}: {result.stderr.strip()}")
+            continue
 
-    return linked
+        session = role["tmux_session"]
+        if not session or not session_exists(session):
+            print(f"  Skipping '{role['role_key']}' — session not running")
+            continue
 
-
-def add_remote_windows(viewer_name, remote_roles, start_index):
-    """One window per remote role, ssh'd into the worker's own tmux.
-
-    The point of the viewer is that `attach -t flow-<key>` shows the whole
-    chain. Before this, a role executing on another machine was simply absent
-    from it, and the only sign that anything was happening there was its
-    absence — which reads exactly like a role that never started.
-    """
-    added = []
-    for offset, (role_key, worker) in enumerate(remote_roles):
-        index = start_index + offset
         result = subprocess.run(
-            ["tmux", "new-window", "-d", "-t", f"{viewer_name}:{index}",
-             "-n", f"{role_key}@{worker}", remote_follow_command(worker)],
+            ["tmux", "link-window", "-k", "-s", f"{session}:0", "-t", target],
             capture_output=True, text=True,
         )
         if result.returncode == 0:
-            added.append(role_key)
-            print(f"  Attached '{role_key}' on {worker} → window {index}")
+            subprocess.run(
+                ["tmux", "rename-window", "-t", target, session],
+                capture_output=True, text=True,
+            )
+            shown.append(session)
+            print(f"  Linked '{session}' → window {index}")
         else:
-            print(f"  WARNING: could not attach '{role_key}' on {worker}: "
+            print(f"  WARNING: Failed to link '{session}': "
                   f"{result.stderr.strip()}")
-    return added
+
+    return shown
 
 
 def main():
@@ -205,21 +208,17 @@ def main():
         print("ERROR: tmux not found")
         sys.exit(1)
 
-    flow_sessions = get_flow_tmux_sessions(db_path, args.flow_key)
+    roles = get_flow_roles(db_path, args.flow_key)
+    roles = [r for r in roles if r["tmux_session"] or is_remote(r)]
 
-    if not flow_sessions:
-        print(f"No tmux sessions found for flow '{args.flow_key}'. Nothing to do.")
+    if not roles:
+        print(f"No roles found for flow '{args.flow_key}'. Nothing to do.")
         return
 
     viewer_name = f"{VIEWER_SESSION_PREFIX}{args.flow_key}"
 
     print(f"Building viewer session '{viewer_name}' for flow '{args.flow_key}':")
-    linked = build_viewer_session(viewer_name, flow_sessions)
-
-    # Roles that execute elsewhere get an ssh window rather than a linked one.
-    remote = get_remote_roles(db_path, args.flow_key)
-    if remote:
-        linked += add_remote_windows(viewer_name, remote, len(flow_sessions))
+    linked = build_viewer_session(viewer_name, roles)
 
     if linked:
         print(f"\nDone: {len(linked)} session(s) linked into '{viewer_name}'.")
