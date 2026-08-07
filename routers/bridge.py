@@ -933,6 +933,25 @@ async def bridge_v2_start_coding_for_flow(flow_key: str):
             capture_output=True, text=True, timeout=310
         )
 
+        # Rebuild the flow viewer so `tmux attach -t flow-<key>` shows the
+        # sessions just started. Starting clients often follows a session
+        # recreation, which silently breaks the viewer's linked windows --
+        # the Human then attaches to dead panes and cannot tell a working
+        # chain from a stalled one. That ambiguity is the viewer's whole
+        # reason to exist, so the rebuild lives here rather than in anyone's
+        # memory. Best-effort: a viewer failure must not fail the start.
+        try:
+            viewer_script = os.path.join(
+                os.environ.get("DPMTF_PROJECT_ROOT", config.get_project_root()),
+                "scripts", "bridgeV002", "attach_tmux.py"
+            )
+            subprocess.run(
+                ["python3", viewer_script, flow_key],
+                capture_output=True, text=True, timeout=30
+            )
+        except Exception:
+            pass
+
         if result.returncode == 0:
             return {
                 "status": "ok",

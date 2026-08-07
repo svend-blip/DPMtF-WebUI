@@ -111,7 +111,20 @@ def main():
             except subprocess.CalledProcessError as e:
                 print(f"    ERROR: Failed to create session: {e}")
 
-    # 3. Summary
+    # 3. Rebuild the flow viewer. Recreating sessions silently breaks the
+    # viewer's linked windows, and the Human's `tmux attach -t flow-<key>`
+    # then shows dead panes -- indistinguishable from a stalled chain.
+    # Best-effort: the sessions themselves are already up.
+    if created:
+        viewer = os.path.join(script_dir, "attach_tmux.py")
+        try:
+            subprocess.run(["python3", viewer, args.flow_key],
+                           capture_output=True, timeout=30)
+            print(f"Viewer rebuilt: tmux attach -t flow-{args.flow_key}")
+        except Exception as exc:
+            print(f"WARNING: viewer rebuild failed: {exc}")
+
+    # 4. Summary
     print(f"\nDone: {len(existing)} existing, {len(created)} created "
           f"({len(required_sessions)} total).")
 
