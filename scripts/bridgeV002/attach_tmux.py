@@ -35,6 +35,7 @@ def get_flow_tmux_sessions(db_path, flow_key):
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
           AND r.tmux_session IS NOT NULL
+          AND (r.execution_target IS NULL OR TRIM(r.execution_target) = '')
         ORDER BY s.sort_order
         """,
         (flow_key,),
@@ -42,6 +43,61 @@ def get_flow_tmux_sessions(db_path, flow_key):
 
     conn.close()
     return [row["tmux_session"] for row in rows]
+
+
+def get_remote_roles(db_path, flow_key):
+    """Roles in this flow that execute on another machine.
+
+    Their panes cannot be linked — a linked window is one tmux server's
+    window, and theirs is on a different host. They get a window that ssh's
+    in and attaches to the worker's own tmux instead, so one
+    `attach -t flow-<key>` shows the whole chain regardless of where each
+    role runs.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT DISTINCT r.role_key, r.execution_target, s.sort_order
+        FROM bridge_flow_steps s
+        JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role)
+        WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+          AND r.execution_target IS NOT NULL
+          AND TRIM(r.execution_target) != ''
+        ORDER BY s.sort_order
+        """,
+        (flow_key,),
+    ).fetchall()
+    conn.close()
+    # A role is both the to_role of one step and the from_role of the next,
+    # so DISTINCT over the row does not deduplicate it. One window per role.
+    seen, out = set(), []
+    for r in rows:
+        if r["role_key"] not in seen:
+            seen.add(r["role_key"])
+            out.append((r["role_key"], r["execution_target"]))
+    return out
+
+
+def remote_follow_command(worker):
+    """Shell that shows the live execution if there is one, the daemon if not.
+
+    A worker creates a fresh `dpmtf-<role>-<execution>` session per execution
+    and drops it on cleanup, so attaching to a fixed name would show an empty
+    pane most of the time and nothing during the work. This follows whatever
+    is there.
+    """
+    # Double quotes inside, single quotes outside: the tmux format string
+    # contains braces and a hash, and single-quoting it would end the ssh
+    # argument early.
+    inner = (
+        'while true; do '
+        's=$(tmux ls -F "#{session_name}" 2>/dev/null | grep "^dpmtf-" | head -1); '
+        '[ -z "$s" ] && s=lightworker-daemon; '
+        'tmux attach -t "$s" 2>/dev/null || sleep 3; '
+        'done'
+    )
+    return f"ssh -t {worker} '{inner}'"
 
 
 def session_exists(session_name):
@@ -98,6 +154,31 @@ def build_viewer_session(viewer_name, flow_sessions):
     return linked
 
 
+def add_remote_windows(viewer_name, remote_roles, start_index):
+    """One window per remote role, ssh'd into the worker's own tmux.
+
+    The point of the viewer is that `attach -t flow-<key>` shows the whole
+    chain. Before this, a role executing on another machine was simply absent
+    from it, and the only sign that anything was happening there was its
+    absence — which reads exactly like a role that never started.
+    """
+    added = []
+    for offset, (role_key, worker) in enumerate(remote_roles):
+        index = start_index + offset
+        result = subprocess.run(
+            ["tmux", "new-window", "-d", "-t", f"{viewer_name}:{index}",
+             "-n", f"{role_key}@{worker}", remote_follow_command(worker)],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            added.append(role_key)
+            print(f"  Attached '{role_key}' on {worker} → window {index}")
+        else:
+            print(f"  WARNING: could not attach '{role_key}' on {worker}: "
+                  f"{result.stderr.strip()}")
+    return added
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build viewer tmux session for a BridgeV002 flow."
@@ -134,6 +215,11 @@ def main():
 
     print(f"Building viewer session '{viewer_name}' for flow '{args.flow_key}':")
     linked = build_viewer_session(viewer_name, flow_sessions)
+
+    # Roles that execute elsewhere get an ssh window rather than a linked one.
+    remote = get_remote_roles(db_path, args.flow_key)
+    if remote:
+        linked += add_remote_windows(viewer_name, remote, len(flow_sessions))
 
     if linked:
         print(f"\nDone: {len(linked)} session(s) linked into '{viewer_name}'.")
