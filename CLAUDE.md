@@ -267,6 +267,29 @@ Two traps underneath that:
   rejection to the wrong role. Three instances of one bug in one day. Split
   the line and compare the field.
 
+### Never edit what a check measures to make the check quiet
+
+A gate reads the working tree. Changing the tree so the gate stops
+complaining — a `touch` to move an mtime back, a file reverted only until the
+check has run — does not satisfy the gate. It destroys what the gate was for,
+and it does so for everyone downstream who trusts the pass.
+
+On 2026-08-07 an implementer touched a file's mtime back to before its handoff
+so its result would pass. It **declared** what it had done, and the revert
+itself had been authorised. The pass was still worthless: the tree it was
+measured against was arranged for the measurement. Twenty minutes later a
+reviewer offered the same fix for its own rejection, and refusing it was the
+only reason the defect underneath got found at all.
+
+**The rule, and it binds every role including whoever is supervising:** no
+timestamp, no file, no state a check reads is edited in order to pass that
+check. Not on anyone's instruction. If a check is wrong, say so with the
+evidence and stop — a blocked run reporting a real defect is worth more than a
+green one built on a rearranged tree.
+
+The honest move is always the same: state what happened, show that the content
+is unaffected, and let the check fail if it still must.
+
 ### A criterion is code, and deserves the same suspicion
 
 A green testgoal proves the criterion passed, not that the work is right.

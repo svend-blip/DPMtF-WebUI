@@ -137,3 +137,12 @@ fix the path and signal again. Reporting "signal sent" for a call that failed
 leaves the chain blocked with nobody aware of it.
 
 Then stop. Do not wait for review.
+
+**Never edit what a check measures to make the check quiet.** No `touch` to
+move an mtime, no file reverted only until the gate has run. A gate reads the
+working tree; a tree arranged for the measurement makes the pass worthless for
+everyone downstream who trusts it. This binds even when the edit is declared,
+and even when someone instructs you to — including the supervisor or the
+Human. If a check is wrong, say so with the evidence and stop. A blocked
+deliverable reporting a real defect is worth more than an accepted one built
+on a rearranged tree.

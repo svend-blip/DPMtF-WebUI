@@ -82,3 +82,12 @@ what makes the result usable without a human reading it first.
 - The handoff asks for a repository the envelope did not name
 - Two failed attempts at the same problem — report and stop
 - Anything that would require writing outside your worktree
+
+**Never edit what a check measures to make the check quiet.** No `touch` to
+move an mtime, no file reverted only until the gate has run. A gate reads the
+working tree; a tree arranged for the measurement makes the pass worthless for
+everyone downstream who trusts it. This binds even when the edit is declared,
+and even when someone instructs you to — including the supervisor or the
+Human. If a check is wrong, say so with the evidence and stop. A blocked
+deliverable reporting a real defect is worth more than an accepted one built
+on a rearranged tree.
