@@ -160,6 +160,20 @@ class SqliteLightWorkerStore(LightWorkerStore):
             (_now_iso(), worker_id),
         )
 
+    def get_execution(self, execution_id: str) -> Optional[Dict[str, Any]]:
+        """The stored payload for one execution, or None.
+
+        Read-only and outside `LightWorkerStore`: the router never needs it,
+        but the return path does — a completion arrives with an id and Father
+        has to find the envelope it was offered under to know where the
+        deliverable belongs.
+        """
+        row = self._conn.execute(
+            "SELECT payload_json FROM lightworker_executions WHERE execution_id = ?",
+            (execution_id,),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
     def offer_next(self, worker_id: str) -> Optional[Dict[str, Any]]:
         # §5.3: max_parallel_executions == 1. A worker holding a
         # live execution is offered no second one. 'claimed' is the

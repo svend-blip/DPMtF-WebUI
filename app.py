@@ -116,6 +116,10 @@ from routers.governance import router as governance_router
 
 app.include_router(governance_router)
 
+from routers.lightworker_wiring import router as lightworkers_router
+
+app.include_router(lightworkers_router)
+
 from routers.system import router as system_router
 
 app.include_router(system_router)
