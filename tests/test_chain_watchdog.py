@@ -53,6 +53,10 @@ def flow(tmp_path, monkeypatch):
     monkeypatch.setattr(cw, "sample_ollama", lambda: None)
     # Default: every pane is idle. Individual tests widen this.
     monkeypatch.setattr(cw, "pane_active", lambda session: False)
+    # No remote roles by default, and NEVER the live database: a fixture
+    # that reads production state fails when operations change, not when
+    # code does.
+    monkeypatch.setattr(cw, "load_remote_targets", lambda: {})
 
     class Flow:
         def __init__(self):
@@ -308,4 +312,99 @@ def test_missing_first_deliverable_reports_idle_not_a_stall(flow):
     flow.record_nudges()
 
     assert flow.check(run_id="99") == "idle"
+    assert flow.nudges == []
+
+
+# ── The produced-nothing fast path ───────────────────────────────────
+#
+# preferred_cloud run 011: MiniMax answered the injected handoff with
+# "Context reset acknowledged." and idled. No signal, no deliverable, no
+# error -- the Human spotted it before any instrument did, because the
+# classic threshold treats an idle pane like a thinking one and waits out
+# stall_minutes. An idle pane observed on consecutive passes is not
+# thinking.
+
+
+def test_fast_path_nudges_after_consecutive_idle_passes(flow):
+    flow.write(0, "21")
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=3)
+    flow.record_nudges()
+    state = {}
+    assert flow.check(state=state) == "active"   # pass 1: watching
+    assert flow.check(state=state) == "active"   # pass 2: watching
+    assert flow.check(state=state) == "nudged"   # pass 3: produced nothing
+    assert "consecutive passes" in flow.nudges[0]["why"]
+    assert flow.nudges[0]["stalled"] == "imple01"
+
+
+def test_fast_path_counter_resets_when_the_pane_works(flow, monkeypatch):
+    """A role that thinks between passes must never accumulate toward a
+    nudge -- the 2026-08-05 scar: a guard acting on the wrong signal is
+    worse than no guard."""
+    flow.write(0, "21")
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=3)
+    flow.record_nudges()
+    state = {}
+    flow.check(state=state)                      # idle 1
+    flow.check(state=state)                      # idle 2
+    flow.active_panes("imple01")                 # now it works
+    assert flow.check(state=state) == "active"
+    flow.active_panes()                          # idle again
+    assert flow.check(state=state) == "active"   # counter restarted at 1
+    assert flow.nudges == []
+
+
+def test_fast_path_respects_the_nudge_budget(flow):
+    flow.write(0, "21")
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=3)
+    flow.record_nudges()
+    state = {"supervised_review:21:imple01": cw.MAX_NUDGES_PER_STEP}
+    for _ in range(cw.IDLE_PASSES):
+        status = flow.check(state=state)
+    assert status == "idle"
+    assert flow.nudges == []
+
+
+# ── Remote roles ─────────────────────────────────────────────────────
+
+
+def test_a_remote_receiver_is_never_auto_nudged(flow, monkeypatch):
+    """The nudge re-sends the sender's signal-complete, which for a remote
+    receiver mints a SECOND execution offer. Detection yes, repair no."""
+    monkeypatch.setattr(cw, "load_remote_targets",
+                        lambda: {"imple01": "svend3060"})
+    monkeypatch.setattr(cw, "remote_activity",
+                        lambda flow_key, role, run_id: "stale")
+    flow.write(0, "21")
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=60)
+    flow.record_nudges()
+    state = {}
+    for _ in range(cw.IDLE_PASSES + 2):
+        assert flow.check(state=state) == "idle"
+    assert flow.nudges == []
+
+
+def test_a_remote_receiver_with_fresh_heartbeats_is_working(flow, monkeypatch):
+    monkeypatch.setattr(cw, "load_remote_targets",
+                        lambda: {"imple01": "svend3060"})
+    monkeypatch.setattr(cw, "remote_activity",
+                        lambda flow_key, role, run_id: "active")
+    flow.write(0, "21")
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=60)
+    flow.record_nudges()
+    assert flow.check(state={}) == "active"
+    assert flow.nudges == []
+
+
+def test_a_human_terminated_chain_counts_as_complete(flow):
+    """dispatch logs `signal_complete_to_human` when the last receiver is
+    the Human. The first --all-flows dry-run read a finished lightworker
+    chain as 'wrote output but never signaled' and drew a nudge, because
+    the needle tuple knew only signal_complete and dispatched."""
+    for i in range(4):
+        flow.write(i, "21")
+    flow.signal("review02", "supervisor_auto", "21", age_minutes=2,
+                signal_type="signal_complete_to_human")
+    flow.record_nudges()
+    assert flow.check(state={}) == "complete"
     assert flow.nudges == []

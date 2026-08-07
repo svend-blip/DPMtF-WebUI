@@ -31,6 +31,7 @@ Single pass for ad-hoc use: --once (add --dry-run to report without nudging)
 
 import argparse
 import json
+import sqlite3
 import os
 import re
 import subprocess
@@ -117,6 +118,27 @@ MAX_NUDGES_PER_STEP = int(_WD.get("max_nudges_per_step", 2))
 LOOP_SECONDS_DEFAULT = int(_WD.get("loop_seconds", 60))
 MAX_MINUTES_DEFAULT = int(_WD.get("max_minutes", 90))
 ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
+# Fast path for the produced-nothing state: a receiver whose pane reads idle
+# on this many CONSECUTIVE passes gets nudged without waiting out
+# stall_minutes. Three passes at loop_seconds=60 is ~3 minutes of observed
+# idleness -- long enough that tool-execution gaps and pane redraws cannot
+# fake it (pane_active already double-samples), short enough that a model
+# that acknowledged the injection and stopped is caught while the dispatch
+# is still warm. preferred_cloud run 011: MiniMax answered "Context reset
+# acknowledged." and idled; the Human saw it before the watchdog did,
+# because nothing measured an idle pane against a delivered dispatch.
+IDLE_PASSES = int(_WD.get("idle_passes", 3))
+# A remote role proves life through execution heartbeats, not a pane. The
+# worker beats every ~15s while waiting on its role; 90s of silence on a
+# claimed execution means the worker died mid-execution.
+REMOTE_HEARTBEAT_STALE_SECONDS = int(_WD.get("remote_heartbeat_stale_seconds", 90))
+# A chain whose newest evidence (deliverable mtime or trace signal) is older
+# than this is history, not a stall. The first --all-flows dry-run nudged
+# strict_review's run 325 -- months old, surfaced only because the shared
+# `human` session made the flow look "up". A stall watchdog must know when
+# the run opened; measuring only "time since last signal" cannot tell an
+# abandoned chain from a stalled one.
+CHAIN_MAX_AGE_MINUTES = int(_WD.get("chain_max_age_minutes", 360))
 LOG_DIR = PROJECT_ROOT / "logs"
 STATE_PATH = LOG_DIR / "chain-watchdog-state.json"
 MODEL_LOG = LOG_DIR / "model-usage.log"
@@ -292,8 +314,15 @@ def signal_age_minutes(role, next_role, run_id):
         lines = trace.read_text(encoding="utf-8").splitlines()[-200:]
     except OSError:
         return None
+    # signal_complete_to_human is how a chain ENDS when its last receiver
+    # is the Human: dispatch files the deliverable instead of injecting.
+    # Without it here, a finished human-terminated chain (lightworker 015)
+    # read as "review wrote output but never signaled" and drew a nudge.
+    # Field-delimited needles, deliberately: signal_complete_failed also
+    # contains the substring signal_complete (CLAUDE.md §11).
     needles = tuple(f"| {role}->{next_role} | {run_id} | {sig} |"
-                    for sig in ("signal_complete", "dispatched"))
+                    for sig in ("signal_complete", "dispatched",
+                                "signal_complete_to_human"))
     for line in reversed(lines):
         if not any(n in line for n in needles):
             continue
@@ -323,6 +352,64 @@ def recent_signal_delivered(role, next_role, run_id, within_minutes):
 # deliverable_pattern in bridge_flow_steps (e.g. supervised_review). The
 # trade flow keeps the inbox-JSON logic above; run-ids here are used exactly
 # as they appear in deliverable filenames (no zero-padding).
+
+def load_remote_targets():
+    """role_key -> execution_target for roles that run on another machine.
+
+    Their liveness cannot be read from a local pane -- there is none -- and
+    nudging them is actively dangerous: the nudge re-sends the sender's
+    signal-complete, which for a remote receiver creates a SECOND execution
+    offer. Detection yes, auto-repair no.
+    """
+    try:
+        conn = sqlite3.connect(_db_path())
+        rows = conn.execute(
+            "SELECT role_key, execution_target FROM bridge_roles "
+            "WHERE is_active = 1 AND execution_target IS NOT NULL "
+            "AND TRIM(execution_target) != ''").fetchall()
+        conn.close()
+        return {r[0]: r[1] for r in rows}
+    except sqlite3.Error:
+        return {}
+
+
+def remote_activity(flow_key, role, run_id):
+    """'active' | 'stale' | 'unclaimed' | 'missing' for a remote role.
+
+    Grounded in the LightWorker store: the newest execution for this
+    handoff+role, and the age of its newest heartbeat. The worker beats
+    every ~15s while its role runs, so a claimed execution with 90s of
+    heartbeat silence is a dead worker, not a slow one.
+    """
+    try:
+        conn = sqlite3.connect(_db_path())
+        row = conn.execute(
+            "SELECT execution_id, state, updated_at FROM lightworker_executions "
+            "WHERE handoff_id = ? AND target_role = ? "
+            "ORDER BY rowid DESC LIMIT 1", (str(run_id), role)).fetchone()
+        if row is None:
+            conn.close()
+            return "missing"
+        eid, state_, updated = row
+        if state_ in ("completed", "failed"):
+            conn.close()
+            return "active"          # terminal: the chain moves on its own
+        hb = conn.execute(
+            "SELECT MAX(created_at) FROM lightworker_execution_heartbeats "
+            "WHERE execution_id = ?", (eid,)).fetchone()[0]
+        conn.close()
+        newest = hb or updated
+        try:
+            ts = datetime.fromisoformat(newest.replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - ts).total_seconds()
+        except (ValueError, AttributeError):
+            return "stale"
+        if state_ == "offered":
+            return "unclaimed" if age > 120 else "active"
+        return "stale" if age > REMOTE_HEARTBEAT_STALE_SECONDS else "active"
+    except sqlite3.Error:
+        return "missing"
+
 
 def load_flow_steps(flow_key):
     """Active steps (from_role, to_role, dir, pattern) in chain order."""
@@ -428,9 +515,31 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
         is_last = i == len(steps) - 1
         if not is_last and step_deliverable(steps[i + 1], run_id):
             continue  # step already advanced
+        remote_targets = load_remote_targets()
+        idle_key = f"idle:{flow_key}:{run_id}:{step['to_role']}"
         if not is_last:
-            session = sessions.get(step["to_role"], step["to_role"])
+            to_role = step["to_role"]
+            if to_role in remote_targets:
+                # A remote role has no local pane. Its liveness is the
+                # execution heartbeat, and it is NEVER auto-nudged: the
+                # nudge re-sends the sender's signal-complete, which for a
+                # remote receiver mints a second execution offer.
+                ra = remote_activity(flow_key, to_role, run_id)
+                if ra == "active":
+                    state.pop(idle_key, None)
+                    return "active"
+                crit_key = f"remote:{flow_key}:{run_id}:{to_role}"
+                if not state.get(crit_key):
+                    state[crit_key] = now_iso()
+                    if not dry_run:
+                        save_state(state)
+                    log(f"CRITICAL: remote role {to_role} on "
+                        f"{remote_targets[to_role]} is {ra} for run {run_id}"
+                        f" — no auto-nudge possible, human attention needed")
+                return "idle"
+            session = sessions.get(to_role, to_role)
             if pane_active(session):
+                state.pop(idle_key, None)
                 return "active"  # next role already working
         signal_age = signal_age_minutes(step["from_role"], step["to_role"],
                                         run_id)
@@ -442,10 +551,31 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
             # the sender did its job and its mtime says nothing about how
             # long the receiver has been silent.
             if signal_age < stall_minutes:
-                return "active"  # receiver still inside its working window
-            stalled = step["to_role"]
-            why = (f"was dispatched {signal_age:.0f} min ago but produced no "
-                   f"deliverable and its pane is idle")
+                # PRODUCED-NOTHING FAST PATH. The classic threshold treats
+                # an idle pane like a thinking one and waits stall_minutes.
+                # But we only reach this line when the pane already read
+                # idle THIS pass — so count consecutive idle observations,
+                # and nudge once there are IDLE_PASSES of them. A model
+                # that acknowledged the injection and stopped is caught in
+                # ~IDLE_PASSES minutes instead of twelve
+                # (preferred_cloud run 011).
+                n = state.get(idle_key, 0) + 1
+                state[idle_key] = n
+                if not dry_run:
+                    save_state(state)
+                if n < IDLE_PASSES:
+                    log(f"WATCH: {step['to_role']} idle {n}/{IDLE_PASSES} "
+                        f"passes, dispatched {signal_age:.0f} min ago "
+                        f"(run {run_id})")
+                    return "active"
+                stalled = step["to_role"]
+                why = (f"was dispatched {signal_age:.0f} min ago, produced "
+                       f"nothing, and its pane read idle on {n} consecutive "
+                       f"passes")
+            else:
+                stalled = step["to_role"]
+                why = (f"was dispatched {signal_age:.0f} min ago but "
+                       f"produced no deliverable and its pane is idle")
         else:
             # SENDER STALL: no callback on trace.log — from_role wrote its
             # output and ended its turn without signal-complete.
@@ -461,6 +591,7 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
         if not dry_run:
             state[key] = state.get(key, 0) + 1
             save_state(state)
+        state.pop(idle_key, None)
         nudge(step["from_role"], run_id, flow_key, dry_run,
               stalled=stalled, why=why)
         return "nudged"
@@ -500,9 +631,86 @@ def check_once(run_id, stall_minutes, state, dry_run=False):
     return "idle"
 
 
+def _session_exists(name):
+    return subprocess.run(["tmux", "has-session", "-t", "=" + name],
+                          capture_output=True).returncode == 0
+
+
+def load_all_flow_keys():
+    try:
+        conn = sqlite3.connect(_db_path())
+        rows = conn.execute(
+            "SELECT DISTINCT flow_key FROM bridge_flow_steps "
+            "WHERE is_active = 1 ORDER BY flow_key").fetchall()
+        conn.close()
+        return [r[0] for r in rows]
+    except sqlite3.Error:
+        return []
+
+
+def _chain_age_minutes(steps, run_id):
+    """Minutes since the chain's newest evidence, or None when it has none.
+
+    Newest of: every step deliverable's mtime and every step's trace
+    signal. A chain mid-step always has one of the two fresh.
+    """
+    newest = None
+    for step in steps:
+        out = step_deliverable(step, run_id)
+        if out is not None:
+            age = (time.time() - out.stat().st_mtime) / 60.0
+            newest = age if newest is None else min(newest, age)
+        sig = signal_age_minutes(step["from_role"], step["to_role"], run_id)
+        if sig is not None:
+            newest = sig if newest is None else min(newest, sig)
+    return newest
+
+
+def check_all_flows(stall_minutes, state, dry_run=False):
+    """One pass over every active flow. Returns a {flow: status} dict.
+
+    The watchdog existed through every produced-nothing incident this
+    project has logged -- and was armed for none of them, because arming
+    was a per-run manual step. This mode watches everything so that
+    "nobody armed it" stops being a failure mode.
+
+    A flow is skipped when it has no chain id yet, or when none of its
+    local role sessions exist AND it has no remote roles -- a flow that is
+    not up is not stalled. Skips are quiet: logging them every pass would
+    bury the one line that matters.
+    """
+    remote_targets = load_remote_targets()
+    sessions = load_tmux_sessions()
+    statuses = {}
+    for flow_key in load_all_flow_keys():
+        steps = load_flow_steps(flow_key)
+        if not steps:
+            continue
+        run_id = latest_generic_id(steps)
+        if run_id is None:
+            continue
+        roles = {s["from_role"] for s in steps} | {s["to_role"] for s in steps}
+        local = [r for r in roles if r not in remote_targets]
+        if local and not any(_session_exists(sessions.get(r, r))
+                             for r in local):
+            continue        # flow not up — absent is not stalled
+        age = _chain_age_minutes(steps, run_id)
+        if age is None or age > CHAIN_MAX_AGE_MINUTES:
+            continue        # history, not a stall
+        statuses[flow_key] = check_once_generic(
+            flow_key, steps, sessions, run_id, stall_minutes, state,
+            dry_run=dry_run)
+    return statuses
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--all-flows", action="store_true",
+                        help="Watch every active flow with a live session; "
+                             "run ids re-resolved every pass")
+    parser.add_argument("--forever", action="store_true",
+                        help="No max-minutes deadline (for the systemd unit)")
     parser.add_argument("--flow", default=TRADE_FLOW_KEY,
                         help="Flow key to watch (default: trade cockpit; "
                              "other keys use generic DB-driven detection)")
@@ -514,6 +722,31 @@ def main():
     parser.add_argument("--run-id", default=None,
                         help="Run id to watch (default: newest seen)")
     args = parser.parse_args()
+
+    if args.all_flows:
+        state = load_state()
+        log(f"Watching ALL active flows (stall {args.stall_minutes} min, "
+            f"idle fast-path {IDLE_PASSES} passes"
+            f"{', dry-run' if args.dry_run else ''})")
+        last_line = None
+        deadline = (None if args.forever
+                    else time.monotonic() + args.max_minutes * 60)
+        while True:
+            statuses = check_all_flows(args.stall_minutes, state,
+                                       dry_run=args.dry_run)
+            interesting = {f: s for f, s in statuses.items()
+                           if s != "complete"}
+            line = " ".join(f"{f}={s}" for f, s in sorted(interesting.items())) \
+                   or "(alle kæder complete/nede)"
+            if line != last_line:
+                log(f"pass: {line}")
+                last_line = line
+            if args.once:
+                return 0
+            if deadline is not None and time.monotonic() >= deadline:
+                log("Max runtime reached")
+                return 0
+            time.sleep(args.loop_seconds)
 
     if args.flow == TRADE_FLOW_KEY:
         run_id = args.run_id or latest_run_id()

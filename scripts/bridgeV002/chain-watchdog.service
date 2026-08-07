@@ -1,0 +1,26 @@
+# chain-watchdog — produced-nothing and stall detection for every flow.
+#
+# The watchdog existed through every produced-nothing incident this project
+# logged, and was armed for none of them: arming was a manual, per-run step.
+# This unit removes "nobody armed it" as a failure mode.
+#
+# Detection is deliberately wider than repair: local receivers get at most
+# two nudges per step (a re-sent signal-complete), remote roles are never
+# auto-nudged (that would mint a second execution offer) — they get a
+# CRITICAL log line, and the Human. Chains older than chain_max_age_minutes
+# are history, not stalls.
+
+[Unit]
+Description=chain-watchdog — produced-nothing detection for all BridgeV002 flows
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/svend/DPMtF-WebUI
+ExecStart=/usr/bin/python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/chain_watchdog.py --all-flows --forever
+Restart=always
+RestartSec=15
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
