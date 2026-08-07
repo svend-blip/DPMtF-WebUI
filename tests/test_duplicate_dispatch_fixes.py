@@ -566,3 +566,27 @@ def test_the_guard_still_distinguishes_roles_and_ids(tmp_path):
         str(base), "Pre-imple-cl", "Pre-review-cl", "007") is False
     assert transition_recently_delivered(
         str(base), "Pre-super-cl", "Pre-imple-cl", "070") is False
+
+
+def test_signal_log_paths_are_flow_scoped():
+    """`/tmp/bridge-signal-<id>.log` collided across flows.
+
+    Handoff ids repeat between flows, so llama_SG's handoff 005 and
+    preferred_cloud's handoff 005 wrote to the same file. On 2026-08-06 a
+    steward debugging a preferred_cloud signal read a llama_SG log from the
+    previous day and drew a conclusion from it. The flow key is in scope at
+    every site that builds this command; it belongs in the filename.
+    """
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    offenders = []
+    for rel in ("scripts/bridgeV002/dispatch.py", "scripts/job_queue/scheduler.py"):
+        for i, line in enumerate((root / rel).read_text(encoding="utf-8").splitlines(), 1):
+            if "bridge-signal-" not in line:
+                continue
+            # the flow key must appear between the prefix and the id
+            if not re.search(r"bridge-signal-\{[a-z_.]*flow_key\}-", line):
+                offenders.append(f"{rel}:{i}")
+    assert not offenders, ("signal log path is not flow-scoped at: "
+                           + ", ".join(offenders))

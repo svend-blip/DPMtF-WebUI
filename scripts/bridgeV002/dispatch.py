@@ -1109,7 +1109,7 @@ def _handle_gate_rejection(payload, handoff_id, bridge_dir):
         f"command actually shows, and signal again:\n\n"
         f"    nohup python3 {project_root}/scripts/bridgeV002/dispatch.py "
         f"--db-flow {flow_key} --signal-complete --from-role {from_role} "
-        f"--id {handoff_id} > /tmp/bridge-signal-{handoff_id}.log 2>&1 &\n"
+        f"--id {handoff_id} > /tmp/bridge-signal-{flow_key}-{handoff_id}.log 2>&1 &\n"
     )
 
     inject_prompt(session, prompt,
@@ -2078,7 +2078,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
                 f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
                 f"--db-flow {flow_key} --signal-complete "
                 f"--from-role {payload['to_role']} --id {handoff_id} "
-                f"> /tmp/bridge-signal-{handoff_id}.log 2>&1 &"
+                f"> /tmp/bridge-signal-{flow_key}-{handoff_id}.log 2>&1 &"
             )
             break
 
@@ -2978,7 +2978,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
                 f"--db-flow {flow_key} --signal-complete "
                 f"--from-role {to_role_key} --id {handoff_id} "
-                f"> /tmp/bridge-signal-{handoff_id}.log 2>&1 &"
+                f"> /tmp/bridge-signal-{flow_key}-{handoff_id}.log 2>&1 &"
             )
             break
 

@@ -414,7 +414,7 @@ class Scheduler:
         deliverable_pattern = payload.get("deliverable_pattern", "{ID}-handoff.md")
         deliverable_file = deliverable_pattern.replace("{ID}", handoff_id).replace("{role_key}", payload["from_role"])
         deliverable_path = os.path.join(bridge_dir, deliverable_dir, deliverable_file)
-        signal_cmd = f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key} --id {handoff_id} > /tmp/bridge-signal-{handoff_id}.log 2>&1 &"
+        signal_cmd = f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py --db-flow {job.flow_key} --signal-complete --from-role {job.role_key} --id {handoff_id} > /tmp/bridge-signal-{job.flow_key}-{handoff_id}.log 2>&1 &"
 
         lines = []
         if gov_path:
