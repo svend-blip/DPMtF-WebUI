@@ -90,14 +90,31 @@ def remote_follow_command(worker):
     pane most of the time and nothing during the work. This follows whatever
     is there.
     """
+    # Mirrors the pane rather than attaching to it.
+    #
+    # `tmux attach` was the obvious thing and it is wrong here: it re-picks a
+    # session only when the attach *exits*, and an attach does not exit. The
+    # window latched onto the daemon at startup and stayed there through a
+    # whole execution, showing an idle poller while the role worked one
+    # session away.
+    #
+    # Capturing re-picks every cycle, so the window follows the worker from
+    # daemon to execution and back without anyone touching it. It is
+    # read-only, which is the right shape anyway — typing into a role's
+    # session mid-run is the thing a monitoring view must not make easy.
+    #
     # Double quotes inside, single quotes outside: the tmux format string
-    # contains braces and a hash, and single-quoting it would end the ssh
+    # carries braces and a hash, and single-quoting it would end the ssh
     # argument early.
     inner = (
         'while true; do '
         's=$(tmux ls -F "#{session_name}" 2>/dev/null | grep "^dpmtf-" | head -1); '
         '[ -z "$s" ] && s=lightworker-daemon; '
-        'tmux attach -t "$s" 2>/dev/null || sleep 3; '
+        'out=$(tmux capture-pane -p -t "$s" 2>/dev/null); '
+        'clear; '
+        'printf "%s  [%s]\\n\\n" "$s" "$(date +%H:%M:%S)"; '
+        'printf "%s\\n" "$out" | tail -n $((${LINES:-40} - 3)); '
+        'sleep 2; '
         'done'
     )
     return f"ssh -t {worker} '{inner}'"

@@ -98,6 +98,16 @@ def test_the_follow_command_is_valid_shell():
                           capture_output=True).returncode == 0
 
 
+def test_it_mirrors_rather_than_attaches():
+    """`tmux attach` re-picks a session only when the attach exits, and an
+    attach does not exit. The window latched onto the daemon at startup and
+    stayed there through a whole execution, showing an idle poller while the
+    role worked one session away."""
+    cmd = attach_tmux.remote_follow_command("svend3060")
+    assert "capture-pane" in cmd
+    assert "attach" not in cmd
+
+
 def test_the_follow_command_falls_back_to_the_daemon():
     """A worker makes a fresh session per execution and drops it on cleanup.
     Attaching to a fixed name shows an empty pane most of the time and
