@@ -121,6 +121,23 @@ class SqliteLightWorkerStore(LightWorkerStore):
     # store-only seed (used by tests and, later, by the dispatcher)
     # ------------------------------------------------------------------
 
+    def worker_token_hashes(self) -> Dict[str, str]:
+        """token_hash -> worker_id for every active per-worker credential.
+
+        Empty dict means "no per-worker tokens exist", which the router
+        treats as legacy mode: the shared LIGHTWORKER_AUTH_TOKEN still
+        authenticates (identity unknown). The moment one row exists, only
+        per-worker tokens do -- a shared secret alongside real identities
+        would undermine what the identities are for.
+        """
+        try:
+            rows = self._conn.execute(
+                "SELECT token_hash, worker_id FROM lightworker_worker_tokens "
+                "WHERE revoked_at IS NULL").fetchall()
+        except sqlite3.OperationalError:
+            return {}          # pre-035 database: legacy mode
+        return {r[0]: r[1] for r in rows}
+
     def offer(self, execution: Dict[str, Any]) -> None:
         """Seed an execution addressed to ``execution['worker_id']``.
 

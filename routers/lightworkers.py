@@ -141,6 +141,14 @@ class LightWorkerStore:
         :meth:`completion_count`.
         """
 
+    def worker_token_hashes(self) -> Dict[str, str]:
+        """token_hash -> worker_id for active per-worker credentials.
+
+        Empty means legacy mode (shared token, identity unknown). The
+        in-memory store returns empty unless a test sets `_token_hashes`.
+        """
+        return getattr(self, "_token_hashes", {})
+
 
 class InMemoryStore(LightWorkerStore):
     """V1 in-memory store.
@@ -516,24 +524,70 @@ def create_router(
     with ``object()`` purely to enumerate the routes, so the store
     must not be queried at build time.
     """
-    router = APIRouter(dependencies=[Depends(require_worker_auth)])
+    def authenticated_worker(authorization: str = Header(default="")) -> str:
+        """The worker the presented token belongs to, or "" in legacy mode.
+
+        A closure over the store, deliberately: the token table travels
+        with the store, so InMemory-backed tests never read the live
+        database, and the live router reads the live table -- the exact
+        test-hygiene split the day's earlier fixtures had to relearn.
+        """
+        hashes = store.worker_token_hashes()
+        if hashes:
+            scheme, _, presented = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not presented:
+                raise HTTPException(status_code=401,
+                                    detail="missing bearer token")
+            import hashlib
+            digest = hashlib.sha256(presented.encode("utf-8")).hexdigest()
+            for token_hash, worker_id in hashes.items():
+                if hmac.compare_digest(digest, token_hash):
+                    return worker_id
+            raise HTTPException(status_code=401, detail="invalid bearer token")
+        # Legacy: no per-worker tokens minted yet. Delegate wholesale so the
+        # original semantics survive untouched -- including 503 when the
+        # shared secret is UNCONFIGURED, which must stay louder than a 401:
+        # a server that reads misconfiguration as bad credentials hides the
+        # failure exactly when it matters.
+        require_worker_auth(authorization)
+        return ""
+
+    def enforce_identity(worker: str, asserted: str) -> None:
+        """The body's worker_id must be the token's worker.
+
+        Only enforced when identity exists ("" is legacy). A mismatch is
+        403, not 401: the caller IS authenticated -- as somebody else.
+        """
+        if worker and asserted and worker != asserted:
+            raise HTTPException(
+                status_code=403,
+                detail=f"token belongs to {worker!r}, "
+                       f"request asserts {asserted!r}")
+
+    router = APIRouter()
 
     # --- register / heartbeat (worker-level) ----------------------------
 
     @router.post("/api/lightworkers/register")
-    def register(body: RegisterBody) -> Dict[str, Any]:
+    def register(body: RegisterBody,
+                 worker: str = Depends(authenticated_worker)) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         store.register(body.worker_id, body.capabilities)
         return {"status": "registered", "worker_id": body.worker_id}
 
     @router.post("/api/lightworkers/heartbeat")
-    def heartbeat(body: HeartbeatBody) -> Dict[str, Any]:
+    def heartbeat(body: HeartbeatBody,
+                  worker: str = Depends(authenticated_worker)) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         store.heartbeat(body.worker_id)
         return {"status": "ok", "worker_id": body.worker_id}
 
     # --- next execution to run -----------------------------------------
 
     @router.get("/api/lightworkers/{worker_id}/executions/next")
-    def next_execution(worker_id: str) -> Any:
+    def next_execution(worker_id: str,
+                       worker: str = Depends(authenticated_worker)) -> Any:
+        enforce_identity(worker, worker_id)
         offered = store.offer_next(worker_id)
         if offered is None:
             # §20 says nothing to offer is success with no body.
@@ -546,7 +600,9 @@ def create_router(
     # --- claim ---------------------------------------------------------
 
     @router.post("/api/lightworkers/executions/{execution_id}/claim")
-    def claim(execution_id: str, body: ClaimBody) -> Dict[str, Any]:
+    def claim(execution_id: str, body: ClaimBody,
+              worker: str = Depends(authenticated_worker)) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         if store.claim(execution_id, body.worker_id):
             return {"status": "claimed", "execution_id": execution_id,
                     "worker_id": body.worker_id}
@@ -558,8 +614,10 @@ def create_router(
 
     @router.post("/api/lightworkers/executions/{execution_id}/heartbeat")
     def execution_heartbeat(
-        execution_id: str, body: ExecutionHeartbeatBody
+        execution_id: str, body: ExecutionHeartbeatBody,
+        worker: str = Depends(authenticated_worker),
     ) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         store.execution_heartbeat(
             execution_id, body.worker_id, body.attempt_id
         )
@@ -568,14 +626,18 @@ def create_router(
     # --- events --------------------------------------------------------
 
     @router.post("/api/lightworkers/executions/{execution_id}/events")
-    def events(execution_id: str, body: EventBody) -> Dict[str, Any]:
+    def events(execution_id: str, body: EventBody,
+               worker: str = Depends(authenticated_worker)) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         store.record_event(execution_id, body.worker_id, body.event)
         return {"status": "ok"}
 
     # --- complete ------------------------------------------------------
 
     @router.post("/api/lightworkers/executions/{execution_id}/complete")
-    def complete(execution_id: str, body: CompleteBody) -> Dict[str, Any]:
+    def complete(execution_id: str, body: CompleteBody,
+                 worker: str = Depends(authenticated_worker)) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         error = _validate_result(body.result)
         if error is not None:
             raise HTTPException(status_code=422, detail=error)
@@ -597,7 +659,9 @@ def create_router(
     # --- fail ----------------------------------------------------------
 
     @router.post("/api/lightworkers/executions/{execution_id}/fail")
-    def fail(execution_id: str, body: FailBody) -> Dict[str, Any]:
+    def fail(execution_id: str, body: FailBody,
+             worker: str = Depends(authenticated_worker)) -> Dict[str, Any]:
+        enforce_identity(worker, body.worker_id)
         try:
             store.fail(
                 execution_id, body.worker_id, body.attempt_id, body.failure
