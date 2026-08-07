@@ -51,8 +51,25 @@ if _ini_path.exists():
 # ── Getter functions ────────────────────────────────────────────
 
 def get_db_path() -> str:
-    """Database path. .ini [database] path, or fallback."""
-    return _config.get("database", "path", fallback="databases/dpmtf.db")
+    """Database path. .ini [database] path, or fallback.
+
+    Always absolute. The configured value is relative, and a relative
+    database path means the database is whichever file the process happens
+    to be standing next to. sqlite3 then creates an empty one rather than
+    failing, and the caller gets a working store containing nothing.
+
+    lightworker run 001 lost an execution to this: a dispatch run from
+    /home/svend offered EXEC-003 into a database it had just invented, wrote
+    'offered_to_worker' to the trace, and returned success. The worker was
+    polling the real store and correctly saw nothing. Everything reported
+    that the dispatch had happened.
+
+    Resolved against this file's directory, not the working directory, so
+    the answer does not depend on where the caller was started. An absolute
+    value in the .ini is returned unchanged.
+    """
+    configured = _config.get("database", "path", fallback="databases/dpmtf.db")
+    return str((Path(__file__).resolve().parent / configured).resolve())
 
 def get_home_dir() -> str:
     """Home directory. Env var DPMTF_HOME_DIR, or $HOME."""
