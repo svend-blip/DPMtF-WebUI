@@ -30,3 +30,7 @@ jobs/checkpoints/
 # Bridge cycle state (runtime metadata, updated every dispatch)
 docs/bridgeV002/current-cycle-*.json
 scripts/docs/bridgeV002/current-cycle.json
+# SQLite WAL sidecars — appeared when the LightWorker store enabled WAL mode
+# (2026-08-07); always present while anything holds the database open.
+databases/*.db-shm
+databases/*.db-wal
