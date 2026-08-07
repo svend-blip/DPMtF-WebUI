@@ -237,6 +237,12 @@ prompt parsing.
   governance, panels, flows, roles, and verdicts via tools on
   `http://127.0.0.1:9135/mcp`. Must be running before any flow starts; roles
   depend on it for cold-start initialization and will degrade without it.
+  Runs as a systemd **user** unit (`systemctl --user status mcp-light`), with
+  `loginctl enable-linger` so it starts at boot without a login.
+  A second instance, `mcp-light-tailnet`, binds this host's Tailscale address
+  so roles executing on a remote LightWorker can reach it — the server is
+  read-only, so the two cannot conflict. It has no authentication, so the
+  tailnet is the boundary; see the mcp-light repository's README.
 - **model-allocator** — standalone CLI + web UI (port 9140) for model
   lifecycle management and allocation model CRUD
 - **opencode** — AI coding frontend running in tmux sessions, configured per
