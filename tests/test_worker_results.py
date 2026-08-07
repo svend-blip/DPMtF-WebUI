@@ -50,9 +50,12 @@ class TestWhatFatherRefuses:
             validate_result(_result(status="role_execution_failed"))
 
     def test_an_unsupported_mode_is_named(self):
-        """Father applies no patches yet; saying so beats writing half a result."""
-        with pytest.raises(ResultRejected, match="result_mode"):
-            validate_result(_result(result_mode="patch_and_deliverable"))
+        """The message must list what IS accepted -- which since patch mode
+        landed (2026-08-07) includes patch_and_deliverable."""
+        r = _result()
+        r["result_mode"] = "carrier-pigeon"
+        with pytest.raises(ResultRejected, match="patch_and_deliverable"):
+            validate_result(r)
 
     def test_a_contentless_deliverable_without_a_reference_is_refused(self):
         """This test used to pin "Father cannot fetch artifacts yet" -- it
