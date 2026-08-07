@@ -62,6 +62,9 @@ def get_flow_roles(db_path, flow_key):
         JOIN bridge_roles r ON s.from_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
           AND r.role_type != 'human'
+          -- A role with an execution_target runs elsewhere; its coding
+          -- interface is the worker's own daemon, not a pane on this host.
+          AND (r.execution_target IS NULL OR TRIM(r.execution_target) = '')
         """,
         (flow_key,),
     ).fetchall()
@@ -80,6 +83,9 @@ def get_flow_roles(db_path, flow_key):
         JOIN bridge_roles r ON s.to_role = r.role_key
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
           AND r.role_type != 'human'
+          -- A role with an execution_target runs elsewhere; its coding
+          -- interface is the worker's own daemon, not a pane on this host.
+          AND (r.execution_target IS NULL OR TRIM(r.execution_target) = '')
         ORDER BY s.sort_order DESC
         LIMIT 1
         """,

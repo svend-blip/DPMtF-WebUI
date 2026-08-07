@@ -26,10 +26,15 @@ def get_required_sessions(db_path, flow_key):
 
     sessions = set()
     rows = conn.execute(
+        # A role with an execution_target runs on another machine. Creating a
+        # session for it here produces a pane nobody uses and, worse, one that
+        # misleads: an idle client waiting for a handoff dispatch will never
+        # send it, because it routes the envelope to the worker instead.
         "SELECT DISTINCT r.tmux_session "
         "FROM bridge_flow_steps s "
         "JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role) "
-        "WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1",
+        "WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1 "
+        "  AND (r.execution_target IS NULL OR TRIM(r.execution_target) = '')",
         (flow_key,),
     ).fetchall()
 
