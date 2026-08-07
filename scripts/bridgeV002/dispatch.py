@@ -20,7 +20,7 @@ PROJECT_ROOT = os.environ.get(
 )
 sys.path.insert(0, str(Path(__file__).parent))
 
-from worker_routing import offer_to_worker, worker_target
+from worker_routing import EnvelopeIncomplete, offer_to_worker, worker_target
 from bridge_lib import (
     load_role_from_db,
     load_flow_from_db,
@@ -2741,10 +2741,18 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         deliverable_dir = payload.get("deliverable_dir", "")
         handoff_path = os.path.join(bridge_dir, deliverable_dir,
                                     payload["deliverable_file"])
-        eid = offer_to_worker(
-            worker_id=worker_id, handoff_id=handoff_id, flow_key=flow_key,
-            to_role_key=to_role_key, handoff_path=handoff_path,
-        )
+        try:
+            eid = offer_to_worker(
+                worker_id=worker_id, handoff_id=handoff_id, flow_key=flow_key,
+                to_role_key=to_role_key, handoff_path=handoff_path,
+                payload=payload, to_role_data=to_role_data,
+                target_project=get_flow_target_project(flow_key),
+            )
+        except EnvelopeIncomplete as exc:
+            print(f"  ERROR: cannot build the execution envelope: {exc}")
+            log(f"{from_role_key}->{to_role_key}", handoff_id,
+                "worker_offer_failed", str(exc))
+            return False
         print(f"  INFO: {to_role_key} executes on '{worker_id}' — offered {eid}")
         log(f"{from_role_key}->{to_role_key}", handoff_id, "offered_to_worker",
             f"execution {eid} addressed to worker '{worker_id}'")

@@ -99,3 +99,108 @@ def test_dispatch_checks_the_target_before_it_reaches_tmux():
     assert "worker_target(to_role_data)" in body, "dispatch never checks the target"
     assert body.index("worker_target(to_role_data)") < body.index("session_alive("), \
         "the worker branch sits after tmux session handling"
+
+
+# ---------------------------------------------------------------------------
+# The §13 envelope
+#
+# The worker's envelope_validator.py is the specification, and it is committed
+# in the other repository. These tests build an envelope the way dispatch does
+# and hand it to that validator: a green here means the two halves of the
+# protocol agree, which no amount of reading either side proves on its own.
+# ---------------------------------------------------------------------------
+
+LIGHTWORKER_SRC = Path("/home/svend/DPMtF-LightWorker/src")
+_has_worker = LIGHTWORKER_SRC.is_dir()
+requires_worker = pytest.mark.skipif(
+    not _has_worker, reason="DPMtF-LightWorker is not checked out beside this repo")
+
+
+def _payload_and_role():
+    import sqlite3
+    import config
+    conn = sqlite3.connect(config.get_db_path())
+    conn.row_factory = sqlite3.Row
+    role = dict(conn.execute(
+        "SELECT * FROM bridge_roles WHERE role_key='Pre-imple-cl'").fetchone())
+    step = dict(conn.execute(
+        "SELECT * FROM bridge_flow_steps WHERE flow_key='preferred_cloud'"
+        " AND to_role='Pre-imple-cl'").fetchone())
+    conn.close()
+    return {
+        "flow_key": "preferred_cloud", "step_key": step["step_key"],
+        "from_role": step["from_role"], "to_role": step["to_role"],
+        "deliverable_dir": step["deliverable_dir"],
+        "deliverable_file": "013-handoff.md",
+    }, role
+
+
+def _build(handoff_file: Path):
+    from worker_routing import build_envelope
+    payload, role = _payload_and_role()
+    return build_envelope(
+        worker_id="svend3060", handoff_id="013", payload=payload,
+        to_role_data=role, target_project="/home/svend/DPMtF-LightWorker",
+        handoff_path=str(handoff_file))
+
+
+@requires_worker
+def test_fathers_envelope_passes_the_workers_own_validator(tmp_path):
+    sys.path.insert(0, str(LIGHTWORKER_SRC))
+    from dpmtf_lightworker.envelope_validator import (  # noqa: E402
+        ValidatorConfig, validate_envelope)
+
+    handoff = tmp_path / "013-handoff.md"
+    handoff.write_text("<task>do the thing</task>", encoding="utf-8")
+    env = _build(handoff)
+
+    validated = validate_envelope(env, config=ValidatorConfig(
+        worker_id="svend3060",
+        supported_schema_versions=frozenset({"1"}),
+        supported_clients=frozenset({"opencode", "claude-code"}),
+        repository_root=Path("/home/svend/lightworker/repos")))
+
+    assert validated.execution_id == "EXEC-013-PRE-IMPLE-CL"
+    assert validated.model_source == "model_allocator"
+    assert len(validated.repository.base_commit) == 40
+
+
+@requires_worker
+def test_the_base_commit_is_the_target_projects_real_head(tmp_path):
+    """§16.1: the exact commit, never a branch name or an inferred revision."""
+    import subprocess
+    handoff = tmp_path / "013-handoff.md"
+    handoff.write_text("x", encoding="utf-8")
+    head = subprocess.run(
+        ["git", "-C", "/home/svend/DPMtF-LightWorker", "rev-parse", "HEAD"],
+        capture_output=True, text=True).stdout.strip()
+    assert _build(handoff)["repository"]["base_commit"] == head
+
+
+def test_an_unbuildable_envelope_raises_rather_than_shipping_partial(tmp_path):
+    """A worker learns of a missing base commit only after cloning and
+    starting a model. Refuse at the point where it is cheap."""
+    from worker_routing import EnvelopeIncomplete, build_envelope
+    payload, role = _payload_and_role()
+    handoff = tmp_path / "h.md"
+    handoff.write_text("x", encoding="utf-8")
+    not_a_repo = tmp_path / "empty"
+    not_a_repo.mkdir()
+    with pytest.raises(EnvelopeIncomplete, match="base commit"):
+        build_envelope(worker_id="svend3060", handoff_id="013", payload=payload,
+                       to_role_data=role, target_project=str(not_a_repo),
+                       handoff_path=str(handoff))
+
+
+def test_a_role_without_an_alias_is_refused(tmp_path):
+    """§6.2 makes the alias Father's to choose; an empty one is not a choice."""
+    from worker_routing import EnvelopeIncomplete, build_envelope
+    payload, role = _payload_and_role()
+    role["default_model_alias"] = ""
+    handoff = tmp_path / "h.md"
+    handoff.write_text("x", encoding="utf-8")
+    with pytest.raises(EnvelopeIncomplete, match="alias"):
+        build_envelope(worker_id="svend3060", handoff_id="013", payload=payload,
+                       to_role_data=role,
+                       target_project="/home/svend/DPMtF-LightWorker",
+                       handoff_path=str(handoff))
