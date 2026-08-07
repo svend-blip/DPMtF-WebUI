@@ -119,27 +119,61 @@ class TestTheEnvelopeNamesWhatTheRoleProduces:
     overwritten the handoff that produced it -- and a reviewer re-running the
     implementer's commands would have found the task replaced by its answer.
 
-    Nothing caught it because no result had ever carried content. The path was
-    wrong from the first execution and correct-looking in every log.
+    Measured against a fixture database, not the live one. An earlier
+    version of these tests read `databases/dpmtf.db` directly, which made
+    the suite red whenever the live flow rows changed -- a test that fails
+    on production state is measuring operations, not code.
     """
 
-    def test_the_implementer_produces_a_result_not_a_handoff(self):
+    @pytest.fixture
+    def flow_db(self, tmp_path, monkeypatch):
+        import sqlite3
+
+        import config as father_config
+
+        db = tmp_path / "flows.db"
+        conn = sqlite3.connect(db)
+        conn.executescript(
+            "CREATE TABLE bridge_flow_steps ("
+            " flow_key TEXT, step_key TEXT, from_role TEXT, to_role TEXT,"
+            " deliverable_dir TEXT, deliverable_pattern TEXT,"
+            " sort_order INTEGER, is_active INTEGER)"
+        )
+        conn.executemany(
+            "INSERT INTO bridge_flow_steps VALUES (?,?,?,?,?,?,?,1)",
+            [
+                ("lw", "human-imple", "human", "imple",
+                 "lw/handoffs", "{ID}-handoff.md", 0),
+                ("lw", "imple-review", "imple", "review",
+                 "lw/results", "{ID}-result.md", 1),
+                ("lw", "review-human", "review", "human",
+                 "lw/verdicts", "{ID}-verdict.md", 2),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        # outgoing_deliverable imports `config` lazily; the module object in
+        # sys.modules is the one patched here, so the lazy import sees it.
+        monkeypatch.setattr(father_config, "get_db_path", lambda: str(db))
+        return db
+
+    def test_the_implementer_produces_a_result_not_a_handoff(self, flow_db):
         from worker_routing import outgoing_deliverable
-        path = outgoing_deliverable("lightworker", "imple01LW", "007")
-        assert path == "lightworker/results/007-result.md"
+        path = outgoing_deliverable("lw", "imple", "007")
+        assert path == "lw/results/007-result.md"
         assert "handoffs" not in path
 
-    def test_the_reviewer_produces_a_verdict(self):
+    def test_the_reviewer_produces_a_verdict(self, flow_db):
         from worker_routing import outgoing_deliverable
-        assert outgoing_deliverable("lightworker", "review01LW", "007") == \
-            "lightworker/verdicts/007-verdict.md"
+        assert outgoing_deliverable("lw", "review", "007") == \
+            "lw/verdicts/007-verdict.md"
 
-    def test_a_role_with_nowhere_to_put_a_result_raises(self):
+    def test_a_role_with_nowhere_to_put_a_result_raises(self, flow_db):
         """Inventing a path would put the deliverable somewhere nobody reads,
         which is worse than refusing to dispatch."""
         from worker_routing import EnvelopeIncomplete, outgoing_deliverable
         with pytest.raises(EnvelopeIncomplete):
-            outgoing_deliverable("lightworker", "no-such-role", "007")
+            outgoing_deliverable("lw", "no-such-role", "007")
 
 
 # ---------------------------------------------------------------------------

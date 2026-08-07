@@ -117,7 +117,18 @@ def remote_follow_command(worker):
         'sleep 2; '
         'done'
     )
-    return f"ssh -t {worker} '{inner}'"
+    # The retry loop above lives INSIDE ssh. If the connection itself drops,
+    # ssh exits, the window command ends, and tmux closes the window -- the
+    # role silently disappears from the viewer, which is exactly the
+    # ambiguity this window exists to remove (an absent role reads as one
+    # that never started). So ssh is wrapped in a second, local loop: a
+    # dropped connection becomes a visible "reconnecting" line and a retry,
+    # not a vanished window.
+    return (
+        f"while true; do ssh -t {worker} '{inner}'; "
+        f'printf "\\n[%s] forbindelsen til {worker} røg — prøver igen om 5s\\n" '
+        '"$(date +%H:%M:%S)"; sleep 5; done'
+    )
 
 
 def session_exists(session_name):

@@ -108,6 +108,18 @@ def test_it_mirrors_rather_than_attaches():
     assert "attach" not in cmd
 
 
+def test_a_dropped_connection_is_retried_not_a_closed_window():
+    """The mirror loop lives inside ssh. If the connection drops, ssh exits
+    and tmux closes the window -- the role silently disappears from the
+    viewer, which is exactly the ambiguity the window exists to remove. The
+    ssh call itself must therefore sit in a local retry loop."""
+    cmd = attach_tmux.remote_follow_command("svend3060")
+    ssh_at = cmd.index("ssh ")
+    assert "while true; do" in cmd[:ssh_at], "ssh is not inside a retry loop"
+    after_ssh = cmd[ssh_at:]
+    assert "sleep" in after_ssh and after_ssh.rstrip().endswith("done")
+
+
 def test_the_follow_command_falls_back_to_the_daemon():
     """A worker makes a fresh session per execution and drops it on cleanup.
     Attaching to a fixed name shows an empty pane most of the time and
