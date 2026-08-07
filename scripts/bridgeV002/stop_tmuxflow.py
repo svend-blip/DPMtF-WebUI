@@ -22,7 +22,13 @@ from attach_tmux import VIEWER_SESSION_PREFIX  # noqa: E402
 
 
 def get_flow_tmux_sessions(db_path, flow_key):
-    """Fetch all tmux session names for active steps in a flow."""
+    """Local session names for a flow's roles.
+
+    A role with an execution_target has no local session — its tmux lives
+    on the worker. Killing its session NAME here hit nothing ("Already
+    dead") while the real sessions kept running remotely, so Stop tmux
+    looked successful and stopped half the flow.
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
@@ -33,12 +39,67 @@ def get_flow_tmux_sessions(db_path, flow_key):
         JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role)
         WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
           AND r.tmux_session IS NOT NULL
+          AND (r.execution_target IS NULL OR TRIM(r.execution_target) = '')
         """,
         (flow_key,),
     ).fetchall()
 
     conn.close()
     return {row["tmux_session"] for row in rows}
+
+
+def get_remote_roles(db_path, flow_key):
+    """(role_key, execution_target) for the flow's remote roles."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT DISTINCT r.role_key, r.execution_target
+        FROM bridge_flow_steps s
+        JOIN bridge_roles r ON r.role_key IN (s.from_role, s.to_role)
+        WHERE s.flow_key = ? AND s.is_active = 1 AND r.is_active = 1
+          AND r.execution_target IS NOT NULL
+          AND TRIM(r.execution_target) != ''
+        """,
+        (flow_key,),
+    ).fetchall()
+    conn.close()
+    return sorted({(r["role_key"], r["execution_target"]) for r in rows})
+
+
+def kill_remote_sessions(remote_roles):
+    """Kill the worker-side tmux for each remote role: the per-execution
+    `dpmtf-<role>-*` sessions and the `lightworker-daemon` shell.
+
+    Stopping the daemon stops the polling loop, so nothing new is claimed
+    after the button is pressed — which is what "stop" means. Restart is
+    documented in DPMtF-LightWorker's README (the daemon runs in a tmux
+    session the steward starts). Best-effort with a short timeout: an
+    unreachable worker must not hang the endpoint.
+    """
+    killed = []
+    for role_key, target in remote_roles:
+        print(f"  Remote role {role_key} on {target}:")
+        script = (
+            "for s in $(tmux ls -F '#{session_name}' 2>/dev/null "
+            f"| grep '^dpmtf-'); do tmux kill-session -t \"$s\"; "
+            "echo \"killed $s\"; done; "
+            "tmux kill-session -t =lightworker-daemon 2>/dev/null "
+            "&& echo 'killed lightworker-daemon' || true"
+        )
+        result = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+             target, script],
+            capture_output=True, text=True, timeout=30,
+        )
+        out = (result.stdout or "").strip()
+        for line in out.splitlines():
+            print(f"    {line}")
+            killed.append(f"{target}:{line.replace('killed ', '')}")
+        if result.returncode != 0 and not out:
+            print(f"    WARNING: could not reach {target}: "
+                  f"{(result.stderr or '').strip()[:120]}")
+    return killed
 
 
 def kill_tmux_sessions(sessions):
@@ -98,6 +159,9 @@ def main():
 
     print(f"Stopping {len(sessions)} tmux session(s) for flow '{args.flow_key}':")
     killed = kill_tmux_sessions(sessions)
+    remote = get_remote_roles(db_path, args.flow_key)
+    if remote:
+        killed += kill_remote_sessions(remote)
     print(f"\nDone: {len(killed)} session(s) killed.")
 
 

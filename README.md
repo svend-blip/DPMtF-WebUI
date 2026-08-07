@@ -5,6 +5,43 @@ authoritative governance templates, hosts the **BridgeV002** dispatch system
 for AI role-to-role communication, and provides a **Job Queue** for fully
 automated chain execution with durable state management.
 
+## Place in the DPMtF Ecosystem
+
+Four components, one machine boundary:
+
+```
+   model-allocator                  model-allocator
+   (Father's copy)                  (worker's copy)
+         │ resolves role→model            │
+         ▼                                ▼
+   DPMtF-WebUI ("Father") ◄──────── DPMtF-LightWorker
+   flows · dispatch · evidence      polls Father over Tailscale,
+   gates · SQLite · port 9130       executes one role at a time in
+         │                          disposable worktrees
+         └── mcp-light (port 9135)
+             read-only context: loopback for Father's own
+             roles, a second tailnet instance for workers
+```
+
+| Component | Depends on | Provides |
+|-----------|-----------|----------|
+| model-allocator | its own machine's `models.yaml`/`roles.yaml` | role→model resolution, runtime lifecycle, client configs |
+| DPMtF-WebUI | model-allocator (same machine), SQLite | flows, dispatch, evidence gates, LightWorker endpoints, watchdog |
+| mcp-light | read access to DPMtF-WebUI's files and database | governance/flow/verdict lookup over MCP |
+| DPMtF-LightWorker | model-allocator (worker machine), Father reachable over Tailscale | remote role execution |
+
+**Install order — each step's preflight checks the one before it:**
+
+1. **model-allocator** — on every machine that runs models (Father and
+   each worker), with that machine's own config files.
+2. **DPMtF-WebUI** — on Father: `init_db` → `migrate` → uvicorn on 9130.
+3. **mcp-light** — on Father (optional but standard): loopback unit, plus
+   the tailnet unit if remote workers should reach it.
+4. **DPMtF-LightWorker** — on each worker: venv → `worker.yaml` → auth
+   token → base client config → `preflight.sh` 16/16 → daemon.
+
+Each repository's own Installation section covers its steps in detail.
+
 ## Quick Start
 
 For the full installation guide — including system requirements (Python 3.12, CUDA, tmux), repository layout, virtual environment setup, `.env` configuration, and local runtime installations — see [SETUP.md](SETUP.md).
@@ -294,6 +331,34 @@ Note: `DPMTF_PROJECT_ROOT` is read by bridge and shell scripts (e.g.
 `dpmtf.ini` `[paths]` section instead.
 
 See `SETUP.md` for full setup guide.
+
+## Operations
+
+**Always-on services** (systemd user units, `loginctl enable-linger` set,
+so they start at boot without a login):
+
+| Unit | What it does |
+|------|-------------|
+| `chain-watchdog` | watches EVERY flow permanently (`--all-flows --forever`): produced-nothing fast path (3 consecutive idle passes → nudge, budget 2/step), remote-role liveness via execution heartbeats (never auto-nudged), chains older than 6h ignored as history |
+| `mcp-light` | read-only context server on loopback for Father's own roles |
+| `mcp-light-tailnet` | second instance on the Tailscale address for remote LightWorkers |
+
+The watchdog does NOT start with a chain and needs no arming — per-run
+manual arming was the failure mode it replaced: it existed through every
+produced-nothing incident this project logged and was armed for none of
+them.
+
+**Following a run:** `tmux attach -t flow-<key>` shows every role in chain
+order, remote roles mirrored over ssh. The viewer is rebuilt automatically
+by `start_tmuxflow.py` and the start-coding endpoint; after any manual
+session surgery, run `python3 scripts/bridgeV002/attach_tmux.py <flow>`.
+
+**Stop buttons:** *Stop tmux* kills the flow's local sessions, its viewer,
+and — for roles with an `execution_target` — the worker's `dpmtf-*`
+execution sessions and daemon over ssh. *Stop servers* stops local
+allocator runtimes, and for remote roles resolves the alias ON the worker
+(its own `roles.yaml`; Father's stored value can be stale) and stops it
+there. Both live-verified against svend3060 2026-08-07.
 
 ## Tmux Session Management
 

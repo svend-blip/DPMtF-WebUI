@@ -1006,7 +1006,8 @@ async def bridge_v2_stop_servers_for_flow(flow_key: str):
         conn.row_factory = sqlite3.Row
         # Get unique model aliases for this flow's roles
         rows = conn.execute(
-            """SELECT DISTINCT br.default_model_alias
+            """SELECT DISTINCT br.role_key, br.default_model_alias,
+                      br.execution_target
                FROM bridge_flow_steps bfs
                JOIN bridge_roles br ON br.role_key IN (bfs.from_role, bfs.to_role)
                WHERE bfs.flow_key = ? AND br.default_model_source = 'model_allocator'
@@ -1017,8 +1018,18 @@ async def bridge_v2_stop_servers_for_flow(flow_key: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    aliases = [r["default_model_alias"] for r in rows]
-    if not aliases:
+    # A remote role's server runs on ITS machine, and Father's stored alias
+    # for it can be stale — the worker resolves role→alias against its own
+    # roles.yaml (that indirection is the allocator's whole design). So the
+    # stop is executed on the worker, resolving there: stopping Father's
+    # alias name locally stopped nothing while the worker's llama.cpp kept
+    # the card.
+    remote_roles = [(r["role_key"], r["execution_target"]) for r in rows
+                    if (r["execution_target"] or "").strip()]
+    aliases = [r["default_model_alias"] for r in rows
+               if not (r["execution_target"] or "").strip()]
+
+    if not aliases and not remote_roles:
         return {"status": "ok", "message": "No model servers to stop for flow '" + flow_key + "'", "stopped": []}
 
     allocator_script = os.path.join(
@@ -1028,6 +1039,36 @@ async def bridge_v2_stop_servers_for_flow(flow_key: str):
 
     stopped = []
     errors = []
+
+    for role_key, target in remote_roles:
+        # Resolved ON the worker, stopped ON the worker. The script goes via
+        # stdin (`bash -ls`) rather than as an argument — the day's quoting
+        # lesson: every nesting level is a place for the command to break.
+        script = (
+            f"a=$(model-allocator resolve --role {role_key} "
+            "--client opencode 2>/dev/null "
+            "| sed -n 's/.*\"alias\": \"\\([^\"]*\\)\".*/\\1/p' | head -1)\n"
+            'if [ -n "$a" ]; then\n'
+            '  model-allocator stop --alias "$a" && echo "stopped:$a"\n'
+            "else\n"
+            '  echo "no-alias"\n'
+            "fi\n"
+        )
+        try:
+            result = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                 target, "bash -ls"],
+                input=script, capture_output=True, text=True, timeout=60,
+            )
+            out = (result.stdout or "").strip()
+            if "stopped:" in out:
+                stopped.append(f"{target}:{out.split('stopped:')[-1].strip()}")
+            else:
+                errors.append(f"{role_key}@{target}: "
+                              f"{(result.stderr or out or 'no output')[:120]}")
+        except subprocess.TimeoutExpired:
+            errors.append(f"{role_key}@{target}: timeout")
+
     for alias in aliases:
         try:
             result = subprocess.run(
