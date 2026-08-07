@@ -140,3 +140,54 @@ class TestTheEnvelopeNamesWhatTheRoleProduces:
         from worker_routing import EnvelopeIncomplete, outgoing_deliverable
         with pytest.raises(EnvelopeIncomplete):
             outgoing_deliverable("lightworker", "no-such-role", "007")
+
+
+# ---------------------------------------------------------------------------
+# The property, not the instance
+# ---------------------------------------------------------------------------
+
+
+def test_whatever_the_return_path_refuses_the_endpoint_also_refuses():
+    """The class-level guarantee the single-literal tests cannot give.
+
+    The `mode`/`result_mode` split was fixed by holding both validators to
+    one good literal -- and the same disagreement survived in `status`,
+    because the literal happened to carry it. A result the endpoint accepts
+    and the return path refuses is recorded as completed, never advances the
+    chain, writes no file and raises no alarm.
+
+    So: remove each field of a good result in turn. Wherever the return path
+    refuses the mutilated result, the endpoint must refuse it too --
+    refusal must happen BEFORE the store records a completion.
+    """
+    for key in list(a_good_result().keys()):
+        broken = a_good_result()
+        del broken[key]
+        try:
+            validate_result(broken)
+            return_path_refuses = False
+        except ResultRejected:
+            return_path_refuses = True
+        if return_path_refuses:
+            assert _validate_result(broken) is not None, (
+                f"the return path refuses a result missing {key!r}; "
+                "the endpoint accepts it and records a completion"
+            )
+
+
+def test_the_two_status_constants_are_the_same_string():
+    """The endpoint restates the return path's ACCEPTED_STATUS because the
+    router must import without the bridge scripts on sys.path. Restated
+    means it can drift; this pins it."""
+    from routers.lightworkers import _REQUIRED_STATUS
+    from worker_results import ACCEPTED_STATUS
+    assert _REQUIRED_STATUS == ACCEPTED_STATUS
+
+
+def test_a_result_without_status_is_refused_by_both():
+    """The field the property test was written to catch, named explicitly."""
+    result = a_good_result()
+    del result["status"]
+    assert _validate_result(result) is not None
+    with pytest.raises(ResultRejected):
+        validate_result(result)

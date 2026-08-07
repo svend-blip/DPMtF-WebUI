@@ -388,6 +388,19 @@ _REQUIRED_KEYS_BY_MODE: Dict[str, Set[str]] = {
 # both validators against one literal so the two cannot drift apart again.
 _MODE_KEY = "result_mode"
 
+# The status a completion must declare. The value is the return path's
+# `worker_results.ACCEPTED_STATUS`, restated here because the router must
+# stay importable without the bridge scripts on sys.path;
+# tests/test_result_contract.py asserts the two strings are equal so they
+# cannot drift apart silently.
+#
+# Until 2026-08-07 the endpoint did not look at `status` at all. A result
+# without one passed here, was recorded as completed, and was then refused
+# by the return path -- no chain advance, no result file, no alarm. The
+# same disagreement class as the `mode`/`result_mode` split this file was
+# fixed for earlier the same day, surviving in one field.
+_REQUIRED_STATUS = "role_execution_completed"
+
 
 def _validate_result(result: Dict[str, Any]) -> Optional[str]:
     """Return ``None`` if ``result`` is valid; an error message otherwise.
@@ -404,6 +417,15 @@ def _validate_result(result: Dict[str, Any]) -> Optional[str]:
         return "result must be an object"
     if not result:
         return "result must not be empty"
+    status = result.get("status")
+    if status != _REQUIRED_STATUS:
+        # A failed or partial execution is reported through /fail, not
+        # /complete. Refusing here, before the store records anything, is
+        # the point: a completion recorded and then refused leaves the
+        # execution terminal with no deliverable and no signal.
+        return (
+            f"result.status must be {_REQUIRED_STATUS!r}, got {status!r}"
+        )
     mode = result.get(_MODE_KEY)
     if not isinstance(mode, str):
         return f"result.{_MODE_KEY} must be a string"

@@ -372,6 +372,7 @@ def _deliverable_only_result() -> dict:
 
 def _patch_result() -> dict:
     return {
+        "status": "role_execution_completed",
         "result_mode": "patch",
         "patch": "diff --git ...",
         "base_commit": "abc123",
@@ -486,6 +487,7 @@ def test_complete_patch_and_deliverable_requires_union(
         "worker_id": "w1",
         "attempt_id": "a1",
         "result": {
+            "status": "role_execution_completed",
             "result_mode": "patch_and_deliverable",
             "patch": "diff",
             "base_commit": "abc",
@@ -505,6 +507,7 @@ def test_complete_patch_and_deliverable_requires_union(
         "worker_id": "w1",
         "attempt_id": "a2",
         "result": {
+            "status": "role_execution_completed",
             "result_mode": "patch_and_deliverable",
             "patch": "diff",
             "base_commit": "abc",
