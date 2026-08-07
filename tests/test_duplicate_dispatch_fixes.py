@@ -337,10 +337,39 @@ def test_lease_survives_process_boundary(tmp_path):
         LeaseRegistry.reset()
         with patch.object(LeaseRegistry, "_start_model"), \
              patch.object(LeaseRegistry, "_stop_model") as stop:
+            # release() propagates what the stop actually reported — the mock
+            # must therefore say something. Left unconfigured it returns a
+            # MagicMock, and `is True` fails against it; this test had been red
+            # on master since release() stopped returning a literal True.
+            stop.return_value = True
             LeaseRegistry.acquire("42", "alias-a")
             LeaseRegistry.reset()  # simulate a NEW dispatch process
             assert LeaseRegistry.release("42", "alias-a") is True
             stop.assert_called_once_with("alias-a")
+    finally:
+        LeaseRegistry._db_path = old_db
+        LeaseRegistry.reset()
+
+
+def test_release_propagates_a_failed_stop(tmp_path):
+    """A stop that did not work must not be reported as a release.
+
+    `release()` returns what `_stop_model()` reported, deliberately: dispatch
+    reads it to decide whether to retry the stop and wait for the GPU, or warm
+    the next model. Collapsing it to a literal True would have dispatch load a
+    second model into a card the previous one still owns.
+    """
+    from job_queue.model_lease import LeaseRegistry
+    old_db = LeaseRegistry._db_path
+    try:
+        LeaseRegistry._db_path = str(tmp_path / "leases.db")
+        LeaseRegistry.reset()
+        with patch.object(LeaseRegistry, "_start_model"), \
+             patch.object(LeaseRegistry, "_stop_model") as stop:
+            stop.return_value = False
+            LeaseRegistry.acquire("42", "alias-a")
+            assert LeaseRegistry.release("42", "alias-a") is False, \
+                "a failed stop was reported as a successful release"
     finally:
         LeaseRegistry._db_path = old_db
         LeaseRegistry.reset()
