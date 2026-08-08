@@ -139,7 +139,13 @@ ui_text_slots → ui_text_slot_labels → ui_labels → ui_label_translations
 
 - API MUST traverse all 4 layers and return `{slot_key: text}`.
 - Frontend uses `data-slot` attributes and `lbl(slot_key, fallback)`.
-- Each label MUST have seed data in both `da-DK` and `en-US` locales.
+- Each label MUST have seed data in all four mandatory locales:
+  `en-US`, `da-DK`, `de-DE`, `es-ES` (extra locales are optional).
+- UI structure follows the Frontend Structure Standard in
+  `12_CODING_STANDARD.md`: fixed panel groups (`pg-daily`, `pg-journals`,
+  `pg-reports`, `pg-periodic`, `pg-setup`), upper-right language switcher
+  from `/api/available-languages`, expand/collapse persisted per user in
+  `user_panel_groups`.
 
 ## 10. File Access
 

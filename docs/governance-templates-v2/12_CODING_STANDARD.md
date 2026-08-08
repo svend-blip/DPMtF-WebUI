@@ -112,13 +112,93 @@ ui_text_slots (slot_key = unique position ID)
       → ui_label_translations (locale-specific text)
 ```
 
+**Mandatory locales (all four, every label):**
+
+| Locale | Language |
+|--------|----------|
+| `en-US` | English |
+| `da-DK` | Danish |
+| `de-DE` | German |
+| `es-ES` | Spanish |
+
 **Rules:**
 - API MUST traverse all 4 layers and return `{slot_key: text}`.
 - Multiple slots CAN map to the same label.
 - Frontend `data-slot` attributes and `lbl()` calls use `slot_key` as the key.
-- Each label MUST have seed data in both `da-DK` and `en-US` locales.
-- New labels require `ui_labels` + `ui_label_translations` entries — this is
-  routine, not optional.
+- Each label MUST have seed data in **all four mandatory locales** —
+  `en-US`, `da-DK`, `de-DE`, `es-ES`. (Until 2026-08-08 the requirement was
+  da-DK + en-US; existing projects carrying extra locales such as `sv-SE` or
+  `el-GR` may keep them as optional, but they never substitute for a
+  mandatory one.)
+- New labels require `ui_labels` + `ui_label_translations` entries in all
+  four mandatory locales — this is routine, not optional.
+- A label missing one of the four mandatory locales is a validation
+  finding: the Review role reports it, and the fix is adding the
+  translation, never deleting the label.
+
+**Find-or-create — never create-per-slot.** Slot keys are unique, but
+labels are shared: when several slots present the same text and help text,
+they map to ONE label. Before creating any label:
+
+1. Check for an existing label with identical `default_text` +
+   `description` — mcp-light's `find_reusable_label` tool does this and
+   answers `reuse` (with the slot-mapping SQL) or `create` (with the
+   4-locale template).
+2. On `reuse`: map the slot to the existing label. Creating a duplicate
+   anyway is a validation finding.
+3. In Python seeds/migrations, use `scripts/i18n_lib.py` —
+   `find_or_create_label()` performs the check-and-reuse automatically and
+   refuses labels missing any mandatory locale; `map_slot()` registers the
+   slot idempotently.
+4. mcp-light's `find_duplicate_labels` reports existing duplicates; the
+   merge is: keep one, repoint the slots, deactivate (`is_active = 0`,
+   never DELETE) the rest.
+
+## Frontend Structure Standard (Mandatory where a UI exists)
+
+Every DPMtF-governed project that has a web UI follows the same overarching
+structure — the one produced by deployment strategy `accelerated` and the
+"Create New WebUI" button. The canonical reference implementation is
+`templates/new-webui-skeleton/` in the Father project; when this standard and
+the skeleton disagree, fix the skeleton or this file — do not fork a third
+variant.
+
+**Fixed panel-group structure.** `index.html` contains exactly these five
+panel groups, in this order, with these element ids:
+
+```
+pg-daily      — day-to-day operational panels
+pg-journals   — logs, journals, run histories
+pg-reports    — reports and analyses
+pg-periodic   — recurring/periodic tasks
+pg-setup      — configuration and administration
+```
+
+Rules:
+
+| Rule | Description |
+|------|-------------|
+| **Group ids are fixed** | `pg-daily`, `pg-journals`, `pg-reports`, `pg-periodic`, `pg-setup`. New top-level groups require a governance change here first. |
+| **Empty groups stay** | A project with nothing to show in a group keeps the group and hides it via `is_visible = 0` in the database — never by deleting it from `index.html`. |
+| **Panels register in a group** | Every panel lives inside one of the five groups; panel/subgroup registration follows [[30_FRONTEND_GOVERNANCE]]. |
+| **Group titles are slots** | Group headers use `data-slot` (`pg_daily`, `pg_journals`, …) and are translated through the 4-layer i18n architecture like any other label. |
+
+**Language switcher.** The UI has a language selector in the upper-right
+corner (as in DPMtF-WebUI): populated from `/api/available-languages`
+(database-driven — never a hardcoded list in JS), switching locale re-renders
+labels via the i18n API without a page reload, and the chosen locale is
+persisted per user.
+
+**Expand/collapse is database-driven per user.** Panel-group and subgroup
+open/closed state is stored per user in the database (`user_panel_groups`:
+`user_id`, `group_name`, `state`, `is_visible`) and saved through an API
+endpoint when the user toggles. The frontend renders from the saved state on
+load — no locally-hardcoded defaults that fight the database.
+
+**Scope.** This section binds projects that HAVE a web UI (currently
+DPMtF-WebUI and model-allocator). Components without a UI (workers, MCP
+servers) are exempt until the day they grow one — and then they start from
+the skeleton, not from scratch.
 
 ## Prohibited Patterns
 
