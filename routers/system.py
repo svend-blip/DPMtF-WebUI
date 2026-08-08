@@ -223,6 +223,7 @@ async def get_available_languages():
         "en-US": "English",
         "de-DE": "Deutsch",
         "el-GR": "Ελληνικά",
+        "es-ES": "Español",
         "sv-SE": "Svenska",
     }
 
