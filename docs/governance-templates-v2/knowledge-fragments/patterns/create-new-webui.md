@@ -38,7 +38,7 @@ following the manual 11-step pattern below.
    - static/js/app.js with lbl(), panel structure, expand/collapse
    - static/css/theme.css with GitHub-dark palette
    - .venv with installed dependencies
-   - Initialized database with seed labels in da-DK, en-US, de-DE, sv-SE
+   - Initialized database with seed labels in the four mandatory locales: en-US, da-DK, de-DE, es-ES
 
 2. **Verify:**
    ```bash

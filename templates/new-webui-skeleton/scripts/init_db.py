@@ -4,7 +4,7 @@ Creates the 7 essential tables every DPMtF-governed WebUI needs:
   - i18n: ui_text_slots, ui_text_slot_labels, ui_labels, ui_label_translations
   - Panel structure: user_panel_groups, panel_subgroups, panel_subgroup_mappings
 
-Seeds essential labels in da-DK, en-US, de-DE, and sv-SE locales.
+Seeds essential labels in the four mandatory locales: en-US, da-DK, de-DE, es-ES.
 Idempotent — safe to re-run (INSERT OR IGNORE/REPLACE).
 """
 
@@ -148,17 +148,17 @@ translations_seed = [
     ("lbl_status_loading", "de-DE", "Laden..."),
     ("lbl_status_error_prefix", "de-DE", "Fehler: "),
     ("lbl_lang_selector", "de-DE", "Sprache"),
-    # sv-SE
-    ("lbl_page_title", "sv-SE", "{PROJECT_TITLE}"),
-    ("lbl_heading_main", "sv-SE", "{PROJECT_TITLE}"),
-    ("pg_daily", "sv-SE", "\U0001f4cb Daglig"),
-    ("pg_journals", "sv-SE", "\U0001f4d3 Journaler"),
-    ("pg_reports", "sv-SE", "\U0001f4ca Rapporter"),
-    ("pg_periodic", "sv-SE", "↻ Periodisk"),
-    ("pg_setup", "sv-SE", "⚙️ Inställningar"),
-    ("lbl_status_loading", "sv-SE", "Laddar..."),
-    ("lbl_status_error_prefix", "sv-SE", "Fel: "),
-    ("lbl_lang_selector", "sv-SE", "Språk"),
+    # es-ES
+    ("lbl_page_title", "es-ES", "{PROJECT_TITLE}"),
+    ("lbl_heading_main", "es-ES", "{PROJECT_TITLE}"),
+    ("pg_daily", "es-ES", "\U0001f4cb Diario"),
+    ("pg_journals", "es-ES", "\U0001f4d3 Diarios de trabajo"),
+    ("pg_reports", "es-ES", "\U0001f4ca Informes"),
+    ("pg_periodic", "es-ES", "↻ Periódico"),
+    ("pg_setup", "es-ES", "⚙️ Configuración"),
+    ("lbl_status_loading", "es-ES", "Cargando..."),
+    ("lbl_status_error_prefix", "es-ES", "Error: "),
+    ("lbl_lang_selector", "es-ES", "Idioma"),
 ]
 
 for label_key, locale, translation in translations_seed:

@@ -108,7 +108,7 @@ async def get_available_languages():
         "en-US": "English",
         "da-DK": "Dansk",
         "de-DE": "Deutsch",
-        "sv-SE": "Svenska",
+        "es-ES": "Español",
     }
 
     return {
