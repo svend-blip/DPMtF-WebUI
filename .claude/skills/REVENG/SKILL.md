@@ -1,0 +1,223 @@
+---
+name: Rev-Eng
+description: Reconstruct the Rev_Supervisor context after a cold start in the reveng flow. Use when resuming an autonomous supervisor run, after a restart, or when the supervisor session has lost context and needs to rebuild its state from durable run artifacts (GOAL.md, RUN-LEDGER.md, BACKLOG.md).
+---
+
+# Rev-Eng — Supervisor Cold-Start
+
+Invoke with `/Rev-Eng` to reconstruct the **Rev_Supervisor** context after a
+cold start in the `reveng` flow. The supervisor is stateless per
+wake-up by design (491): this procedure is the same rebuild it performs on
+every verdict delivery — run it manually whenever the session starts cold
+outside a dispatch.
+
+**The invocation carries no arguments, and needs none.** Everything about the
+current run is discoverable and Step 0 discovers it. If you find yourself
+being told the run number, the first handoff id, or that a guard is already
+running, fix the procedure rather than the prompt.
+
+**Starting a new run takes two things:** a Human-approved GOAL.md in a fresh
+`runs/{id}/` directory, and `/Rev-Eng`. The approved GOAL.md *is* the
+authorisation to begin.
+
+## The Chain
+
+```
+Rev_Supervisor  →  Rev_Imple  →  Rev_Review  →  Rev_Supervisor
+DeepSeek V4 Pro    MiniMax M3       Claude Sonnet 5
+claude-code      opencode         claude-code
+```
+
+Governance: `491_REVENG_SUPERVISOR.md`,
+`492_REVENG_IMPLE.md`, `493_REVENG_REVIEW.md`.
+
+Optional session switches, both Human decisions made in the database or the
+allocator: Rev_Supervisor → Fable 5, Rev_Review → Fable.
+
+## Step 0: Get the State In One Call
+
+```bash
+python3 scripts/bridgeV002/supervisor_state.py --flow reveng
+```
+
+This answers where the bridge directory is, which run is active and which of
+its four artefacts exist, the `First handoff id` from GOAL.md, the flow
+counter, the handoffs this run owns, what has been written for the current
+one, its last `trace.log` signal, whether the WebUI, database and tmux
+sessions are up, what is missing, and a one-line assessment.
+
+It applies the **run floor**, which `chain_watchdog` cannot — the watchdog
+locks onto the newest handoff id on disk regardless of which run owns it, and
+that is how a run once adopted a closed run's handoff and parked on a budget
+already spent.
+
+| Assessment | What it means |
+|---|---|
+| `NO ACTIVE RUN` | Every run has an END-REPORT. A new run needs a Human-approved GOAL.md — never open one yourself. |
+| `PARK` | GOAL.md or the floor is missing. Report and wait; do not adopt what is on disk. |
+| `RUN OPENED, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
+| `HANDOFF nnn DISPATCHED` / `RESULT DELIVERED` | A role is working. Wait. Do not dispatch. |
+| `VERDICT READY for nnn` | Validate the testgoals yourself, then act per 491. |
+
+The report is flow-aware: it names this flow's own tmux sessions, and it does
+not probe a local model server, because none of these three roles has one.
+
+## Step 1: Read The Sections You Need
+
+`491_REVENG_SUPERVISOR.md` is the contract. Read by section, not by
+file, and let Step 0's assessment choose which:
+
+| Step 0 said | Read from 491 |
+|---|---|
+| `RUN OPENED, CHAIN NOT STARTED` | Wake-Up Protocol · Event Handling · **What Cloud Changes** · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| `VERDICT READY` | Wake-Up Protocol · Event Handling · **Validating an APPROVED Verdict** · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| `PARK` or `NO ACTIVE RUN` | Stop Conditions, and nothing else — you are reporting, not acting |
+
+Read `500_SUPERVISOR.md` once per run, not per wake-up.
+
+**Read "What Cloud Changes" before your first dispatch of a run.** It is the
+section that stops habits from the local flow being applied here.
+
+## Step 2: Verify The Chain Can Run
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+curl -s http://localhost:9130/api/health
+for s in Rev_Supervisor Rev_Imple Rev_Review; do
+  tmux has-session -t "$s" 2>/dev/null && echo "  $s: running" || echo "  $s: NOT RUNNING"
+done
+```
+
+There is no model server to check. What can fail instead is credentials and
+quota, and that surfaces as an API error on the first call — not as something
+you can probe in advance. Do not try.
+
+## Framework Questions Go To mcp-light
+
+`mcp-light` is registered in `~/.mcp.json` at `http://127.0.0.1:9135/mcp` and
+every role inherits it. Use it for anything about how the flow is wired:
+
+| Question | Tool |
+|---|---|
+| Where does a deliverable go, and under what name? | `get_flow_steps("reveng")` |
+| What does 491 or 500 say? | `get_governance_file("491_REVENG_SUPERVISOR.md")` |
+| How is a role configured? | `get_role("Rev_Supervisor")` |
+| What did an earlier verdict conclude? | `search_verdicts(query)` |
+
+If a question is about the framework rather than the run's actual work, it is
+a lookup — not something to reason out. A cold start in another flow once
+spent fourteen minutes deriving from `dispatch.py` what `get_flow_steps`
+returns in one call.
+
+## Dispatching — The Exact Commands
+
+Write the handoff first, to the path the flow step defines:
+
+| Step | Deliverable path (under `{bridge_dir}`) |
+|---|---|
+| `supervisor-imple01` | `reveng/handoffs/{ID}-handoff.md` |
+| `imple01-review01` | `reveng/results/{ID}-result.md` |
+| `review01-supervisor` | `reveng/verdicts/{ID}-verdict.md` |
+
+`{ID}` is zero-padded to three digits — `014`, not `14`.
+
+```bash
+python3 scripts/bridgeV002/dispatch.py --db-flow reveng \
+    --signal-send --from-role Rev_Supervisor --to-role Rev_Imple --id {ID}
+```
+
+`--id` is optional — omitted, the dispatcher takes the next value from
+`bridge_id_counters`. **Pass it explicitly anyway**, so the file you just
+wrote is provably the file that goes out.
+
+**The XML envelope is not your job.** `auto_prepend_xml_sections` supplies
+`<handoff_id>`, `<source_role>`, `<deliverable_input>` and
+`<deliverable_output>` from known values before validation. Write content.
+
+**A dispatch here is fast.** In the local flow most of the elapsed time is a
+model swap; there is none here, so the effects land almost together:
+
+1. the handoff file exists — you wrote it, it proves nothing
+2. `bridge_id_counters` advances
+3. the prompt is injected into the target session
+4. `trace.log` records `| {ID} | dispatched |`
+
+Only step 4 means delivered. If you need to know whether a dispatch worked,
+read `trace.log`.
+
+## Two GOAL.md Files — Always Say Which
+
+| Path | What it is |
+|---|---|
+| `{bridge_dir}/reveng/runs/{id}/GOAL.md` | this run's Mission Contract |
+| `{target_project}/GOAL.md` | the product specification |
+
+`{target_project}` comes from `bridge_flows.target_project_path` — ask
+mcp-light's `get_flow` rather than assuming it.
+
+Write the path, never the bare name. Roles have confused the two twice — once
+citing a path that exists nowhere, once reporting a contract's tables missing
+after grepping the specification for them.
+
+## Validating A Verdict
+
+```bash
+python3 scripts/bridgeV002/check_testgoals.py \
+    {bridge_dir}/reveng/runs/{run_id}/GOAL.md
+```
+
+**This settles the facts, not the verdict.** Whether the claims are honest,
+whether the evidence was gathered, and whether a green testgoal was reached
+the right way remain yours to judge. That judgement is the only thing a
+supervisor is genuinely needed for.
+
+A count cannot read. Where a testgoal asks whether prose says something,
+read it and quote the sentence.
+
+## Ledger Entries And END-REPORTs
+
+```bash
+python3 scripts/bridgeV002/run_report.py ledger --flow reveng --event {event}
+python3 scripts/bridgeV002/run_report.py end-report --flow reveng
+```
+
+Prints a skeleton with the facts filled in and every judgement left as `TODO`.
+Nothing is written to disk: review it, replace every `TODO`, save it yourself.
+Do not go looking at closed runs for the format.
+
+## What Does Not Apply Here
+
+Habits from `llama_SG` that are wrong in this flow:
+
+- **No model swapping.** All three aliases are `cloud_noop`; start and stop are
+  credential checks. There are no lifecycle scripts on the steps, and the
+  swap-failure defects (backlog items 5, 6, 7) cannot occur.
+- **`ConnectionRefused` is not routine.** In the local flow it is the ordinary
+  state after a dispatch, because the supervisor's model was stopped to make
+  room. Here it means the API is genuinely unreachable. Park and report it.
+- **Do not run `laguna_swap_guard.py`.** It watches for a local model that
+  does not exist in this flow.
+- **Cost replaces contention.** Every token is billed. A rate limit or quota
+  error is a stop condition, not a transient — retry once, then park with the
+  error text.
+
+## Rules
+
+- **A run without an approved GOAL.md must not start** — park with
+  `HUMAN_ACTION_REQUIRED`.
+- **Write the END-REPORT to disk, then prove it** with `ls -la` on the exact
+  path. Composing it in your reply is not writing it, and a run whose report
+  does not exist is still open.
+- **Check that your signals worked.** If a signal reports
+  `signal_complete_failed`, the deliverable is not where dispatch looked.
+  Fix it and signal again — a claimed signal that failed leaves the chain
+  blocked with nobody aware.
+- **Do not delegate to a subagent.** Everything here is a file read, a `grep`,
+  an `ls`, a database query or an mcp-light call you can make directly.
+- **Do not read the source of the tools you are told to run.** Their
+  invocations are documented above and in CLAUDE.md §8.
+- **Loop guard:** never send `signal_complete` for a verdict delivery you are
+  processing — the next handoff gets a new id from the flow counter.
+- **Append a ledger entry for every action** — the ledger, not the session, is
+  the run's memory.
+- **All communication in English (en-US)** except direct Human interaction.
