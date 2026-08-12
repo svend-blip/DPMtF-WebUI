@@ -261,18 +261,42 @@ def sample_ollama():
 
 
 def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False, stalled=None,
-          why=None):
+          why=None, force=False):
     """Re-deliver `role`'s signal-complete for `run_id`.
 
     `stalled` and `why` name the role the chain is actually waiting on,
     which is not always `role`: when a receiver was dispatched and produced
     nothing, the repair is still to re-send the SENDER's callback (that is
     what re-prompts the receiver), but the log must point at the receiver.
+
+    `force` bypasses dispatch's idempotency guard, and ONLY a receiver stall
+    may set it. Without it a receiver stall could never be repaired at all:
+    the guard treats a transition as delivered forever (correctly — ids do
+    not repeat), and the repair for a receiver stall IS that same
+    transition. Every attempt was therefore suppressed, and the trace log
+    recorded the fact plainly and was not read:
+
+      Rev_Supervisor->Rev_Imple | 010 | signal_complete_skipped |
+      Duplicate delivery suppressed by idempotency guard
+
+    Four such lines per handoff, on seven of the nine reveng handoffs of
+    2026-08-11/12, and a human typed "continue" every time.
+
+    Forcing is safe here and nowhere else. The damage the guard prevents —
+    preferred_cloud runs 004 and 005 — was a late signal racing a role that
+    was *still working*: it re-validated a live handoff and injected into a
+    busy session. The receiver-stall branch excludes exactly that state
+    before it calls us; it requires the deliverable to be missing AND the
+    receiver's pane to have read idle on consecutive passes. That is the
+    case dispatch's own --force documentation names: a `dispatched` that was
+    logged but genuinely did not land. MAX_NUDGES_PER_STEP still caps the
+    attempts, so a role that cannot be revived escalates to a human rather
+    than being re-prompted forever.
     """
     stalled = stalled or role
     why = why or "wrote output but never signaled"
     log(f"NUDGE: {stalled} {why} (run {run_id}) — re-delivering "
-        f"{role}'s signal-complete")
+        f"{role}'s signal-complete{' (--force)' if force else ''}")
     if dry_run:
         log("  dry-run: signal-complete NOT sent")
         return True
@@ -284,6 +308,8 @@ def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False, stalled=None,
         "--from-role", role,
         "--id", run_id,
     ]
+    if force:
+        cmd.append("--force")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 timeout=120, cwd=str(PROJECT_ROOT))
@@ -592,8 +618,12 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
             state[key] = state.get(key, 0) + 1
             save_state(state)
         state.pop(idle_key, None)
+        # Only a receiver stall needs --force: its transition is already on
+        # trace.log as delivered. A sender stall never signalled, so nothing
+        # suppresses it and forcing would only widen the blast radius.
         nudge(step["from_role"], run_id, flow_key, dry_run,
-              stalled=stalled, why=why)
+              stalled=stalled, why=why,
+              force=(stalled == step["to_role"]))
         return "nudged"
     return "idle"
 

@@ -792,6 +792,35 @@ def _strip_xml_tags(text):
     return text.strip()
 
 
+def wait_for_pane_idle(session_name, timeout=45, poll=1.5):
+    """Block until the client's pane is quiet: no activity markers and no
+    change between two consecutive reads.
+
+    This exists because a fixed `time.sleep(2)` after the fresh-session
+    command was not long enough for OpenCode, and the cost of being early
+    is not a slow dispatch but a corrupted one -- the task text lands in an
+    input box the client is still redrawing, and what gets submitted is not
+    what was sent. See inject_prompt for the measured failure.
+
+    Returns True when the pane settled, False on timeout. A timeout is
+    reported and then ignored: a late dispatch beats a blocked chain, and
+    the caller's own submit-verification still runs.
+    """
+    deadline = time.time() + timeout
+    previous = None
+    while time.time() < deadline:
+        tail = _pane_tail(session_name)
+        if previous is not None and tail == previous and not any(
+            marker in tail for marker in _ACTIVITY_MARKERS
+        ):
+            return True
+        previous = tail
+        time.sleep(poll)
+    print(f"  Pane idle wait: '{session_name}' still changing after "
+          f"{timeout}s — proceeding anyway")
+    return False
+
+
 def inject_prompt(session_name, text, enter_command="default",
                   fresh_session_command=None):
     """Detect tool type and route to correct injection method.
@@ -825,9 +854,30 @@ def inject_prompt(session_name, text, enter_command="default",
              fresh_session_command, "Enter"],
             capture_output=True,
         )
-        time.sleep(2)
+        # The reset must land as its OWN submission before the task text is
+        # pasted. It previously did not, and the consequence was measured on
+        # 2026-08-12 across nine consecutive reveng handoffs: every one of
+        # them produced the reply "Context reset acknowledged." and nothing
+        # else, and every one had to be rescued by a human typing "continue".
+        #
+        # OpenCode does not execute `/clear` on Enter -- it expands the
+        # command's template into the input box. Two seconds later the task
+        # was pasted into that same box, and the trailing Enter submitted
+        # both as a single message. The model then read the template's own
+        # closing line, "Treat the next user message as the authoritative
+        # task. Reply only: Context reset acknowledged.", with the task
+        # appended below it, and obeyed exactly that. The paste also
+        # overwrote the soft-clear preamble built below, so the instruction
+        # meant to govern the turn never arrived at all.
+        #
+        # Submitting the reset on its own makes the template's wording true:
+        # the task really does arrive as the next message. verify_injection_
+        # submitted sends the Enter that a staged-but-unsubmitted command
+        # needs; wait_for_pane_idle then keeps the paste out of a redraw.
+        verify_injection_submitted(session_name, attempts=2, settle_seconds=3)
+        wait_for_pane_idle(session_name)
         print(f"  Fresh session: {fresh_session_command} sent to "
-              f"'{session_name}' (context reset before task)")
+              f"'{session_name}' (context reset submitted before task)")
     if tool == "opencode":
         # Strip XML tags to prevent model from hallucinating XML function calls
         clean_text = _strip_xml_tags(text)
@@ -1891,7 +1941,14 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             return True
         except OSError:
             pass  # lock unavailable (fs issue) — trace guard still applies
-        if transition_recently_delivered(
+        # `not force` was missing here while the human branch above had it,
+        # so --force was inert on the agent path — the one path that matters
+        # for a stalled chain. The message below has always said "use --force
+        # to override" and the flag has never been consulted, which is why
+        # chain_watchdog could not repair a receiver stall: its re-delivery is
+        # the same transition the guard has recorded, and the only documented
+        # escape hatch did nothing. Measured on reveng handoff 010.
+        if not force and transition_recently_delivered(
                 bridge_dir, payload["from_role"], payload["to_role"],
                 handoff_id):
             print(f"  SKIP: {payload['from_role']}->{payload['to_role']} "

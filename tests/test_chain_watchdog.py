@@ -100,9 +100,10 @@ def flow(tmp_path, monkeypatch):
 
         def record_nudges(self, monkeypatch=monkeypatch):
             def fake_nudge(role, run_id, flow_key=cw.FLOW_KEY, dry_run=False,
-                           stalled=None, why=None):
+                           stalled=None, why=None, force=False):
                 self.nudges.append({"role": role, "run_id": run_id,
-                                    "stalled": stalled or role, "why": why})
+                                    "stalled": stalled or role, "why": why,
+                                    "force": force})
                 return True
             monkeypatch.setattr(cw, "nudge", fake_nudge)
 
@@ -193,9 +194,16 @@ def test_receiver_stall_is_nudged_once_the_inbound_signal_ages_out(flow):
     assert status == "nudged"
     assert flow.nudges == [{"role": "imple01", "run_id": "21",
                             "stalled": "review01",
-                            "why": flow.nudges[0]["why"]}]
+                            "why": flow.nudges[0]["why"],
+                            "force": True}]
     assert "review01" != flow.nudges[0]["role"], "re-delivery goes via sender"
     assert flow.nudges[0]["why"], "the nudge must state why review01 is stalled"
+    # The transition imple01->review01 #21 is already on trace.log as
+    # delivered, so an unforced re-delivery is suppressed as a duplicate and
+    # the receiver is never re-prompted. Without this the repair is a no-op.
+    assert flow.nudges[0]["force"] is True, (
+        "a receiver stall must force past the idempotency guard"
+    )
 
 
 def test_receiver_stall_names_the_receiver_not_the_sender(flow):
@@ -256,6 +264,11 @@ def test_sender_stall_is_still_detected_when_no_signal_was_sent(flow):
     assert flow.check() == "nudged"
     assert flow.nudges[0]["role"] == "review02"
     assert flow.nudges[0]["stalled"] == "review02"
+    # A sender stall never signalled, so no guard entry exists to bypass.
+    # Forcing here would only widen what the guard is meant to contain.
+    assert flow.nudges[0]["force"] is False, (
+        "a sender stall must not force past the idempotency guard"
+    )
 
 
 def test_flow_owner_is_never_reported_as_the_stalled_role(flow):
