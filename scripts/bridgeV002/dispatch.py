@@ -632,6 +632,12 @@ def get_pane_command(session_name):
     cmd = result.stdout.strip().lower()
     if "opencode" in cmd:
         return "opencode"
+    # Checked before the "node" test below on purpose: pi is a node program,
+    # and matching it as "claude" would route its prompts down the raw
+    # send-keys path — no XML stripping, no soft-clear preamble — which is
+    # the shape that cost nine reveng handoffs a human nudge each.
+    elif cmd == "pi" or cmd.endswith("/pi"):
+        return "pi"
     elif "node" in cmd or "claude" in cmd:
         return "claude"
     return "unknown"
@@ -808,10 +814,11 @@ def wait_for_pane_idle(session_name, timeout=45, poll=1.5):
     """
     deadline = time.time() + timeout
     previous = None
+    markers = activity_markers(session_name)
     while time.time() < deadline:
         tail = _pane_tail(session_name)
         if previous is not None and tail == previous and not any(
-            marker in tail for marker in _ACTIVITY_MARKERS
+            marker in tail for marker in markers
         ):
             return True
         previous = tail
@@ -878,7 +885,12 @@ def inject_prompt(session_name, text, enter_command="default",
         wait_for_pane_idle(session_name)
         print(f"  Fresh session: {fresh_session_command} sent to "
               f"'{session_name}' (context reset submitted before task)")
-    if tool == "opencode":
+    if tool in ("opencode", "pi"):
+        # Pi gets the same treatment as OpenCode, for the same two reasons:
+        # a prompt full of XML invites a model to answer in XML instead of
+        # calling a tool, and a task arriving without the soft-clear preamble
+        # is a task the model may treat as commentary on the previous one.
+        # Neither is client-specific.
         # Strip XML tags to prevent model from hallucinating XML function calls
         clean_text = _strip_xml_tags(text)
         soft_clear = (
@@ -909,6 +921,27 @@ def inject_prompt(session_name, text, enter_command="default",
 # ("· ← for agents", token totals), so only genuine in-progress signals
 # count — the interrupt hint and the live download counter.
 _ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
+
+# Pi's footer is not OpenCode's, and reading it with OpenCode's markers is
+# worse than not reading it at all. Pi shows "⠦ Working..." while a turn is
+# in flight, and once the first turn has finished its footer permanently
+# carries a token counter of the form "↑11 ↓81 R1.5k CH99.3%" — which
+# contains "↓", one of the markers above. A finished Pi pane would therefore
+# read as busy forever, which is the same false-active reading that let a
+# dead reveng role sit unrepaired for two hours on 2026-08-12, arrived at
+# from the opposite direction.
+_ACTIVITY_MARKERS_BY_TOOL = {
+    "pi": ("working...",),
+}
+
+
+def activity_markers(session_name):
+    """Busy markers for whichever client occupies this session's pane."""
+    return _ACTIVITY_MARKERS_BY_TOOL.get(
+        get_pane_command(session_name), _ACTIVITY_MARKERS
+    )
+
+
 _PASTE_STUCK_MARKER = "paste again to expand"
 
 
@@ -1009,6 +1042,7 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
     paste-expand hint or no activity. Remedy: resend Enter, recheck.
     Never raises; prints the outcome for the dispatch log.
     """
+    markers = activity_markers(session_name)
     for attempt in range(1, attempts + 1):
         time.sleep(settle_seconds)
         tail = _pane_tail(session_name)
@@ -1019,7 +1053,7 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
                             _pane_target(session_name),
                             "Enter"], capture_output=True)
             continue
-        if any(marker in tail for marker in _ACTIVITY_MARKERS):
+        if any(marker in tail for marker in markers):
             print(f"  Injection verify: '{session_name}' active "
                   f"(attempt {attempt})")
             return True
@@ -1031,7 +1065,7 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
                         _pane_target(session_name),
                         "Enter"], capture_output=True)
     tail = _pane_tail(session_name)
-    submitted = any(m in tail for m in _ACTIVITY_MARKERS)
+    submitted = any(m in tail for m in markers)
     print(f"  Injection verify: final state for '{session_name}': "
           f"{'active' if submitted else 'UNCONFIRMED — check pane manually'}")
     return submitted
