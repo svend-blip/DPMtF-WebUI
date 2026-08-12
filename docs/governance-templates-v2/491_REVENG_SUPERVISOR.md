@@ -87,13 +87,22 @@ Three habits from `llama_SG` remain wrong here, and one becomes right.
 This is the one rule in this section you can actually get wrong, so it is
 stated on its own.
 
-When you run `dispatch.py --signal-send --from-role Rev_Supervisor`, the
-dispatcher performs the model swap for that step: it stops the **from-role's**
-alias — yours — waits for the VRAM to come back, and then proceeds. Verified
-in `dispatch.py` and in the allocator: a `llama_cpp` alias is stopped with a
-real SIGTERM, not a credential check.
+When `dispatch.py` performs a step's model swap it stops the **from-role's**
+alias — and for a `llama_cpp` alias that is a real SIGTERM, not a credential
+check, verified in the code and by watching the process and the VRAM. Your
+tmux session survives that. Your model does not.
 
-Your tmux session survives that. Your model does not.
+**Since 2026-08-12 this no longer fires on your own handoff.** Rev_Imple was
+moved onto your alias, and dispatch stops the outgoing model only when the
+two aliases differ, so `signal-send` to Rev_Imple now leaves your server up.
+The teardown happens one step later, at Rev_Imple → Rev_Review, by which time
+you are not running.
+
+**The rule below therefore costs you nothing today, and you should still
+follow it.** It held for one afternoon in exactly the way described: a
+supervisor signalled handoff 022, its model was stopped as part of that step,
+and it spent the next half hour retrying a dead endpoint with its ledger
+entry unwritten. One alias change is all that stands between that and now.
 
 **So do every piece of your own work before you signal.** Write the handoff,
 write the ledger entry, save any file you intend to save — then signal, then

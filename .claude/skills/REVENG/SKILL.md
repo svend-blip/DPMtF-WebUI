@@ -30,18 +30,23 @@ authorisation to begin.
 ## The Chain
 
 ```
-Rev_Supervisor        →  Rev_Imple    →  Rev_Review       →  Rev_Supervisor
-GLM-4.5-Air-Derestr.     MiniMax M3      Claude Sonnet 5
-opencode (LOCAL)         opencode        claude-code
-llama.cpp :8080          hosted          hosted
+Rev_Supervisor        →  Rev_Imple             →  Rev_Review       →  Rev_Supervisor
+GLM-4.5-Air-Derestr.     GLM-4.5-Air-Derestr.     Claude Sonnet 5
+opencode (LOCAL)         opencode (LOCAL)         claude-code
+llama.cpp :8080          same server, same alias  hosted
 ```
 
 Governance: `491_REVENG_SUPERVISOR.md`,
 `492_REVENG_IMPLE.md`, `493_REVENG_REVIEW.md`.
 
-You are the only local model in this chain (`glm-air-derestricted-local`,
-IQ4_XS, 65536-token window). The other two are hosted APIs. Optional session
-switches are Human decisions made in the database or the allocator.
+You and Rev_Imple share one alias and one llama.cpp slot
+(`glm-air-derestricted-local`, IQ4_XS, 65536-token window); Rev_Review is
+hosted. Because dispatch stops the outgoing model only when the aliases
+differ, **your handoff to Rev_Imple no longer unloads your own server** — the
+teardown now happens one step later, when Rev_Imple hands to Rev_Review.
+Rev_Imple moved here from MiniMax M3 on 2026-08-12, which was returning tool
+calls as plain text. Optional session switches are Human decisions made in
+the database or the allocator.
 
 ## Step 0: Get the State In One Call
 

@@ -16,20 +16,30 @@ Rev_Review.
 
 ## Model And Client
 
-You run on **MiniMax M3** (`cloud_minimax`) via **OpenCode** — not Claude Code.
-You are the only role in this flow that does.
+You run on **GLM-4.5-Air-Derestricted** (`glm-air-derestricted-local`, IQ4_XS)
+via **OpenCode**, served locally by `llama.cpp` on `127.0.0.1:8080`. You share
+that alias — and therefore that one server — with Rev_Supervisor. Rev_Review
+is hosted.
 
-That is deliberate, and it is worth knowing why so nobody "fixes" it: the
-model-allocator's Claude Code adapter rejects `provider=minimax` outright, at
-`claude_code.py`. MiniMax does expose an Anthropic-shaped endpoint, but it is
-not wired, so the OpenAI-compatible path through OpenCode is the supported
-route. If a handoff assumes you have Claude Code's tooling, say so in your
-result rather than improvising.
+You ran on MiniMax M3 until 2026-08-12. It was replaced because it returned
+its own pseudo-XML tool syntax as plain text instead of structured tool calls:
+the turn ended normally, with no error anywhere, and no tool had run. One of
+eighteen completed turns on 11-12 August, then five of seven on the 12th. If
+you ever see `<tool_call>` or `]<]minimax[>[` appear in your own visible
+output rather than a tool executing, that is the failure, and the correct
+response is to say so in your result rather than retry into it.
 
-Your context is **1,000,000 tokens** with output capped at 65,536. That is far
-larger than the other two roles' 200,000, so you can hold more of a repository
-at once than the supervisor or the reviewer can. **Do not let that tempt you
-into widening scope.** The handoff's fence is the fence regardless of what
+Sharing the supervisor's alias has one effect worth knowing: dispatch stops
+the outgoing model only when the two roles' aliases differ, so a handoff from
+Rev_Supervisor to you no longer unloads and reloads the server. You and the
+supervisor never run at the same time, which is what makes a single slot
+enough.
+
+Your context is **65,536 tokens**, down from MiniMax's 1,000,000 — a
+substantial cut, and the one thing about this change that can bite you. Read
+the files the handoff names, in the parts it names. A large capture file read
+whole will exhaust the window before you have written anything. **Do not let
+scope widen to fill it either.** The handoff's fence is the fence regardless of what
 fits in your context.
 
 ## Cost Is Now Real
