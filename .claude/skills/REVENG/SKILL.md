@@ -11,6 +11,13 @@ wake-up by design (491): this procedure is the same rebuild it performs on
 every verdict delivery — run it manually whenever the session starts cold
 outside a dispatch.
 
+**This file is read by both clients.** Rev_Supervisor runs under OpenCode,
+which discovers it at `.claude/skills/REVENG/SKILL.md` in the Father
+repository and offers it both as a skill and as the `/Rev-Eng` command; the
+Human's own Claude Code session reads the same file from the same path. There
+is no second copy to keep in step, and none should be made — verified with
+`opencode debug skill` on 2026-08-12.
+
 **The invocation carries no arguments, and needs none.** Everything about the
 current run is discoverable and Step 0 discovers it. If you find yourself
 being told the run number, the first handoff id, or that a guard is already
@@ -23,16 +30,18 @@ authorisation to begin.
 ## The Chain
 
 ```
-Rev_Supervisor  →  Rev_Imple  →  Rev_Review  →  Rev_Supervisor
-DeepSeek V4 Pro    MiniMax M3       Claude Sonnet 5
-claude-code      opencode         claude-code
+Rev_Supervisor        →  Rev_Imple    →  Rev_Review       →  Rev_Supervisor
+GLM-4.5-Air-Derestr.     MiniMax M3      Claude Sonnet 5
+opencode (LOCAL)         opencode        claude-code
+llama.cpp :8080          hosted          hosted
 ```
 
 Governance: `491_REVENG_SUPERVISOR.md`,
 `492_REVENG_IMPLE.md`, `493_REVENG_REVIEW.md`.
 
-Optional session switches, both Human decisions made in the database or the
-allocator: Rev_Supervisor → Fable 5, Rev_Review → Fable.
+You are the only local model in this chain (`glm-air-derestricted-local`,
+IQ4_XS, 65536-token window). The other two are hosted APIs. Optional session
+switches are Human decisions made in the database or the allocator.
 
 ## Step 0: Get the State In One Call
 
@@ -59,8 +68,10 @@ already spent.
 | `HANDOFF nnn DISPATCHED` / `RESULT DELIVERED` | A role is working. Wait. Do not dispatch. |
 | `VERDICT READY for nnn` | Validate the testgoals yourself, then act per 491. |
 
-The report is flow-aware: it names this flow's own tmux sessions, and it does
-not probe a local model server, because none of these three roles has one.
+The report is flow-aware: it names this flow's own tmux sessions, and since
+2026-08-12 it probes `:8080` and prints `local model  reachable`, because one
+role in this flow — yours — is now locally served. That line is for the Human.
+See Step 2 for why it is not a precondition for you.
 
 ## Step 1: Read The Sections You Need
 
@@ -69,14 +80,17 @@ file, and let Step 0's assessment choose which:
 
 | Step 0 said | Read from 491 |
 |---|---|
-| `RUN OPENED, CHAIN NOT STARTED` | Wake-Up Protocol · Event Handling · **What Cloud Changes** · Decision Matrix · Ledger Entry Format · Stop Conditions |
-| `VERDICT READY` | Wake-Up Protocol · Event Handling · **Validating an APPROVED Verdict** · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| `RUN OPENED, CHAIN NOT STARTED` | Wake-Up Protocol · Event Handling · **What A Mixed Flow Changes** (incl. *Signalling Stops Your Own Model*) · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| `VERDICT READY` | Wake-Up Protocol · Event Handling · **Validating an APPROVED Verdict** · **Signalling Stops Your Own Model** · Decision Matrix · Ledger Entry Format · Stop Conditions |
 | `PARK` or `NO ACTIVE RUN` | Stop Conditions, and nothing else — you are reporting, not acting |
 
 Read `500_SUPERVISOR.md` once per run, not per wake-up.
 
-**Read "What Cloud Changes" before your first dispatch of a run.** It is the
-section that stops habits from the local flow being applied here.
+**Read "What A Mixed Flow Changes" before your first dispatch of a run.** It
+is the section that keeps habits from the all-local and all-cloud flows from
+being applied wholesale here, where one role is local and two are hosted. Its
+subsection *Signalling Stops Your Own Model* is the one rule you can get
+wrong by acting in a reasonable-looking order.
 
 ## Step 2: Verify The Chain Can Run
 
@@ -88,14 +102,23 @@ for s in Rev_Supervisor Rev_Imple Rev_Review; do
 done
 ```
 
-There is no model server to check. What can fail instead is credentials and
-quota, and that surfaces as an API error on the first call — not as something
-you can probe in advance. Do not try.
+Step 0 already probes your own model server on `:8080` and prints
+`local model  reachable`. Do not probe it a second time, and do not treat it
+as a precondition to verify: you are running, so it started. It is in the
+report for the Human, not for you.
+
+For Rev_Imple and Rev_Review there is nothing to probe at all. What fails
+there is credentials and quota, and that surfaces as an API error on the
+first call — not as something you can check in advance. Do not try.
 
 ## Framework Questions Go To mcp-light
 
-`mcp-light` is registered in `~/.mcp.json` at `http://127.0.0.1:9135/mcp` and
-every role inherits it. Use it for anything about how the flow is wired:
+`mcp-light` serves this flow's wiring at `http://127.0.0.1:9135/mcp`. You run
+under OpenCode, which does not read `~/.mcp.json` — yours is declared in the
+`mcp` block of `~/.config/opencode-roles/Rev_Supervisor/opencode.json`, and
+the allocator's config refresh preserves it. If the tools below are not
+offered to you, that block is what to check; do not fall back to deriving the
+answers by hand. Use it for anything about how the flow is wired:
 
 | Question | Tool |
 |---|---|
@@ -185,21 +208,40 @@ Prints a skeleton with the facts filled in and every judgement left as `TODO`.
 Nothing is written to disk: review it, replace every `TODO`, save it yourself.
 Do not go looking at closed runs for the format.
 
-## What Does Not Apply Here
+## What Applies Here, And What Does Not
 
-Habits from `llama_SG` that are wrong in this flow:
+Until 2026-08-12 this section said the flow was entirely hosted. One role —
+yours — is now local, so the list has both kinds of entry. Read which is
+which; half of it is the `llama_SG` habit being right again.
 
-- **No model swapping.** All three aliases are `cloud_noop`; start and stop are
-  credential checks. There are no lifecycle scripts on the steps, and the
-  swap-failure defects (backlog items 5, 6, 7) cannot occur.
-- **`ConnectionRefused` is not routine.** In the local flow it is the ordinary
-  state after a dispatch, because the supervisor's model was stopped to make
-  room. Here it means the API is genuinely unreachable. Park and report it.
-- **Do not run `laguna_swap_guard.py`.** It watches for a local model that
-  does not exist in this flow.
-- **Cost replaces contention.** Every token is billed. A rate limit or quota
-  error is a stop condition, not a transient — retry once, then park with the
+**Now true of you, having been false before:**
+
+- **Your model is swapped.** `glm-air-derestricted-local` is stopped when you
+  hand off and started when a verdict returns (~35s). The VRAM settle check in
+  the dispatch log now has something to wait for.
+- **`ConnectionRefused` on `:8080` right after your own `signal-send` is
+  routine** — the dispatcher stopped your server as part of that step. Do all
+  your writing, including the ledger entry, *before* you signal. Do not park
+  over it and do not retry.
+
+**Still true — do not import these from `llama_SG`:**
+
+- **Rev_Imple and Rev_Review are hosted.** Nothing about them is VRAM, a
+  lease, or a swap. A failed call there is network, credentials or an outage.
+- **Backlog items 5, 6 and 7 do not apply.** They are defects of a chain with
+  three local models contending for one card. You are one local model.
+- **Do not run `laguna_swap_guard.py`.** It watches a model this flow does not
+  use — though note `laguna-local` shares your port, so a `llama_SG` run that
+  left its server resident is one of the few things that can stop you starting.
+- **Cost still governs the other two.** Your own tokens are free; every token
+  Rev_Imple and Rev_Review spend is billed. A rate limit or quota error from
+  them is a stop condition, not a transient — retry once, then park with the
   error text.
+
+**New, and about you rather than the chain:** your window is 65536 tokens and
+prompt processing runs near 121 tok/s. Reading a whole governance file costs
+minutes of wall-clock before you emit a token, which is why Step 1 sends you
+to sections. That instruction is now load-bearing, not tidiness.
 
 ## Rules
 
@@ -212,10 +254,17 @@ Habits from `llama_SG` that are wrong in this flow:
   `signal_complete_failed`, the deliverable is not where dispatch looked.
   Fix it and signal again — a claimed signal that failed leaves the chain
   blocked with nobody aware.
-- **Do not delegate to a subagent.** Everything here is a file read, a `grep`,
-  an `ls`, a database query or an mcp-light call you can make directly.
+- **Finish writing before you signal.** `signal-send` stops your own model as
+  part of the step. Handoff written, ledger entry appended, files saved —
+  then signal, then stop. Afterwards you have no model to compose with, and
+  the entry that explains what you did is the thing that goes missing.
+- **Do not delegate to a subagent or an OpenCode agent.** Everything here is a
+  file read, a `grep`, an `ls`, a database query or an mcp-light call you can
+  make directly.
 - **Do not read the source of the tools you are told to run.** Their
-  invocations are documented above and in CLAUDE.md §8.
+  invocations are documented above, and in CLAUDE.md §8 if you need more —
+  that file is not loaded into your context, so read the section, not the
+  whole file.
 - **Loop guard:** never send `signal_complete` for a verdict delivery you are
   processing — the next handoff gets a new id from the flow counter.
 - **Append a ledger entry for every action** — the ledger, not the session, is
