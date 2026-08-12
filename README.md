@@ -211,6 +211,18 @@ DPMtF calls the allocator CLI during dispatch (`start`/`stop`/`validate`)
 but does not manage model configuration — that lives entirely in the
 allocator repo.
 
+**Model and frontend are separate choices.** The allocator resolves a role
+to a model; `bridge_roles.allocator_client` decides which code frontend
+drives it. Three are supported — `claude-code`, `opencode` and `pi` — and a
+role can move between them without its model, runtime or governance
+changing. That is what makes a same-model comparison of two frontends
+possible, which is what the `pi_test` flow exists to do.
+
+Swapping a frontend is a migration plus a session restart, and it must not
+require rewriting the flow's procedures. The rule, the placement
+requirements and the per-frontend differences that do exist are in
+`docs/governance-templates-v2/101_CODE_FRONTENDS.md`.
+
 ### Trade Cockpit Orchestration
 
 The Father hosts the cronjobs that drive the trade-ui's automated flows:
@@ -286,12 +298,35 @@ prompt parsing.
   role via `~/.config/opencode-roles/{role}/opencode.json` with permissions
   (`external_directory: allow`, `bash: allow`, `edit: allow`)
 
-### Claude Code Skills
+### Cold-Start Skills
 
-`.claude/skills/` contains role-specific skill definitions:
-- `STRICTREVIEW` — strict_review flow monitoring and chain advancement
-- `CLOUDLLM` — cloud LLM flow configuration
-- `CLOUDPAY` — cloud pay flow configuration
+`.claude/skills/` holds the cold-start procedures. Despite the directory
+name they are **not** Claude Code-specific: one skill per flow, written so
+that Claude Code, OpenCode and Pi all read the same file. Swapping a flow's
+code frontend must never mean rewriting its procedures — see
+`docs/governance-templates-v2/101_CODE_FRONTENDS.md` for the rule.
+
+| Skill | Covers |
+|---|---|
+| `dpmtf-cold-start` | any dispatched worker, any flow — orientation, fencing, verification, signalling |
+| `REVENG` | `reveng` supervisor |
+| `LLAMASG` | `llama_SG` supervisor |
+| `PRECLOUD` | `preferred_cloud` supervisor |
+| `SUPERVISEDREVIEW` | `supervised_review` supervisor |
+| `STRICTREVIEW` | `strict_review` architect |
+| `CLOUDLLM` / `CLOUDPAY` | `cloud_llm` / `cloud_pay` architects |
+
+A worker's working directory is the **target project**, not Father, so a
+skill stored only in this repository is invisible to it. Skills meant for
+workers are published by symlink into `~/.agents/skills/` (Pi, OpenCode) and
+`~/.claude/skills/` (Claude Code, OpenCode); the source stays here under
+git. Verify from a target project, never from Father:
+
+```bash
+cd <target_project>
+opencode debug skill | grep <name>
+pi --print "List the names of the skills available to you. Names only."
+```
 
 ## Testing
 
