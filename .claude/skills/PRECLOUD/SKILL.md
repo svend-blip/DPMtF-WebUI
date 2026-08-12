@@ -94,8 +94,13 @@ you can probe in advance. Do not try.
 
 ## Framework Questions Go To mcp-light
 
-`mcp-light` is registered in `~/.mcp.json` at `http://127.0.0.1:9135/mcp` and
-every role inherits it. Use it for anything about how the flow is wired:
+`mcp-light` serves this flow's wiring at `http://127.0.0.1:9135/mcp`. You
+run under Claude Code, which reads `~/.mcp.json`, so this session already
+has it — but that path is the client's, not the flow's. Pre-imple-cl runs
+under OpenCode and gets mcp-light from the `mcp` block in its own
+`opencode.json`; a Pi role would get it from Pi's settings (101). Do not
+assume a role has it because you do. Use it for anything about how the flow
+is wired:
 
 | Question | Tool |
 |---|---|

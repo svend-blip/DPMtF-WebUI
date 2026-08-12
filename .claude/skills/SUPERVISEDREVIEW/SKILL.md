@@ -118,11 +118,29 @@ callback but diagnosed differently:
   that signal's age, because the sender's file age says nothing about how
   long the receiver has been silent.
 
-tmux capture-pane history is useless for either (TUI redraw) — the
-discriminator is a pane freeze (`capture-pane | md5sum` identical across
-90 s) plus the status line reading `ctrl+p commands` rather than
-`esc interrupt`. Diagnose via `{bridge_dir}/trace.log` and the OpenCode
-session DB (`~/.local/share/opencode/opencode.db`, table `part`).
+**Do not decide either from the pane.** capture-pane history is useless for
+this (TUI redraw), and the status line is worse than useless: it is
+frontend-specific and wrong in both directions. Measured 2026-08-12 — an
+OpenCode role one minute into real work showed no `esc interrupt` and read
+as idle, while a role whose request had died showed `esc interrupt` for two
+hours and read as busy. A Pi pane fails differently again: its footer
+carries a token counter containing `↓`, which is itself one of the markers,
+so a finished Pi role reads as busy forever.
+
+Two sources are factual rather than cosmetic, and both should agree before
+you act:
+
+- **`{bridge_dir}/trace.log`** — what was delivered, when, and to whom.
+- **The role's own session, read from the client it actually runs.** For
+  OpenCode: `opencode session list` then `opencode export <id>`, with the
+  role's `OPENCODE_CONFIG` set and its working directory as cwd; a turn
+  still in flight has no `completed` timestamp. For Pi: its session files,
+  unless the role runs `--no-session`, in which case trace.log is all there
+  is. For a locally served model, `curl :8080/slots` reports
+  `is_processing`, which is the one signal no TUI can misreport.
+
+Which of those applies depends on the role's `allocator_client`, not on
+this flow — see `101_CODE_FRONTENDS.md`.
 
 ### Step 7: Report to Human
 

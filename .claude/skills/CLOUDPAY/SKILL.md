@@ -5,8 +5,12 @@ description: Reconstruct the Architect's full context after a cold start or olla
 
 # CLOUDPAY — Architect Cold-Start
 
-Invoke with `/CLOUDPAY` to reconstruct the Architect's full context after
+Invoke with `/cloud-pay` to reconstruct the Architect's full context after
 a cold start or `ollama stop` cycle in the `cloud_pay` flow.
+
+The command follows this file's frontmatter `name`, not its directory or its
+heading. It read `/CLOUDPAY` until 2026-08-12, which no client has ever
+offered.
 
 ## Procedure
 

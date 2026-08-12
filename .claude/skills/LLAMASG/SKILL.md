@@ -228,9 +228,13 @@ invocation.
 
 ## Framework Questions Go To mcp-light
 
-`mcp-light` is registered in `~/.mcp.json` at `http://127.0.0.1:9135/mcp`, and
-every role's `bridge_roles.config_dir` is `NULL`, so this session already has
-it. **Use it for anything about how the
+`mcp-light` serves this flow's wiring at `http://127.0.0.1:9135/mcp`. All
+three roles here run under Claude Code, which reads `~/.mcp.json`, so this
+session already has it. That path is the client's, not the flow's: an
+OpenCode role gets mcp-light from the `mcp` block in its own
+`opencode.json`, and a Pi role from Pi's settings (101). If the tools below
+are not offered to you, check whichever of those applies rather than
+deriving the answers by hand. **Use it for anything about how the
 flow is wired.** It answers from the database in one call, with structured
 output:
 
