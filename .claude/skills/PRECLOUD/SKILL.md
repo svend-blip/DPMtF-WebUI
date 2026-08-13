@@ -55,9 +55,27 @@ already spent.
 |---|---|
 | `NO ACTIVE RUN` | Every run has an END-REPORT. A new run needs a Human-approved GOAL.md — never open one yourself. |
 | `PARK` | GOAL.md or the floor is missing. Report and wait; do not adopt what is on disk. |
-| `RUN OPENED, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
-| `HANDOFF nnn DISPATCHED` / `RESULT DELIVERED` | A role is working. Wait. Do not dispatch. |
-| `VERDICT READY for nnn` | Validate the testgoals yourself, then act per 471. |
+| `RUN OPENED …, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
+| `HANDOFF nnn DISPATCHED (…)` / `RESULT DELIVERED (…)` | A role is working. Wait. Do not dispatch. Each carries how long since the chain last moved — read it. |
+| `STALLED — …` | No movement for longer than `--stale-after` (default 3 h). **Not slowness.** See below. |
+| `VERDICT READY for nnn (…)` | Validate the testgoals yourself, then act per 471. |
+
+Every line about the current handoff now carries an age, and a
+`Last movement` line names the newest evidence behind it — a trace signal, the
+handoff file's mtime, the ledger's, or GOAL.md's. Read the age. On 2026-08-09
+handoff 035 was dispatched, the implementer's session was recycled the same
+evening, and this report said *"the implementer is working"* for three and a
+half days: it was right that no result existed and wrong about what that meant,
+because nothing measured how long the absence had lasted.
+
+**`STALLED` is a stop condition, not a nudge cue.** Verify the target session
+still holds the dispatch before anything else — a recycled session cannot
+answer, and re-dispatching is the wrong reflex. Check too whether the handoff is
+still runnable: 035's own md5 guard pinned 23 files that had since moved, so
+replaying it would have failed against correct work. The bound sits at three
+hours deliberately, above the 128 minutes handoff 034 legitimately took; a guard
+that fires on a working chain is worse than no guard. Lower it with
+`--stale-after MINUTES` when you have reason to, never to make a quiet report.
 
 The report is flow-aware: it names this flow's own tmux sessions, and it does
 not probe a local model server, because none of these three roles has one.
@@ -71,6 +89,7 @@ file, and let Step 0's assessment choose which:
 |---|---|
 | `RUN OPENED, CHAIN NOT STARTED` | Wake-Up Protocol · Event Handling · **What Cloud Changes** · Decision Matrix · Ledger Entry Format · Stop Conditions |
 | `VERDICT READY` | Wake-Up Protocol · Event Handling · **Validating an APPROVED Verdict** · Decision Matrix · Ledger Entry Format · Stop Conditions |
+| `STALLED` | Stop Conditions first, then Event Handling — establish what is blocked before you act |
 | `PARK` or `NO ACTIVE RUN` | Stop Conditions, and nothing else — you are reporting, not acting |
 
 Read `500_SUPERVISOR.md` once per run, not per wake-up.

@@ -46,9 +46,15 @@ Read the assessment, then act on it:
 |---|---|
 | `NO ACTIVE RUN` | Every run has an END-REPORT. A new run needs a Human-approved GOAL.md — never open one yourself. |
 | `PARK` | GOAL.md or the handoff floor is missing. Report and wait; do not adopt what is on disk. |
-| `RUN OPENED, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
-| `HANDOFF nnn DISPATCHED` / `RESULT DELIVERED` | A role is working. Wait. Do not dispatch. |
-| `VERDICT READY for nnn` | Validate the testgoals yourself, then act per 461. |
+| `RUN OPENED …, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
+| `HANDOFF nnn DISPATCHED (…)` / `RESULT DELIVERED (…)` | A role is working. Wait. Do not dispatch. Each carries how long since the chain last moved — read it. |
+| `STALLED — …` | No movement for longer than `--stale-after` (default 3 h). **Not slowness:** verify the target session still holds the dispatch, and check the handoff is still runnable against the current tree, before anything else. Re-dispatching is the wrong reflex — a recycled session cannot answer. Treat it as a stop condition. |
+| `VERDICT READY for nnn (…)` | Validate the testgoals yourself, then act per 461. |
+
+Every line about the current handoff carries an age, and a `Last movement` line
+names the evidence behind it. This exists because a preferred_cloud dispatch sat
+unanswered for three and a half days while the report called it *"the
+implementer is working"* — true that no result existed, wrong about why.
 
 You still need Step 4 — the role definitions — and Step 7's report. **Steps
 1-6 below are the long form**, kept because the script can fail and because

@@ -24,8 +24,10 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
@@ -37,6 +39,17 @@ import config  # noqa: E402
 # "**First handoff id: 011**", "First handoff id: 11", with or without markup.
 _FIRST_ID = re.compile(r"First handoff id:\s*\**\s*(\d+)", re.IGNORECASE)
 _HANDOFF_FILE = re.compile(r"^(\d+)-handoff\.md$")
+_TRACE_TS = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z")
+
+# How long a run may show no movement before the report calls it stalled rather
+# than working. Three hours, chosen against measured chain times rather than
+# taste: preferred_cloud run 015's handoff 034 legitimately took 128 minutes
+# including a stall and an OpenCode permission dialog, and 30 minutes of a role
+# thinking is ordinary. A bound below a slow-but-working handoff would fire on a
+# healthy chain, and a guard that acts on the wrong signal is worse than no
+# guard — one such guard stopped a working implementer's model four seconds
+# after its handoff was dispatched.
+_STALE_AFTER_SECONDS = 3 * 60 * 60
 
 
 def _probe(url, timeout=3):
@@ -162,6 +175,79 @@ def last_trace_signal(bridge_dir, flow_key, handoff_id, db_path=None):
     return found
 
 
+def trace_epoch(line):
+    """Epoch seconds for a trace line's UTC stamp, or None.
+
+    trace.log is UTC text; file mtimes are local-clock epochs. Comparing the
+    two as rendered strings invented a two-hour causal link that was not there,
+    so every time value in this module is an epoch and no formatted timestamp is
+    ever compared to another.
+    """
+    if not line:
+        return None
+    match = _TRACE_TS.search(line)
+    if not match:
+        return None
+    naive = datetime.strptime(match.group(1), "%Y-%m-%dT%H:%M:%S")
+    return naive.replace(tzinfo=timezone.utc).timestamp()
+
+
+def last_movement(bridge_dir, flow_key, run_path, current, last_signal):
+    """When this run last visibly moved, and what proves it.
+
+    The anchor is the LATEST evidence of movement, never the earliest. A stall
+    watcher written for llama_SG measured "time since the last signal" and
+    reported a stall forty-six minutes into a run six minutes old; measuring
+    from the later of the run's opening and the last signal is the fix. Where
+    the two disagree this deliberately under-reports the age, because accusing
+    a chain that is working costs more than noticing a stall late.
+
+    Returns {"epoch": float, "source": str} or None when nothing dates the run.
+    """
+    candidates = []
+
+    epoch = trace_epoch(last_signal)
+    if epoch is not None:
+        candidates.append((epoch, "trace signal"))
+
+    if current is not None:
+        handoff = Path(bridge_dir) / flow_key / "handoffs" / f"{current:03d}-handoff.md"
+        if handoff.exists():
+            # A written handoff is not a delivered one — only the trace line
+            # means delivered. It still dates the attempt, which is what a
+            # dispatch that never reached trace.log needs.
+            candidates.append((handoff.stat().st_mtime, "handoff file mtime"))
+
+    if run_path is not None:
+        for name, label in (("RUN-LEDGER.md", "RUN-LEDGER.md mtime"),
+                            ("GOAL.md", "GOAL.md mtime (run opening)")):
+            path = run_path / name
+            if path.exists():
+                candidates.append((path.stat().st_mtime, label))
+
+    if not candidates:
+        return None
+    epoch, source = max(candidates, key=lambda pair: pair[0])
+    return {"epoch": epoch, "source": source}
+
+
+def humanize_age(seconds):
+    """A duration a reader can judge at a glance. Never a bare number of seconds."""
+    if seconds is None:
+        return "age unknown"
+    seconds = max(0, int(seconds))
+    if seconds < 90:
+        return f"{seconds}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 48:
+        return f"{hours}h {minutes:02d}m ago"
+    days, hours = divmod(hours, 24)
+    return f"{days}d {hours}h ago"
+
+
 def flow_tmux_sessions(flow_key, db_path=None):
     """tmux session names for a flow's roles, from bridge_roles."""
     roles = flow_role_keys(flow_key, db_path=db_path)
@@ -216,9 +302,10 @@ def flow_role_keys(flow_key, db_path=None):
     return {role for row in rows for role in row if role}
 
 
-def collect(flow_key):
+def collect(flow_key, now=None, stale_after_seconds=_STALE_AFTER_SECONDS):
     bridge_dir = config.get_bridge_dir()
     run_path = active_run(bridge_dir, flow_key)
+    now = time.time() if now is None else now
 
     state = {
         "flow": flow_key,
@@ -232,6 +319,9 @@ def collect(flow_key):
         "current": None,
         "deliverables": {},
         "last_signal": None,
+        "last_movement": None,
+        "stale": False,
+        "stale_after_seconds": int(stale_after_seconds),
         "environment": {},
         "assessment": None,
         "missing": [],
@@ -254,6 +344,19 @@ def collect(flow_key):
         state["current"] = state["owned_handoffs"][-1]
         state["deliverables"] = deliverables_for(bridge_dir, flow_key, state["current"])
         state["last_signal"] = last_trace_signal(bridge_dir, flow_key, state["current"])
+
+    # How long since anything moved. Without this the report described a
+    # 3.5-day-old dispatch with a recycled target session in exactly the words
+    # it used for one made a minute ago (preferred_cloud run 015, handoff 035).
+    if run_path is not None:
+        movement = last_movement(bridge_dir, flow_key, run_path,
+                                 state["current"], state["last_signal"])
+        if movement is not None:
+            movement = dict(movement)
+            movement["seconds_ago"] = max(0, int(now - movement["epoch"]))
+            movement["ago"] = humanize_age(movement["seconds_ago"])
+            state["last_movement"] = movement
+            state["stale"] = movement["seconds_ago"] > state["stale_after_seconds"]
 
     # A flow needs a local model server only if one of its roles resolves to a
     # locally served alias. preferred_cloud's three are all cloud_noop, so
@@ -303,18 +406,49 @@ def _assess(state):
     if not state["artefacts"].get("BACKLOG.md"):
         missing.append("BACKLOG.md — author it as the first action")
 
+    movement = state["last_movement"]
+    ago = movement["ago"] if movement else "age unknown"
+    if state["stale"]:
+        missing.append(
+            f"no movement for {ago.removesuffix(' ago')} — newest evidence is the "
+            f"{movement['source']}"
+        )
+
     if not state["owned_handoffs"]:
-        return missing, ("RUN OPENED, CHAIN NOT STARTED — author BACKLOG.md and "
-                         "dispatch the first handoff per GOAL.md Standing Approvals")
+        opened = f"RUN OPENED {ago}" if movement else "RUN OPENED"
+        return missing, (f"{opened}, CHAIN NOT STARTED — author BACKLOG.md and "
+                         f"dispatch the first handoff per GOAL.md Standing Approvals")
 
     d = state["deliverables"]
     current = state["current"]
+
+    # A waiting verdict needs acting on whatever its age, so staleness informs
+    # it rather than replacing it. The two working states are the ones that lie:
+    # "no result yet" and "no verdict yet" are indistinguishable from a chain
+    # that has silently stopped.
     if d.get("verdict"):
-        return missing, (f"VERDICT READY for {current:03d} — validate the testgoals "
-                         f"yourself, then act per 461")
+        return missing, (f"VERDICT READY for {current:03d} ({ago}) — validate the "
+                         f"testgoals yourself, then act per 461")
+
     if d.get("result"):
-        return missing, f"RESULT DELIVERED for {current:03d} — the reviewer is working"
-    return missing, f"HANDOFF {current:03d} DISPATCHED — the implementer is working"
+        if state["stale"]:
+            return missing, (
+                f"STALLED — result {current:03d} was delivered {ago} and no verdict "
+                f"has landed. Check the reviewer's session is alive and that its "
+                f"delivery was not lost before you act; do not dispatch."
+            )
+        return missing, (f"RESULT DELIVERED for {current:03d} ({ago}) — the reviewer "
+                         f"is working")
+
+    if state["stale"]:
+        return missing, (
+            f"STALLED — handoff {current:03d} was dispatched {ago} and nothing has "
+            f"come back. Verify the target session still holds the dispatch (a "
+            f"recycled session cannot answer) and that the handoff is still "
+            f"runnable against the current tree; do not dispatch the next one."
+        )
+    return missing, (f"HANDOFF {current:03d} DISPATCHED ({ago}) — the implementer "
+                     f"is working")
 
 
 def render(state):
@@ -345,6 +479,11 @@ def render(state):
         add(f"Current {state['current']:03d}      {', '.join(have) or '(nothing written)'}")
         add(f"Last signal     {state['last_signal'] or '(none in trace.log)'}")
 
+    movement = state["last_movement"]
+    if movement is not None:
+        flag = "  ** STALLED **" if state["stale"] else ""
+        add(f"Last movement   {movement['ago']} ({movement['source']}){flag}")
+
     env = state["environment"]
     tmux = ", ".join(f"{n}{'' if ok else ' NOT RUNNING'}" for n, ok in env["tmux"].items())
     add(f"WebUI           {'ok' if env['webui'] else 'NOT ANSWERING'}")
@@ -366,9 +505,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--flow", default="llama_SG", help="Flow key (default: llama_SG)")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of a report")
+    parser.add_argument(
+        "--stale-after", type=float, default=_STALE_AFTER_SECONDS / 60,
+        metavar="MINUTES",
+        help="Minutes without movement before a working state reads as STALLED "
+             f"(default: {int(_STALE_AFTER_SECONDS / 60)})",
+    )
     args = parser.parse_args()
 
-    state = collect(args.flow)
+    state = collect(args.flow, stale_after_seconds=args.stale_after * 60)
     print(json.dumps(state, indent=2) if args.json else render(state))
     return 0
 

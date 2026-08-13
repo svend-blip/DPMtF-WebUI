@@ -6,7 +6,9 @@ are written against the incidents rather than against the happy path.
 """
 
 import importlib.util
+import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -191,6 +193,186 @@ class TestAssessment:
         _run(env, "008", goal="a contract with no floor stated")
         result = state.collect(FLOW)
         assert result["assessment"].startswith("PARK")
+
+
+class TestStaleness:
+    """preferred_cloud run 015: handoff 035 dispatched, never answered.
+
+    The report said "HANDOFF 035 DISPATCHED — the implementer is working" for
+    three and a half days. It was right that no result existed and wrong about
+    what that meant: the implementer's session had been recycled the same
+    evening. Nothing measured how long the absence had lasted, so a dispatch
+    3.5 days old presented identically to one made a minute earlier.
+    """
+
+    @pytest.fixture
+    def env(self, bridge, db, monkeypatch):
+        monkeypatch.setattr(state.config, "get_bridge_dir", lambda: str(bridge))
+        monkeypatch.setattr(state.config, "get_db_path", lambda: db)
+        monkeypatch.setattr(state, "_probe", lambda *a, **k: True)
+        monkeypatch.setattr(state, "_tmux_sessions", lambda names: {n: True for n in names})
+        return bridge
+
+    @staticmethod
+    def _at(stamp):
+        """Epoch for a UTC stamp, through the module's own parser."""
+        return state.trace_epoch(stamp)
+
+    @staticmethod
+    def _age_files(paths, epoch):
+        """Backdate files so a tmp_path fixture does not read as movement now."""
+        for path in paths:
+            os.utime(path, (epoch, epoch))
+
+    def _dispatched(self, bridge, *, signal_at=None, handoff_at, run_at):
+        """An open run whose current handoff has no result."""
+        run = _run(bridge, "015", goal="**First handoff id: 011**", backlog=True,
+                   ledger="- opened")
+        handoff = bridge / FLOW / "handoffs" / "011-handoff.md"
+        handoff.write_text("x")
+        if signal_at is not None:
+            (bridge / "trace.log").write_text(
+                f"{signal_at} | {ROLES[0]}->{ROLES[1]} | 011 | dispatched | m | x\n",
+                encoding="utf-8")
+        self._age_files([handoff], handoff_at)
+        self._age_files([run / "GOAL.md", run / "BACKLOG.md", run / "RUN-LEDGER.md"], run_at)
+        return run
+
+    def test_trace_stamps_are_read_as_utc(self):
+        """Trace text is UTC, mtimes are local epoch.
+
+        Comparing the two as rendered strings once invented a two-hour causal
+        link that was not there. Everything downstream is epoch seconds.
+        """
+        line = "2026-08-09T21:07:39Z | a->b | 011 | dispatched | m | x"
+        assert state.trace_epoch(line) == datetime(
+            2026, 8, 9, 21, 7, 39, tzinfo=timezone.utc).timestamp()
+
+    def test_a_line_without_a_stamp_yields_no_epoch(self):
+        assert state.trace_epoch("no timestamp here") is None
+        assert state.trace_epoch(None) is None
+
+    def test_a_days_old_dispatch_is_stalled_not_working(self, env, bridge):
+        """The run-015 incident itself."""
+        old = self._at("2026-08-09T21:07:39Z")
+        self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                         handoff_at=old, run_at=old)
+        result = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert "STALLED" in result["assessment"]
+        assert "working" not in result["assessment"]
+        assert result["stale"] is True
+        assert result["last_movement"]["source"] == "trace signal"
+        assert any("no movement" in m for m in result["missing"])
+
+    def test_a_stalled_dispatch_warns_against_dispatching(self, env, bridge):
+        """The wrong reflex on a stall is to send the next handoff."""
+        old = self._at("2026-08-09T21:07:39Z")
+        self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                         handoff_at=old, run_at=old)
+        result = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert "3d" in result["assessment"]
+        assert "session" in result["assessment"].lower()
+
+    def test_a_fresh_dispatch_still_reads_as_working(self, env, bridge):
+        """A role thinking for twenty minutes is not a blockage."""
+        now = self._at("2026-08-09T21:30:00Z")
+        old = self._at("2026-08-09T21:07:39Z")
+        self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                         handoff_at=old, run_at=old)
+        result = state.collect(FLOW, now=now)
+        assert "the implementer is working" in result["assessment"]
+        assert "STALLED" not in result["assessment"]
+        assert result["stale"] is False
+
+    def test_the_age_is_visible_even_when_fresh(self, env, bridge):
+        """Staleness the reader can see beats a threshold they cannot."""
+        old = self._at("2026-08-09T21:07:39Z")
+        self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                         handoff_at=old, run_at=old)
+        result = state.collect(FLOW, now=self._at("2026-08-09T21:30:00Z"))
+        assert "22m ago" in result["assessment"]
+        assert "22m ago" in state.render(result)
+
+    def test_a_slow_but_working_handoff_is_not_accused(self, env, bridge):
+        """Handoff 034 legitimately took 128 minutes, stall and dialog included.
+
+        The bound has to sit above a slow-but-working handoff, or the guard
+        fires on a healthy chain — worse than having no guard at all.
+        """
+        old = self._at("2026-08-09T18:46:39Z")
+        self._dispatched(bridge, signal_at="2026-08-09T18:46:39Z",
+                         handoff_at=old, run_at=old)
+        result = state.collect(FLOW, now=self._at("2026-08-09T20:54:43Z"))
+        assert result["stale"] is False
+
+    def test_a_handoff_never_recorded_in_trace_falls_back_to_its_mtime(self, env, bridge):
+        """Only the trace line means delivered; a written handoff proves nothing."""
+        old = self._at("2026-08-09T21:07:39Z")
+        self._dispatched(bridge, signal_at=None, handoff_at=old, run_at=old)
+        result = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert result["last_movement"]["source"] == "handoff file mtime"
+        assert "STALLED" in result["assessment"]
+
+    def test_the_latest_evidence_wins(self, env, bridge):
+        """Under-report the age rather than accuse a chain that is moving."""
+        self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                         handoff_at=self._at("2026-08-01T09:00:00Z"),
+                         run_at=self._at("2026-08-01T09:00:00Z"))
+        result = state.collect(FLOW, now=self._at("2026-08-09T21:30:00Z"))
+        assert result["last_movement"]["source"] == "trace signal"
+        assert result["stale"] is False
+
+    def test_a_stale_result_names_the_verdict_not_the_implementer(self, env, bridge):
+        """Blaming the wrong role is its own recorded bug class."""
+        old = self._at("2026-08-09T21:07:39Z")
+        run = self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                               handoff_at=old, run_at=old)
+        result_file = bridge / FLOW / "results" / "011-result.md"
+        result_file.write_text("x")
+        self._age_files([result_file], old)
+        assert run.exists()
+        report = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert "STALLED" in report["assessment"]
+        assert "verdict" in report["assessment"]
+
+    def test_a_verdict_still_says_validate_however_old(self, env, bridge):
+        """A waiting verdict needs acting on, not a stall warning."""
+        old = self._at("2026-08-09T21:07:39Z")
+        self._dispatched(bridge, signal_at="2026-08-09T21:07:39Z",
+                         handoff_at=old, run_at=old)
+        for sub, suffix in (("results", "result"), ("verdicts", "verdict")):
+            path = bridge / FLOW / sub / f"011-{suffix}.md"
+            path.write_text("x")
+            self._age_files([path], old)
+        report = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert "VERDICT READY" in report["assessment"]
+        assert "STALLED" not in report["assessment"]
+
+    def test_an_opened_run_that_never_dispatched_can_stall(self, env, bridge):
+        """A run can sit open and unstarted just as silently."""
+        run = _run(bridge, "015", goal="**First handoff id: 011**", backlog=True)
+        old = self._at("2026-08-09T14:05:00Z")
+        self._age_files([run / "GOAL.md", run / "BACKLOG.md"], old)
+        result = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert "CHAIN NOT STARTED" in result["assessment"]
+        assert result["stale"] is True
+        assert any("no movement" in m for m in result["missing"])
+
+    def test_the_threshold_is_configurable(self, env, bridge):
+        old = self._at("2026-08-09T19:00:00Z")
+        self._dispatched(bridge, signal_at="2026-08-09T19:00:00Z",
+                         handoff_at=old, run_at=old)
+        two_hours_later = self._at("2026-08-09T21:00:00Z")
+        assert state.collect(FLOW, now=two_hours_later)["stale"] is False
+        assert state.collect(FLOW, now=two_hours_later,
+                             stale_after_seconds=3600)["stale"] is True
+
+    def test_no_active_run_reports_no_staleness(self, env, bridge):
+        """Nothing is stalling when nothing is open."""
+        _run(bridge, "015", goal="**First handoff id: 011**", end_report=True)
+        result = state.collect(FLOW, now=self._at("2026-08-13T07:23:00Z"))
+        assert result["stale"] is False
+        assert result["last_movement"] is None
 
 
 class TestFlowAwareness:
