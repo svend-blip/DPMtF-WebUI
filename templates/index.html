@@ -125,6 +125,59 @@
                   <h3 data-slot="system_setup_title">Systemopsætning</h3>
                   <div id="system-setup-content"></div>
                 </section>
+
+                <!-- Flow Control (BridgeV002 dispatch + signal feed) — O3 of preferred_cloud run 014. -->
+                <section id="flow-dispatch-section">
+                  <h3 data-slot="lbl_flowdisp_title">Flow Control</h3>
+                  <div class="flow-dispatch-controls bridge-btn-row">
+                    <label class="dpmtf-label" for="flow-dispatch-flow-select" data-slot="lbl_flowdisp_flow_label">Flow</label>
+                    <select id="flow-dispatch-flow-select">
+                      <option value="" data-slot="lbl_flowdisp_flow_placeholder">Select a flow…</option>
+                    </select>
+                    <label class="dpmtf-label" for="flow-dispatch-step-select" data-slot="lbl_flowdisp_step_label">Step</label>
+                    <select id="flow-dispatch-step-select">
+                      <option value="" data-slot="lbl_flowdisp_step_placeholder">Select a flow first</option>
+                    </select>
+                    <button id="flow-dispatch-send-btn" type="button" data-slot="lbl_flowdisp_send">Send dispatch</button>
+                  </div>
+                  <div id="flow-dispatch-result" class="flow-dispatch-result">
+                    <h4 data-slot="lbl_flowdisp_result_heading">Result</h4>
+                    <div class="flow-dispatch-result-row">
+                      <span class="dpmtf-label" data-slot="lbl_flowdisp_result_status">Status</span>
+                      <span id="flow-dispatch-result-status" class="flow-dispatch-result-status">—</span>
+                    </div>
+                    <div class="flow-dispatch-result-row">
+                      <span class="dpmtf-label" data-slot="lbl_flowdisp_result_exit_code">Exit code</span>
+                      <span id="flow-dispatch-result-exit" class="flow-dispatch-result-exit">—</span>
+                    </div>
+                    <div class="flow-dispatch-result-row">
+                      <span class="dpmtf-label" data-slot="lbl_flowdisp_result_stdout">stdout</span>
+                      <pre id="flow-dispatch-result-stdout" class="flow-dispatch-result-pre"></pre>
+                    </div>
+                    <div class="flow-dispatch-result-row">
+                      <span class="dpmtf-label" data-slot="lbl_flowdisp_result_stderr">stderr</span>
+                      <pre id="flow-dispatch-result-stderr" class="flow-dispatch-result-pre"></pre>
+                    </div>
+                    <div id="flow-dispatch-result-error" class="flow-dispatch-result-error" data-slot="lbl_flowdisp_error" hidden></div>
+                    <div id="flow-dispatch-result-idle" class="flow-dispatch-result-idle" data-slot="lbl_flowdisp_result_idle">No dispatch yet.</div>
+                  </div>
+                  <div id="flow-dispatch-feed" class="flow-dispatch-feed">
+                    <h4 data-slot="lbl_flowdisp_feed_heading">Signal feed</h4>
+                    <table class="flow-dispatch-feed-table">
+                      <thead>
+                        <tr>
+                          <th data-slot="lbl_flowdisp_col_time">Time</th>
+                          <th data-slot="lbl_flowdisp_col_direction">Direction</th>
+                          <th data-slot="lbl_flowdisp_col_id">Handoff ID</th>
+                          <th data-slot="lbl_flowdisp_col_event">Event</th>
+                          <th data-slot="lbl_flowdisp_col_message">Message</th>
+                        </tr>
+                      </thead>
+                      <tbody id="flow-dispatch-feed-body"></tbody>
+                    </table>
+                    <div id="flow-dispatch-feed-empty" class="flow-dispatch-feed-empty" data-slot="lbl_flowdisp_feed_empty">No signals yet.</div>
+                  </div>
+                </section>
             </div>
         </section>
 

@@ -3791,11 +3791,238 @@ function loadUserPreferences() {
   }
 }
 
+/* ── 9.5. Flow Control (BridgeV002 dispatch + signal feed) ──── */
+var _flowDispatchPollTimer = null;
+var _flowDispatchInFlight = false;
+var _flowDispatchPollInFlight = false;
+var _flowDispatchSteps = [];
+
+function initFlowDispatch() {
+  var section = document.getElementById("flow-dispatch-section");
+  if (!section) { return; }
+  var flowSelect = document.getElementById("flow-dispatch-flow-select");
+  var stepSelect = document.getElementById("flow-dispatch-step-select");
+  var sendBtn = document.getElementById("flow-dispatch-send-btn");
+  var idleEl = document.getElementById("flow-dispatch-result-idle");
+  var errorEl = document.getElementById("flow-dispatch-result-error");
+  if (!flowSelect || !stepSelect || !sendBtn) { return; }
+
+  // Disable the send button until a step is chosen — dispatching
+  // a free from/to pair is not the contract; the user picks a
+  // step the flow actually defines.
+  function syncSendEnabled() {
+    var ready = !!stepSelect.value && !!flowSelect.value;
+    sendBtn.disabled = !ready;
+  }
+  syncSendEnabled();
+
+  // Fetch the flow list. The endpoint returns {"flows": [...]}.
+  fetch("/api/bridge-v2/flows")
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      var flows = (data && data.flows) || [];
+      flows.forEach(function (f) {
+        if (!f || !f.flow_key) { return; }
+        var opt = document.createElement("option");
+        opt.value = f.flow_key;
+        opt.textContent = f.name || f.flow_key;
+        flowSelect.appendChild(opt);
+      });
+    })
+    .catch(function () { /* leave the select with the placeholder only */ });
+
+  // Populate the step select for the chosen flow. Each option
+  // carries from_role and to_role in data attributes so the
+  // dispatch request builds its body from the SAME data the
+  // user sees, never from a separate index that could drift.
+  function clearSteps() {
+    while (stepSelect.firstChild) { stepSelect.removeChild(stepSelect.firstChild); }
+    var ph = document.createElement("option");
+    ph.value = "";
+    ph.setAttribute("data-slot", "lbl_flowdisp_step_placeholder");
+    ph.textContent = lbl("lbl_flowdisp_step_placeholder", "Select a flow first");
+    stepSelect.appendChild(ph);
+    _flowDispatchSteps = [];
+  }
+  function loadSteps(flowKey) {
+    clearSteps();
+    if (!flowKey) { syncSendEnabled(); return; }
+    fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey))
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var steps = (data && data.steps) || [];
+        _flowDispatchSteps = steps;
+        steps.forEach(function (s) {
+          if (!s || !s.step_key) { return; }
+          var opt = document.createElement("option");
+          opt.value = s.step_key;
+          opt.setAttribute("data-from-role", s.from_role || "");
+          opt.setAttribute("data-to-role", s.to_role || "");
+          opt.textContent = s.step_key
+            + " (" + (s.from_role || "?") + " -> " + (s.to_role || "?") + ")";
+          stepSelect.appendChild(opt);
+        });
+        syncSendEnabled();
+      })
+      .catch(function () { clearSteps(); syncSendEnabled(); });
+  }
+
+  flowSelect.addEventListener("change", function () {
+    loadSteps(flowSelect.value);
+    refreshFeed();
+  });
+  stepSelect.addEventListener("change", syncSendEnabled);
+
+  // Send button: POST to the dispatch endpoint. The frontend builds
+  // the URL with the literal "/dispatch" segment (testgoal-pinned)
+  // and the literal "/trace" segment (testgoal-pinned). The body
+  // is exactly {from_role, to_role} from the selected step — no
+  // "id" field, the dispatcher allocates.
+  sendBtn.addEventListener("click", function () {
+    if (sendBtn.disabled || _flowDispatchInFlight) { return; }
+    var flowKey = flowSelect.value;
+    var stepKey = stepSelect.value;
+    if (!flowKey || !stepKey) { return; }
+    var fromRole = stepSelect.options[stepSelect.selectedIndex]
+      .getAttribute("data-from-role") || "";
+    var toRole = stepSelect.options[stepSelect.selectedIndex]
+      .getAttribute("data-to-role") || "";
+    if (!fromRole || !toRole) { return; }
+
+    _flowDispatchInFlight = true;
+    sendBtn.disabled = true;
+    var originalLabel = sendBtn.textContent;
+    sendBtn.textContent = lbl("lbl_flowdisp_sending", "Sending…");
+    if (idleEl) { idleEl.hidden = true; }
+    if (errorEl) { errorEl.hidden = true; errorEl.textContent = ""; }
+
+    fetch(
+      "/api/bridge-v2/flows/" + encodeURIComponent(flowKey) + "/dispatch",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_role: fromRole, to_role: toRole }),
+      }
+    )
+      .then(function (res) {
+        return res.json().then(function (body) {
+          return { status: res.status, body: body };
+        });
+      })
+      .then(function (out) {
+        renderDispatchResult(out);
+        refreshFeed();
+      })
+      .catch(function (err) {
+        renderDispatchError(err && err.message ? err.message : String(err));
+      })
+      .then(function () {
+        _flowDispatchInFlight = false;
+        sendBtn.textContent = originalLabel;
+        syncSendEnabled();
+      });
+  });
+
+  // Feed: poll every 5s while a flow is selected. Guard against
+  // overlapping fetches with an in-flight flag.
+  function refreshFeed() {
+    var flowKey = flowSelect.value;
+    stopFeedPolling();
+    if (!flowKey) {
+      renderFeedEntries([]);
+      return;
+    }
+    function tick() {
+      if (_flowDispatchPollInFlight) { return; }
+      _flowDispatchPollInFlight = true;
+      fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey) + "/trace")
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var entries = (data && data.entries) || [];
+          renderFeedEntries(entries);
+        })
+        .catch(function () { /* keep the previous render on a transient failure */ })
+        .then(function () { _flowDispatchPollInFlight = false; });
+    }
+    tick();
+    _flowDispatchPollTimer = setInterval(tick, 5000);
+  }
+  function stopFeedPolling() {
+    if (_flowDispatchPollTimer) {
+      clearInterval(_flowDispatchPollTimer);
+      _flowDispatchPollTimer = null;
+    }
+  }
+
+  function renderDispatchResult(out) {
+    var statusEl = document.getElementById("flow-dispatch-result-status");
+    var exitEl = document.getElementById("flow-dispatch-result-exit");
+    var stdoutEl = document.getElementById("flow-dispatch-result-stdout");
+    var stderrEl = document.getElementById("flow-dispatch-result-stderr");
+    var errorEl2 = document.getElementById("flow-dispatch-result-error");
+    var idleEl2 = document.getElementById("flow-dispatch-result-idle");
+    if (idleEl2) { idleEl2.hidden = true; }
+    var body = (out && out.body) || {};
+    var status = body.status || (out.status === 404 ? "http_404" : (out.status === 422 ? "http_422" : "unknown"));
+    var exitCode = (body.exit_code !== undefined) ? body.exit_code : "-";
+    var stdout = body.stdout || "";
+    var stderr = body.stderr || "";
+    if (statusEl) { statusEl.textContent = String(status); }
+    if (exitEl) { exitEl.textContent = String(exitCode); }
+    if (stdoutEl) { stdoutEl.textContent = stdout; }
+    if (stderrEl) { stderrEl.textContent = stderr; }
+    if (errorEl2) {
+      if (out.status >= 400) {
+        errorEl2.hidden = false;
+        errorEl2.textContent = lbl("lbl_flowdisp_error", "Error")
+          + ": HTTP " + out.status + " " + JSON.stringify(body);
+      } else {
+        errorEl2.hidden = true;
+        errorEl2.textContent = "";
+      }
+    }
+  }
+
+  function renderDispatchError(message) {
+    var errorEl3 = document.getElementById("flow-dispatch-result-error");
+    var idleEl3 = document.getElementById("flow-dispatch-result-idle");
+    if (idleEl3) { idleEl3.hidden = true; }
+    if (errorEl3) {
+      errorEl3.hidden = false;
+      errorEl3.textContent = lbl("lbl_flowdisp_error", "Error") + ": " + message;
+    }
+  }
+
+  function renderFeedEntries(entries) {
+    var body4 = document.getElementById("flow-dispatch-feed-body");
+    var empty = document.getElementById("flow-dispatch-feed-empty");
+    if (!body4) { return; }
+    while (body4.firstChild) { body4.removeChild(body4.firstChild); }
+    if (!entries || entries.length === 0) {
+      if (empty) { empty.hidden = false; }
+      return;
+    }
+    if (empty) { empty.hidden = true; }
+    entries.forEach(function (e) {
+      var tr = document.createElement("tr");
+      tr.appendChild(td(e.timestamp || ""));
+      tr.appendChild(td((e.from_role || "") + " -> " + (e.to_role || "")));
+      tr.appendChild(td(e.handoff_id || ""));
+      tr.appendChild(td(e.event || ""));
+      tr.appendChild(td(e.message || ""));
+      body4.appendChild(tr);
+    });
+  }
+
+  refreshFeed();
+}
+
 /* ── 10. Init ──────────────────────────────────────── */
 function onReady() {
   loadLabels().then(function () {
     if (window.initAllocator) window.initAllocator();
     if (window.initJobQueue) window.initJobQueue();
+    if (window.initFlowDispatch) window.initFlowDispatch();
   });
   // Language dropdown handler
   var langDropdown = document.getElementById("lang-dropdown");

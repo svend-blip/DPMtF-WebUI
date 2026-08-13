@@ -5,7 +5,7 @@ and response shape is identical to the previous inline definitions.
 Only the code location and the decorator prefix (`@app.X` →
 `@router.X`) changed.
 
-Endpoints (27 total):
+Endpoints (29 total):
   GET    /api/bridge-v2/status
   GET    /api/bridge-v2/roles
   GET    /api/bridge-v2/roles/{role_key}
@@ -22,6 +22,8 @@ Endpoints (27 total):
   POST   /api/bridge-v2/flows/{flow_key}/start-coding
   POST   /api/bridge-v2/flows/{flow_key}/stop-tmux
   POST   /api/bridge-v2/flows/{flow_key}/attach-tmux
+  POST   /api/bridge-v2/flows/{flow_key}/dispatch
+  GET    /api/bridge-v2/flows/{flow_key}/trace
   GET    /api/bridge-v2/steps/{flow_key}
   POST   /api/bridge-v2/steps/{flow_key}
   PUT    /api/bridge-v2/steps/{flow_key}/{step_id}
@@ -45,7 +47,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 # Ensure scripts/bridgeV002/ is on sys.path so the top-level `bridge_lib`
@@ -964,6 +966,266 @@ async def bridge_v2_start_coding_for_flow(flow_key: str):
         raise HTTPException(status_code=500, detail="start_coding timed out after 310s")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/flows/{flow_key}/dispatch")
+async def bridge_v2_dispatch_handoff(flow_key: str, request: Request):
+    """Spawn dispatch.py to send a handoff between two roles in a flow.
+
+    Body (JSON): {"from_role": str, "to_role": str, "id": str (optional)}.
+
+    The endpoint validates the flow and the two roles against the
+    database BEFORE spawning the subprocess. The bridge chain is LIVE
+    in tmux on this machine, so a real dispatch fired by a buggy
+    validator would inject a prompt into a live role session —
+    validation order is part of the contract.
+
+    Decision order, exactly:
+      a. flow_key not in bridge_flows → 404, no subprocess spawned.
+      b. from_role or to_role not in bridge_roles → 422 with a detail
+         naming the offending role(s), no subprocess spawned.
+      c. Otherwise spawn dispatch.py with --signal-send and exactly
+         the validated values (plus --id only when ``id`` was
+         provided), timeout 300 seconds.
+      d. The subprocess RAN at all: HTTP 200 with
+         {"status": "ok" if returncode==0 else "dispatch_error",
+          "exit_code": <verbatim>, "stdout": <verbatim>,
+          "stderr": <verbatim>}. A non-zero dispatch exit MUST be
+         visible in the 200 body — never a silent success, never a
+         swallowed stderr.
+      e. TimeoutExpired or spawn failure → HTTP 500 with the error
+         text.
+
+    --signal-send is the only verb. The Human explicitly decided
+    against exposing --signal-complete / --signal-escalation /
+    --signal-answer through this endpoint.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Body must be JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
+
+    from_role = payload.get("from_role")
+    to_role = payload.get("to_role")
+    handoff_id = payload.get("id")
+    if not isinstance(from_role, str) or not from_role:
+        raise HTTPException(status_code=422, detail="from_role is required (str)")
+    if not isinstance(to_role, str) or not to_role:
+        raise HTTPException(status_code=422, detail="to_role is required (str)")
+    if handoff_id is not None and (not isinstance(handoff_id, str) or not handoff_id):
+        raise HTTPException(status_code=422, detail="id must be a non-empty str when provided")
+
+    db_path = get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {exc}")
+
+    try:
+        # (a) Flow must exist.
+        flow_row = conn.execute(
+            "SELECT 1 FROM bridge_flows WHERE flow_key = ? AND is_active = 1",
+            (flow_key,),
+        ).fetchone()
+        if flow_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Flow '{flow_key}' not found in bridge_flows",
+            )
+
+        # (b) Both roles must exist.
+        missing = []
+        for role_key in (from_role, to_role):
+            row = conn.execute(
+                "SELECT 1 FROM bridge_roles "
+                "WHERE role_key = ? AND is_active = 1",
+                (role_key,),
+            ).fetchone()
+            if row is None:
+                missing.append(role_key)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Unknown role(s): " + ", ".join(missing)
+                ),
+            )
+    finally:
+        conn.close()
+
+    # (c) Spawn dispatch.py. The script path is resolved via the same
+    # project-root pattern the neighbouring endpoints use, so the
+    # reviewer's TG8 ("no hardcoded /home/svend paths") stays green.
+    try:
+        script_path = os.path.join(
+            os.environ.get("DPMTF_PROJECT_ROOT", config.get_project_root()),
+            "scripts", "bridgeV002", "dispatch.py",
+        )
+        argv = [
+            "python3", script_path,
+            "--db-flow", flow_key,
+            "--signal-send",
+            "--from-role", from_role,
+            "--to-role", to_role,
+        ]
+        if handoff_id is not None:
+            argv.extend(["--id", handoff_id])
+
+        completed = subprocess.run(
+            argv,
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"dispatch.py timed out after 300s "
+                f"(stdout={exc.stdout!r}, stderr={exc.stderr!r})"
+            ),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"dispatch.py failed to start: {exc}")
+
+    # (d) Verbatim result body. A non-zero exit code is the dispatch
+    # script's own verdict — the route does not interpret it, only
+    # surfaces it.
+    return {
+        "status": "ok" if completed.returncode == 0 else "dispatch_error",
+        "exit_code": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+
+
+@router.get("/flows/{flow_key}/trace")
+async def bridge_v2_flow_trace(
+    flow_key: str,
+    limit: int = Query(
+        50,
+        ge=1,
+        le=500,
+        description="Maximum number of entries to return; out-of-range is FastAPI's 422.",
+    ),
+):
+    """Return the last `limit` trace.log entries that belong to a flow.
+
+    The bridge trace log is flow-wide and append-only: it carries
+    every flow's and every era's rows mixed together, including
+    same-``handoff_id`` rows from other flows. Filtering is
+    field-based — substring matching is an auto-fail (past incidents
+    charged a rejection to the wrong role because ``"review01SG"``
+    appeared inside ``"imple01SG->review01SG"``).
+
+    Decision order, exactly:
+      a. flow_key not in bridge_flows (is_active=1, parameterized
+         SQL) → 404.
+      b. Build the flow's role set from bridge_flow_steps (every
+         from_role and to_role value, is_active=1, parameterized).
+         An empty set is not an error — it just yields an empty
+         feed.
+      c. Read {config.get_bridge_dir()}/trace.log — the getter
+         called at request time, so a test that sets
+         DPMTF_BRIDGE_DIR via monkeypatch.setenv before the call
+         gets the fixture path. File missing → 200 with empty
+         entries.
+      d. Parse each line by FIELD-SPLITTING (split " | " with
+         maxsplit=5 → exactly 6 fields; split parts[1] on "->" →
+         exactly 2 non-empty names). Empty lines and lines starting
+         with "#" are skipped. The 5-field pre-2025 era is dropped
+         by the len(parts) < 6 guard; the unicode-arrow era
+         ("L→C", "INIT") is dropped by the 2-name guard. " | "
+         inside the message stays intact because of maxsplit=5.
+      e. Include the entry ONLY if BOTH from_role and to_role are
+         in the flow's role set. handoff_id plays no part in the
+         filter (the same-id-other-flow test pins this).
+      f. Return {"flow_key": flow_key, "entries": <the last
+         `limit` matching entries, in file order — oldest first>}.
+
+    The endpoint is read-only: no write to trace.log, no
+    subprocess, no DB write. The two SELECTs are the only DB
+    traffic.
+    """
+    db_path = get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {exc}")
+
+    try:
+        # (a) Flow must exist (and be active).
+        flow_row = conn.execute(
+            "SELECT 1 FROM bridge_flows WHERE flow_key = ? AND is_active = 1",
+            (flow_key,),
+        ).fetchone()
+        if flow_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Flow '{flow_key}' not found in bridge_flows",
+            )
+
+        # (b) Build the flow's role set from bridge_flow_steps.
+        role_rows = conn.execute(
+            "SELECT from_role, to_role FROM bridge_flow_steps "
+            "WHERE flow_key = ? AND is_active = 1",
+            (flow_key,),
+        ).fetchall()
+        role_set = set()
+        for row in role_rows:
+            for value in row:
+                if isinstance(value, str) and value:
+                    role_set.add(value)
+    finally:
+        conn.close()
+
+    # (c) Read the trace log via the getter at request time so
+    # monkeypatch.setenv("DPMTF_BRIDGE_DIR", ...) is honoured by
+    # every test invocation.
+    bridge_dir = config.get_bridge_dir()
+    log_path = os.path.join(bridge_dir, "trace.log")
+
+    if not os.path.isfile(log_path):
+        return {"flow_key": flow_key, "entries": []}
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as handle:
+            raw_text = handle.read()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"trace.log read failed: {exc}")
+
+    # (d)+(e) Parse line-by-line, field-split, filter on the role set.
+    # No substring matching anywhere in this path.
+    entries: list[dict] = []
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(" | ", 5)
+        if len(parts) < 6:
+            continue
+        timestamp, direction, handoff_id, event, _mode, message = parts
+        direction_names = direction.split("->", 1)
+        if len(direction_names) != 2:
+            continue
+        from_role, to_role = direction_names
+        if not from_role or not to_role:
+            continue
+        if from_role not in role_set or to_role not in role_set:
+            continue
+        entries.append({
+            "timestamp": timestamp,
+            "from_role": from_role,
+            "to_role": to_role,
+            "handoff_id": handoff_id,
+            "event": event,
+            "message": message,
+        })
+
+    # (f) Last `limit` matching entries, in file order (oldest first
+    # within the returned slice). The O3 feed is newest-last so the
+    # UI can append the next batch in place.
+    return {"flow_key": flow_key, "entries": entries[-limit:]}
 
 
 @router.post("/flows/{flow_key}/stop-tmux")
