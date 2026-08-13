@@ -34,3 +34,8 @@ scripts/docs/bridgeV002/current-cycle.json
 # (2026-08-07); always present while anything holds the database open.
 databases/*.db-shm
 databases/*.db-wal
+
+# Runtime logs — generated, never committed. father-uvicorn.log reached 36 MB
+# before this line existed.
+father-uvicorn.log
+*.log
