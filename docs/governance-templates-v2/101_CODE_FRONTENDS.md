@@ -76,9 +76,45 @@ than assuming one**:
 | Concern | Claude Code | OpenCode | Pi |
 |---|---|---|---|
 | Invocation | `/<skill-name>` | `/<skill-name>`, or a `.opencode/command/` alias | `/skill:<name>` |
-| Context reset | `/clear` | `/clear` or `/new` | `/new`, or `--no-session` at start |
+| Context reset | `/clear` | **`/new`** — see below | `/new`, or `--no-session` at start |
 | mcp-light | `~/.mcp.json` | `mcp` block in the role's `opencode.json` | Pi settings or an extension |
 | Tool restriction | prompt only | prompt only | `--tools` allowlist, enforced |
+
+### `fresh_session_command` Is Not A Preference
+
+**An OpenCode role uses `/new`. A Claude Code role uses `/clear`.** The two
+commands share a name and do different things, and the name is the trap.
+
+Claude Code's `/clear` genuinely clears the conversation. OpenCode's is not
+even a built-in: it resolves to `commands/clear.md` in this installation, a
+*prompt* asking the model to disregard what came before. The session
+continues, every token of its history continues, and the instruction is
+appended to the history it asks the model to ignore. It costs window rather
+than freeing it, so a role's consumption across a run is monotonic — which
+matters most for exactly the roles that read files.
+
+That file's closing line is also what caused the worst delivery failure this
+project has recorded. It ends *"Treat the next user message as the
+authoritative task. Reply only: Context reset acknowledged."* When the reset
+and the task arrived as one message — the defect fixed in `8c36e6d` — the
+model obeyed the literal instruction and did nothing else, on nine
+consecutive handoffs, each rescued by a human typing "continue".
+
+The dispatcher no longer merges them, so `/clear` is survivable again. It is
+still the wrong choice, and it is already the minority: measured 2026-08-13,
+25 OpenCode roles use `/new` and 2 use `/clear`. Those two are drift, not
+design.
+
+A long OpenCode session degrades in a way nobody sees. Driven past roughly
+half its window on MiniMax-M3, it began emitting tool calls as prose — no
+tool run, no error, finish `stop`, and a supervisor observing only silence
+(see `492_REVENG_IMPLE.md` for the figures). A fresh session per handoff
+removes the whole class.
+
+**When changing this field, change it in a migration and not by hand, and
+not while the role's flow has a run in flight.** It takes effect at the next
+dispatch, which mid-run means a behaviour change the supervisor was not told
+about.
 
 Two rules follow from that table.
 
