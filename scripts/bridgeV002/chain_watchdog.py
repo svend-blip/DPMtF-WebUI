@@ -139,6 +139,20 @@ REMOTE_HEARTBEAT_STALE_SECONDS = int(_WD.get("remote_heartbeat_stale_seconds", 9
 # the run opened; measuring only "time since last signal" cannot tell an
 # abandoned chain from a stalled one.
 CHAIN_MAX_AGE_MINUTES = int(_WD.get("chain_max_age_minutes", 360))
+# How long between repeat notifications for the same unresolved stall. The
+# watchdog's most important conclusion — "the nudges are spent, a human is
+# needed" — used to be a log line and nothing else. On 2026-08-09
+# preferred_cloud's handoff 035 spent its budget at 21:17Z and the watchdog
+# wrote that conclusion to journald 339 times over the next five hours and
+# fifty minutes; nobody reads journald, the chain then aged past
+# CHAIN_MAX_AGE_MINUTES, and the run stayed dead for three and a half days.
+# Detection was never the gap.
+#
+# So it goes to the desktop instead, and repeats — a notification missed at
+# 23:17 must not be the only one. Every 30 minutes inside the max-age window is
+# roughly a dozen chances, which is enough to be noticed and few enough to stay
+# an alarm rather than noise.
+ESCALATION_REPEAT_MINUTES = int(_WD.get("escalation_repeat_minutes", 30))
 LOG_DIR = PROJECT_ROOT / "logs"
 STATE_PATH = LOG_DIR / "chain-watchdog-state.json"
 MODEL_LOG = LOG_DIR / "model-usage.log"
@@ -243,6 +257,45 @@ def load_state():
 def save_state(state):
     LOG_DIR.mkdir(exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, indent=1))
+
+
+def _notify(title, body):
+    """Raise a desktop notification. Never let the absence of one matter.
+
+    The watchdog is a systemd user unit; a logged-out or headless session has
+    no notification bus, and an unhandled error here would take detection down
+    for every flow at once. A failure to reach the desktop is logged and the
+    pass continues — the journald line is the fallback, not the plan.
+    """
+    try:
+        subprocess.run(
+            ["notify-send", "--urgency=critical",
+             "--app-name=chain-watchdog", title, body],
+            capture_output=True, timeout=10,
+        )
+    except Exception as exc:  # noqa: BLE001 — notifying must never be fatal
+        log(f"WARN: notify-send failed ({type(exc).__name__}: {exc}) — "
+            f"escalation is in this log only")
+
+
+def escalate(key, why, state, dry_run=False):
+    """Tell the Human a chain needs them, at most once per backoff window.
+
+    Returns True when a notification was raised. The last-notified epoch lives
+    in the state file per key, so a watchdog restart does not restart the
+    popups and a five-hour stall does not produce three hundred of them.
+    """
+    stamp_key = f"escalated:{key}"
+    last = state.get(stamp_key)
+    if last is not None and (time.time() - last) / 60.0 < ESCALATION_REPEAT_MINUTES:
+        return False
+    log(f"ESCALATION: {key} needs the Human — {why}")
+    if dry_run:
+        return False
+    state[stamp_key] = time.time()
+    save_state(state)
+    _notify(f"BridgeV002 stalled: {key}", why)
+    return True
 
 
 def sample_ollama():
@@ -612,8 +665,14 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
             why = "wrote output but never signaled"
         key = f"{flow_key}:{run_id}:{stalled}"
         if state.get(key, 0) >= MAX_NUDGES_PER_STEP:
-            log(f"SKIP: {key} already nudged twice — human attention needed")
-            return "idle"
+            # Not a SKIP. The nudges are spent and the chain is still stopped,
+            # which is the one state that genuinely needs a person.
+            escalate(key,
+                     f"{stalled} {why}; {MAX_NUDGES_PER_STEP} nudges did not "
+                     f"move it. Verify the session still holds the dispatch — "
+                     f"a recycled session cannot answer.",
+                     state, dry_run=dry_run)
+            return "escalated"
         if not dry_run:
             state[key] = state.get(key, 0) + 1
             save_state(state)
@@ -651,8 +710,11 @@ def check_once(run_id, stall_minutes, state, dry_run=False):
             return "active"
         key = f"{run_id}:{role}"
         if state.get(key, 0) >= MAX_NUDGES_PER_STEP:
-            log(f"SKIP: {key} already nudged twice — human attention needed")
-            return "idle"
+            escalate(key,
+                     f"{role} has not advanced the chain and "
+                     f"{MAX_NUDGES_PER_STEP} nudges did not move it.",
+                     state, dry_run=dry_run)
+            return "escalated"
         if not dry_run:
             state[key] = state.get(key, 0) + 1
             save_state(state)

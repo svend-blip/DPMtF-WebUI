@@ -51,6 +51,14 @@ def flow(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cw.config, "get_bridge_dir", lambda: str(bridge))
     monkeypatch.setattr(cw, "sample_ollama", lambda: None)
+    # Every dry_run=False test calls save_state(), and STATE_PATH used to be
+    # the LIVE watchdog's file. The suite was writing real nudge budgets into
+    # /home/svend/DPMtF-WebUI/logs/chain-watchdog-state.json — so a genuine
+    # supervised_review handoff 21 would have found its budget already spent
+    # and its stall silently un-nudged. Tests must not be able to blind
+    # production.
+    monkeypatch.setattr(cw, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(cw, "STATE_PATH", tmp_path / "logs" / "state.json")
     # Default: every pane is idle. Individual tests widen this.
     monkeypatch.setattr(cw, "pane_active", lambda session: False)
     # No remote roles by default, and NEVER the live database: a fixture
@@ -304,7 +312,7 @@ def test_a_stalled_receiver_is_nudged_at_most_twice(flow):
     second = flow.check(state=state, dry_run=False)
     third = flow.check(state=state, dry_run=False)
 
-    assert [first, second, third] == ["nudged", "nudged", "idle"]
+    assert [first, second, third] == ["nudged", "nudged", "escalated"]
     assert len(flow.nudges) == 2
 
 
@@ -374,8 +382,128 @@ def test_fast_path_respects_the_nudge_budget(flow):
     state = {"supervised_review:21:imple01": cw.MAX_NUDGES_PER_STEP}
     for _ in range(cw.IDLE_PASSES):
         status = flow.check(state=state)
-    assert status == "idle"
+    assert status == "escalated"
     assert flow.nudges == []
+
+
+# ── Escalation ───────────────────────────────────────────────────────
+#
+# preferred_cloud run 015, handoff 035: the watchdog detected the stall within
+# four minutes, spent both nudges, and concluded "human attention needed" --
+# then wrote that conclusion to journald 339 times across five hours and fifty
+# minutes. Nobody reads journald. The chain then aged past
+# CHAIN_MAX_AGE_MINUTES, the watchdog went quiet, and the run stayed dead for
+# three and a half days.
+#
+# Detection was never the gap. The conclusion had no channel to a human, which
+# is the failure mode CLAUDE.md 11 states outright: a monitor that writes to a
+# file is not a monitor.
+
+
+@pytest.fixture
+def notes(monkeypatch):
+    """Capture escalations instead of raising desktop notifications."""
+    captured = []
+    monkeypatch.setattr(cw, "_notify",
+                        lambda title, body: captured.append((title, body)))
+    return captured
+
+
+def _receiver_stall(flow):
+    flow.write(0, "21", age_minutes=60)
+    flow.write(1, "21", age_minutes=15)
+    flow.signal("imple01", "review01", "21", age_minutes=15)
+    flow.record_nudges()
+
+
+def test_a_spent_nudge_budget_reaches_the_human(flow, notes):
+    _receiver_stall(flow)
+    state = {}
+
+    flow.check(state=state, dry_run=False)
+    flow.check(state=state, dry_run=False)
+    assert notes == []                      # budget not spent yet — no alarm
+
+    assert flow.check(state=state, dry_run=False) == "escalated"
+    assert len(notes) == 1
+    title, body = notes[0]
+    assert "review01" in body               # names the stalled role, not the flow only
+    assert "supervised_review" in title
+
+
+def test_escalation_does_not_fire_once_per_pass(flow, notes):
+    """339 identical lines is precisely how the last conclusion was missed."""
+    _receiver_stall(flow)
+    state = {"supervised_review:21:review01": cw.MAX_NUDGES_PER_STEP}
+
+    for _ in range(20):
+        assert flow.check(state=state, dry_run=False) == "escalated"
+
+    assert len(notes) == 1
+
+
+def test_escalation_repeats_after_the_backoff(flow, notes):
+    """A missed or dismissed notification must not be the end of it."""
+    _receiver_stall(flow)
+    key = "supervised_review:21:review01"
+    state = {key: cw.MAX_NUDGES_PER_STEP}
+
+    flow.check(state=state, dry_run=False)
+    assert len(notes) == 1
+
+    stale = time.time() - (cw.ESCALATION_REPEAT_MINUTES + 1) * 60
+    state[f"escalated:{key}"] = stale
+    flow.check(state=state, dry_run=False)
+
+    assert len(notes) == 2
+
+
+def test_the_repeat_stamp_survives_in_state(flow, notes):
+    """A watchdog restart must not restart the popups."""
+    _receiver_stall(flow)
+    key = "supervised_review:21:review01"
+    state = {key: cw.MAX_NUDGES_PER_STEP}
+
+    flow.check(state=state, dry_run=False)
+
+    assert f"escalated:{key}" in state
+
+
+def test_a_dry_run_notifies_nobody(flow, notes):
+    _receiver_stall(flow)
+    state = {"supervised_review:21:review01": cw.MAX_NUDGES_PER_STEP}
+
+    assert flow.check(state=state, dry_run=True) == "escalated"
+    assert notes == []
+
+
+def test_the_fast_path_escalates_when_its_budget_is_spent(flow, notes):
+    """The produced-nothing path is the one run 015 actually took."""
+    flow.write(0, "21")
+    flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=3)
+    flow.record_nudges()
+    state = {"supervised_review:21:imple01": cw.MAX_NUDGES_PER_STEP}
+
+    for _ in range(cw.IDLE_PASSES):
+        status = flow.check(state=state, dry_run=False)
+
+    assert status == "escalated"
+    assert len(notes) == 1
+    assert "imple01" in notes[0][1]
+
+
+def test_notify_survives_a_missing_notification_daemon(monkeypatch):
+    """No desktop is a reason to log, never a reason to die.
+
+    The watchdog runs as a systemd user unit; a headless or logged-out session
+    has no notification bus, and an unhandled OSError there would take out
+    detection for every flow at once.
+    """
+    def boom(*args, **kwargs):
+        raise OSError("no session bus")
+
+    monkeypatch.setattr(cw.subprocess, "run", boom)
+    cw._notify("title", "body")      # must not raise
 
 
 # ── Remote roles ─────────────────────────────────────────────────────
