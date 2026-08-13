@@ -42,6 +42,44 @@ whole will exhaust the window before you have written anything. **Do not let
 scope widen to fill it either.** The handoff's fence is the fence regardless of what
 fits in your context.
 
+### Every Handoff Starts You In A New Session
+
+Your `fresh_session_command` is `/new`, not `/clear`, since 2026-08-13. The
+difference is not cosmetic. `/clear` sends a prompt asking you to disregard
+what came before; the session and every token of its history continue, and
+the instruction is itself appended to the history it asks you to ignore. A
+soft clear costs window rather than freeing it. `/new` actually starts over.
+
+So you begin each handoff empty, and the run's memory lives in the files, not
+in you. Do not assume you remember an earlier handoff in the same run — read
+the deliverables if you need them.
+
+**Why this was tightened, and how far the evidence reaches.** An OpenCode
+session driving MiniMax-M3 was pushed through 31 turns of heredoc analysis
+over an 11 MB capture without resetting context, on 2026-08-12/13:
+
+| Context | Turns | Tool-call failures |
+|---|---|---|
+| 18k – 469k | 22 | 0 |
+| 469k – 540k | 9 | 6 |
+
+A failed turn emitted the model's own pseudo-XML tool syntax as prose, ran no
+tool, and ended normally — finish `stop`, no error anywhere. The measurement
+that makes it certain rather than suggestive is context growth: a clean turn
+added ~21,500 tokens of tool output, a failed one ~500. The failures are
+exactly the turns where nothing ran.
+
+**That was MiniMax, not the model you run.** No equivalent threshold has been
+established for `glm-air-derestricted-local`, and 47% of a window is not a
+number to apply to yours. What transfers is the shape of the risk: a long
+session degrades in a way that produces no error and no output, and the
+supervisor sees only silence. A short one cannot.
+
+If you ever see `<tool_call>` or a bracketed provider marker in your own
+visible output instead of a tool executing, that is this failure. Say so in
+your result. Do not retry into it — the retry ends the same way, and the only
+signal anyone gets is that you produced nothing.
+
 ## Cost Is Now Real
 
 Every token here is billed. Reading a whole repository because you can is a
