@@ -2019,7 +2019,7 @@ function getTargetProject() {
   return "";
 }
 
-function renderRoleCard(role) {
+function renderRoleCard(role, refresh, container) {
   var card = el("div", "dpmtf-card");
 
   // Header: role key + status badge
@@ -2070,24 +2070,71 @@ function renderRoleCard(role) {
   // Rename button (was the old "Edit")
   var renameBtn = el("button", "dpmtf-btn");
   renameBtn.textContent = lbl("lbl_bridge_rename", "Rename");
-  renameBtn.onclick = function () { renameBridgeRole(role.role_key); };
+  renameBtn.onclick = function () { renameBridgeRole(role.role_key, refresh); };
   actions.appendChild(renameBtn);
 
   // Edit button (new full edit)
   var editBtn = el("button", "dpmtf-btn");
   editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
-  editBtn.onclick = function () { editBridgeRoleFull(role.role_key); };
+  editBtn.onclick = function () { editBridgeRoleFull(role.role_key, refresh, container); };
   actions.appendChild(editBtn);
 
   // Delete button (unchanged)
   var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
   delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
-  delBtn.onclick = function () { deleteBridgeRole(role.role_key); };
+  delBtn.onclick = function () { deleteBridgeRole(role.role_key, refresh); };
   actions.appendChild(delBtn);
 
   card.appendChild(actions);
 
   return card;
+}
+
+function _renderFlowRolesPanel(flowKey, container) {
+  clear(container);
+  Promise.all([
+    fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey))
+      .then(function (r) { return r.json(); }),
+    fetch("/api/bridge-v2/roles")
+      .then(function (r) { return r.json(); })
+  ])
+    .then(function (results) {
+      var steps = (results[0].steps || []).slice().sort(function (a, b) {
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+      var byKey = {};
+      (results[1].roles || []).forEach(function (r) { byKey[r.role_key] = r; });
+      // Roles in step order (from_role before to_role), each shown once.
+      var seen = {};
+      var ordered = [];
+      steps.forEach(function (s) {
+        [s.from_role, s.to_role].forEach(function (rk) {
+          if (!rk || seen[rk]) return;
+          seen[rk] = true;
+          ordered.push(rk);
+        });
+      });
+      if (!ordered.length) {
+        container.appendChild(el("p", "dpmtf-muted",
+          lbl("lbl_bridge_no_roles", "No roles configured")));
+        return;
+      }
+      var refresh = function () { _renderFlowRolesPanel(flowKey, container); };
+      ordered.forEach(function (rk) {
+        var role = byKey[rk];
+        if (role) {
+          container.appendChild(renderRoleCard(role, refresh, container));
+        } else {
+          container.appendChild(el("p", "dpmtf-error",
+            rk + ": " + lbl("lbl_bridge_role_missing", "No role definition")));
+        }
+      });
+    })
+    .catch(function (err) {
+      var errP = el("p", "dpmtf-error");
+      errP.textContent = lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message);
+      container.appendChild(errP);
+    });
 }
 
 function loadBridgeFlows() {
@@ -2186,17 +2233,47 @@ function renderFlowCard(flow, steps) {
   var actions = el("div", null);
   actions.style.marginTop = "8px";
 
+  // Sub-panels open inline on the card (Flows lives under Periodic,
+  // Steps/Roles under Setup — jumping across groups lost the context).
+  var panelsHost = el("div", null);
+  var stepsPanelEl = null;
+  var rolesPanelEl = null;
+
   var manageBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
   manageBtn.textContent = lbl("lbl_bridge_manage_steps", "Manage Steps");
   manageBtn.onclick = function () {
-    _bridgeStepsFlowKey = flow.flow_key;
-    var sel = document.getElementById("bridge-steps-flow-select");
-    if (sel) sel.value = flow.flow_key;
-    _fetchBridgeSteps(flow.flow_key);
-    var stepsSection = document.getElementById("bridge-steps-section");
-    if (stepsSection) stepsSection.scrollIntoView({ behavior: "smooth" });
+    if (stepsPanelEl) { stepsPanelEl.remove(); stepsPanelEl = null; return; }
+    stepsPanelEl = el("div", "dpmtf-card");
+    stepsPanelEl.appendChild(el("h4", null,
+      lbl("lbl_bridge_steps_title", "Steps") + " — " + (flow.name || flow.flow_key)));
+    var listDiv = el("div", "dpmtf-card-grid");
+    var addBtn = el("button", "dpmtf-btn");
+    addBtn.textContent = lbl("lbl_bridge_step_add", "Add Step");
+    addBtn.onclick = function () {
+      _bridgeStepsFlowKey = flow.flow_key;
+      _bridgeEditingStepId = null;
+      _showStepForm({ data: {}, _meta: _bridgeStepsMetadata }, listDiv);
+    };
+    stepsPanelEl.appendChild(addBtn);
+    stepsPanelEl.appendChild(listDiv);
+    panelsHost.appendChild(stepsPanelEl);
+    _fetchBridgeSteps(flow.flow_key, listDiv);
   };
   actions.appendChild(manageBtn);
+
+  var manageRolesBtn = el("button", "dpmtf-btn dpmtf-btn-primary");
+  manageRolesBtn.textContent = lbl("lbl_bridge_manage_roles", "Manage Roles");
+  manageRolesBtn.onclick = function () {
+    if (rolesPanelEl) { rolesPanelEl.remove(); rolesPanelEl = null; return; }
+    rolesPanelEl = el("div", "dpmtf-card");
+    rolesPanelEl.appendChild(el("h4", null,
+      lbl("lbl_bridge_roles_title", "Roles") + " — " + (flow.name || flow.flow_key)));
+    var listDiv = el("div", "dpmtf-card-grid");
+    rolesPanelEl.appendChild(listDiv);
+    panelsHost.appendChild(rolesPanelEl);
+    _renderFlowRolesPanel(flow.flow_key, listDiv);
+  };
+  actions.appendChild(manageRolesBtn);
 
   var renameBtn = el("button", "dpmtf-btn");
   renameBtn.textContent = lbl("lbl_bridge_rename", "Rename");
@@ -2247,6 +2324,7 @@ function renderFlowCard(flow, steps) {
   actions.appendChild(delBtn);
 
   card.appendChild(actions);
+  card.appendChild(panelsHost);
 
   // Attach command — the viewer session built by "Attach tmux" groups this
   // flow's role windows, so one command reconnects to all of them. The
@@ -2623,13 +2701,13 @@ function addBridgeFlow() {
   container.insertBefore(form, container.firstChild);
 }
 
-function deleteBridgeRole(roleKey) {
+function deleteBridgeRole(roleKey, refresh) {
   if (!confirm(escapeHtml(roleKey) + "?")) return;
   fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), { method: "DELETE" })
     .then(function (res) { return res.json(); })
     .then(function () {
       alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": " + roleKey);
-      loadBridgeRoles();
+      (refresh || loadBridgeRoles)();
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
@@ -2652,7 +2730,7 @@ function deleteBridgeFlow(flowKey) {
     });
 }
 
-function renameBridgeRole(oldRoleKey) {
+function renameBridgeRole(oldRoleKey, refresh) {
   var newKey = prompt(lbl("lbl_bridge_rename", "Rename") + " (" + escapeHtml(oldRoleKey) + "):");
   if (newKey === null) return;
   newKey = newKey.trim();
@@ -2675,14 +2753,14 @@ function renameBridgeRole(oldRoleKey) {
       } else {
         alert(lbl("lbl_bridge_renamed", "Successfully renamed") + ": " + oldRoleKey + " → " + escapeHtml(newKey));
       }
-      loadBridgeRoles();
+      (refresh || loadBridgeRoles)();
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
     });
 }
 
-function editBridgeRoleFull(roleKey) {
+function editBridgeRoleFull(roleKey, refresh, formContainer) {
   fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey))
     .then(function (res) { return res.json(); })
     .then(function (data) {
@@ -2752,7 +2830,7 @@ function editBridgeRoleFull(roleKey) {
           .then(function (res) { return res.json(); })
           .then(function () {
             alert(lbl("lbl_bridge_updated", "Successfully updated") + ": " + escapeHtml(roleKey));
-            loadBridgeRoles();
+            (refresh || loadBridgeRoles)();
           })
           .catch(function (err) {
             alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
@@ -2932,9 +3010,9 @@ function editBridgeRoleFull(roleKey) {
       tpDiv.appendChild(tpDisplay);
       form.appendChild(tpDiv);
 
-      var container = document.getElementById("bridge-roles-list-container");
-      if (container) {
-        container.insertBefore(form, container.firstChild);
+      var host = formContainer || document.getElementById("bridge-roles-list-container");
+      if (host) {
+        host.insertBefore(form, host.firstChild);
       }
     })
     .catch(function (err) {
@@ -3246,7 +3324,7 @@ var _copyBtnInRow = null;    // current Copy Prompt button in compile-buttons-ro
 var _copyCmdBtnInRow = null; // current Copy Command button in dispatch-buttons-row
 var _deliverBtnInRow = null; // current Deliver to Bridge button in dispatch-buttons-row
 
-function renderStepCard(step, meta) {
+function renderStepCard(step, meta, container) {
   var card = el("div", "dpmtf-card");
 
   // Header: step_key + status badge
@@ -3293,12 +3371,12 @@ function renderStepCard(step, meta) {
 
   var editBtn = el("button", "dpmtf-btn");
   editBtn.textContent = lbl("lbl_bridge_edit", "Edit");
-  editBtn.onclick = function () { _editBridgeStep(step.id, step.flow_key || _bridgeStepsFlowKey); };
+  editBtn.onclick = function () { _editBridgeStep(step.id, step.flow_key || _bridgeStepsFlowKey, container); };
   actions.appendChild(editBtn);
 
   var delBtn = el("button", "dpmtf-btn dpmtf-btn-danger");
   delBtn.textContent = lbl("lbl_bridge_delete", "Delete");
-  delBtn.onclick = function () { _deleteBridgeStep(step.id, step.flow_key || _bridgeStepsFlowKey); };
+  delBtn.onclick = function () { _deleteBridgeStep(step.id, step.flow_key || _bridgeStepsFlowKey, container); };
   actions.appendChild(delBtn);
 
   card.appendChild(actions);
@@ -3337,9 +3415,9 @@ function _loadBridgeStepsFlow() {
     });
 }
 
-function _fetchBridgeSteps(flowKey) {
+function _fetchBridgeSteps(flowKey, container) {
   _bridgeStepsFlowKey = flowKey;
-  var container = document.getElementById("bridge-steps-list-container");
+  container = container || document.getElementById("bridge-steps-list-container");
   if (!container) return;
   clear(container);
 
@@ -3356,9 +3434,12 @@ function _fetchBridgeSteps(flowKey) {
         container.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_flows", "No steps for this flow")));
         return;
       }
+      steps.sort(function (a, b) {
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
       steps.forEach(function (step) {
         step.flow_key = flowKey;
-        container.appendChild(renderStepCard(step, _bridgeStepsMetadata));
+        container.appendChild(renderStepCard(step, _bridgeStepsMetadata, container));
       });
     })
     .catch(function (err) {
@@ -3368,8 +3449,8 @@ function _fetchBridgeSteps(flowKey) {
     });
 }
 
-function _showStepForm(initialData) {
-  var container = document.getElementById("bridge-steps-list-container");
+function _showStepForm(initialData, container) {
+  container = container || document.getElementById("bridge-steps-list-container");
   if (!container) return;
 
   // Remove any existing form
@@ -3429,7 +3510,7 @@ function _showStepForm(initialData) {
     if (msEl) body.model_source = msEl.value || null;
     if (maEl && !maEl.disabled) body.model_alias = maEl.value.trim() || null;
 
-    _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body);
+    _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body, container);
   };
 
   form.appendChild(el("h4", null, lbl("lbl_bridge_step_form_title", "Add/Edit Step")));
@@ -3578,7 +3659,7 @@ function _autoFillFromConvention(ruleKey, form, conventions, isNewStep) {
   if (errInput && conv.error_template) errInput.value = conv.error_template;
 }
 
-function _submitBridgeStep(flowKey, stepId, body) {
+function _submitBridgeStep(flowKey, stepId, body, container) {
   var method = stepId ? "PUT" : "POST";
   var url = stepId
     ? "/api/bridge-v2/steps/" + encodeURIComponent(flowKey) + "/" + stepId
@@ -3599,32 +3680,33 @@ function _submitBridgeStep(flowKey, stepId, body) {
       var form = document.getElementById("bridge-step-form");
       if (form) form.remove();
       _bridgeEditingStepId = null;
-      _fetchBridgeSteps(flowKey);
+      _fetchBridgeSteps(flowKey, container);
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
     });
 }
 
-function _editBridgeStep(stepId, flowKey) {
+function _editBridgeStep(stepId, flowKey, container) {
   fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey))
     .then(function (res) { return res.json(); })
     .then(function (data) {
       var step = (data.steps || []).filter(function (s) { return s.id === stepId; })[0];
       if (!step) throw new Error("Step not found: " + stepId);
       _bridgeEditingStepId = stepId;
+      _bridgeStepsFlowKey = flowKey;
       _showStepForm({ data: step, _meta: {
         available_roles: data.available_roles || [],
         available_conventions: data.available_conventions || [],
         available_scripts: data.available_scripts || []
-      }});
+      }}, container);
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
     });
 }
 
-function _deleteBridgeStep(stepId, flowKey) {
+function _deleteBridgeStep(stepId, flowKey, container) {
   if (!confirm(lbl("lbl_confirm_delete_step", "Delete step #{stepId}?").replace("{stepId}", stepId))) return;
   fetch("/api/bridge-v2/steps/" + encodeURIComponent(flowKey) + "/" + stepId, { method: "DELETE" })
     .then(function (res) {
@@ -3633,7 +3715,7 @@ function _deleteBridgeStep(stepId, flowKey) {
     })
     .then(function () {
       alert(lbl("lbl_bridge_deleted", "Successfully deleted") + ": #" + stepId);
-      _fetchBridgeSteps(flowKey);
+      _fetchBridgeSteps(flowKey, container);
     })
     .catch(function (err) {
       alert(lbl("lbl_status_error_prefix", "Error: ") + escapeHtml(err.message));
@@ -3759,7 +3841,7 @@ function loadBridgeSetup() {
   if (expFlowsBtn) expFlowsBtn.onclick = function () { exportBridge("flows"); };
 
   var addStepBtn = document.getElementById("bridge-add-step-btn");
-  if (addStepBtn) addStepBtn.onclick = function () { _showStepForm({ data: {}, _meta: _bridgeStepsMetadata }); };
+  if (addStepBtn) addStepBtn.onclick = function () { _bridgeEditingStepId = null; _showStepForm({ data: {}, _meta: _bridgeStepsMetadata }); };
 }
 
 /* ── User Preferences (database-driven compiler defaults) ── */
