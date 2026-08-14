@@ -2595,8 +2595,11 @@ panel_subgroups_seed = [
     ("sg_periodic_phase", "periodic", "Fase", "Phase", 1, 1),
     ("sg_periodic_planning", "periodic", "Planlægning", "Planning", 2, 1),
     ("sg_periodic_existing", "periodic", "Eksisterende Projekter", "Existing Projects", 3, 1),
+    # Flows lives under Periodic (Human decision 2026-08-14); the key keeps
+    # its historical sg_setup_ prefix because user_panel_groups state rows
+    # and mappings reference it — renaming would orphan them.
+    ("sg_setup_flows", "periodic", "Flows", "Flows", 4, 1),
     # Setup subgroups
-    ("sg_setup_flows", "setup", "Flows", "Flows", 1, 1),
     ("sg_setup_steps", "setup", "Trin", "Steps", 2, 1),
     ("sg_setup_roles", "setup", "Roller", "Roles", 3, 1),
     ("sg_setup_conventions", "setup", "Konventioner", "Conventions", 4, 1),
@@ -2830,18 +2833,23 @@ cursor.execute("""
     "List distinct locales with display names from ui_label_translations for dynamic language dropdown",
     "languages JSON array with locale and display_name", "language_selector"))
 
-# Spor G: Deactivate Periodic panel subgroups (Phase, Planning, Existing Projects)
+# Spor G: Deactivate the legacy Periodic subgroups (Phase, Planning,
+# Existing Projects). Named explicitly rather than by group: Flows moved
+# into Periodic on 2026-08-14 and must stay visible — a group-wide hide
+# here silently swallowed it.
 cursor.execute("""
     UPDATE panel_subgroups
     SET is_visible = 0
-    WHERE group_name = 'periodic'
+    WHERE subgroup_key IN ('sg_periodic_phase', 'sg_periodic_planning',
+                           'sg_periodic_existing')
 """)
 
-# Spor G: Hide empty panel groups (only Daily and Setup remain visible)
+# Spor G: Hide empty panel groups. Periodic left this list on 2026-08-14 —
+# it hosts the Flows subgroup now and is no longer empty.
 cursor.execute("""
     UPDATE user_panel_groups
     SET is_visible = 0
-    WHERE group_name IN ('journals', 'reports', 'periodic')
+    WHERE group_name IN ('journals', 'reports')
 """)
 
 # ── Spor I: BridgeV002 Database Integration ────────────────

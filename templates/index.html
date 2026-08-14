@@ -60,6 +60,14 @@
                 <span class="panel-group-toggle">▼</span>
             </div>
             <div class="panel-group-body">
+                <section id="bridge-flows-section">
+                  <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
+                  <div class="bridge-btn-row">
+                    <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
+                    <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">View Flows</button>
+                  </div>
+                  <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
+                </section>
             </div>
         </section>
 
@@ -77,15 +85,6 @@
 
                 <!-- Sections below are wrapped into subgroups by buildSubgroups()
                      based on panel_subgroups + panel_subgroup_mappings in the database -->
-
-                <section id="bridge-flows-section">
-                  <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
-                  <div class="bridge-btn-row">
-                    <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
-                    <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">View Flows</button>
-                  </div>
-                  <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
-                </section>
 
                 <section id="bridge-steps-section">
                   <h3 data-slot="lbl_bridge_steps_title">Steps</h3>
