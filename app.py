@@ -1,34 +1,16 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 import logging
 import os
-import io
-import json
 import sys
-import platform
-import subprocess
-import sqlite3
-from datetime import datetime
-from fastapi import HTTPException
 import config  # DPMtF-WebUI central config (Spor A — hardcoding cleanup)
 from pathlib import Path
 
-# BridgeV002 database-backed lookup (Spor I)
+# Path setup kept for its side effect: the endpoints moved to routers/,
+# but late imports elsewhere still expect scripts/bridgeV002 and scripts/
+# on sys.path once app is loaded.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts" / "bridgeV002"))
-from bridge_lib import (
-    load_role_from_db,
-    load_flow_from_db,
-    list_roles_from_db,
-    list_flows_from_db,
-    _bridgev002_tables_exist,
-    get_next_id_for_flow,
-)
-from dispatch import build_step_payload
-
-# Machine Profile healthcheck (Fase 1)
 sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts"))
-from system_healthcheck import run_healthcheck
 
 app = FastAPI(title="DPMtF WebUI")
 
