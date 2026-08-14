@@ -294,7 +294,7 @@ python3 -m py_compile app.py && echo "app.py OK"
 node --check static/js/dpmtf-app.js && echo "dpmtf-app.js OK"
 curl -s http://localhost:9130/api/health
 curl -s http://localhost:9130/api/bridge-v2/status
-systemctl is-active mcp-light   # MCP context server (read-only, 18 tools)
+systemctl is-active mcp-light   # MCP context server (read-only, 22 tools)
 ss -ltnp | grep 9135            # mcp-light MCP HTTP endpoint on 127.0.0.1
 ```
 
@@ -379,5 +379,5 @@ first for current status + remaining recommendations.
 | Trade deliverable_dir | `/home/svend/trade-ui/inbox/pending` (absolute path in bridge_flow_steps.deliverable_dir) |
 | Ollama endpoint | http://127.0.0.1:11434 |
 | ONYX (optional) | ONYX Lite via docker compose — API `http://127.0.0.1:9162`, web UI `:9163`, onyx-mcp tools `:9164/mcp` (on-demand: `model-allocator mcp-serve`). OPTIONAL runtime: only `backend: onyx` aliases touch it; `docker compose down` removes it without affecting anything. Setup/credentials: `~/model-allocator/deploy/onyx/README.md` |
-| mcp-light endpoint | http://127.0.0.1:9135/mcp — MCP streamable-http, read-only context server (18 tools). systemd `mcp-light.service` runs `/home/svend/mcp-light/venv/bin/python server.py`. Repo: `/home/svend/mcp-light` (separate). Configs: `~/.config/opencode-roles/*/opencode.json` `mcp.mcp-light` block. |
+| mcp-light endpoint | http://127.0.0.1:9135/mcp — MCP streamable-http, read-only context server (22 tools). systemd `mcp-light.service` runs `/home/svend/mcp-light/venv/bin/python server.py`. Repo: `/home/svend/mcp-light` (separate). Configs: `~/.config/opencode-roles/*/opencode.json` `mcp.mcp-light` block. |
 | Runtime | `/home/svend/.local/bin/uvicorn app:app --host 0.0.0.0 --port 9130 --reload` |

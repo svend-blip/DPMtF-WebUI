@@ -67,7 +67,7 @@ the database and resolved at runtime. No flow-specific hardcoding in dispatch
 code.
 
 - **Flows** — configurable step sequences stored in `bridge_flows` +
-  `bridge_flow_steps`. Active flows:
+  `bridge_flow_steps`. 12 active flows:
   - `strict_review` — architect → implementer → technical review → governance
     review → human (5 steps, fully automated)
   - `cloud_llm` — cloud LLM variant using Freebuff frontends
@@ -75,6 +75,14 @@ code.
   - `trade_cockpit_simulation_v001` — daily research-to-simulation chain
     (7 steps: trend → market → analyst → risk → review → sim → portfolio)
   - `trade_cockpit_scoring_v001` — periodic scoring and learning
+  - `supervised_review` / `llama_SG` / `preferred_cloud` / `reveng` —
+    autonomous supervisor-driven chains (supervisor → implementer →
+    review(s) → supervisor), differing in which models are local vs hosted
+  - `lightworker` — chain whose implementer executes on a remote
+    LightWorker over Tailscale
+  - `supervisor` — legacy run-directory root; new runs open per-flow
+  - `pi_test` — frontend-comparison experiment (same model, different
+    code frontends)
 
 **Auto-chain** — the strict_review flow now auto-advances via chain_advancement
 blocks in content templates, with _advance_chain as fallback. Only the initial
@@ -90,7 +98,7 @@ signal_send is needed from the Human.
   idempotent: a transition already delivered within
   `delivery_grace_minutes` is suppressed (override with `--force`).
 - **Roles** — per-role definitions in `bridge_roles` with tmux sessions,
-  model aliases, governance files, and enter commands. 25 active roles across
+  model aliases, governance files, and enter commands. 43 active roles across
   all flows.
 - **Conventions** — `bridge_convention_rules` with `content_template` and
   `validation_schema` for handoff, callback, technical_review, verdict,
@@ -246,26 +254,38 @@ prompt parsing.
 
 ### Backend
 
-- **`app.py`** (145 lines) — thin FastAPI entrypoint; all endpoints live in
-  10 domain routers under `routers/`:
-  - `bridge.py` (45 endpoints) — flows, roles, steps, conventions, dispatch,
-    tmux session management, allocator proxy
-  - `system.py` (15) — health, config, system info
-  - `panels.py` (11) — frontend panel CRUD, layout slots
-  - `sessions.py` (8) — Claude session management
-  - `prompt_compiler.py` (5) — handoff prompt compilation
-  - `git.py` (5) — git operations
-  - `validation.py` (5) — deliverable validation
-  - `webui.py` (5) — webui migration targets
-  - `app_profiles.py` (3) — user profile panels
-  - `governance.py` (2) — governance file access
-- **94 API endpoints** total
+- **`app.py`** (149 lines) — thin FastAPI entrypoint; all endpoints live in
+  11 domain routers under `routers/`:
+  - `bridge.py` (38 endpoints) — flows, roles, steps, conventions, dispatch,
+    tmux session management, job queue, allocator proxy
+  - `system.py` (14) — health, config, system info
+  - `panels.py` (10) — frontend panel CRUD, layout slots
+  - `lightworkers.py` (9) — the LightWorker protocol (see below)
+  - `sessions.py` (7) — Claude session management
+  - `prompt_compiler.py` (4) — handoff prompt compilation
+  - `git.py` (4) — git operations
+  - `validation.py` (4) — deliverable validation
+  - `webui.py` (4) — webui migration targets
+  - `app_profiles.py` (2) — user profile panels
+  - `governance.py` (1) — governance file access
+- **97 API endpoints** total
+
+### LightWorker API
+
+`routers/lightworkers.py` exposes the nine endpoints a remote
+DPMtF-LightWorker polls over Tailscale: register, worker heartbeat, offer,
+offer-next, claim (atomic), execution heartbeat, record-event, complete and
+fail — backed by the durable `SqliteLightWorkerStore`
+(`routers/lightworker_store.py`, schema in
+`scripts/db/030_lightworker_executions.sql`). Per-worker bearer tokens are
+minted with `scripts/bridgeV002/mint_worker_token.py` and stored as sha256;
+the token both authenticates and identifies its worker.
 
 ### Database
 
-- **SQLite** (`databases/dpmtf.db`) with 39 tables
+- **SQLite** (`databases/dpmtf.db`) with 48 tables
 - **Versioned migrations** — `scripts/db/*.sql` applied by `scripts/migrate.py`
-  (tracked in `schema_migrations`). 8 migrations to date. Schema changes are
+  (tracked in `schema_migrations`). 49 migrations to date. Schema changes are
   new `00X_*.sql` files — never edits to `init_db.py`.
 - **`scripts/init_db.py`** — schema + canonical defaults (i18n labels,
   conventions) only. User-configured data lives in the DB, managed via the
@@ -331,19 +351,21 @@ pi --print "List the names of the skills available to you. Names only."
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -q    # 159 tests, all passing
+python3 -m pytest tests/ -q    # 584 tests, all passing
 ```
 
-26 test files covering:
+55 test files covering:
 - Job queue models, scheduler, integration, spikes
 - Bridge endpoints, dispatch, convention rules
+- Chain watchdog and supervisor state
+- LightWorker store, endpoints, artifacts, patch application
 - Checkpoint schema and integration
-- Migration tests (005, 007)
+- Migration tests
 - Runtime modules, safe resolve, action schema
 - E2E pipeline and full cycle workflow
 - Handoff compiler, context fit
-- Allocator config endpoints
-- Model lease
+- Allocator config endpoints, model lease
+- Validation-rule command guard
 
 ## Configuration
 
