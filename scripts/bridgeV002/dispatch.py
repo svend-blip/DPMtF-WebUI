@@ -548,6 +548,75 @@ def _resolve_real_model(alias):
     return ""
 
 
+def _allocator_state_dir():
+    """The directory where local backend adapters keep their PID files."""
+    return os.environ.get("MODEL_ALLOCATOR_STATE_DIR") or tempfile.gettempdir()
+
+
+def _stop_other_local_models(to_alias):
+    """Stop resident local models that would deny the target its VRAM.
+
+    The VRAM-first swap only frees the SENDER's model. A local model started
+    outside the current step — a manual `model-allocator start`, a crashed
+    chain's leftovers — is invisible to it, and warming the target into a
+    full GPU makes llama-server exit on OOM within a second (reveng verdicts
+    061/062, 2026-08-14). Local adapters drop `model-allocator-{alias}-{port}.pid`
+    in the state dir, so residency is enumerable without hardcoding aliases.
+    Aliases sharing the target's real model are left loaded — the target
+    reuses those weights.
+    """
+    if not to_alias:
+        return
+    prefix = "model-allocator-"
+    try:
+        names = os.listdir(_allocator_state_dir())
+    except OSError:
+        return
+    to_real = _resolve_real_model(to_alias)
+    stopped_any = False
+    for name in names:
+        if not (name.startswith(prefix) and name.endswith(".pid")):
+            continue
+        alias = name[len(prefix):-len(".pid")].rsplit("-", 1)[0]
+        if not alias or alias == to_alias:
+            continue
+        real = _resolve_real_model(alias)
+        if to_real and real and real == to_real:
+            continue
+        print(f"  GPU sweep: stopping resident local model '{alias}' "
+              f"before warming '{to_alias}'")
+        _run_allocator_stop(alias)
+        stopped_any = True
+    if stopped_any:
+        _wait_for_vram_release()
+
+
+def _backend_is_down(alias):
+    """True when the alias resolves to a LOCAL backend whose server is dead.
+
+    Injecting into a role whose backend is down still lands in the pane, so
+    trace.log said "delivered" while the turn died on "Cannot connect to
+    API" — and the watchdog read the chain as complete (reveng verdict 061).
+    This is the gate that makes that state visible. Fail-open on anything
+    unparseable and on non-local backends: a cloud alias has no local server
+    to probe, and a false "down" would make the watchdog re-nudge a healthy
+    delivery until escalation.
+    """
+    if not alias:
+        return False
+    try:
+        result = subprocess.run(
+            [_model_allocator_path(), "status", "--alias", alias],
+            capture_output=True, text=True, timeout=20,
+        )
+        status = json.loads(result.stdout) if result.stdout.strip() else {}
+    except Exception:
+        return False
+    if status.get("backend") not in ("llama_cpp", "sglang"):
+        return False
+    return not status.get("running", True)
+
+
 def _release_from_model_first(handoff_id, from_alias, to_alias):
     """Free the completing role's VRAM BEFORE the next model is warmed.
 
@@ -1645,6 +1714,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         if to_source == "model_allocator" and to_alias:
             _wait_for_vram_release()
     if to_source == "model_allocator" and to_alias:
+        _stop_other_local_models(to_alias)
         _run_allocator_start(to_alias)
 
     pre_script = target_step.get("pre_dispatch_script")
@@ -1743,11 +1813,21 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     update_symlink(bridge_dir, payload["deliverable_dir"], payload["deliverable_file"])
 
+    # A delivered injection with a dead backend is NOT a delivery the chain
+    # can act on — log a status the watchdog's field-exact needles will not
+    # count, so its sender-stall branch re-sends (and re-warms) instead of
+    # reading the flow as complete.
+    backend_down = (to_source == "model_allocator"
+                    and _backend_is_down(to_alias))
+    if backend_down:
+        print(f"  WARNING: backend for '{to_alias}' is down at injection — "
+              f"logging dispatched_backend_down")
     log(
         f"{payload['from_role']}->{payload['to_role']}",
         handoff_id,
-        "dispatched",
-        f"Delivered {payload['deliverable_file']} to {tmux_session} (DB-driven)",
+        "dispatched" if not backend_down else "dispatched_backend_down",
+        f"Delivered {payload['deliverable_file']} to {tmux_session} (DB-driven)"
+        + ("" if not backend_down else f" but backend '{to_alias}' is down"),
     )
 
     return True
@@ -2083,6 +2163,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             handoff_id, from_alias_sc,
             to_alias_sc if to_source_sc == "model_allocator" else "")
     if to_source_sc == "model_allocator" and to_alias_sc:
+        _stop_other_local_models(to_alias_sc)
         _run_allocator_start(to_alias_sc)
 
     # Step 7: Auto-prepend missing XML sections, then validate + build callback
@@ -2364,11 +2445,22 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # is killed before a trailing trace write — leaving delivered
     # signals invisible to the watchdog's duplicate-nudge guard
     # (flow 069 double-nudge, flow 070 missing review->sim line).
+    # See run_flow_step_db: a dead backend must not be logged as a clean
+    # delivery, or the watchdog reads the final step as complete while the
+    # receiver's turn dies on "Cannot connect to API" (reveng verdict 061).
+    backend_down_sc = (to_source_sc == "model_allocator"
+                       and _backend_is_down(to_alias_sc))
+    if backend_down_sc:
+        print(f"  WARNING: backend for '{to_alias_sc}' is down at injection — "
+              f"logging signal_complete_backend_down")
     log(
         f"{payload['from_role']}->{payload['to_role']}",
         handoff_id,
-        "signal_complete",
-        f"Callback dispatched to {tmux_session} (DB-driven)",
+        "signal_complete" if not backend_down_sc
+        else "signal_complete_backend_down",
+        f"Callback dispatched to {tmux_session} (DB-driven)"
+        + ("" if not backend_down_sc
+           else f" but backend '{to_alias_sc}' is down"),
     )
 
     # Step 9: Post-dispatch VRAM cleanup. The from-role's model was already
@@ -3066,6 +3158,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Lease identity is the HANDOFF id — signal_complete releases with the
     # handoff id, so acquiring under the job record id would orphan the lease.
     if to_source == "model_allocator" and to_alias:
+        _stop_other_local_models(to_alias)
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
             from model_lease import LeaseRegistry
@@ -3196,12 +3289,19 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         pass
     os.symlink(handoff_file, link_path)
 
-    # Step 10: Log dispatch event to trace.log
+    # Step 10: Log dispatch event to trace.log. A dead backend gets its own
+    # status so the watchdog re-sends instead of counting the delivery.
+    backend_down = (to_source == "model_allocator"
+                    and _backend_is_down(to_alias))
+    if backend_down:
+        print(f"  WARNING: backend for '{to_alias}' is down at injection — "
+              f"logging dispatched_backend_down")
     log(
         f"{from_role_key}->{to_role_key}",
         handoff_id,
-        "dispatched",
-        f"Handoff {handoff_file} dispatched to {tmux_session}",
+        "dispatched" if not backend_down else "dispatched_backend_down",
+        f"Handoff {handoff_file} dispatched to {tmux_session}"
+        + ("" if not backend_down else f" but backend '{to_alias}' is down"),
     )
 
     print(f"  Logged dispatched for handoff #{handoff_id}")
