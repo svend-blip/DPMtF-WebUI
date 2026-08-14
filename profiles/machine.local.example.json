@@ -99,9 +99,13 @@
     "max_nudges_per_step": 2,
     "loop_seconds": 60,
     "max_minutes": 90,
-    "_note": "chain watchdog + scheduler nudge defaults; chain order is read from bridge_flow_steps. fast_nudge_minutes/idle_confirmations drive the fast nudge path; delivery_grace_minutes is the signal_complete idempotency window.",
+    "_note": "chain watchdog + scheduler nudge defaults; chain order is read from bridge_flow_steps. fast_nudge_minutes/idle_confirmations drive the fast nudge path; delivery_grace_minutes is the signal_complete idempotency window. idle_passes drives the produced-nothing fast path; remote_heartbeat_stale_seconds bounds LightWorker heartbeat silence; chain_max_age_minutes caps a run's total age; escalation_repeat_minutes spaces repeated Human escalations.",
     "fast_nudge_minutes": 2,
     "idle_confirmations": 2,
-    "delivery_grace_minutes": 10
+    "delivery_grace_minutes": 10,
+    "idle_passes": 3,
+    "remote_heartbeat_stale_seconds": 90,
+    "chain_max_age_minutes": 360,
+    "escalation_repeat_minutes": 30
   }
 }

@@ -537,6 +537,75 @@ def test_a_remote_receiver_with_fresh_heartbeats_is_working(flow, monkeypatch):
     assert flow.nudges == []
 
 
+@pytest.fixture
+def lightworker_db(tmp_path, monkeypatch):
+    """A real-schema LightWorker store, built from the live migration file.
+
+    remote_activity spent its first weeks querying a column named
+    created_at on lightworker_execution_heartbeats; the schema names it
+    heartbeat_at, the sqlite3.Error was swallowed, and every healthy
+    remote worker was reported 'missing'. The earlier tests monkeypatched
+    remote_activity away, so only a fixture built from the actual SQL
+    could have caught it — hence this one.
+    """
+    import sqlite3
+    db = tmp_path / "dpmtf.db"
+    sql = (PROJECT_ROOT / "scripts" / "db"
+           / "030_lightworker_executions.sql").read_text(encoding="utf-8")
+    conn = sqlite3.connect(db)
+    conn.executescript(sql)
+    conn.commit()
+    monkeypatch.setattr(cw, "_db_path", lambda: str(db))
+
+    class Store:
+        def execution(self, state="claimed", updated_age_seconds=0):
+            # SQLite's datetime('now') format: naive UTC, space-separated.
+            stamp = (datetime.now(timezone.utc)
+                     - timedelta(seconds=updated_age_seconds)).strftime(
+                         "%Y-%m-%d %H:%M:%S")
+            conn.execute(
+                "INSERT INTO lightworker_executions (execution_id, handoff_id,"
+                " worker_id, target_role, state, attempt_id, payload_json,"
+                " updated_at) VALUES ('EXEC-21-IMPLE01', '21', 'w1',"
+                " 'imple01', ?, 'a1', '{}', ?)", (state, stamp))
+            conn.commit()
+
+        def heartbeat(self, age_seconds):
+            stamp = (datetime.now(timezone.utc)
+                     - timedelta(seconds=age_seconds)).strftime(
+                         "%Y-%m-%d %H:%M:%S")
+            conn.execute(
+                "INSERT OR REPLACE INTO lightworker_execution_heartbeats"
+                " (execution_id, worker_id, attempt_id, heartbeat_at)"
+                " VALUES ('EXEC-21-IMPLE01', 'w1', 'a1', ?)", (stamp,))
+            conn.commit()
+
+    yield Store()
+    conn.close()
+
+
+def test_a_beating_remote_worker_reads_active_from_the_real_schema(
+        lightworker_db):
+    lightworker_db.execution(state="claimed", updated_age_seconds=600)
+    lightworker_db.heartbeat(age_seconds=10)
+    assert cw.remote_activity("lightworker", "imple01", "21") == "active"
+
+
+def test_a_silent_claimed_execution_reads_stale(lightworker_db):
+    lightworker_db.execution(state="claimed", updated_age_seconds=600)
+    lightworker_db.heartbeat(age_seconds=600)
+    assert cw.remote_activity("lightworker", "imple01", "21") == "stale"
+
+
+def test_an_undelivered_offer_reads_unclaimed(lightworker_db):
+    lightworker_db.execution(state="offered", updated_age_seconds=600)
+    assert cw.remote_activity("lightworker", "imple01", "21") == "unclaimed"
+
+
+def test_no_execution_at_all_reads_missing(lightworker_db):
+    assert cw.remote_activity("lightworker", "imple01", "21") == "missing"
+
+
 def test_a_human_terminated_chain_counts_as_complete(flow):
     """dispatch logs `signal_complete_to_human` when the last receiver is
     the Human. The first --all-flows dry-run read a finished lightworker

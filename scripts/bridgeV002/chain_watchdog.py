@@ -460,6 +460,7 @@ def remote_activity(flow_key, role, run_id):
     every ~15s while its role runs, so a claimed execution with 90s of
     heartbeat silence is a dead worker, not a slow one.
     """
+    conn = None
     try:
         conn = sqlite3.connect(_db_path())
         row = conn.execute(
@@ -467,27 +468,31 @@ def remote_activity(flow_key, role, run_id):
             "WHERE handoff_id = ? AND target_role = ? "
             "ORDER BY rowid DESC LIMIT 1", (str(run_id), role)).fetchone()
         if row is None:
-            conn.close()
             return "missing"
         eid, state_, updated = row
         if state_ in ("completed", "failed"):
-            conn.close()
             return "active"          # terminal: the chain moves on its own
         hb = conn.execute(
-            "SELECT MAX(created_at) FROM lightworker_execution_heartbeats "
+            "SELECT MAX(heartbeat_at) FROM lightworker_execution_heartbeats "
             "WHERE execution_id = ?", (eid,)).fetchone()[0]
-        conn.close()
         newest = hb or updated
         try:
             ts = datetime.fromisoformat(newest.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                # SQLite datetime('now') stores naive UTC; subtracting a
+                # naive stamp from an aware now is a TypeError, not an age.
+                ts = ts.replace(tzinfo=timezone.utc)
             age = (datetime.now(timezone.utc) - ts).total_seconds()
         except (ValueError, AttributeError):
             return "stale"
-        if state_ == "offered":
+        if state_ in ("offered", "delivered"):
             return "unclaimed" if age > 120 else "active"
         return "stale" if age > REMOTE_HEARTBEAT_STALE_SECONDS else "active"
     except sqlite3.Error:
         return "missing"
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def load_flow_steps(flow_key):
