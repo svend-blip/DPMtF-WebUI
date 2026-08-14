@@ -872,15 +872,30 @@ class Scheduler:
             from_role = step.get("from_role", "")
             to_role = step.get("to_role", "")
 
+            try:
+                target = load_role_from_db(to_role, db_path=self.repo.db_path)
+            except Exception:
+                target = {}
+            if (target.get("execution_target") or "").strip():
+                # Remote receiver (LightWorker): re-running the sender's
+                # signal_complete mints a SECOND execution offer, so this
+                # nudger must never fire. Liveness for remote roles is the
+                # execution heartbeat, watched by chain_watchdog.
+                marker = f"remote::{job.flow_key}::{hid}::{to_role}"
+                nudge_state = self._read_nudge_state()
+                if marker not in nudge_state:
+                    print(f"  Chain nudge SKIPPED: {to_role} executes "
+                          f"remotely ({target['execution_target']}) — "
+                          f"remote roles are never auto-nudged")
+                    nudge_state[marker] = True
+                    self._write_nudge_state(nudge_state)
+                return False
+
             if self._recent_delivery(bridge_dir, from_role, to_role, hid,
                                      self.stall_minutes):
                 return False  # prompt delivered — target is loading/working
 
-            try:
-                session = load_role_from_db(
-                    to_role, db_path=self.repo.db_path).get("tmux_session", "")
-            except Exception:
-                session = ""
+            session = target.get("tmux_session", "") or ""
             if session and self._pane_active(session):
                 return False  # target actively working — never re-inject
 

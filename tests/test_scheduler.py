@@ -164,3 +164,51 @@ def test_tick_fails_on_exception(tmp_path):
     assert "error" in result["outcome"]
     job = repo.get_job(job_id)
     assert job.status == "FAILED"
+
+
+def test_advance_chain_never_nudges_a_remote_receiver(tmp_path, monkeypatch):
+    """A nudge re-runs the sender's signal_complete, which for a receiver
+    that executes remotely (bridge_roles.execution_target set) mints a
+    SECOND LightWorker execution offer. The guard must refuse before any
+    time-based stall logic runs, however stale the deliverable looks."""
+    from types import SimpleNamespace
+    sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "bridgeV002"))
+    import bridge_lib
+
+    bridge = tmp_path / "flows"
+    handoffs = bridge / "lightworker" / "handoffs"
+    handoffs.mkdir(parents=True)
+    out = handoffs / "21-handoff.md"
+    out.write_text("handoff content\n")
+    import os as _os
+    stale = _os.path.getmtime(out) - 3600
+    _os.utime(out, (stale, stale))
+    monkeypatch.setenv("DPMTF_BRIDGE_DIR", str(bridge))
+
+    steps = [
+        {"from_role": "supervisor_auto", "to_role": "imple01",
+         "deliverable_dir": "lightworker/handoffs",
+         "deliverable_pattern": "{ID}-handoff.md"},
+        {"from_role": "imple01", "to_role": "review01",
+         "deliverable_dir": "lightworker/results",
+         "deliverable_pattern": "{ID}-result.md"},
+    ]
+    monkeypatch.setattr(bridge_lib, "load_flow_from_db",
+                        lambda *a, **k: {"steps": steps})
+    monkeypatch.setattr(
+        bridge_lib, "load_role_from_db",
+        lambda role, **k: {"role_key": role, "tmux_session": "imple01",
+                           "execution_target": "svend3060"})
+
+    db = _setup_db(tmp_path)
+    sched = Scheduler(db_path=db)
+    sched.nudge_state_path = tmp_path / "nudge-state.json"
+
+    job = SimpleNamespace(flow_key="lightworker", handoff_id="21")
+    with patch.object(sched, '_recent_delivery',
+                      side_effect=AssertionError("guard must fire first")), \
+         patch.object(sched, '_record_nudge',
+                      side_effect=AssertionError("remote must never nudge")):
+        assert sched._advance_chain(job) is False
+        # The refusal is idempotent and logged at most once (marker persists).
+        assert sched._advance_chain(job) is False
