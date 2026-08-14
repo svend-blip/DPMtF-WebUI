@@ -60,7 +60,7 @@ function reloadJobQueue() {
     })
     .catch(function(err) {
       var mount = document.getElementById("job-queue-dashboard");
-      if (mount) { clear(mount); mount.appendChild(el("div", "dpmtf-text-danger", "Job Queue: " + err.message)); }
+      if (mount) { clear(mount); mount.appendChild(el("div", "dpmtf-text-danger", lbl("lbl_jq_error_prefix", "Job Queue") + ": " + err.message)); }
     });
 }
 
@@ -98,7 +98,7 @@ function renderJobQueue() {
 
   // Auto-refresh toggle
   var autoBtn = el("button", "dpmtf-btn dpmtf-btn-sm");
-  autoBtn.textContent = window.jobQueueState.autoRefresh ? "⏸ Auto-refresh ON" : "▶ Auto-refresh OFF";
+  autoBtn.textContent = window.jobQueueState.autoRefresh ? "⏸ " + lbl("lbl_jq_autorefresh_on", "Auto-refresh ON") : "▶ " + lbl("lbl_jq_autorefresh_off", "Auto-refresh OFF");
   autoBtn.style.marginLeft = "auto";
   autoBtn.onclick = function() {
     window.jobQueueState.autoRefresh = !window.jobQueueState.autoRefresh;
@@ -113,13 +113,13 @@ function renderJobQueue() {
   filters.style.marginBottom = "12px";
 
   var filterOpts = [
-    {key: "active", label: "Active"},
-    {key: "all", label: "All"},
-    {key: "DRAFT", label: "Draft"},
-    {key: "AWAITING_APPROVAL", label: "Awaiting"},
-    {key: "RUNNING", label: "Running"},
-    {key: "COMPLETED", label: "Completed"},
-    {key: "CANCELLED", label: "Cancelled"},
+    {key: "active", label: lbl("lbl_bridge_active", "Active")},
+    {key: "all", label: lbl("lbl_jq_filter_all", "All")},
+    {key: "DRAFT", label: lbl("lbl_jq_filter_draft", "Draft")},
+    {key: "AWAITING_APPROVAL", label: lbl("lbl_jq_filter_awaiting", "Awaiting")},
+    {key: "RUNNING", label: lbl("lbl_bridge_running", "Running")},
+    {key: "COMPLETED", label: lbl("lbl_status_completed", "Completed")},
+    {key: "CANCELLED", label: lbl("lbl_jq_filter_cancelled", "Cancelled")},
   ];
   filterOpts.forEach(function(opt) {
     var btn = el("button", "dpmtf-btn dpmtf-btn-sm");
@@ -136,19 +136,19 @@ function renderJobQueue() {
 
   // Scheduler tick button
   var tickBtn = el("button", "dpmtf-btn dpmtf-btn-sm");
-  tickBtn.textContent = "⚡ Run Scheduler Tick";
+  tickBtn.textContent = "⚡ " + lbl("lbl_jq_run_tick", "Run Scheduler Tick");
   tickBtn.style.marginLeft = "12px";
   tickBtn.onclick = function() {
     tickBtn.disabled = true;
-    tickBtn.textContent = "⚡ Running...";
+    tickBtn.textContent = "⚡ " + lbl("lbl_bridge_running", "Running") + "…";
     fetch("/api/bridge-v2/jobs/scheduler/tick", { method: "POST" })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         tickBtn.disabled = false;
-        tickBtn.textContent = "⚡ Run Scheduler Tick";
+        tickBtn.textContent = "⚡ " + lbl("lbl_jq_run_tick", "Run Scheduler Tick");
         reloadJobQueue();
       })
-      .catch(function(e) { tickBtn.disabled = false; tickBtn.textContent = "⚡ Run Scheduler Tick"; });
+      .catch(function(e) { tickBtn.disabled = false; tickBtn.textContent = "⚡ " + lbl("lbl_jq_run_tick", "Run Scheduler Tick"); });
   };
   filters.appendChild(tickBtn);
 
@@ -156,7 +156,7 @@ function renderJobQueue() {
 
   // ── Create job form (collapsible) ──
   var createToggle = el("button", "dpmtf-btn dpmtf-btn-sm");
-  createToggle.textContent = "+ Create Job";
+  createToggle.textContent = "+ " + lbl("lbl_jq_create_job", "Create Job");
   createToggle.style.marginBottom = "8px";
   mount.appendChild(createToggle);
 
@@ -165,7 +165,7 @@ function renderJobQueue() {
   createForm.style.cssText = "background:var(--dpmtf-bg-alt,#f8f9fa);padding:12px;border-radius:6px;margin-bottom:12px;";
 
   // Flow selector
-  var flowLabel = el("label", null, "Flow: ");
+  var flowLabel = el("label", null, lbl("lbl_flowdisp_flow_label", "Flow") + ": ");
   flowLabel.style.cssText = "font-size:0.85em;display:block;margin-bottom:4px;";
   var flowSelect = el("select", "dpmtf-input");
   flowSelect.style.cssText = "width:100%;margin-bottom:8px;";
@@ -181,7 +181,7 @@ function renderJobQueue() {
   createForm.appendChild(flowLabel);
 
   // Role selector
-  var roleLabel = el("label", null, "Role: ");
+  var roleLabel = el("label", null, lbl("lbl_jq_role", "Role") + ": ");
   roleLabel.style.cssText = "font-size:0.85em;display:block;margin-bottom:4px;";
   var roleSelect = el("select", "dpmtf-input");
   roleSelect.style.cssText = "width:100%;margin-bottom:8px;";
@@ -199,16 +199,16 @@ function renderJobQueue() {
   createForm.appendChild(roleLabel);
 
   // Goal textarea
-  var goalLabel = el("label", null, "Goal: ");
+  var goalLabel = el("label", null, lbl("lbl_jq_goal", "Goal") + ": ");
   goalLabel.style.cssText = "font-size:0.85em;display:block;margin-bottom:4px;";
   var goalInput = el("textarea", "dpmtf-input");
   goalInput.style.cssText = "width:100%;min-height:60px;margin-bottom:8px;";
-  goalInput.placeholder = "Describe what the agent should do...";
+  goalInput.placeholder = lbl("lbl_jq_goal_placeholder", "Describe what the agent should do…");
   goalLabel.appendChild(goalInput);
   createForm.appendChild(goalLabel);
 
   // Project path
-  var projLabel = el("label", null, "Target project: ");
+  var projLabel = el("label", null, lbl("lbl_jq_target_project", "Target project") + ": ");
   projLabel.style.cssText = "font-size:0.85em;display:block;margin-bottom:4px;";
   var projInput = el("input", "dpmtf-input");
   projInput.type = "text";
@@ -219,7 +219,7 @@ function renderJobQueue() {
 
   // Buttons
   var createBtn = el("button", "dpmtf-btn");
-  createBtn.textContent = "Create Job";
+  createBtn.textContent = lbl("lbl_jq_create_job", "Create Job");
   createBtn.onclick = function() {
     var body = {
       flow_key: flowSelect.value,
@@ -228,9 +228,9 @@ function renderJobQueue() {
       target_project: projInput.value,
       allocator_alias: roleSelect.selectedOptions[0] ? (roleSelect.selectedOptions[0].dataset.alias || "") : "",
     };
-    if (!body.goal) { alert("Goal is required"); return; }
+    if (!body.goal) { alert(lbl("lbl_jq_goal_required", "Goal is required")); return; }
     createBtn.disabled = true;
-    createBtn.textContent = "Creating...";
+    createBtn.textContent = lbl("lbl_jq_creating", "Creating…");
     fetch("/api/bridge-v2/jobs", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -239,14 +239,14 @@ function renderJobQueue() {
       .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function(data) {
         createBtn.disabled = false;
-        createBtn.textContent = "Create Job";
+        createBtn.textContent = lbl("lbl_jq_create_job", "Create Job");
         goalInput.value = "";
         reloadJobQueue();
       })
       .catch(function(e) {
         createBtn.disabled = false;
-        createBtn.textContent = "Create Job";
-        alert("Failed: " + e.message);
+        createBtn.textContent = lbl("lbl_jq_create_job", "Create Job");
+        alert(lbl("lbl_jq_failed", "Failed") + ": " + e.message);
       });
   };
   createForm.appendChild(createBtn);
@@ -254,24 +254,27 @@ function renderJobQueue() {
   createToggle.onclick = function() {
     if (createForm.style.display === "none") {
       createForm.style.display = "block";
-      createToggle.textContent = "− Hide Form";
+      createToggle.textContent = "− " + lbl("lbl_jq_hide_form", "Hide Form");
     } else {
       createForm.style.display = "none";
-      createToggle.textContent = "+ Create Job";
+      createToggle.textContent = "+ " + lbl("lbl_jq_create_job", "Create Job");
     }
   };
   mount.appendChild(createForm);
 
   // ── Job table ──
   if (!jobs.length) {
-    mount.appendChild(el("div", "dpmtf-muted", "No jobs match filter."));
+    mount.appendChild(el("div", "dpmtf-muted", lbl("lbl_jq_no_jobs", "No jobs match filter.")));
   } else {
     var table = el("table", "dpmtf-table");
     table.style.cssText = "width:100%;font-size:0.85em;";
 
     var thead = el("thead", null);
     var headerRow = el("tr", null);
-    ["Job ID", "Flow", "Role", "Status", "Goal", "Created", "Actions"].forEach(function(h) {
+    [lbl("lbl_jq_col_job_id", "Job ID"), lbl("lbl_flowdisp_flow_label", "Flow"),
+     lbl("lbl_jq_role", "Role"), lbl("lbl_col_status", "Status"),
+     lbl("lbl_jq_goal", "Goal"), lbl("lbl_jq_col_created", "Created"),
+     lbl("lbl_jq_col_actions", "Actions")].forEach(function(h) {
       headerRow.appendChild(el("th", null, h));
     });
     thead.appendChild(headerRow);
@@ -304,7 +307,7 @@ function renderJobQueue() {
 
       if (job.status === "DRAFT" || job.status === "AWAITING_APPROVAL") {
         var approveBtn = el("button", "dpmtf-btn dpmtf-btn-sm");
-        approveBtn.textContent = "✓ Approve";
+        approveBtn.textContent = "✓ " + lbl("lbl_jq_approve", "Approve");
         approveBtn.style.cssText = "font-size:0.75em;padding:2px 6px;margin-right:4px;";
         approveBtn.onclick = function(e) {
           e.stopPropagation();
@@ -319,7 +322,7 @@ function renderJobQueue() {
 
       if (job.status !== "COMPLETED" && job.status !== "CANCELLED") {
         var cancelBtn = el("button", "dpmtf-btn dpmtf-btn-sm");
-        cancelBtn.textContent = "✕ Cancel";
+        cancelBtn.textContent = "✕ " + lbl("lbl_bridge_cancel", "Cancel");
         cancelBtn.style.cssText = "font-size:0.75em;padding:2px 6px;";
         cancelBtn.onclick = function(e) {
           e.stopPropagation();
@@ -350,29 +353,29 @@ function showJobEvents(jobId) {
       if (!mount) return;
       clear(mount);
 
-      var backBtn = el("button", "dpmtf-btn dpmtf-btn-sm", "← Back");
+      var backBtn = el("button", "dpmtf-btn dpmtf-btn-sm", "← " + lbl("lbl_jq_back", "Back"));
       backBtn.style.marginBottom = "12px";
       backBtn.onclick = function() { reloadJobQueue(); };
       mount.appendChild(backBtn);
 
       var job = data.job || {};
-      var title = el("h3", null, "Job " + job.job_id);
+      var title = el("h3", null, lbl("lbl_jq_job", "Job") + " " + job.job_id);
       mount.appendChild(title);
 
       // Job details
       var details = el("div", null);
       details.style.cssText = "margin-bottom:16px;font-size:0.85em;";
       var fields = [
-        ["Status", job.status],
-        ["Flow", job.flow_key],
-        ["Role", job.role_key],
-        ["Allocator alias", job.allocator_alias || "—"],
-        ["Handoff ID", job.handoff_id || "—"],
-        ["Goal", job.goal],
-        ["Target project", job.target_project],
-        ["Checkpoint", job.checkpoint_path || "—"],
-        ["Retry count", job.retry_count + "/" + job.max_retries],
-        ["Created", job.created_at],
+        [lbl("lbl_col_status", "Status"), job.status],
+        [lbl("lbl_flowdisp_flow_label", "Flow"), job.flow_key],
+        [lbl("lbl_jq_role", "Role"), job.role_key],
+        [lbl("lbl_jq_alloc_alias", "Allocator alias"), job.allocator_alias || "—"],
+        [lbl("lbl_flowdisp_col_id", "Handoff ID"), job.handoff_id || "—"],
+        [lbl("lbl_jq_goal", "Goal"), job.goal],
+        [lbl("lbl_jq_target_project", "Target project"), job.target_project],
+        [lbl("lbl_jq_checkpoint", "Checkpoint"), job.checkpoint_path || "—"],
+        [lbl("lbl_jq_retry_count", "Retry count"), job.retry_count + "/" + job.max_retries],
+        [lbl("lbl_jq_col_created", "Created"), job.created_at],
       ];
       fields.forEach(function(f) {
         var row = el("div", null);
@@ -384,18 +387,20 @@ function showJobEvents(jobId) {
       mount.appendChild(details);
 
       // Events timeline
-      var eventsTitle = el("h4", null, "Events");
+      var eventsTitle = el("h4", null, lbl("lbl_jq_events", "Events"));
       mount.appendChild(eventsTitle);
 
       var events = data.events || [];
       if (!events.length) {
-        mount.appendChild(el("div", "dpmtf-muted", "No events."));
+        mount.appendChild(el("div", "dpmtf-muted", lbl("lbl_jq_no_events", "No events.")));
       } else {
         var table = el("table", "dpmtf-table");
         table.style.cssText = "width:100%;font-size:0.8em;";
         var thead = el("thead", null);
         var hr = el("tr", null);
-        ["Time", "Type", "From", "To", "Actor", "Detail"].forEach(function(h) {
+        [lbl("lbl_flowdisp_col_time", "Time"), lbl("lbl_jq_col_type", "Type"),
+         lbl("lbl_jq_col_from", "From"), lbl("lbl_jq_col_to", "To"),
+         lbl("lbl_jq_col_actor", "Actor"), lbl("lbl_alloc_detail", "Detail")].forEach(function(h) {
           hr.appendChild(el("th", null, h));
         });
         thead.appendChild(hr);

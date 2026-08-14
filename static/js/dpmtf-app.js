@@ -394,7 +394,7 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   // "Test OK" button — calls allocator CLI validate via a thin DPMtF proxy endpoint
   var testBtn = el("button", "dpmtf-btn");
   testBtn.type = "button";
-  testBtn.textContent = "Test OK";
+  testBtn.textContent = lbl("lbl_model_test_btn", "Test OK");
   testBtn.disabled = srcSelect.value !== "model_allocator";
   container.appendChild(testBtn);
 
@@ -404,7 +404,7 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   link.href = "http://localhost:9140";
   link.target = "_blank";
   link.rel = "noopener";
-  link.textContent = "Manage allocation models →";
+  link.textContent = lbl("lbl_model_manage_link", "Manage allocation models") + " →";
   link.style.fontSize = "0.8rem";
   linkDiv.appendChild(link);
   container.appendChild(linkDiv);
@@ -430,7 +430,7 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
     clear(resultDiv);
     var alias = aliasInput.value.trim();
     if (!alias) return;
-    resultDiv.appendChild(el("div", "dpmtf-muted", "Testing..."));
+    resultDiv.appendChild(el("div", "dpmtf-muted", lbl("lbl_model_testing", "Testing…")));
 
     // Use the allocator CLI directly via a thin proxy endpoint
     var cmd = "/api/bridge-v2/allocator-test?alias=" + encodeURIComponent(alias) + "&client=opencode";
@@ -938,7 +938,7 @@ function buildDrawerContent() {
   // ── Security / Permissions (placeholder) ─────────────
   var secCard = el("div", "dpmtf-card");
   secCard.appendChild(el("h4", null, lbl("lbl_drawer_security", "Security / Permissions")));
-  secCard.appendChild(el("p", "dpmtf-muted", "Security and permissions management — planned for future phase."));
+  secCard.appendChild(el("p", "dpmtf-muted", lbl("lbl_drawer_security_placeholder", "Security and permissions management — planned for future phase.")));
   content.appendChild(secCard);
 }
 
@@ -962,11 +962,11 @@ function runValidationDrawer() {
       var verdictClass = data.verdict === "PASS" ? "hitrate-good" :
                          data.verdict === "FAIL" ? "hitrate-low" : "hitrate-ok";
       var verdictEl = el("p", null);
-      verdictEl.appendChild(document.createTextNode("Verdict: "));
+      verdictEl.appendChild(document.createTextNode(lbl("lbl_val_verdict", "Verdict") + ": "));
       var verdictSpan = el("span", verdictClass, data.verdict);
       verdictEl.appendChild(verdictSpan);
       verdictEl.appendChild(document.createTextNode(
-        " (" + data.rules_passed + "/" + data.rules_total + " passed)"));
+        " (" + data.rules_passed + "/" + data.rules_total + " " + lbl("lbl_val_passed", "passed") + ")"));
       resultsDiv.appendChild(verdictEl);
 
       var table = el("table", "dpmtf-table");
@@ -4054,7 +4054,7 @@ function loadSystemSetup() {
   clear(container);
 
   var loadingP = el("p", "dpmtf-muted");
-  loadingP.textContent = "Indlæser...";
+  loadingP.textContent = lbl("lbl_status_loading", "Loading...");
   container.appendChild(loadingP);
 
   fetch("/api/system/machine-profile")
@@ -4071,7 +4071,7 @@ function loadSystemSetup() {
     .catch(function (err) {
       clear(container);
       var errP = el("p", "dpmtf-error");
-      errP.textContent = "Fejl: " + (err.message || "Kunne ikke hente Machine Profile");
+      errP.textContent = lbl("lbl_alloc_error", "Error") + ": " + (err.message || lbl("lbl_sys_profile_error", "Could not load Machine Profile"));
       container.appendChild(errP);
     });
 }
