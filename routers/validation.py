@@ -19,6 +19,8 @@ dataset-status) was moved here from app.py.
 """
 
 import logging
+import os
+import shlex
 import sqlite3
 import subprocess
 
@@ -31,6 +33,80 @@ router = APIRouter(tags=["validation"])
 
 
 logger = logging.getLogger(__name__)
+
+
+# Programs a validation rule may start a shell segment with. Rules come
+# from the validation_rules table and run with shell=True (they need
+# globs, pipes and `|| echo` fallbacks), so the guard must reason about
+# STRUCTURE: the substring denylist it replaces was bypassable with `;`,
+# `|` or a newline before the destructive part.
+_READONLY_PROGRAMS = {
+    "python3", "node", "git", "grep", "bash", "echo",
+    "ls", "cat", "head", "tail", "wc", "curl", "test",
+}
+# Programs whose first argument decides whether the call is read-only.
+_CONSTRAINED_FIRST_ARG = {
+    "bash": {"-n"},                       # syntax check only, never execute
+    "node": {"--check"},
+    "git": {"diff", "status", "log", "show", "ls-files", "rev-parse",
+            "branch", "grep"},
+    "python3": {"-m"},
+}
+_PYTHON_READONLY_MODULES = {"py_compile", "compileall", "json.tool", "pytest"}
+_SHELL_OPERATORS = {"|", "||", ";", "&&"}
+
+
+def _command_is_readonly(cmd: str) -> bool:
+    """True when every shell segment starts with an allowlisted program.
+
+    Tokenized with shlex (punctuation_chars) so operators inside quotes —
+    e.g. grep -i "sql\\|migration" — stay ordinary words. Substitution,
+    redirection, background `&` and subshells are refused outright.
+    """
+    # A newline is a command separator the tokenizer reads as whitespace,
+    # which would hide a second command as the first one's "argument".
+    if "`" in cmd or "$(" in cmd or "${" in cmd or "\n" in cmd or "\r" in cmd:
+        return False
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        tokens = list(lex)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    expect_program = True
+    pending = None  # program whose first argument is still unvalidated
+    for tok in tokens:
+        if tok in _SHELL_OPERATORS:
+            if pending:
+                return False
+            expect_program, pending = True, None
+            continue
+        if any(c in tok for c in "<>&()"):
+            return False
+        if expect_program:
+            program = os.path.basename(tok)
+            if program not in _READONLY_PROGRAMS:
+                return False
+            pending = program if program in _CONSTRAINED_FIRST_ARG else None
+            expect_program = False
+            continue
+        if pending == "python3":
+            if tok != "-m":
+                return False
+            pending = "python3 -m"
+            continue
+        if pending == "python3 -m":
+            if tok not in _PYTHON_READONLY_MODULES:
+                return False
+            pending = None
+            continue
+        if pending:
+            if tok not in _CONSTRAINED_FIRST_ARG[pending]:
+                return False
+            pending = None
+    return not pending and not expect_program
 
 
 # Allowed table names for safe counting in bootstrap dataset status
@@ -200,17 +276,14 @@ async def run_validation(request: Request):
 
         try:
             # Safety: only allow read-only commands
-            dangerous = ["rm ", ">", "$(", "`", "sudo", "kill", "fuser",
-                         "DELETE", "DROP", "ALTER", "INSERT", "UPDATE",
-                         "pip install", "npm install", "nohup", "&"]
-            if any(d in cmd for d in dangerous):
-                result["notes"] = "Blocked: command contains potentially destructive operations"
+            if not _command_is_readonly(cmd):
+                result["notes"] = ("Blocked: command is not on the read-only "
+                                   "allowlist (see _command_is_readonly)")
                 results.append(result)
                 failed_count += 1
                 continue
 
             # Run command in the target project directory
-            import subprocess
             proc = subprocess.run(
                 cmd, shell=True, cwd=target,
                 capture_output=True, text=True, timeout=30,

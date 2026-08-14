@@ -52,21 +52,29 @@ from fastapi.responses import StreamingResponse
 
 # Ensure scripts/bridgeV002/ is on sys.path so the top-level `bridge_lib`
 # import resolves. This mirrors what app.py does at its module top;
-# duplicating it here keeps routers/bridge.py self-contained.
+# duplicating it here keeps routers/bridge.py self-contained. The job-queue
+# paths are added here too, once — they used to be inserted inside the async
+# handlers, which grew sys.path by three entries per request.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_PROJECT_ROOT / "scripts" / "bridgeV002"))
+for _p in (_PROJECT_ROOT / "scripts" / "bridgeV002",
+           _PROJECT_ROOT / "scripts",
+           _PROJECT_ROOT / "scripts" / "job_queue",
+           _PROJECT_ROOT / "scripts" / "python-runtime"):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 from attach_tmux import VIEWER_SESSION_PREFIX  # noqa: E402
+# One import path only: `from scripts.bridgeV002.bridge_lib import ...`
+# beside this used to load the SAME file as a second module object with
+# its own state.
 from bridge_lib import (  # noqa: E402
     _bridgev002_tables_exist,
+    list_conventions_from_db,
     list_flows_from_db,
     list_roles_from_db,
+    list_scripts_from_db,
     load_flow_from_db,
     load_role_from_db,
-)
-from scripts.bridgeV002.bridge_lib import (  # noqa: E402
-    list_conventions_from_db,
-    list_scripts_from_db,
     resolve_convention_from_db,
 )
 
@@ -1525,8 +1533,6 @@ async def bridge_v2_db_backup():
 @router.post("/jobs")
 async def bridge_v2_create_job(request: Request):
     """Create a job in DRAFT state."""
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     from job_queue.models import JobRepository
 
     data = await request.json()
@@ -1555,8 +1561,6 @@ async def bridge_v2_create_job(request: Request):
 
 @router.put("/jobs/{job_id}/approve")
 async def bridge_v2_approve_job(job_id: str):
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     from job_queue.models import JobRepository, IllegalTransitionError
 
     repo = JobRepository()
@@ -1573,8 +1577,6 @@ async def bridge_v2_approve_job(job_id: str):
 
 @router.get("/jobs")
 async def bridge_v2_list_jobs(status: str = None, flow_key: str = None):
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     from job_queue.models import JobRepository
 
     repo = JobRepository()
@@ -1584,8 +1586,6 @@ async def bridge_v2_list_jobs(status: str = None, flow_key: str = None):
 
 @router.get("/jobs/{job_id}")
 async def bridge_v2_get_job(job_id: str):
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     from job_queue.models import JobRepository
 
     repo = JobRepository()
@@ -1598,8 +1598,6 @@ async def bridge_v2_get_job(job_id: str):
 
 @router.post("/jobs/{job_id}/cancel")
 async def bridge_v2_cancel_job(job_id: str):
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     from job_queue.models import JobRepository, IllegalTransitionError
 
     repo = JobRepository()
@@ -1615,8 +1613,6 @@ async def bridge_v2_cancel_job(job_id: str):
 
 @router.post("/jobs/scheduler/tick")
 async def bridge_v2_scheduler_tick():
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     from job_queue.scheduler import Scheduler
 
     sched = Scheduler()
@@ -1633,10 +1629,6 @@ async def bridge_v2_compile_handoff(request: Request):
     Body: {goal, flow_key, role_key, target_project, model_context_window}
     Returns: {jobs: [...], count: N}
     """
-    import sys as _sys
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "job_queue"))
-    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "python-runtime"))
     from handoff_compiler import compile_handoff, create_jobs_from_compiled
     from job_queue.models import JobRepository
     from context_fit_spike import evaluate_fit

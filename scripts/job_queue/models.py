@@ -350,7 +350,15 @@ class JobRepository:
         return [dict(r) for r in rows]
 
     def update(self, job_id: str, **fields):
-        """Update specific fields on a job."""
+        """Update specific fields on a job.
+
+        Field names are interpolated into the SQL, so they are validated
+        against the Job dataclass first — values stay parameterized either
+        way, but an unvalidated key would let a caller reach arbitrary
+        column expressions."""
+        unknown = set(fields) - set(Job.__dataclass_fields__)
+        if unknown:
+            raise ValueError(f"Unknown job fields: {sorted(unknown)}")
         conn = self._conn()
         sets = [f"{k} = ?" for k in fields]
         vals = list(fields.values())
