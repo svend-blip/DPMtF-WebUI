@@ -28,8 +28,11 @@ opened but not started.
 ## Step 0: Get the State In One Call
 
 ```bash
-python3 scripts/bridgeV002/supervisor_state.py
+python3 scripts/bridgeV002/supervisor_state.py --flow llama_SG
 ```
+
+`--flow` is required — the script refuses to guess, because a guessed
+default silently reports another flow's state.
 
 This answers Steps 1, 2, 3, 5 and 6 at once, and **applies the run floor while
 doing so** — which `chain_watchdog` cannot, because it locks onto the newest

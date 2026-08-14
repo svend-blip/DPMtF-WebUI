@@ -104,6 +104,42 @@ Summarize in a compact table:
 Do NOT list gaps, missing files, or discrepancies — the counter is authoritative.
 Then wait for Human to give the next instruction.
 
+## The Frontend Is A Database Fact
+
+Which client each role runs under is recorded in
+`bridge_roles.allocator_client`, and only there — this procedure works
+unchanged under Claude Code, OpenCode and Pi (`101_CODE_FRONTENDS.md`).
+Never assume a client from habit or from an older version of this file;
+look it up:
+
+```bash
+sqlite3 -readonly databases/dpmtf.db "SELECT role_key, allocator_client, \
+  fresh_session_command FROM bridge_roles WHERE role_key IN ('archi01','imple01','review01','review02')"
+```
+
+The one trap with a shared name is context reset. Claude Code's `/clear`
+genuinely clears the conversation; OpenCode's `/clear` is a prompt that
+costs window instead of freeing it — an OpenCode role resets with `/new`.
+The role's `fresh_session_command` in the same table is authoritative: the
+dispatcher uses it, and so should you.
+
+## Framework Questions Go To mcp-light
+
+`mcp-light` serves this flow's wiring at `http://127.0.0.1:9135/mcp`. How
+it reaches you depends on the client: Claude Code reads `~/.mcp.json`,
+OpenCode reads the `mcp` block in the role's `opencode.json` (the
+allocator's config refresh preserves it), Pi declares it in settings or an
+extension. If the tools below are not offered, that is what to check — do
+not fall back to deriving the answers by hand. Use it for anything about
+how the flow is wired:
+
+| Question | Tool |
+|---|---|
+| Where does a deliverable go, and under what name? | `get_flow_steps("strict_review")` |
+| What does 402 say? | `get_governance_file("402_STRICT_REVIEW_ARCHI01.md")` |
+| How is a role configured? | `get_role("archi01")` |
+| What did an earlier verdict conclude? | `search_verdicts(query)` |
+
 ## Rules
 
 - **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**

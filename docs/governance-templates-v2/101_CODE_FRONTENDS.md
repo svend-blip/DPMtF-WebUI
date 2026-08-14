@@ -146,6 +146,39 @@ starts share `dpmtf-cold-start`, which covers orientation, fencing,
 verification and signalling for any worker role in any flow; a flow-specific
 worker skill should extend it, not restate it.
 
+## Coverage — Which Flow Owns Which Skill
+
+Verified 2026-08-14. The invocation is the frontmatter `name`, which is not
+always the directory name.
+
+| Flow | Skill (invocation) | Kind |
+|---|---|---|
+| `strict_review` | `/strict_review` | Architect cold start |
+| `cloud_llm` | `/cloud-llm` | Architect cold start |
+| `cloud_pay` | `/cloud-pay` | Architect cold start |
+| `supervised_review` | `/supervised_review` | Supervisor cold start |
+| `llama_SG` | `/llama_SG` | Supervisor cold start |
+| `preferred_cloud` | `/Pre-Cloud` | Supervisor cold start |
+| `reveng` | `/Rev-Eng` | Supervisor cold start |
+| any flow's workers | `/dpmtf-cold-start` | Shared worker cold start |
+
+Flows with no skill of their own, deliberately:
+
+- `trade_cockpit_simulation_v001` / `trade_cockpit_scoring_v001` — every run
+  starts from `trade-cronjob.sh`, which kills and recreates each role
+  session; a role never wakes up cold mid-run, it is born fresh per
+  dispatch and oriented by the dispatch prompt.
+- `lightworker` — the remote worker executes each role in a disposable
+  worktree with a fresh session per execution; orientation is the dispatch
+  envelope plus `/dpmtf-cold-start`.
+- `pi_test` — a frontend-comparison experiment, driven manually.
+- `supervisor` — the legacy run-directory root (`supervisor/runs/`, closed
+  runs `goal-001` … `goal-023`); active supervising happens inside the
+  per-flow skills above, and new runs open in each flow's own `runs/`.
+
+When a new flow gains a supervisor or architect, it gains a skill in the
+same change — one skill, symlink-published, per the rule above.
+
 ## Swapping A Frontend
 
 The change itself is three fields and a session restart:

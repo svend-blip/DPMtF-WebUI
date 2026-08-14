@@ -15,6 +15,24 @@ starts cold outside a dispatch.
 
 Execute these steps in order. Do not skip any step.
 
+### Step 0: Get the State In One Call
+
+```bash
+python3 scripts/bridgeV002/supervisor_state.py --flow supervised_review
+```
+
+Pass `--flow supervised_review` explicitly — the script's default is another
+flow (`llama_SG`), and running it bare reports a different flow's state
+without any error. The report answers where the bridge directory is, which
+run is active and which of its four artefacts exist, the flow counter, the
+handoffs this run owns, the last `trace.log` signal, whether the WebUI,
+database and tmux sessions are up, and a one-line assessment. It applies the
+**run floor**, which the watchdog cannot — the watchdog locks onto the
+newest handoff id on disk regardless of which run owns it.
+
+Steps 1-6 verify and deepen what Step 0 reports; where they disagree,
+investigate before acting.
+
 ### Step 1: Resolve Bridge Directory
 
 The bridge directory is configured by `DPMTF_BRIDGE_DIR`. When that is unset,
@@ -30,10 +48,14 @@ All bridge paths below use `{bridge_dir}` as shorthand.
 
 ### Step 2: Locate the Active Run
 
-Run state lives under `{bridge_dir}/supervisor/runs/{run_id}/`:
+Run state lives under `{bridge_dir}/supervised_review/runs/{run_id}/` — the
+flow's OWN run directory, which is also where Step 0 looked:
 ```bash
-ls {bridge_dir}/supervisor/runs/
+ls {bridge_dir}/supervised_review/runs/
 ```
+Historical runs `goal-001` … `goal-023` (all closed) live under the legacy
+root `{bridge_dir}/supervisor/runs/` and stay there; never open a new run
+in that directory (migration 026, 451).
 The active run is the newest directory WITHOUT an `END-REPORT.md`. If every
 run has one, there is no active run — report that and wait for the Human
 (a new run requires a Human-approved GOAL.md; never start one yourself).
@@ -164,7 +186,7 @@ unprocessed event found in Step 6, proceed per the 451 wake-up protocol).
 
 ## Rules
 
-- **Execute steps 1-7 in order. Do not skip. Do not add extra investigation.**
+- **Execute steps 0-7 in order. Do not skip. Do not add extra investigation.**
 - **A run without an approved GOAL.md must not start** — park with
   `HUMAN_ACTION_REQUIRED`.
 - **Loop guard:** never send signal-complete for a verdict delivery you are

@@ -503,7 +503,10 @@ def render(state):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--flow", default="llama_SG", help="Flow key (default: llama_SG)")
+    # Required on purpose: a default flow silently reports ANOTHER flow's
+    # state when a skill forgets the argument — no error, wrong answer.
+    parser.add_argument("--flow", required=True,
+                        help="Flow key (e.g. llama_SG, supervised_review)")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of a report")
     parser.add_argument(
         "--stale-after", type=float, default=_STALE_AFTER_SECONDS / 60,

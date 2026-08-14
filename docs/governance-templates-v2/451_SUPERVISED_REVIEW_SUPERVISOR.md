@@ -42,7 +42,14 @@ wrong about a target project it never entered.
 
 ## Run Artifacts (durable state)
 
-All run state lives under `{bridge_dir}/supervisor/runs/{run_id}/`:
+All run state lives under `{bridge_dir}/supervised_review/runs/{run_id}/` —
+the flow's OWN run directory, the same convention every other flow follows
+and the directory `supervisor_state.py --flow supervised_review` reads.
+Historical runs `goal-001` … `goal-023` (all closed) remain under
+`{bridge_dir}/supervisor/runs/` and are never moved; new runs are opened in
+the flow's own directory. Migration 026 established this rule for dispatch
+templates ("your flow's own run directory, never
+`{bridge_dir}/supervisor/runs/`"); this file lagged it until 2026-08-14.
 
 | File | Purpose | Write mode |
 |------|---------|-----------|
