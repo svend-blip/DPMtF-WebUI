@@ -57,6 +57,286 @@ uvicorn app:app --host 0.0.0.0 --port 9130 --reload
 
 Open `http://localhost:9130` in a browser.
 
+## LLM-Assisted Installation — a Runbook for AI Assistants
+
+This section is written to be executed by an LLM assistant (Claude
+Fable 5, DeepSeek, or similar) that has been pointed at this repository
+and asked to install the DPMtF ecosystem and bring the first flow to
+life. A human can follow it too, but every step is phrased so an
+assistant can verify it mechanically: each phase ends with a **gate** —
+a command and the output that proves the phase is done. Do not proceed
+past a failed gate; diagnose it.
+
+### The Assistant's Contract
+
+Read these eight rules before running anything. They override any
+default behavior.
+
+1. **Never guess ports, paths, or model names.** Every configurable
+   value has a source: `dpmtf.ini`, `.env`, the database, or the Human.
+   If a value is not in one of those, ask — guesswork is an auto-fail
+   in this project's validation standard.
+2. **Ask the Human before choosing.** The decision points are marked
+   `DECISION` below: which models to serve, which flow to start first,
+   which code frontend each role uses. These are the Human's calls.
+3. **Secrets never touch git.** `.env` is never committed. Tokens are
+   shown once and stored outside the repository. If you find yourself
+   about to `git add .env`, stop.
+4. **Only the Human commits.** During installation you will edit config
+   files; leave them unstaged and tell the Human what changed and why.
+5. **`app.py`, `config.py`, `scripts/init_db.py`, and `dpmtf.ini`
+   require explicit Human approval before editing.** Everything the
+   installation needs is possible without touching the first three.
+6. **Verify placement rather than assuming it.** After every service
+   start, run the gate command. "The command exited 0" is not the same
+   as "the service works".
+7. **All code, comments, and commit messages in en-US.** The Human may
+   speak Danish to you; translate before anything reaches a file.
+8. **When something fails twice, stop and report** the exact command,
+   the exact output, and your hypothesis — do not loop on retries.
+
+### What to Ask the Human Before Starting
+
+Collect these answers first; they parameterize everything below:
+
+| Question | Why it matters | Default if the Human has no preference |
+|---|---|---|
+| Which machine(s)? One box, or Father + remote workers? | Decides whether Phase 6 (LightWorker) applies | One box, no LightWorker |
+| Which GPU / how much VRAM? | Decides which local models are feasible (see SETUP.md's model table) | Cloud/hosted models only, no local runtimes |
+| Which first flow? | Decides which roles, models, and frontends must exist | `strict_review` (simplest fully-automated chain) |
+| Which code frontend for the roles? | Must match `bridge_roles.allocator_client`; the frontend must be installed | Whatever the seeded roles already declare — read it from the DB, do not assume |
+| Local model runtimes wanted (Ollama / llama.cpp / SGLang)? | Each needs its own install + `.env` paths | None — skip Local Runtime Installations |
+
+### Phase Map
+
+| Phase | Installs | Required? |
+|---|---|---|
+| 1 | Prerequisites + clone all repositories | Yes |
+| 2 | model-allocator (Father's copy) | Yes |
+| 3 | DPMtF-WebUI itself (DB, migrations, server) | Yes |
+| 4 | mcp-light (context server, both instances) | Standard — skip only if the Human says so |
+| 5 | First flow end-to-end | Yes — this is the goal |
+| 6 | DPMtF-LightWorker on a remote worker | Only for multi-machine setups |
+
+The dependency order is load-bearing: each phase's preflight checks the
+one before it. Do not reorder.
+
+### Phase 1 — Prerequisites and Clone
+
+System requirements: Python 3.12+, git, tmux, SQLite 3. GPU/CUDA only
+if local models were chosen (see `SETUP.md` for the hardware table).
+
+```bash
+cd $HOME
+git clone https://github.com/svend-blip/model-allocator.git
+git clone https://github.com/svend-blip/DPMtF-WebUI.git
+git clone https://github.com/svend-blip/mcp-light.git
+# Only for multi-machine setups, on the WORKER machine:
+git clone https://github.com/svend-blip/DPMtF-LightWorker.git
+```
+
+The four directories must be siblings under one base directory
+(default `$HOME`) — cross-repo paths are resolved relative to it.
+
+**GATE 1:** `ls $HOME` shows `DPMtF-WebUI model-allocator mcp-light`,
+and `python3 --version` reports 3.12 or newer, and `tmux -V` answers.
+
+### Phase 2 — model-allocator
+
+```bash
+cd $HOME/model-allocator
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .                      # pyyaml is the only dependency
+cp models.example.yaml models.yaml
+cp runtime_profiles.example.yaml runtime_profiles.yaml
+cp roles.example.yaml roles.yaml
+```
+
+`DECISION` — edit the three YAML files with the Human: which aliases
+exist, which backend serves each (`ollama`, `llama_cpp`,
+`openai_compatible`, `anthropic`, `sglang`, `onyx`), and which role
+uses which alias. The allocator's own README documents every adapter;
+its "Full installation guide" covers local runtimes. Keys in
+`roles.yaml` must match `bridge_roles.role_key` in Father's database
+EXACTLY — a mismatch resolves to nothing, not to a default.
+
+If local runtimes were chosen, install them now (Ollama / llama.cpp /
+SGLang — see `SETUP.md` "Local Runtime Installations") and pull the
+models the YAML names.
+
+**GATE 2:** from the allocator directory:
+```bash
+python3 -m model_allocator list            # lists the configured aliases
+python3 -m model_allocator validate --alias <one-alias> --client <frontend>
+```
+`validate` must end `OK` or `WARNING` (a WARNING names exactly what to
+fix — read it). `ERROR` means the alias/backend/client triple is wrong;
+fix the YAML before proceeding.
+
+### Phase 3 — DPMtF-WebUI (Father)
+
+```bash
+cd $HOME/DPMtF-WebUI
+python3 -m venv venv && source venv/bin/activate
+pip install --upgrade pip && pip install -r requirements.txt
+cp .env.example .env       # then edit — see below
+python3 scripts/init_db.py # schema + canonical defaults (idempotent)
+python3 scripts/migrate.py # versioned migrations incl. bridge seed data
+```
+
+`.env` minimum for a single-machine install: set `DPMTF_BRIDGE_DIR` to
+the directory where flow deliverables will live (a directory OUTSIDE
+the repo, e.g. `$HOME/flows` — dispatch creates subdirectories itself),
+plus the model-runtime paths from Phase 2 if local runtimes exist.
+Every variable is documented inline in `.env.example`; leave the rest
+at their defaults on a first install.
+
+Start the server:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 9130
+```
+
+**GATE 3:** all four checks pass:
+```bash
+curl -s http://localhost:9130/api/health
+# → {"status":"healthy","app":"DPMtF WebUI",...}
+curl -s http://localhost:9130/api/bridge-v2/status
+# → {"available":true,...}
+curl -s http://localhost:9130/api/bridge-v2/flows | python3 -c \
+  "import json,sys; print(len(json.load(sys.stdin)['flows']), 'flows')"
+# → 12 flows   (the seeded flow definitions arrived via migrations)
+curl -s http://localhost:9130/api/bridge-v2/roles | python3 -c \
+  "import json,sys; print(len(json.load(sys.stdin)['roles']), 'roles')"
+# → 43 roles
+```
+If flows/roles come back empty, `migrate.py` did not run or ran against
+a different database — check `dpmtf.ini` `[paths]` before anything else.
+
+### Phase 4 — mcp-light
+
+```bash
+cd $HOME/mcp-light
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+cp mcp-light.service ~/.config/systemd/user/
+# EDIT the copied unit first: ExecStart must use THIS venv's python
+# (…/mcp-light/venv/bin/python server.py), not /usr/bin/python3.
+systemctl --user daemon-reload
+systemctl --user enable --now mcp-light
+loginctl enable-linger $USER    # start at boot without a login
+```
+
+The tailnet instance (`mcp-light-tailnet.service`) is only needed when
+remote LightWorkers exist — defer it to Phase 6.
+
+**GATE 4:** `curl -s http://127.0.0.1:9135/mcp` returns MCP transport
+data (an event-stream/JSON-RPC response — any HTTP answer from the
+port proves the server is up; connection refused fails the gate).
+
+### Phase 5 — The First Flow
+
+`DECISION` — confirm the flow with the Human. The default recommendation
+is **`strict_review`**: four automated roles in a straight line, no
+supervisor logic, no remote execution.
+
+```
+archi01 → imple01 → review01 → review02 → human
+handoffs   results    reviews     verdicts
+```
+
+Step 1 — read what the seeded roles expect, never assume it:
+
+```bash
+sqlite3 -readonly databases/dpmtf.db "SELECT role_key, allocator_client, \
+  default_model_alias, tmux_session FROM bridge_roles WHERE role_key IN \
+  ('archi01','imple01','review01','review02');"
+```
+
+Every `allocator_client` named there must be an installed frontend
+(`opencode`, `claude-code`, or `pi`), and every `default_model_alias`
+must validate in Phase 2's gate. If the Human wants different
+models/frontends, change them via the web UI (Setup → Bridge Setup →
+Roles) — not by hand-editing the database.
+
+Step 2 — start the role sessions and their frontends. Use the web UI
+(Setup → Bridge Setup, the flow's Start buttons) or the same endpoints
+the buttons call:
+
+```bash
+curl -s -X POST http://localhost:9130/api/bridge-v2/flows/strict_review/start-tmux
+curl -s -X POST http://localhost:9130/api/bridge-v2/flows/strict_review/start-coding
+curl -s -X POST http://localhost:9130/api/bridge-v2/flows/strict_review/attach-tmux
+```
+
+`tmux ls` must now show a session per role plus the `flow-strict_review`
+viewer. Look at the panes (`tmux attach -t flow-strict_review`): each
+role's frontend must be at its prompt, not at an error or a login
+screen. A frontend asking for authentication is a Human task — report
+it and wait.
+
+Step 3 — dispatch the first handoff. Write a small, real task as the
+handoff content (the Human provides the task; a good smoke task is
+"add a comment header to file X"), then either use the web UI's
+**Flow Control** panel (Setup → Flow Control: pick flow, pick step,
+Send dispatch) or the CLI:
+
+```bash
+python3 scripts/bridgeV002/dispatch.py --db-flow strict_review \
+    --signal-send --from-role archi01 --to-role imple01
+```
+
+**GATE 5:** delivery is proven by the trace log, nothing else:
+
+```bash
+tail -5 $DPMTF_BRIDGE_DIR/trace.log
+# must show: <timestamp> | archi01->imple01 | <ID> | dispatched | ...
+```
+
+A dispatch lands in five steps (file written, counter advanced, model
+swapped, prompt injected, trace line recorded) — **only the trace line
+means delivered**. If the trace line exists, watch the chain run:
+deliverables appear under `$DPMTF_BRIDGE_DIR/strict_review/` in the
+order handoffs → results → reviews → verdicts, and the chain ends with
+a `signal_complete_to_human` line. The `chain-watchdog` service (see
+Operations below) nudges a stalled step automatically — install it once
+the first manual run has succeeded.
+
+### Phase 6 — Remote Worker (optional)
+
+Only for multi-machine setups. On the worker machine, in this order:
+model-allocator (Phase 2, with THAT machine's YAML), then
+DPMtF-LightWorker per its own README: venv → `config/worker.yaml` →
+auth token (minted on Father with
+`scripts/bridgeV002/mint_worker_token.py --worker-id <id>`, shown
+once) → base client config → `bash scripts/preflight.sh` must report
+16/16 → daemon as a systemd user unit. On Father, start
+`mcp-light-tailnet` so the worker's roles can reach context over the
+tailnet.
+
+**GATE 6:** the worker's `preflight.sh` reports 16/16, and Father's
+`/api/bridge-v2/status` still answers while
+`journalctl --user -u lightworker-daemon -f` on the worker shows it
+polling.
+
+### Troubleshooting for Assistants — Measured Failure Modes
+
+These are failures this project has actually logged, with the check
+that distinguishes them:
+
+| Symptom | Reality | Check |
+|---|---|---|
+| Dispatch printed "injected into <session>" but nothing happens | Printing is not delivery | `tmux capture-pane -p -t <session> \| tail -20` — is the prompt actually in the pane? Then `trace.log` |
+| OpenCode role's pane shows "100% context used" | Cosmetic on cloud-model sessions — not a blocker | Does the role still produce output? Then ignore |
+| A role "reset" with `/clear` under OpenCode keeps degrading | OpenCode's `/clear` is a prompt, not a reset — OpenCode roles use `/new` | `bridge_roles.fresh_session_command` is authoritative |
+| Ollama-served model emits tool calls as prose (no tool runs) | Wrong endpoint shape for that model | Serve via the OpenAI-compatible `/v1` path (allocator: `opencode_ollama_mode=openai_compatible`) |
+| `ConnectionRefused` on a local model port right after a signal | The dispatcher stopped that model as part of the signal — routine | Do not restart anything; the next dispatch starts it |
+| A running frontend ignores a config change | No frontend hot-reloads config | Restart the role's tmux session |
+| Gate blames a role for a file the role never touched | An outside edit landed in the working tree during a run | Never touch Father's working tree while a flow run is active (`databases/dpmtf.db` is the one exception) |
+
+When the first flow has completed once, hand the Human the Operations
+section below (watchdog service, viewer, stop buttons) — that is the
+day-2 material.
+
 ## Core Systems
 
 ### BridgeV002 — AI Role Dispatch
