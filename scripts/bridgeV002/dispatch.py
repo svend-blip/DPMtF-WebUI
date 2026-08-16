@@ -3273,6 +3273,13 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text, flow_key, to_role_key, handoff_abs,
         mode=to_role_data.get("trade_mcp_push_mode"))
 
+    # Third composition site for implementation_mode (spec section 26).
+    # Run 018 wired run_flow_step_db and signal_complete; this path — the
+    # one an Architect's or the Human's --signal-send actually takes —
+    # composed its own prompt without the block, and the first live
+    # opted-in dispatch (pi_test 005) reached the implementer without it.
+    prompt_text = apply_mode_block(prompt_text, _db_path(), flow_key, payload["step_key"], payload["to_role"])
+
     # Model already warmed by LeaseRegistry.acquire() in Step 4 — skip redundant start
 
     # Step 8: Inject prompt into target role's tmux session.

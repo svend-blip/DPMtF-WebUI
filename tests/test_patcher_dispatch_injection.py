@@ -599,6 +599,68 @@ class TestDispatchWiring:
             site="signal_complete", argument_name="role_key",
         )
 
+    def test_signal_send_calls_apply_mode_block(self):
+        """The third composition site, found LIVE on 2026-08-16.
+
+        Run 018's B2 bound run_flow_step_db and signal_complete, but
+        --signal-send composes and injects its own prompt in
+        signal_send() — and that is the path an Architect's or the
+        Human's handoff dispatch actually takes (preferred_cloud and
+        pi_test both dispatch with --signal-send). The very first live
+        opted-in dispatch (pi_test handoff 005) reached the implementer
+        WITHOUT the section-26 block, and the implementer honestly
+        reported it ABSENT. This test pins the site so the gap cannot
+        reopen.
+        """
+        bodies = self._function_bodies()
+        fn = bodies["signal_send"]
+
+        called = False
+        for sub in ast.walk(fn):
+            if isinstance(sub, ast.Call):
+                func = sub.func
+                if isinstance(func, ast.Name) and func.id == "apply_mode_block":
+                    called = True
+                    break
+        assert called, (
+            "signal_send no longer calls apply_mode_block — the third "
+            "composition site is unwired. An opted-in flow's handoff "
+            "dispatches would silently lose the section-26 block, which "
+            "is exactly what pi_test handoff 005 demonstrated live."
+        )
+
+    def test_signal_send_binds_payload_step_key_and_to_role(self):
+        """The same binding check at signal_send as at the other two
+        sites: payload["step_key"] and payload["to_role"], never a bare
+        function parameter or a constant.
+        """
+        bodies = self._function_bodies()
+        call = self._find_apply_mode_block_call(bodies["signal_send"])
+
+        step_arg = self._resolve_arg(
+            call, positional_index=3, keyword="step_key"
+        )
+        assert step_arg is not None, (
+            "signal_send: apply_mode_block call is missing its "
+            "step_key argument (4th positional or keyword)."
+        )
+        self._assert_payload_subscript(
+            step_arg, "step_key",
+            site="signal_send", argument_name="step_key",
+        )
+
+        role_arg = self._resolve_arg(
+            call, positional_index=4, keyword="role_key"
+        )
+        assert role_arg is not None, (
+            "signal_send: apply_mode_block call is missing its "
+            "role_key argument (5th positional or keyword)."
+        )
+        self._assert_payload_subscript(
+            role_arg, "to_role",
+            site="signal_send", argument_name="role_key",
+        )
+
 
 class TestStepLevelBindingContrast:
     """Behavioral contrast: with implementation_mode set at STEP level

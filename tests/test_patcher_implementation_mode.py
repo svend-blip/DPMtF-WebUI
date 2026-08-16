@@ -490,9 +490,18 @@ class TestInvalidValue:
 
 
 class TestProductionDbGuard:
-    def test_no_row_in_production_db_is_opted_in(self):
-        """Production DB must be opened READ-ONLY; the migration must
-        not have set anything to 'deterministic_patch'."""
+    def test_every_configured_row_in_production_db_is_valid(self):
+        """Production DB must be opened READ-ONLY; every stored
+        implementation_mode must be a value the resolver accepts.
+
+        This guard originally asserted ZERO opted-in rows — the run-018
+        close state, where the migration itself must not opt anything
+        in. That migration property is still proven by the scratch-DB
+        tests above. The production count stopped being an invariant on
+        2026-08-16, when the Human deliberately opted pi_test in; what
+        remains durable is that no row may hold a value outside
+        ALLOWED_MODES, because dispatch raises ValueError on such a row
+        and the chain stops."""
         if not _PRODUCTION_DB.exists():
             pytest.skip(
                 f"production DB not present at {_PRODUCTION_DB} "
@@ -521,14 +530,18 @@ class TestProductionDbGuard:
                         f"{table} has no implementation_mode column yet "
                         "(Step 5 has not been applied) — skipping guard"
                     )
-                n_opted_in = conn.execute(
-                    f"SELECT COUNT(*) FROM {table} "
-                    "WHERE implementation_mode = 'deterministic_patch'"
-                ).fetchone()[0]
-                assert n_opted_in == 0, (
-                    f"{table} has {n_opted_in} rows opted into "
-                    "deterministic_patch — migration 052 must not opt "
-                    "anything in"
+                invalid = conn.execute(
+                    f"SELECT implementation_mode, COUNT(*) FROM {table} "
+                    "WHERE implementation_mode IS NOT NULL "
+                    "AND TRIM(implementation_mode) != '' "
+                    "AND implementation_mode NOT IN "
+                    "('direct', 'deterministic_patch') "
+                    "GROUP BY implementation_mode"
+                ).fetchall()
+                assert not invalid, (
+                    f"{table} holds implementation_mode values the "
+                    f"resolver rejects: {invalid} — dispatch would raise "
+                    "ValueError on these rows and stop the chain"
                 )
         finally:
             conn.close()
