@@ -310,6 +310,41 @@ SCOPE_ALLOW_HEADING = re.compile(r"allowed\s+to\s+change", re.I)
 SCOPE_DENY_HEADING = re.compile(
     r"must\s+not\s+change|forbidden|out\s+of\s+scope|do\s+not\s+change", re.I)
 
+# A fence entry that names its files with a wildcard. PATH_TOKEN cannot see
+# these: the emphasis-stripping below turns `patcher/engines/*.py` into
+# `patcher/engines/ .py` before tokenizing, so the glob never reached
+# matching. That is how run 018's result 051 was rejected twice for touching
+# two files its fence expressly allowed — the literal paths on the same
+# comma-separated line resolved, the glob's files did not, and the run
+# parked on a false scope breach. Run 017 paid the same way.
+GLOB_TOKEN = re.compile(r"[A-Za-z0-9._/\-*?]+")
+
+
+def _expand_glob(pattern, roots):
+    """Absolute paths of existing files a fence glob matches, per repo.
+
+    Only files with a suffix the gate checks count, mirroring the literal
+    entries. A pattern containing `..` is refused outright — a fence must
+    not reach outside the repository it names.
+    """
+    found = set()
+    if ".." in pattern.split("/"):
+        return found
+    for root in roots:
+        rel = pattern
+        if os.path.isabs(rel):
+            if not rel.startswith(root.rstrip("/") + "/"):
+                continue
+            rel = os.path.relpath(rel, root)
+        try:
+            hits = list(Path(root).glob(rel))
+        except (ValueError, NotImplementedError, OSError):
+            continue
+        for hit in hits:
+            if hit.is_file() and hit.suffix.lower() in CODE_SUFFIXES:
+                found.add(str(hit))
+    return found
+
 
 def scope_allowed(handoff_path, roots):
     """Absolute paths the handoff permits changing, or None if unparseable.
@@ -357,6 +392,17 @@ def scope_allowed(handoff_path, roots):
         # An entry that excludes itself in its own text is not a permission.
         if SCOPE_DENY_HEADING.search(cleaned):
             continue
+        # Glob pass, on the line BEFORE emphasis-stripping eats the `*`.
+        # A token wrapped in asterisks on both ends is markdown emphasis
+        # (**bold**, *italic*), not a glob — unwrap it and let the literal
+        # pass below pick up what remains.
+        for token in GLOB_TOKEN.findall(line.replace("`", " ")):
+            token = token.strip("._-")
+            while (len(token) > 1 and token.startswith("*")
+                   and token.endswith("*")):
+                token = token[1:-1]
+            if "*" in token or "?" in token:
+                allowed |= _expand_glob(token, roots)
         for token in PATH_TOKEN.findall(cleaned):
             token = token.strip("._-")
             if Path(token).suffix.lower() not in CODE_SUFFIXES:

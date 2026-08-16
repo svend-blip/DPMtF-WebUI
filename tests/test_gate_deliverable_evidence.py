@@ -232,6 +232,82 @@ class ScopeFenceExtraction(unittest.TestCase):
         self.assertIn(f"{self.ROOT}/{self.WRITTEN}", self._fence(text))
 
 
+class GlobPatternsInTheFence(unittest.TestCase):
+    """A fence entry may name its files with a glob, and the glob must match.
+
+    preferred_cloud run 018, handoff 051: the fence line
+    `patcher/policy.py, patcher/service.py, patcher/engines/*.py — ONLY for
+    O6` authorized the two engine files through the glob — and the gate
+    rejected the result TWICE for touching them, because the parser stripped
+    `*` as markdown emphasis before tokenizing, so the glob never reached
+    matching. The literal paths on the same comma-separated line resolved
+    fine, which is what pinned the defect to the glob. Same shape cost run
+    017 an escalation too.
+
+    Fixtures are a self-contained temp repo, not the live one, so the tests
+    cannot go green or red on unrelated working-tree state.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        for rel in (
+            "patcher/policy.py",
+            "patcher/service.py",
+            "patcher/engines/git_diff_engine.py",
+            "patcher/engines/libcst_engine.py",
+            "docs/notes.md",
+        ):
+            full = Path(self.root, rel)
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text("x\n", encoding="utf-8")
+        self.addCleanup(self._tmp.cleanup)
+
+    def _fence(self, *entries):
+        import tempfile
+        body = "\n".join(f"- {entry}" for entry in entries)
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(f"<scope>\n{body}\n</scope>\n")
+            path = fh.name
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+        return gate.scope_allowed(path, [self.root])
+
+    def _p(self, rel):
+        return str(Path(self.root, rel))
+
+    def test_a_glob_entry_expands_to_the_files_it_matches(self):
+        allowed = self._fence("`patcher/engines/*.py`")
+        self.assertIn(self._p("patcher/engines/git_diff_engine.py"), allowed)
+        self.assertIn(self._p("patcher/engines/libcst_engine.py"), allowed)
+
+    def test_the_run_018_comma_line_authorizes_all_its_files(self):
+        allowed = self._fence(
+            "patcher/policy.py, patcher/service.py, "
+            "patcher/engines/*.py — ONLY for O6")
+        self.assertIn(self._p("patcher/policy.py"), allowed)
+        self.assertIn(self._p("patcher/service.py"), allowed)
+        self.assertIn(self._p("patcher/engines/git_diff_engine.py"), allowed)
+        self.assertIn(self._p("patcher/engines/libcst_engine.py"), allowed)
+
+    def test_a_glob_stays_inside_its_own_directory(self):
+        allowed = self._fence("`patcher/*.py`")
+        self.assertIn(self._p("patcher/policy.py"), allowed)
+        self.assertNotIn(self._p("patcher/engines/git_diff_engine.py"),
+                         allowed)
+        self.assertNotIn(self._p("docs/notes.md"), allowed)
+
+    def test_bold_emphasis_around_a_literal_is_not_a_glob(self):
+        allowed = self._fence("**patcher/policy.py**")
+        self.assertIn(self._p("patcher/policy.py"), allowed)
+        self.assertEqual(len(allowed), 1)
+
+    def test_a_glob_matching_nothing_adds_nothing(self):
+        allowed = self._fence("`patcher/policy.py`", "`missing/*.py`")
+        self.assertEqual(allowed, {self._p("patcher/policy.py")})
+
+
 class DenyingHeadingsAreNotChangeSections(unittest.TestCase):
     """A heading that names a change only to deny it lists no claims.
 
