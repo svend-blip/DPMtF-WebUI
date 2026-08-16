@@ -715,6 +715,21 @@ class TestBlockSurvivesXmlStripping:
                 f"block content {needle!r} lost in the injection strip"
             )
 
+    def test_mcp_light_fallback_survives_stripping(self):
+        """Roles in a foreign target repo cannot read the Father-relative
+        governance path; the block offers mcp-light retrieval as the
+        fallback, and that offer must survive the injection strip too.
+        """
+        stripped = self._stripped_block()
+        for needle in (
+            "mcp-light",
+            'get_governance_file("102_DETERMINISTIC_PATCH_MODE.md")',
+            "get_patcher_usage()",
+        ):
+            assert needle in stripped, (
+                f"mcp-light fallback {needle!r} lost in the injection strip"
+            )
+
 
 class TestStepLevelBindingContrast:
     """Behavioral contrast: with implementation_mode set at STEP level
