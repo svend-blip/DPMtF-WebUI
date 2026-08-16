@@ -362,7 +362,8 @@ code.
     LightWorker over Tailscale
   - `supervisor` — legacy run-directory root; new runs open per-flow
   - `pi_test` — frontend-comparison experiment (same model, different
-    code frontends)
+    code frontends); also the Deterministic Patcher pilot — the only
+    flow opted into `implementation_mode = deterministic_patch`
 
 **Auto-chain** — the strict_review flow now auto-advances via chain_advancement
 blocks in content templates, with _advance_chain as fallback. Only the initial
@@ -393,8 +394,11 @@ signal_send is needed from the Human.
   session and adapts injection method (send-keys for short prompts, paste-buffer
   for long)
 - **XML tag stripping** — opencode models hallucinate XML function calls when
-  they see XML tags; `_strip_xml_tags()` converts XML section headers to plain
-  text before injection
+  they see XML tags; `_strip_xml_tags()` converts KNOWN XML section headers to
+  plain text before injection and deletes the rest. Any NEW tag used in an
+  injected prompt must be added to its whitelist, or opencode/pi roles
+  receive the tag's inner text as an orphaned bare line (measured live:
+  `<implementation_mode>` before it was whitelisted)
 - **Auto-prepend** — `auto_prepend_xml_sections()` adds missing XML headers to
   deliverable files before validation, using `content_template` from DB
 - **nohup background execution** — signal-complete commands run via `nohup ... &`
@@ -406,6 +410,37 @@ signal_send is needed from the Human.
 
 Manage flows, roles, steps, and conventions via the web UI under
 **Setup → Bridge Setup**.
+
+### Deterministic Patcher — LLM-Planned, Machine-Applied Edits
+
+Infrastructure (not a role, no model, no LLM calls) that turns an
+implementer's machine-readable **PatchRequest** into a repository
+mutation: `structural_python` operations via LibCST, `unified_diff` via
+`git apply`, with verification, audit trail, and the exact resulting
+diff captured for review. Same repo state + same PatchRequest + same
+tool versions = same transformation. Package: `patcher/` (+ CLI);
+spec: `docs/specs/DETERMINISTIC_PATCHER_SPEC.md`; usage guide:
+`docs/specs/DETERMINISTIC_PATCHER_USAGE.md`.
+
+**Opt-in via `implementation_mode`** — database-driven, precedence
+**role > step > flow > global default `direct`** (migration 052 on
+`bridge_roles`, `bridge_flow_steps`, `bridge_flows`; resolver in
+`scripts/bridgeV002/patch_mode.py`). Nothing behaves differently until
+a Human opts a flow in — flow level via the web UI dropdown (Bridge
+Flows edit form), step/role level via SQL.
+
+When a dispatch target resolves to `deterministic_patch`, the injected
+prompt carries the section-26 instruction block (rules in the shared
+governance file `102_DETERMINISTIC_PATCH_MODE.md` — role files are not
+rewritten) at **all three composition sites**: `run_flow_step_db`,
+`signal_complete`, and `signal_send`. With `direct`/unset the prompt is
+byte-identical to pre-patcher behavior, proven by test. Roles can fetch
+the governance and the PatchRequest format on demand through mcp-light
+(`get_governance_file`, `get_patcher_usage`) and verify their own
+resolved mode against the database (`get_implementation_mode`).
+
+Pilot flow: `pi_test` (live-proven 2026-08-16 — the dispatched
+implementer quoted the full block verbatim from its own prompt).
 
 ### Job Queue — Automated Chain Execution
 
@@ -631,10 +666,10 @@ pi --print "List the names of the skills available to you. Names only."
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -q    # 584 tests, all passing
+python3 -m pytest tests/ -q    # 800 tests, all passing
 ```
 
-55 test files covering:
+64 test files covering:
 - Job queue models, scheduler, integration, spikes
 - Bridge endpoints, dispatch, convention rules
 - Chain watchdog and supervisor state
@@ -646,6 +681,11 @@ python3 -m pytest tests/ -q    # 584 tests, all passing
 - Handoff compiler, context fit
 - Allocator config endpoints, model lease
 - Validation-rule command guard
+- Deterministic Patcher: engines, policy, CLI, implementation_mode
+  resolution, dispatch injection wiring (ast-pinned at all three
+  composition sites), flow integration, WebUI mode endpoint
+- Evidence gate: claim extraction, scope fences (incl. glob entries),
+  per-step clock
 
 ## Configuration
 
