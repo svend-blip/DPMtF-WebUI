@@ -854,6 +854,11 @@ def _strip_xml_tags(text):
         (r'<context>', 'Context:'),
         (r'<project>', 'Project: '),
         (r'<dispatch_command>', 'Dispatch Command:'),
+        # Spec section 26: PATCH_MODE_BLOCK opens with this tag. Unlisted,
+        # the catch-all below reduced it to a bare 'deterministic_patch'
+        # header — pi_test handoffs 005/006 delivered it that way and the
+        # implementer reported the mode framing absent.
+        (r'<implementation_mode>', 'Implementation Mode: '),
         (r'<parameter[^>]*>', ''),
         (r'<function[^>]*>', ''),
     ]

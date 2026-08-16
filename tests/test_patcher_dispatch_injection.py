@@ -662,6 +662,60 @@ class TestDispatchWiring:
         )
 
 
+class TestBlockSurvivesXmlStripping:
+    """The block must survive the OpenCode/Pi injection path readable.
+
+    inject_prompt deliberately runs _strip_xml_tags on every prompt
+    bound for an opencode or pi session — qwen-class models see XML
+    tags and hallucinate XML-style function calls. The function
+    converts KNOWN tags to plain-text headers and deletes the rest.
+    <implementation_mode> was not known, so the first live opted-in
+    dispatches (pi_test 005/006) delivered the block with its tag line
+    reduced to a bare 'deterministic_patch' — the four rules and the
+    governance path survived, the mode framing did not. The implementer
+    reported it honestly, both times.
+
+    These tests pin the survival contract: after stripping, the mode
+    line is still a readable statement, and nothing of the block's
+    substance is lost.
+    """
+
+    @staticmethod
+    def _stripped_block():
+        import dispatch
+        return dispatch._strip_xml_tags(PATCH_MODE_BLOCK)
+
+    def test_mode_line_survives_as_readable_header(self):
+        stripped = self._stripped_block()
+        assert "Implementation Mode: deterministic_patch" in stripped, (
+            "the <implementation_mode> tag line must strip to "
+            "'Implementation Mode: deterministic_patch', not vanish — "
+            "a bare 'deterministic_patch' header is what pi_test 005/006 "
+            "received and reported as an absent block"
+        )
+
+    def test_no_orphaned_bare_mode_header_remains(self):
+        import re
+        stripped = self._stripped_block()
+        assert not re.search(r"^deterministic_patch$", stripped, re.M), (
+            "an orphaned bare 'deterministic_patch' line means the tag "
+            "was deleted instead of converted"
+        )
+
+    def test_block_substance_survives_stripping(self):
+        stripped = self._stripped_block()
+        for needle in (
+            "Deterministic Patcher mode",
+            "structural_python",
+            "unified_diff",
+            "Never manually repair a rejected patch",
+            "docs/governance-templates-v2/102_DETERMINISTIC_PATCH_MODE.md",
+        ):
+            assert needle in stripped, (
+                f"block content {needle!r} lost in the injection strip"
+            )
+
+
 class TestStepLevelBindingContrast:
     """Behavioral contrast: with implementation_mode set at STEP level
     only, the same prompt + the same DB returns two different answers
