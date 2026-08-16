@@ -245,6 +245,25 @@ def _insert_after_imports(
 # ── Function find / replace helpers ────────────────────────────────────
 
 
+def _inherit_leading_lines(
+    new_stmt: cst.BaseStatement, old_stmt: cst.CSTNode
+) -> cst.BaseStatement:
+    """Preserve the replaced node's leading blank/comment lines.
+
+    cst.parse_statement() yields a node with empty leading_lines, so a
+    bare `body[idx] = new_stmt` silently deletes the blank lines that
+    separated the old definition from its neighbor. Measured live on
+    2026-08-16: replace_method ate the single blank line before a
+    method, replace_function ate BOTH blank lines before a module-level
+    function (PEP8 E302). When the replacement author supplies leading
+    lines explicitly, theirs win — the engine must not stack the
+    original's on top.
+    """
+    if not new_stmt.leading_lines and getattr(old_stmt, "leading_lines", ()):
+        return new_stmt.with_changes(leading_lines=old_stmt.leading_lines)
+    return new_stmt
+
+
 def _find_module_function_idx(
     tree: cst.Module, name: str
 ) -> Optional[int]:
@@ -638,7 +657,7 @@ def _op_replace_function(
         )
 
     body = list(tree.body)
-    body[idx] = new_stmt
+    body[idx] = _inherit_leading_lines(new_stmt, body[idx])
     return tree.with_changes(body=body), True
 
 
@@ -870,7 +889,8 @@ def _op_replace_method(
         )
 
     new_class_body = list(cls.body.body)
-    new_class_body[method_idx] = new_stmt
+    new_class_body[method_idx] = _inherit_leading_lines(
+        new_stmt, new_class_body[method_idx])
     new_indented = cls.body.with_changes(body=new_class_body)
     new_cls = cls.with_changes(body=new_indented)
     body = list(tree.body)
@@ -1085,7 +1105,7 @@ def _op_replace_assignment(
         )
 
     body = list(tree.body)
-    body[idx] = new_stmt
+    body[idx] = _inherit_leading_lines(new_stmt, body[idx])
     return tree.with_changes(body=body), True
 
 

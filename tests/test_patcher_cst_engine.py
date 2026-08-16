@@ -1465,6 +1465,114 @@ class TestReplaceAssignment:
 # ── Multi-file atomicity ────────────────────────────────────────────────
 
 
+class TestReplacementPreservesLeadingBlankLines:
+    """A replacement must not eat the blank lines before its target.
+
+    cst.parse_statement() yields a node with empty leading_lines, so a
+    bare `body[idx] = new_stmt` silently deleted the blank lines that
+    separated the old definition from its neighbor. Measured live on
+    2026-08-16 (pi_test handoffs 008/009): replace_method ate the
+    single blank line before a method, replace_function ate BOTH blank
+    lines before a module-level function — a real PEP8 E302 regression
+    that a human then had to tidy by hand, which defeats the point of
+    a deterministic mutation. The engine now inherits the replaced
+    node's leading_lines when the replacement carries none; an author
+    who supplies leading lines explicitly keeps their own.
+    """
+
+    def test_replace_function_keeps_the_two_blank_lines(self, git_repo):
+        repo, _ = git_repo
+        result = DeterministicPatcher().apply(PatchRequest(
+            repo_path=repo, patch_mode="structural_python",
+            operations=[{
+                "operation": "replace_function",
+                "file": "lib.py",
+                "function": "beta",
+                "replacement": "def beta():\n    return 20\n",
+            }],
+        ))
+        assert result.applied is True
+        text = (Path(repo) / "lib.py").read_text(encoding="utf-8")
+        assert "return 1\n\n\ndef beta():" in text, (
+            "the two blank lines before beta were consumed by the "
+            "replacement"
+        )
+
+    def test_replace_method_keeps_the_blank_line(self, tmp_path):
+        repo = _method_classes_repo(
+            tmp_path,
+            "class Foo:\n"
+            "    def bar(self):\n"
+            "        return 1\n"
+            "\n"
+            "    def baz(self):\n"
+            "        return 2\n",
+        )
+        result = DeterministicPatcher().apply(PatchRequest(
+            repo_path=repo, patch_mode="structural_python",
+            operations=[{
+                "operation": "replace_method",
+                "file": "lib.py",
+                "class": "Foo",
+                "method": "baz",
+                "replacement": "def baz(self):\n    return 99\n",
+            }],
+        ))
+        assert result.applied is True
+        text = (Path(repo) / "lib.py").read_text(encoding="utf-8")
+        assert "return 1\n\n    def baz(self):" in text, (
+            "the blank line between bar and baz was consumed by the "
+            "replacement"
+        )
+
+    def test_replace_assignment_keeps_leading_blank_lines(self, tmp_path):
+        repo = _method_classes_repo(
+            tmp_path,
+            "import os\n"
+            "\n"
+            "\n"
+            "VERSION = 1\n",
+        )
+        result = DeterministicPatcher().apply(PatchRequest(
+            repo_path=repo, patch_mode="structural_python",
+            operations=[{
+                "operation": "replace_assignment",
+                "file": "lib.py",
+                "name": "VERSION",
+                "replacement": "VERSION = 2\n",
+            }],
+        ))
+        assert result.applied is True
+        text = (Path(repo) / "lib.py").read_text(encoding="utf-8")
+        assert "import os\n\n\nVERSION = 2\n" in text, (
+            "the blank lines before VERSION were consumed by the "
+            "replacement"
+        )
+
+    def test_author_supplied_leading_lines_win(self, git_repo):
+        """A replacement that carries its own leading lines keeps
+        exactly those — the engine must not stack the original's on
+        top of the author's.
+        """
+        repo, _ = git_repo
+        result = DeterministicPatcher().apply(PatchRequest(
+            repo_path=repo, patch_mode="structural_python",
+            operations=[{
+                "operation": "replace_function",
+                "file": "lib.py",
+                "function": "beta",
+                "replacement": "\ndef beta():\n    return 20\n",
+            }],
+        ))
+        assert result.applied is True
+        text = (Path(repo) / "lib.py").read_text(encoding="utf-8")
+        assert "return 1\n\ndef beta():" in text, (
+            "the author supplied exactly one leading blank line; the "
+            "output must carry exactly that one"
+        )
+        assert "return 1\n\n\ndef beta():" not in text
+
+
 class TestMultiFileAtomicity:
     """A request whose operations span SEVERAL files must apply all
     operations or none (handoff Step 3, spec §17 fail-all). The test

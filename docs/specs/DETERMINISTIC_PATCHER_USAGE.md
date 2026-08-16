@@ -60,6 +60,43 @@ All seven §37 operations are supported:
 `replace_import` (spec §12) is NOT supported — the §37 set excludes
 it. A request that names it returns `PATCH_UNSUPPORTED_OPERATION`.
 
+### Authoring `replacement` / `code` fragments — the parse contract
+
+Three rules, all learned the hard way by the first live flow tasks
+(pi_test handoffs 008/009, 2026-08-16):
+
+1. **The fragment is parsed as a top-level statement**
+   (`cst.parse_statement`), so the `def` must sit at **column 0** —
+   even for `replace_method`. The engine re-indents the definition and
+   its executable body to the target's depth on insertion. A fragment
+   submitted with the target's indentation already applied fails the
+   parse (`PATCH_INVALID`, "Syntax Error @ 2:5"), because an indented
+   `def` is not a valid top-level statement.
+2. **String-literal interiors are NOT re-indented.** A multi-line
+   docstring is one token; the engine cannot rewrite its inside. Write
+   docstring continuation lines (and the closing `"""`) at the depth
+   they must have **in the target file** — for a method under a
+   class, that is 8 spaces even though the `def` sits at column 0 in
+   your fragment:
+
+   ```python
+   def bar(self):
+       """Opening line.
+
+           Continuation at TARGET depth (8 spaces for a method),
+           not at fragment depth.
+           """
+       return 1
+   ```
+
+   (Yes, the fragment looks over-indented on its own; it is correct
+   after insertion.)
+3. **Leading blank lines are inherited.** When the fragment carries no
+   leading blank lines, the replaced definition's own leading lines
+   (the PEP8 separation from its neighbor) are preserved. A fragment
+   that starts with explicit blank lines keeps exactly those instead —
+   the author's separation wins, nothing is stacked.
+
 ---
 
 ## 2. PatchResult schema
