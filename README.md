@@ -363,7 +363,8 @@ code.
   - `supervisor` — legacy run-directory root; new runs open per-flow
   - `pi_test` — frontend-comparison experiment (same model, different
     code frontends); also the Deterministic Patcher pilot — the only
-    flow opted into `implementation_mode = deterministic_patch`
+    flow opted into `implementation_mode = deterministic_patch`. Its
+    two handoff steps are manual-dispatch only (`auto_dispatch = 0`)
 
 **Auto-chain** — the strict_review flow now auto-advances via chain_advancement
 blocks in content templates, with _advance_chain as fallback. Only the initial
@@ -387,6 +388,14 @@ signal_send is needed from the Human.
 - **Signals** — `signal_send` (initial dispatch), `signal_complete` (chain
   advancement), `signal_escalation` (review → architect question),
   `signal_answer` (architect → review response). All via `dispatch.py`.
+- **Manual-dispatch-only steps** — `bridge_flow_steps.auto_dispatch = 0`
+  (migration 054) marks a step Human-initiated only: `signal_complete`
+  refuses it before any session or deliverable check (trace event
+  `signal_complete_refused`); `--signal-send` is the only way in.
+  Guards cyclic flows against a model improvising a stray signal that
+  would re-inject the same handoff id into a parallel role — measured
+  live on pi_test handoffs 008-010, where the duplicate would have
+  re-run a repository-mutating task.
 
 **Key dispatch features:**
 
@@ -440,7 +449,25 @@ the governance and the PatchRequest format on demand through mcp-light
 resolved mode against the database (`get_implementation_mode`).
 
 Pilot flow: `pi_test` (live-proven 2026-08-16 — the dispatched
-implementer quoted the full block verbatim from its own prompt).
+implementer quoted the full block verbatim from its own prompt, and
+the first real patch task shipped the same day: a role-authored
+`replace_method` PatchRequest applied end-to-end with the full
+allocator suite as its verification command).
+
+**Authoring contract** (USAGE.md §1, learned by the first live tasks):
+`replacement`/`code` fragments are parsed as top-level statements —
+`def` at column 0, the engine re-indents on insertion; string-literal
+interiors are NOT re-indented, so docstring continuation lines are
+written at target depth; leading blank lines are inherited from the
+replaced node unless the fragment supplies its own (the engine
+preserves PEP8 separation at all three replacement operations).
+
+Measured trade-off (same task, same role, A/B): direct edit was ~5×
+faster and ~40% cheaper on a trivial one-file change — the patcher's
+value is its guarantees (reproducible mutation, path fence,
+base-revision lock, verbatim verification, audit with diff hash), not
+speed. Opt flows in where the review side must trust what actually
+happened over what the role reports.
 
 ### Job Queue — Automated Chain Execution
 
@@ -666,10 +693,10 @@ pi --print "List the names of the skills available to you. Names only."
 ## Testing
 
 ```bash
-python3 -m pytest tests/ -q    # 800 tests, all passing
+python3 -m pytest tests/ -q    # 807 tests, all passing
 ```
 
-64 test files covering:
+65 test files covering:
 - Job queue models, scheduler, integration, spikes
 - Bridge endpoints, dispatch, convention rules
 - Chain watchdog and supervisor state
