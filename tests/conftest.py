@@ -85,6 +85,7 @@ _BRIDGE_SCHEMA_SQL = [
         validation_required INTEGER DEFAULT 0,
         model_source TEXT,
         model_alias TEXT,
+        auto_dispatch INTEGER DEFAULT NULL,
         FOREIGN KEY (flow_key) REFERENCES bridge_flows(flow_key),
         UNIQUE(flow_key, step_key)
     )

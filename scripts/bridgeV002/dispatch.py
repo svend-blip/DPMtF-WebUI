@@ -1983,6 +1983,30 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         print(f"Error: Step not found for '{lookup}' in flow '{flow_key}'")
         return False
 
+    # Step 2a: manual-dispatch-only steps refuse chain delivery
+    # (bridge_flow_steps.auto_dispatch = 0, migration 054). pi_test's
+    # fan-out defect: every oc_imple01 completion was followed by a
+    # second, improvised `--signal-complete --from-role human`, which on
+    # this cyclic flow resolves the FIRST from_role='human' step
+    # (human-pi_imple01) and re-injects the same handoff id into the
+    # parallel implementer — a duplicate run of a possibly
+    # repository-mutating task. The refusal fires BEFORE any session or
+    # deliverable check: it must be the answer, not a side effect of a
+    # missing session. --signal-send remains the only way into such a
+    # step.
+    if current_step.get("auto_dispatch") == 0:
+        print(f"  REFUSED: step '{current_step.get('step_key')}' is "
+              f"manual-dispatch only (auto_dispatch=0) — use --signal-send "
+              f"explicitly; chain delivery is not allowed for this step")
+        log(
+            f"{current_step.get('from_role')}->{current_step.get('to_role')}",
+            handoff_id,
+            "signal_complete_refused",
+            f"Step '{current_step.get('step_key')}' is manual-dispatch only "
+            f"(auto_dispatch=0)",
+        )
+        return False
+
     # Step 3: Build payload from step + convention
     payload = build_step_payload(current_step, flow_key, handoff_id, bridge_dir)
 
