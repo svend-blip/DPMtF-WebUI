@@ -61,7 +61,7 @@ rules — they are part of your governance:
 The governance that defines this mode and the boundary between the
 LLM and the Patcher is at
 docs/governance-templates-v2/102_DETERMINISTIC_PATCH_MODE.md
-(referenced by path; the file is delivered by a later handoff).
+(referenced by path).
 """
 
 
