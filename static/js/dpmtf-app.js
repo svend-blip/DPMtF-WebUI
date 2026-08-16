@@ -3084,6 +3084,9 @@ function editBridgeFlowFull(flowKey) {
         var tpInput = document.getElementById("bridge-edit-input-target_project_path");
         if (tpInput) body.target_project_path = tpInput.value.trim();
 
+        var imSelect = document.getElementById("bridge-edit-input-implementation_mode");
+        if (imSelect) body.implementation_mode = imSelect.value;
+
         fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -3159,6 +3162,33 @@ function editBridgeFlowFull(flowKey) {
         lbl("lbl_bridge_flow_target_project_help",
           "Absolute path to the repository this flow's roles work in. Must exist. Leave empty for flows that operate on this project.")));
       form.appendChild(tpDiv);
+
+      // implementation_mode — Deterministic Patcher opt-in at flow level.
+      // Inherit (NULL) falls through to the global default 'direct'; the
+      // resolver precedence is role > step > flow > 'direct'.
+      var imDiv = el("div", "dpmtf-form-group");
+      imDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_implementation_mode", "Implementation Mode")));
+      var imSelect = el("select", null);
+      imSelect.id = "bridge-edit-input-implementation_mode";
+      [
+        ["", lbl("lbl_bridge_flow_implementation_mode_inherit",
+          "Inherit (default: direct)")],
+        ["direct", lbl("lbl_bridge_flow_implementation_mode_direct",
+          "Direct edit")],
+        ["deterministic_patch", lbl("lbl_bridge_flow_implementation_mode_patch",
+          "Deterministic Patcher")]
+      ].forEach(function (pair) {
+        var opt = el("option", null, pair[1]);
+        opt.value = pair[0];
+        if ((flow.implementation_mode || "") === pair[0]) opt.selected = true;
+        imSelect.appendChild(opt);
+      });
+      imDiv.appendChild(imSelect);
+      imDiv.appendChild(el("p", "dpmtf-muted",
+        lbl("lbl_bridge_flow_implementation_mode_help",
+          "Deterministic Patcher routes this flow's dispatched roles through the patcher (governance file 102). Step and role level overrides are database-only.")));
+      form.appendChild(imDiv);
 
       // auto_complete_enabled checkbox
       var acDiv = el("div", null);

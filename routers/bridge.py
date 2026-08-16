@@ -838,9 +838,27 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
             )
         data["target_project_path"] = target or None
 
+    # implementation_mode (Deterministic Patcher, spec sections 41-42):
+    # only values the resolver accepts may be stored — an invalid row
+    # raises ValueError inside dispatch and stops the chain. Empty/None
+    # means NULL = inherit (falls through to the global default 'direct').
+    if "implementation_mode" in data:
+        mode = (data["implementation_mode"] or "").strip()
+        if mode and mode not in ("direct", "deterministic_patch"):
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid implementation_mode '{mode}'. Allowed: "
+                    f"'direct', 'deterministic_patch', or empty for inherit."
+                ),
+            )
+        data["implementation_mode"] = mode or None
+
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
         "auto_complete_enabled", "use_machine_profile", "target_project_path",
+        "implementation_mode",
     ]
     sets = []
     params = []
