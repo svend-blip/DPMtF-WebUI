@@ -90,13 +90,28 @@ class _OperationError(Exception):
 # ── Result helpers ──────────────────────────────────────────────────────
 
 
-def _rejected(error_code: str, error: str) -> PatchResult:
+def _rejected(
+    error_code: str,
+    error: str,
+    *,
+    files_rejected: Optional[List[str]] = None,
+) -> PatchResult:
+    """Build a `status="rejected"` PatchResult for the LibCST engine.
+
+    `files_rejected` defaults to None — converted to an empty list at
+    the field level — so the existing call sites keep their behaviour.
+    The PathValidation catch site passes
+    `[exc.offending_path]` (or `[]` when the exception did not surface
+    a meaningful repo-relative path) so the review side can see which
+    file the engine refused, not only read about it in the error
+    string.
+    """
     return PatchResult(
         status="rejected",
         applied=False,
         engine="libcst",
         files_changed=[],
-        files_rejected=[],
+        files_rejected=list(files_rejected) if files_rejected else [],
         operations_requested=0,
         operations_applied=0,
         resulting_diff=None,
@@ -1408,7 +1423,13 @@ class LibCSTEngine(PatchEngine):
                 request.allowed_paths,
             )
         except PatchPathRejected as exc:
-            return _rejected(exc.error_code, str(exc))
+            return _rejected(
+                exc.error_code,
+                str(exc),
+                files_rejected=(
+                    [exc.offending_path] if exc.offending_path else []
+                ),
+            )
 
         # Group ops by validated file path, preserving original order.
         groups: Dict[str, List[Dict[str, Any]]] = {}

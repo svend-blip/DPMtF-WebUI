@@ -35,11 +35,31 @@ class PatchPathRejected(ValueError):
 
     Carries the stable machine-readable error code so callers can wrap
     it directly into a PatchResult.error_code field.
+
+    The optional `offending_path` attribute carries the repo-relative
+    POSIX path the validator refused to touch, when one is meaningful
+    (`../` traversal, symlink escape at a known prefix or terminal,
+    `allowed_paths` violation). Where the validator rejected the
+    repository root itself (rather than an in-repo file), or where the
+    candidate was `None`, `offending_path` is `None` — the error
+    message still names the problematic input, but no repo-relative
+    file path is meaningful.
+
+    Engine catch sites read `exc.offending_path` and populate
+    `PatchResult.files_rejected` with it so the review side can SEE
+    which file was rejected, not only read about it in the error
+    string.
     """
 
-    def __init__(self, message: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        offending_path: Optional[str] = None,
+    ) -> None:
         super().__init__(message)
         self.error_code: str = PATCH_PATH_REJECTED
+        self.offending_path: Optional[str] = offending_path
 
 
 # ── Repository state ────────────────────────────────────────────────────
@@ -125,7 +145,8 @@ def _normalize_under_root(repo_root: Path, candidate: str) -> PurePosixPath:
         # The normalized relative path walked above the repo root — i.e.
         # `../` traversal.
         raise PatchPathRejected(
-            f"Path escapes repository via '..': {candidate!r}"
+            f"Path escapes repository via '..': {candidate!r}",
+            offending_path=candidate,
         ) from exc
     return PurePosixPath(rel.as_posix())
 
@@ -156,7 +177,8 @@ def _check_symlink_escape(repo_root: Path, candidate: str) -> None:
                 real.relative_to(repo_root)
             except ValueError as exc:
                 raise PatchPathRejected(
-                    f"Symlink escape: {partial.as_posix()} -> {real}"
+                    f"Symlink escape: {partial.as_posix()} -> {real}",
+                    offending_path=partial.as_posix(),
                 ) from exc
 
     # Finally check the candidate itself if it already exists.
@@ -167,7 +189,8 @@ def _check_symlink_escape(repo_root: Path, candidate: str) -> None:
             real.relative_to(repo_root)
         except ValueError as exc:
             raise PatchPathRejected(
-                f"Symlink escape: {candidate} -> {real}"
+                f"Symlink escape: {candidate} -> {real}",
+                offending_path=candidate,
             ) from exc
 
 
@@ -189,7 +212,8 @@ def _check_allowed(
         if candidate.startswith(normalized) or candidate + "/" == normalized:
             return
     raise PatchPathRejected(
-        f"Path is not in allowed_paths: {candidate!r}"
+        f"Path is not in allowed_paths: {candidate!r}",
+        offending_path=candidate,
     )
 
 

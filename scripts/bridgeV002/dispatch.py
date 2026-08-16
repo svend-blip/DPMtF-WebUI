@@ -36,6 +36,7 @@ from bridge_lib import (
     get_effective_model_source,
     get_flow_target_project,
 )
+from patch_mode import apply_mode_block
 
 # ── Constants ──────────────────────────────────────────────
 _STARTUP_FILE = "docs/StartUpNextSession.md"
@@ -1796,6 +1797,8 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         prompt_text = prompt_text.replace("{model_name}", target_model_name_rs)
         prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
 
+    prompt_text = apply_mode_block(prompt_text, _db_path(), flow_key, payload["step_key"], payload["to_role"])
+
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"),
                   fresh_session_command=to_role.get("fresh_session_command"))
@@ -2434,6 +2437,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # Step 8: Inject callback prompt into to_role's tmux session.
     # A chain callback is a NEW task for the target role — send its
     # configured context-reset command first (tool-independent).
+    prompt_text = apply_mode_block(prompt_text, _db_path(), flow_key, payload["step_key"], payload["to_role"])
+
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role.get("enter_command", "default"),
                   fresh_session_command=to_role.get("fresh_session_command"))

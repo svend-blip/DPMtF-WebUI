@@ -1,0 +1,47 @@
+-- 052: Per-flow, per-step, per-role implementation_mode.
+--
+-- Spec sections 41-42 define the configuration principle for the
+-- Deterministic Patcher: opt-in, global default 'direct', granularity
+-- that allows gradual adoption. The hierarchy is
+--
+--   role > step > flow > global default 'direct'
+--
+-- with first non-NULL win, walking role, then step, then flow. NULL
+-- means "inherit from the next level" at every level except the global
+-- default, which is the constant 'direct'.
+--
+-- Allowed stored values:
+--   'direct'              -- the historical LLM-edit path
+--   'deterministic_patch' -- the new Patcher path (spec sections 1-3)
+--   NULL                  -- inherit from the next level in the chain
+--
+-- The helper that resolves the effective mode for a given
+-- (flow, step, role) tuple lives in scripts/bridgeV002/patch_mode.py
+-- and is wired by B2 (the dispatch integration handoff). This
+-- migration only adds the storage columns; nothing is opted in by it.
+--
+-- Why three columns and not one: bridging control flows from many
+-- roles to many flows, and steps are shared between flows. Putting
+-- implementation_mode on the bridge_* tables directly keeps the
+-- dispatch-time lookup a single SELECT (no joins to a side table) and
+-- keeps the existing priority story intact (the rest of the bridge
+-- schema is one-row-per-key, not many-to-many).
+--
+-- Why NOT NULL with default 'direct' was rejected: the spec is
+-- explicit that the global default is 'direct' but the table-level
+-- default is "inherit from the next level". A DEFAULT 'direct' on
+-- every column would silently override the precedence chain. NULL
+-- preserves the inheritance semantics the spec requires.
+--
+-- Why no UPDATE statements: this migration adds the storage. Opting
+-- any flow / step / role into deterministic_patch is a separate
+-- decision, made by the run that wants it, and is not in the fence
+-- of this handoff.
+--
+-- Idempotency: schema_migrations (managed by scripts/migrate.py)
+-- records this filename after a successful apply, so re-running
+-- migrate.py is a no-op against the column adds.
+
+ALTER TABLE bridge_flows      ADD COLUMN implementation_mode TEXT DEFAULT NULL;
+ALTER TABLE bridge_flow_steps ADD COLUMN implementation_mode TEXT DEFAULT NULL;
+ALTER TABLE bridge_roles      ADD COLUMN implementation_mode TEXT DEFAULT NULL;

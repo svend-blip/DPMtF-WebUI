@@ -333,21 +333,55 @@ Audit fields and where they originate:
 
 ---
 
-## 7. Deferred work
+## 7. Status
 
-The following are **out of scope** for the current run and belong to a
-follow-up run (Phases 1E–1F per spec §38):
+Phases 1E–1F (per spec §38) are delivered as follows:
 
 * `implementation_mode = deterministic_patch` wiring into bridge
-  tables, role definitions, and step configuration.
+  tables, role definitions, and step configuration — DELIVERED.
+  Storage: `scripts/db/052_implementation_mode.sql` (+ matching
+  rollback file `scripts/db/rollbacks/052_implementation_mode_rollback.sql`).
+  Resolution and dispatch injection:
+  `scripts/bridgeV002/patch_mode.py` (`resolve_implementation_mode`,
+  `apply_mode_block`, and the `PATCH_MODE_BLOCK` constant).
 * Role-governance text telling implementers to prefer
-  `structural_python` operations for supported transformations.
+  `structural_python` operations — DELIVERED at
+  `docs/governance-templates-v2/102_DETERMINISTIC_PATCH_MODE.md`.
+  The `PATCH_MODE_BLOCK` references this file by path; roles
+  operating under `deterministic_patch` mode inherit the four §26
+  rules from it.
 * A live-flow integration test that exercises an existing DPMtF flow
-  end-to-end with the patcher wired in.
-* Spec §12 Phase-2 LibCST operations (`remove_function`,
+  end-to-end with the patcher wired in — DELIVERED at
+  `tests/test_patcher_flow_integration.py`. The tests build scratch
+  git repositories under `tmp_path` and a scratch SQLite DB with the
+  052 schema; the deterministic_patch leg drives
+  `DeterministicPatcher().apply` through a JSON-decoded
+  `PatchRequest`, and the direct leg proves the same scenario under
+  the default mode produces the same on-disk file content and a
+  byte-identical dispatched prompt.
+
+### Configuration surface
+
+Three bridge-table columns hold the opt-in switch. Each accepts
+`'direct'`, `'deterministic_patch'`, or NULL (inherit):
+
+* `bridge_flows.implementation_mode` (flow-level override)
+* `bridge_flow_steps.implementation_mode` (step-level override)
+* `bridge_roles.implementation_mode` (role-level override)
+
+The precedence is **`role > step > flow > global default 'direct'`**:
+the first non-NULL value in `(role_row, step_row, flow_row)` wins; if
+all three are NULL (or the rows are missing), the global default
+`'direct'` is used. Empty strings at any level are also treated as
+unset. An invalid stored value raises `ValueError` from
+`patch_mode.py` naming the table and the identifying key.
+
+### Outstanding deferred work
+
+* Spec §12 Phase-2 LibCST operations: `remove_function`,
   `remove_method`, `modify_call_argument`, `add_call_argument`,
   `remove_call_argument`, `replace_decorator`, `add_decorator`,
-  `remove_decorator`, `insert_statement`, `replace_class_attribute`).
+  `remove_decorator`, `insert_statement`, `replace_class_attribute`.
 
 ---
 

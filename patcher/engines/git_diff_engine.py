@@ -200,6 +200,10 @@ class GitDiffEngine(PatchEngine):
                     engine=self.name,
                     error_code=exc.error_code,
                     error=str(exc),
+                    files_rejected=(
+                        [exc.offending_path]
+                        if exc.offending_path else []
+                    ),
                 ),
                 audit_inputs,
                 verification_status="not_run",
@@ -279,6 +283,10 @@ class GitDiffEngine(PatchEngine):
                     engine=self.name,
                     error_code=exc.error_code,
                     error=str(exc),
+                    files_rejected=(
+                        [exc.offending_path]
+                        if exc.offending_path else []
+                    ),
                 ),
                 audit_inputs,
                 verification_status="not_run",
@@ -474,14 +482,29 @@ class GitDiffEngine(PatchEngine):
         return None
 
     def _rejected(
-        self, engine: str, error_code: str, error: str
+        self,
+        engine: str,
+        error_code: str,
+        error: str,
+        *,
+        files_rejected: Optional[List[str]] = None,
     ) -> PatchResult:
+        """Build a `status="rejected"` PatchResult.
+
+        `files_rejected` defaults to None (an empty list at the field
+        level) so call sites that don't have a specific rejected file
+        to report — most error_code values — keep their existing
+        behaviour. PatchPathRejected catch sites pass
+        `[exc.offending_path]` (or `[]` when the exception didn't
+        surface a meaningful repo-relative path) so the review side
+        sees which file the engine refused, not only the error string.
+        """
         return PatchResult(
             status="rejected",
             applied=False,
             engine=engine,
             files_changed=[],
-            files_rejected=[],
+            files_rejected=list(files_rejected) if files_rejected else [],
             operations_requested=0,
             operations_applied=0,
             resulting_diff=None,
