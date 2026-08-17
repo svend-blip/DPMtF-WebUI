@@ -17,9 +17,10 @@ not get to move down the chain.
 Two checks, both deterministic:
 
 1. Every file the deliverable claims to have changed must show evidence of
-   having been changed during this handoff — present in `git status --short`,
-   or modified after the handoff file was written. A file that exists and is
-   untouched is the exact signature of a fabricated report.
+   having been changed during this handoff — named by `git status` (with
+   untracked files expanded, never collapsed to a directory), or modified
+   after this step began. A file that exists and is untouched is the exact
+   signature of a fabricated report.
 2. A verdict must carry real evidence: an Evidence section, or command
    output. A verdict that only asserts is not a verdict.
 
@@ -28,6 +29,7 @@ for rolling the gate out on a flow before trusting it to stop the chain.
 """
 
 import argparse
+import calendar
 import os
 import re
 import subprocess
@@ -128,23 +130,35 @@ def target_projects(flow_key):
 
 
 def git_dirty_files(repo_root):
-    """Paths git reports as changed, relative to the repo root."""
+    """Paths git reports as changed, relative to the repo root.
+
+    `--untracked-files=all` is not optional. Git's default collapses an
+    untracked directory to a single entry — `?? database/migrations/` — and
+    never names the files inside it. preferred_cloud run 024 paid for that:
+    handoff 072 created `database/migrations/` with one file in it, handoff
+    073 added two more, and `git status --short` reported exactly what it had
+    reported before. The two new migrations were invisible to this function,
+    so the mtime fallback below decided their fate and rejected them. Every
+    file created inside a directory that was already untracked has the same
+    shape, which makes the collapse a systematic blind spot rather than an
+    edge case.
+    """
     try:
         result = subprocess.run(
-            ["git", "-C", repo_root, "status", "--short"],
+            ["git", "-C", repo_root, "status", "--short", "--untracked-files=all"],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
             return set()
     except Exception:
         return set()
-    dirty = set()
+    dirty = {}
     for line in result.stdout.splitlines():
         if len(line) > 3:
             path = line[3:].strip().strip('"')
             if " -> " in path:            # renames
                 path = path.split(" -> ", 1)[1]
-            dirty.add(path)
+            dirty[path] = line[:2]
     return dirty
 
 
@@ -490,7 +504,56 @@ def undeclared_changes(roots, dirty_by_root, allowed, since):
     return found
 
 
-def handoff_mtime(bridge_dir, flow_key, handoff_id, gated_deliverable=""):
+def dispatch_time(bridge_dir, handoff_id, to_role):
+    """When `trace.log` recorded this handoff being dispatched TO *to_role*.
+
+    Preferred over the handoff file's own mtime, because the dispatcher
+    rewrites that file *after* dispatching it: `auto_prepend` supplies the
+    XML sections a model omitted, and the rewrite advances the mtime.
+
+    preferred_cloud run 024 paid for it. Handoff 073 was dispatched at
+    18:35:22Z, the implementer wrote all four of its files by 18:36:32Z, and
+    auto_prepend rewrote the handoff at 18:39:24Z. Every delivered file
+    therefore predated a clock that is supposed to mark when the role
+    STARTED, and the gate reported "no change during this handoff" about work
+    done three minutes into the handoff. The role had done everything right.
+
+    Fields are compared by position, never as substrings. `| 073 |` alone
+    also matches another flow's handoff 073 from a different day — the log is
+    flow-wide and the id counter is not — and the role pair is the only thing
+    in a line that identifies the flow.
+    """
+    if not (bridge_dir and handoff_id and to_role):
+        return None
+    path = Path(bridge_dir, "trace.log")
+    found = None
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                fields = [f.strip() for f in line.split("|")]
+                if len(fields) < 4:
+                    continue
+                if fields[2] != str(handoff_id) or fields[3] != "dispatched":
+                    continue
+                if "->" not in fields[1]:
+                    continue
+                if fields[1].split("->", 1)[1].strip() != to_role:
+                    continue
+                try:
+                    # The log is UTC; st_mtime is epoch. timegm converts
+                    # without going through local time, which is what makes
+                    # the two comparable at all.
+                    found = calendar.timegm(
+                        time.strptime(fields[0], "%Y-%m-%dT%H:%M:%SZ"))
+                except ValueError:
+                    continue
+    except OSError:
+        return None
+    return found
+
+
+def handoff_mtime(bridge_dir, flow_key, handoff_id, gated_deliverable="",
+                  to_role=""):
     """The clock a change must postdate: when THIS STEP started.
 
     This used to be the handoff's own mtime, for every step of the chain.
@@ -510,8 +573,25 @@ def handoff_mtime(bridge_dir, flow_key, handoff_id, gated_deliverable=""):
     times = []
     if bridge_dir and flow_key and handoff_id:
         gated = os.path.realpath(gated_deliverable) if gated_deliverable else ""
+        handoff_file = os.path.realpath(str(Path(
+            bridge_dir, flow_key, "handoffs", f"{handoff_id}-handoff.md")))
+        dispatched = dispatch_time(bridge_dir, handoff_id, to_role)
         for path in Path(bridge_dir, flow_key).glob(f"*/{handoff_id}-*.md"):
-            if gated and os.path.realpath(str(path)) == gated:
+            real = os.path.realpath(str(path))
+            if gated and real == gated:
+                continue
+            if path.name.endswith("-gate-rejection.md"):
+                # This gate's own rejection notice, which it writes next to
+                # the deliverable it refused. Counting it makes a first
+                # rejection self-fulfilling: attempt 2 compares against the
+                # timestamp of attempt 1's refusal, so any file the role does
+                # not re-touch is guaranteed to fail again, and the run
+                # escalates over a clock it set itself. run 024, handoff 073.
+                continue
+            if real == handoff_file and dispatched is not None:
+                # When this role was handed the work, per trace.log — not
+                # when the dispatcher last rewrote the file. See dispatch_time.
+                times.append(dispatched)
                 continue
             try:
                 times.append(path.stat().st_mtime)
@@ -596,7 +676,7 @@ def main():
     roots = target_projects(args.flow_key)
     dirty_by_root = {root: git_dirty_files(root) for root in roots}
     since = handoff_mtime(bridge_dir, args.flow_key, args.handoff_id,
-                          gated_deliverable=path)
+                          gated_deliverable=path, to_role=args.from_role)
 
     handoff_path = os.path.join(
         bridge_dir, args.flow_key, "handoffs", f"{args.handoff_id}-handoff.md")
@@ -615,7 +695,16 @@ def main():
         if allowed is not None and full not in allowed:
             out_of_scope.append((claim, full))
 
-        if rel in dirty_by_root.get(root, set()):
+        # A tracked modification is proof the file changed. An untracked one
+        # is not: `??` means "not in git", which a file created three
+        # handoffs ago wears just as well as one created a minute ago. Since
+        # expanding the untracked listing above made every such file visible
+        # here, taking `??` as proof would let a role claim a change to any
+        # untracked file in the repository and pass. Untracked files fall
+        # through to the mtime test, which — measured from when this step
+        # actually began — is a real authorship signal for them.
+        code = dirty_by_root.get(root, {}).get(rel, "")
+        if code and not code.startswith("??"):
             continue
         try:
             if os.stat(full).st_mtime >= since:
