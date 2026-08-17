@@ -23,7 +23,11 @@ def _isolated_registry(tmp_path):
     old_db = LeaseRegistry._db_path
     LeaseRegistry._db_path = str(tmp_path / "leases.db")
     LeaseRegistry.reset()
-    yield
+    # Default: treat the backend as healthy so the refcount tests never
+    # shell out to the allocator. Tests exercising the dead-backend path
+    # override this locally.
+    with patch.object(LeaseRegistry, "_backend_is_down", return_value=False):
+        yield
     LeaseRegistry._db_path = old_db
     LeaseRegistry.reset()
 
@@ -41,6 +45,88 @@ def test_second_acquire_does_not_restart():
         LeaseRegistry.acquire("JOB-1", "archi-local")
         LeaseRegistry.acquire("JOB-2", "archi-local")
         mock_start.assert_called_once()  # only once
+
+
+def test_acquire_restarts_when_stale_lease_masks_dead_backend():
+    """An orphaned lease must not suppress the warm when the server is dead.
+
+    Leases persist in SQLite and outlive the process. A run that dies
+    without releasing leaves a lease behind, so the next signal-send sees
+    was_empty=False. The old gate (start only when was_empty) then skipped
+    _start_model and the dispatch injected into a dead backend on a free
+    GPU (reveng handoff 068, 2026-08-16). acquire() must start the model
+    whenever the backend is actually down, regardless of lease bookkeeping.
+    """
+    # A stale lease left in the DB by a prior (now-dead) process.
+    stale = Lease(job_id="OLD", alias="qwen-local",
+                  acquired_at="2026-08-16T00:00:00Z", worker_id="dead-run")
+    LeaseRegistry._save_lease_to_db(stale)
+    LeaseRegistry._leases.clear()  # fresh process: nothing in memory
+
+    with patch.object(LeaseRegistry, "_start_model") as mock_start, \
+         patch.object(LeaseRegistry, "_backend_is_down", return_value=True):
+        LeaseRegistry.acquire("NEW", "qwen-local")
+        mock_start.assert_called_once_with("qwen-local")
+
+
+def test_acquire_skips_restart_when_stale_lease_but_backend_up():
+    """A stale lease over a genuinely running model must NOT restart it.
+
+    The refcount optimisation still holds: when the backend is up, a second
+    (or orphaned-lease) acquire reuses the loaded weights instead of paying
+    for a redundant start that would fail to bind the shared port.
+    """
+    stale = Lease(job_id="OLD", alias="qwen-local",
+                  acquired_at="2026-08-16T00:00:00Z", worker_id="w")
+    LeaseRegistry._save_lease_to_db(stale)
+    LeaseRegistry._leases.clear()
+
+    with patch.object(LeaseRegistry, "_start_model") as mock_start, \
+         patch.object(LeaseRegistry, "_backend_is_down", return_value=False):
+        LeaseRegistry.acquire("NEW", "qwen-local")
+        mock_start.assert_not_called()
+
+
+def test_sweep_orphaned_removes_old_and_keeps_fresh():
+    """The sweep drops lease rows past the age threshold, keeps recent ones.
+
+    Leases persist across processes and a crashed or cyclic run never
+    releases them (laguna-local a day old, cloud_minimax hours old). A
+    handoff holds a lease for minutes, so age is a safe, uniform orphan
+    signal for both cloud and local aliases.
+    """
+    import sqlite3
+    with patch.object(LeaseRegistry, "_start_model"):
+        LeaseRegistry.acquire("FRESH", "qwen-local")
+        LeaseRegistry.acquire("OLD", "laguna-local")
+    # Backdate OLD's row well past the threshold (the DB owns acquired_at).
+    conn = sqlite3.connect(LeaseRegistry._get_db_path())
+    conn.execute(
+        "UPDATE model_leases SET acquired_at = datetime('now', '-2 days') "
+        "WHERE job_id = 'OLD'")
+    conn.commit()
+    conn.close()
+
+    swept = LeaseRegistry.sweep_orphaned(max_age_seconds=3600)
+
+    swept_jobs = {l.job_id for l in swept}
+    assert swept_jobs == {"OLD"}
+    assert LeaseRegistry.lease_count("laguna-local") == 0
+    assert LeaseRegistry.lease_count("qwen-local") == 1
+
+
+def test_sweep_orphaned_empty_table_is_noop():
+    """Sweeping an empty table returns [] and does not raise."""
+    assert LeaseRegistry.sweep_orphaned(max_age_seconds=3600) == []
+
+
+def test_sweep_orphaned_respects_threshold():
+    """A lease younger than the threshold is never swept."""
+    with patch.object(LeaseRegistry, "_start_model"):
+        LeaseRegistry.acquire("RECENT", "qwen-local")
+    swept = LeaseRegistry.sweep_orphaned(max_age_seconds=3600)
+    assert swept == []
+    assert LeaseRegistry.lease_count("qwen-local") == 1
 
 
 def test_release_stops_when_no_leases():

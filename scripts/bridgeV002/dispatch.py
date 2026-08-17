@@ -491,6 +491,27 @@ def _run_allocator_start(model_alias, timeout=None):
         return False
 
 
+def _sweep_orphaned_leases():
+    """Drop lease rows left behind by dead/cyclic runs (hygiene, no model stop).
+
+    Runs once at the top of each dispatch. Leases persist in SQLite and a
+    crashed, killed, or never-closing cyclic run never releases them, so
+    they accumulate indefinitely. sweep_orphaned deletes rows past an age
+    threshold only — it never stops a model (VRAM reclaim stays with
+    _stop_other_local_models). Best-effort: a sweep failure must never block
+    a dispatch.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+        from model_lease import LeaseRegistry
+        swept = LeaseRegistry.sweep_orphaned()
+        if swept:
+            detail = ", ".join(f"{l.alias}({l.job_id})" for l in swept)
+            print(f"  Lease sweep: dropped {len(swept)} orphaned lease(s): {detail}")
+    except Exception as exc:
+        print(f"  WARNING: orphaned-lease sweep skipped: {exc}")
+
+
 def _run_allocator_stop(model_alias, timeout=45):
     """Stop an allocator-managed model without hanging.
 
@@ -1956,6 +1977,8 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             "DPMTF_BRIDGE_DIR", dpmtf_config.get_bridge_base_path()
         )
 
+    _sweep_orphaned_leases()
+
     # Step 1: Load flow + steps from DB
     try:
         flow_data = load_flow_from_db(flow_key, db_path=_db_path())
@@ -2974,6 +2997,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     except ValueError as e:
         print(f"Error loading role '{to_role_key}' from database: {e}")
         return False
+
+    _sweep_orphaned_leases()
 
     tmux_session = to_role_data["tmux_session"]
 

@@ -166,8 +166,14 @@ class LeaseRegistry:
         cls._leases.setdefault(alias, []).append(lease)
         cls._save_lease_to_db(lease)
 
-        if was_empty:
-            # Start the model — first lease
+        # Start when this is the first lease, OR when a lingering lease is
+        # masking a dead backend. was_empty is bookkeeping, not proof the
+        # GPU is warm: an orphaned lease from a crashed run made was_empty
+        # False and the warm was skipped, injecting into a dead server on a
+        # free GPU (reveng handoff 068, 2026-08-16). The health probe runs
+        # only on the was_empty=False branch (short-circuit), so a normal
+        # fresh swap pays nothing and a genuinely running model is reused.
+        if was_empty or cls._backend_is_down(alias):
             cls._start_model(alias)
 
         return lease
@@ -229,6 +235,63 @@ class LeaseRegistry:
         return False
 
     @classmethod
+    def sweep_orphaned(cls, max_age_seconds: int = None) -> list[Lease]:
+        """Delete lease rows older than the age threshold; return what was swept.
+
+        Leases persist in SQLite and outlive their process. A run that
+        crashes, gets killed, or (in a cyclic flow) never emits an
+        END-REPORT leaves its leases behind forever — release() is keyed by
+        handoff id and a later release never matches an earlier handoff's
+        row. The result is chronic accumulation (laguna-local from a dead
+        llama_SG run, cloud_minimax/opus5 from human dispatches that never
+        swap back).
+
+        A handoff holds a lease for minutes, so age is a safe, uniform
+        orphan signal for BOTH cloud and local aliases — cloud leases have
+        no local server to probe, so backend-health cannot be the test.
+        This deletes rows ONLY; it never stops a model. VRAM reclaim stays
+        with _stop_other_local_models, and _backend_is_down already makes an
+        orphan row harmless to warm-correctness. A wrongly-swept live lease
+        degrades gracefully: release() then finds no row and skips the stop,
+        and the next dispatch's sweep of resident models catches the weights.
+
+        Age is computed in SQL (julianday) so it matches the stored UTC
+        format (datetime('now')) and clock exactly.
+        """
+        if max_age_seconds is None:
+            max_age_seconds = int(os.environ.get("DPMTF_LEASE_MAX_AGE_SEC", "21600"))
+        p = cls._get_db_path()
+        if not p:
+            return []
+        import sqlite3
+        predicate = "(julianday('now') - julianday(acquired_at)) * 86400.0 > ?"
+        try:
+            conn = sqlite3.connect(p)
+            rows = conn.execute(
+                f"SELECT job_id, alias, worker_id, acquired_at "
+                f"FROM model_leases WHERE {predicate}",
+                (max_age_seconds,),
+            ).fetchall()
+            if rows:
+                conn.execute(
+                    f"DELETE FROM model_leases WHERE {predicate}",
+                    (max_age_seconds,),
+                )
+                conn.commit()
+            conn.close()
+        except Exception:
+            return []
+        swept = [Lease(job_id=r[0], alias=r[1], worker_id=r[2] or "",
+                       acquired_at=r[3] or "") for r in rows]
+        # Drop any in-memory mirror of the swept rows so lease_count agrees.
+        for lease in swept:
+            bucket = cls._leases.get(lease.alias)
+            if bucket:
+                cls._leases[lease.alias] = [
+                    l for l in bucket if l.job_id != lease.job_id]
+        return swept
+
+    @classmethod
     def active_leases(cls, alias: str) -> list[Lease]:
         """Return active leases for an alias."""
         return cls._leases.get(alias, [])
@@ -268,6 +331,40 @@ class LeaseRegistry:
                       f"for '{alias}': {detail}", file=sys.stderr)
         except Exception as e:
             print(f"  WARNING: model start failed for '{alias}': {e}", file=sys.stderr)
+
+    @classmethod
+    def _backend_is_down(cls, alias: str) -> bool:
+        """True only when the alias is a LOCAL backend whose server is dead.
+
+        was_empty (lease bookkeeping) is not proof the GPU is warm. A run
+        that dies without releasing leaves an orphaned lease in SQLite; the
+        next acquire then sees was_empty=False and — with the old gate —
+        skipped _start_model, injecting into a dead backend on a free GPU
+        (reveng handoff 068, 2026-08-16: GLM stopped, "Lease acquired"
+        printed, no warm, backend down, 32 GB free). This probe is the
+        ground-truth backstop.
+
+        Fail-open (return False) on anything unparseable and on cloud
+        backends: a cloud alias has no local server to probe, and a false
+        "down" would restart a model needlessly. Only ever runs on the
+        was_empty=False branch (see acquire), so the fresh-swap path pays
+        nothing.
+        """
+        if not alias:
+            return False
+        try:
+            result = subprocess.run(
+                [ALLOCATOR_SCRIPT, "status", "--alias", alias],
+                capture_output=True, text=True, timeout=20,
+            )
+            status = json.loads(result.stdout) if result.stdout.strip() else {}
+        except Exception:
+            return False
+        if not isinstance(status, dict):
+            return False
+        if status.get("backend") not in ("llama_cpp", "sglang"):
+            return False
+        return not status.get("running", True)
 
     @classmethod
     def _stop_model(cls, alias: str) -> bool:
