@@ -184,10 +184,41 @@ class TestAssessment:
         result = state.collect(FLOW)
         assert "VERDICT READY" in result["assessment"]
 
-    def test_missing_goal_parks(self, env):
-        _run(env, "008")
+    def test_started_run_missing_goal_parks(self, env):
+        """A run that started and then lost its contract is an anomaly.
+
+        It must surface, not be skipped in favour of an older run: the
+        ledger proves work happened that nothing now authorises.
+        """
+        _run(env, "008", ledger="## Wake-up (opened)")
         result = state.collect(FLOW)
         assert result["assessment"].startswith("PARK")
+        assert any("GOAL.md" in m for m in result["missing"])
+
+    def test_never_opened_directory_is_not_adopted(self, env):
+        """A directory with no run artefact was never a run.
+
+        Adopting one is how a draft contract left as GOAL.md was reported
+        as the active run -- with no floor, so every handoff on disk was
+        listed as its own.
+        """
+        _run(env, "007", goal="**First handoff id: 011**", end_report=True)
+        _run(env, "008")
+        result = state.collect(FLOW)
+        assert result["run"] is None
+        assert result["assessment"].startswith("NO ACTIVE RUN")
+        assert result["owned_handoffs"] == []
+
+    def test_draft_is_reported_but_not_adopted(self, env):
+        """An unapproved draft is named so it is visible, never opened."""
+        (env / FLOW / "runs" / "009").mkdir(parents=True)
+        (env / FLOW / "runs" / "009" / "GOAL-DRAFT.md").write_text(
+            "DRAFT — NOT APPROVED", encoding="utf-8"
+        )
+        result = state.collect(FLOW)
+        assert result["run"] is None
+        assert result["assessment"].startswith("NO ACTIVE RUN")
+        assert any("009" in m and "draft" in m.lower() for m in result["missing"])
 
     def test_missing_floor_parks(self, env):
         _run(env, "008", goal="a contract with no floor stated")

@@ -78,19 +78,62 @@ def run_dir(bridge_dir, flow_key):
     return Path(bridge_dir) / flow_key / "runs"
 
 
+#: Artefacts that prove a run was actually opened, whatever else is missing.
+#: A directory holding none of these was never started -- a draft parked for
+#: the Human, or a directory made ahead of time.
+_OPENED_MARKERS = ("GOAL.md", "RUN-LEDGER.md", "BACKLOG.md")
+
+
+def was_opened(path):
+    """True when this directory belongs to a run that actually started.
+
+    A Human-approved ``GOAL.md`` is what authorises a run, so an unapproved
+    draft is named ``GOAL-DRAFT.md`` and this returns False for it. The other
+    two markers matter for the anomaly: a run whose ``GOAL.md`` went missing
+    mid-flight still has a ledger, and must surface as PARK rather than be
+    skipped over in favour of an older run.
+    """
+    return any((path / name).exists() for name in _OPENED_MARKERS)
+
+
 def active_run(bridge_dir, flow_key):
-    """Newest run directory without an END-REPORT.md, or None.
+    """Newest opened run directory without an END-REPORT.md, or None.
 
     Sorted by name, which is why runs are numbered rather than named.
+
+    Directories that were never opened are skipped rather than adopted. Before
+    that rule existed, a draft contract left as ``GOAL.md`` was reported as the
+    active run -- with no floor, so every handoff on disk was listed as its
+    own, which is exactly the mistake the floor exists to prevent.
     """
     base = run_dir(bridge_dir, flow_key)
     if not base.is_dir():
         return None
     runs = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name)
     for path in reversed(runs):
-        if not (path / "END-REPORT.md").exists():
-            return path
+        if (path / "END-REPORT.md").exists():
+            continue
+        if not was_opened(path):
+            continue
+        return path
     return None
+
+
+def draft_runs(bridge_dir, flow_key):
+    """Run directories holding a GOAL-DRAFT.md and no opened-run artefact.
+
+    Reported so a draft is visible without being adopted. A draft is a
+    contract the Human has not approved; approving it means renaming it to
+    ``GOAL.md``.
+    """
+    base = run_dir(bridge_dir, flow_key)
+    if not base.is_dir():
+        return []
+    return sorted(
+        p.name
+        for p in base.iterdir()
+        if p.is_dir() and (p / "GOAL-DRAFT.md").exists() and not was_opened(p)
+    )
 
 
 def first_handoff_id(run_path):
@@ -337,8 +380,10 @@ def collect(flow_key, now=None, stale_after_seconds=_STALE_AFTER_SECONDS):
 
     floor = state["first_handoff_id"]
     # With no active run there is nothing to own. Listing every handoff on
-    # disk would invite exactly the mistake the floor exists to prevent.
-    if run_path is not None:
+    # disk would invite exactly the mistake the floor exists to prevent -- and
+    # so would listing them because the floor is unknown, which is why an
+    # unstated floor owns nothing rather than everything.
+    if run_path is not None and floor is not None:
         state["owned_handoffs"] = handoffs_at_or_above(bridge_dir, flow_key, floor)
     if state["owned_handoffs"]:
         state["current"] = state["owned_handoffs"][-1]
@@ -383,8 +428,14 @@ def _assess(state):
     missing = []
 
     if state["run"] is None:
-        return (["no active run — every run directory has an END-REPORT"],
-                "NO ACTIVE RUN — a new run needs a Human-approved GOAL.md")
+        note = ["no active run — every run directory has an END-REPORT or was never opened"]
+        drafts = draft_runs(state["bridge_dir"], state["flow"])
+        if drafts:
+            note.append(
+                "drafts awaiting the Human (not opened, not adopted): "
+                + ", ".join(drafts)
+            )
+        return note, "NO ACTIVE RUN — a new run needs a Human-approved GOAL.md"
 
     if not state["artefacts"].get("GOAL.md"):
         missing.append("GOAL.md — the run has no Mission Contract")
