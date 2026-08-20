@@ -18,9 +18,11 @@ Example:
 import argparse
 import json
 import os
+import shlex
 import sqlite3
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
@@ -30,6 +32,8 @@ from bridge_lib import (  # noqa: E402
     get_flow_target_project,
     resolve_placeholders,
 )
+import harness  # noqa: E402
+import runtime_owner  # noqa: E402
 
 # All roles use model_allocator — direct command_builder path removed.
 
@@ -159,6 +163,78 @@ def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
         ["tmux", "send-keys", "-t", target, "Enter"],
         capture_output=True, text=True)
     return first.returncode == 0 and second.returncode == 0
+
+
+def _pane_pid(session_name):
+    """The foreground process id in a tmux pane, or None when unavailable.
+
+    Best-effort ownership anchor for a tmux-resident harness. The recorded pid
+    is whatever is running in the pane at capture time — a harness that has
+    already launched, or its parent shell. The authoritative teardown for a
+    tmux-resident harness remains Stop tmux; this pid only ever backs the
+    optional harness_process sweep in Stop servers.
+    """
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", "-t", "=" + session_name + ":0",
+         "#{pane_pid}"],
+        capture_output=True, text=True,
+    )
+    pid_text = (result.stdout or "").strip()
+    return int(pid_text) if pid_text.isdigit() else None
+
+
+def _record_harness_ownership(flow_key, session_name):
+    """Record that DPMtF launched (and therefore owns) this flow's harness."""
+    try:
+        runtime_owner.record(
+            flow_key, "harness_process", session_name, pid=_pane_pid(session_name)
+        )
+    except Exception:
+        # Ownership recording must never fail the start itself.
+        runtime_owner.record(flow_key, "harness_process", session_name, pid=None)
+
+
+def _compose_initial_supervisor_prompt(role, flow_key, project_root):
+    """Cold-start context for a headless harness role's first wakeup.
+
+    A resident client (Claude Code / OpenCode) receives this by the Human
+    typing its cold-start skill command into the TUI. A headless one-shot
+    harness has no interactive session, so DPMtF composes the same content —
+    role definition, cold-start state command, target project — as one prompt.
+    The governance path is built from project_root, never hardcoded.
+    """
+    gov_file = (role.get("governance_file") or "").strip()
+    parts = [f"You are {role['role_key']}, a role in the {flow_key} flow."]
+    if gov_file:
+        gov_path = os.path.join(
+            project_root, "docs", "governance-templates-v2", gov_file
+        )
+        parts.append(f"Read your role definition at {gov_path} before proceeding.")
+    parts.append(
+        "Reconstruct your context with the cold-start procedure: run "
+        f"`python3 scripts/bridgeV002/supervisor_state.py --flow {flow_key}` "
+        f"and follow the {flow_key} cold-start skill and your governance file."
+    )
+    parts.append(f"Target project: {project_root}.")
+    return " ".join(parts)
+
+
+def _harness_terminal_command(role, harness_key, flow_key, cwd, project_root):
+    """The shell command that launches the persistent Harness Terminal.
+
+    The terminal (scripts/bridgeV002/harness_terminal.py) owns the persistent
+    interactive surface; the one-shot harness is invoked from inside it, so the
+    tmux pane shows a real client rather than an idle shell.
+    """
+    script = os.path.join(project_root, "scripts", "bridgeV002", "harness_terminal.py")
+    return (
+        f"python3 {shlex.quote(script)} "
+        f"--role {shlex.quote(role['role_key'])} "
+        f"--harness {shlex.quote(harness_key)} "
+        f"--model {shlex.quote(role.get('default_model_alias') or '')} "
+        f"--flow {shlex.quote(flow_key)} "
+        f"--cwd {shlex.quote(cwd)}"
+    )
 
 
 def main():
@@ -314,9 +390,88 @@ def main():
                 errors.append(role["role_key"])
             continue
 
+        # Native harness (dsh, codex) — DPMtF builds the launch command itself,
+        # because the model allocator has no client adapter for these harnesses.
+        if model_source == "harness":
+            harness_key = allocator_client
+            missing = harness.missing_env(harness_key)
+            if missing:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR: {harness.describe_missing(harness_key, missing)}",
+                      file=sys.stderr)
+                errors.append(role["role_key"])
+                continue
+            cwd = project_root if role["workdir_mode"] == "father" else target_cwd
+
+            # dsh headless is a ONE-SHOT invocation, not a resident process:
+            # there is no dsh TUI in the installed release. The tmux session
+            # hosts the persistent shell that is the role's environment, and
+            # dsh is invoked fresh per wakeup (see the cold-start skill). Do
+            # NOT register the (absent) dsh process as a persistent
+            # harness_process — a completed one-shot requires no later Stop
+            # servers shutdown, and the tmux session stays Stop tmux's job.
+            if harness_key == "dsh":
+                print(f"  {role['role_key']:15s} → '{session_name}'"
+                      f"  (harness=dsh, Harness Terminal)")
+                # Launch the persistent Harness Terminal inside the role
+                # session. It prints the identity banner and waits for requests;
+                # each wakeup (manual or dispatched) is a fresh one-shot harness
+                # invocation, so dsh itself stays non-persistent while the
+                # terminal stays alive. Do NOT record it as a harness_process:
+                # it is owned by the tmux session and dies with Stop tmux.
+                terminal_cmd = _harness_terminal_command(
+                    role, harness_key, args.flow_key, cwd, project_root
+                )
+                cmd_str = f"cd {cwd} && {terminal_cmd}"
+                if not run_cmd_in_session(session_name, cmd_str,
+                                          bridge_dir, project_root):
+                    print(f"    ERROR launching Harness Terminal in '{session_name}'.",
+                          file=sys.stderr)
+                    errors.append(role["role_key"])
+                    continue
+                started.append(session_name)
+                print(f"    Harness Terminal launched.")
+                # Initial supervisor wakeup: send the cold-start task to the
+                # terminal; the terminal wraps it into the one-shot dsh
+                # invocation itself. The terminal stays READY after dsh exits.
+                initial_task = _compose_initial_supervisor_prompt(
+                    role, args.flow_key, project_root
+                )
+                time.sleep(0.5)
+                if run_cmd_in_session(session_name, initial_task,
+                                      bridge_dir, project_root):
+                    print(f"    Initial supervisor wakeup sent to Harness Terminal.")
+                else:
+                    print(f"    ERROR sending initial supervisor wakeup.",
+                          file=sys.stderr)
+                    errors.append(role["role_key"])
+                continue
+
+            # codex is a resident TUI: launch it and record ownership, so Stop
+            # servers can tear down exactly what DPMtF started.
+            try:
+                shell_str = harness.build_launch_command(harness_key, role)
+            except ValueError as exc:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR: {exc}", file=sys.stderr)
+                errors.append(role["role_key"])
+                continue
+            cmd_str = f"cd {cwd} && {shell_str}"
+            print(f"  {role['role_key']:15s} → '{session_name}'  (harness={harness_key}) ...")
+            ok = run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root)
+            if ok:
+                started.append(session_name)
+                print(f"    Command sent to session.")
+                _record_harness_ownership(args.flow_key, session_name)
+            else:
+                print(f"    ERROR running command in '{session_name}'.", file=sys.stderr)
+                errors.append(role["role_key"])
+            continue
+
         # If a role reaches here, it has an unknown model_source.
         print(f"  {role['role_key']:15s} → '{session_name}'")
-        print(f"  ERROR: role has model_source='{model_source}' — expected 'model_allocator'")
+        print(f"  ERROR: role has model_source='{model_source}' — "
+              f"expected 'model_allocator' or 'harness'")
         errors.append(role["role_key"])
 
     # Summary

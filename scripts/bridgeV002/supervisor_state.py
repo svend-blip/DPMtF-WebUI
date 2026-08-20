@@ -322,14 +322,21 @@ def flow_uses_local_models(flow_key, db_path=None):
     try:
         marks = ",".join("?" * len(roles))
         rows = conn.execute(
-            f"SELECT default_model_alias FROM bridge_roles WHERE role_key IN ({marks})",
+            f"SELECT default_model_source, default_model_alias "
+            f"FROM bridge_roles WHERE role_key IN ({marks})",
             tuple(roles),
         ).fetchall()
     finally:
         conn.close()
     cloud = ("opus5", "sonnet5", "fable5", "cloud_minimax", "review-cloud",
              "archi-pay", "imple-pay", "company-knowledge", "openrouter-test")
-    return any(r[0] and r[0] not in cloud for r in rows)
+    # A 'harness' source (dsh, codex) talks to a hosted API, never a local
+    # model server, so it must not trigger the :8080 probe — same reason the
+    # cloud aliases are excluded. Legacy NULL source keeps the old behaviour.
+    return any(
+        r[1] and (r[0] or "") != "harness" and r[1] not in cloud
+        for r in rows
+    )
 
 
 def flow_role_keys(flow_key, db_path=None):

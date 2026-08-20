@@ -42,7 +42,8 @@ def db(tmp_path):
         CREATE TABLE bridge_flow_steps (
             flow_key TEXT, step_key TEXT, from_role TEXT, to_role TEXT);
         CREATE TABLE bridge_roles (
-            role_key TEXT, tmux_session TEXT, default_model_alias TEXT);
+            role_key TEXT, tmux_session TEXT, default_model_alias TEXT,
+            default_model_source TEXT);
         CREATE TABLE bridge_id_counters (flow_key TEXT PRIMARY KEY, next_id INTEGER);
         """
     )
@@ -55,8 +56,9 @@ def db(tmp_path):
     # collect() reads sessions and model aliases from here, so the flow it is
     # asked about describes itself rather than a hardcoded one.
     conn.executemany(
-        "INSERT INTO bridge_roles VALUES (?,?,?)",
-        [(r, r, "laguna-local" if "llama" in r else "imple-fast") for r in ROLES],
+        "INSERT INTO bridge_roles VALUES (?,?,?,?)",
+        [(r, r, "laguna-local" if "llama" in r else "imple-fast", "model_allocator")
+         for r in ROLES],
     )
     conn.execute("INSERT INTO bridge_id_counters VALUES (?,?)", (FLOW, 12))
     conn.commit()
@@ -421,7 +423,7 @@ class TestFlowAwareness:
         conn.executescript(
             "CREATE TABLE bridge_flow_steps (flow_key TEXT, from_role TEXT, to_role TEXT);"
             "CREATE TABLE bridge_roles (role_key TEXT, tmux_session TEXT,"
-            " default_model_alias TEXT);"
+            " default_model_alias TEXT, default_model_source TEXT);"
             "CREATE TABLE bridge_id_counters (flow_key TEXT PRIMARY KEY, next_id INTEGER);"
         )
         conn.executemany("INSERT INTO bridge_flow_steps VALUES (?,?,?)", [
@@ -430,13 +432,13 @@ class TestFlowAwareness:
             ("preferred_cloud", "Pre-super-cl", "Pre-imple-cl"),
             ("preferred_cloud", "Pre-imple-cl", "Pre-review-cl"),
         ])
-        conn.executemany("INSERT INTO bridge_roles VALUES (?,?,?)", [
-            ("supervisor01_llama", "supervisor01_llama", "laguna-local"),
-            ("imple01SG", "imple01SG", "imple-fast"),
-            ("review01SG", "review01SG", "review02-local"),
-            ("Pre-super-cl", "Pre-super-cl", "opus5"),
-            ("Pre-imple-cl", "Pre-imple-cl", "cloud_minimax"),
-            ("Pre-review-cl", "Pre-review-cl", "sonnet5"),
+        conn.executemany("INSERT INTO bridge_roles VALUES (?,?,?,?)", [
+            ("supervisor01_llama", "supervisor01_llama", "laguna-local", "model_allocator"),
+            ("imple01SG", "imple01SG", "imple-fast", "model_allocator"),
+            ("review01SG", "review01SG", "review02-local", "model_allocator"),
+            ("Pre-super-cl", "Pre-super-cl", "opus5", "model_allocator"),
+            ("Pre-imple-cl", "Pre-imple-cl", "cloud_minimax", "model_allocator"),
+            ("Pre-review-cl", "Pre-review-cl", "sonnet5", "model_allocator"),
         ])
         conn.commit()
         conn.close()

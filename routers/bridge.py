@@ -41,10 +41,12 @@ import io
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import sys
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -69,6 +71,7 @@ from attach_tmux import VIEWER_SESSION_PREFIX  # noqa: E402
 # its own state.
 from bridge_lib import (  # noqa: E402
     _bridgev002_tables_exist,
+    get_next_id_for_flow,
     list_conventions_from_db,
     list_flows_from_db,
     list_roles_from_db,
@@ -77,6 +80,8 @@ from bridge_lib import (  # noqa: E402
     load_role_from_db,
     resolve_convention_from_db,
 )
+import runtime_owner  # noqa: E402
+import dispatch  # noqa: E402
 
 import config  # noqa: E402
 from routers.shared import get_db_path  # noqa: E402
@@ -85,6 +90,22 @@ router = APIRouter(prefix="/api/bridge-v2", tags=["bridge"])
 
 
 logger = logging.getLogger(__name__)
+
+
+class DispatchIntent(str, Enum):
+    """The CLOSED set of dispatch intents the intent API accepts.
+
+    The client names an INTENT (what it wants done), never a path, a
+    target, a script, or a command. Each member maps 1:1 to an existing
+    ``dispatch`` signal function, which is called verbatim; the router
+    derives every path/target server-side. Adding a member here is a
+    deliberate, explicit change — the enum is never driven by the client.
+    """
+
+    SIGNAL_SEND = "signal_send"
+    SIGNAL_COMPLETE = "signal_complete"
+    SIGNAL_ESCALATION = "signal_escalation"
+    SIGNAL_ANSWER = "signal_answer"
 
 
 # ── Spor I: BridgeV002 Database Integration API ────────────────
@@ -1125,6 +1146,168 @@ async def bridge_v2_dispatch_handoff(flow_key: str, request: Request):
     }
 
 
+@router.post("/flows/{flow_key}/intent")
+async def bridge_v2_flow_intent(flow_key: str, request: Request):
+    """Closed, enum-based intent API over the BridgeV002 dispatch signals.
+
+    Body (JSON):
+      {
+        "intent": "signal_send" | "signal_complete" |
+                  "signal_escalation" | "signal_answer",   # closed enum
+        "from_role": str,          # required
+        "to_role": str,            # required for send/escalation/answer
+        "step_key": str,           # required for signal_complete
+        "id": str,                 # optional; server allocates if omitted
+        "force": bool              # optional, signal_complete only
+      }
+
+    Contract:
+      - ``intent`` is the CLOSED ``DispatchIntent`` enum — any other value
+        is a 422 and nothing is dispatched.
+      - The client supplies NO paths and NO targets. ``bridge_dir`` is
+        derived server-side (``dispatch._bridge_dir()``) and the target
+        project path is derived inside the signal function it calls.
+      - Each intent maps 1:1 to the existing ``dispatch.signal_*`` function
+        and calls it VERBATIM — there is no reimplementation of dispatch
+        logic and no new orchestration semantics (no auto-chain, no retry,
+        no reading of results).
+      - Idempotency/receipts are preserved because the signal functions own
+        the id counter, the duplicate-delivery guard, the job record and
+        the trace.log entry; the explicit-id normalization mirrors
+        ``dispatch.main()`` and the missing-id case allocates from the
+        flow's own counter.
+      - The signal functions are CLI-oriented and print to stdout; in this
+        in-process surface that output goes to the server log rather than
+        being captured, matching the existing subprocess endpoints' effect
+        of surfacing dispatch output for the operator.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Body must be JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Body must be a JSON object")
+
+    # Closed enum: exactly one of the four intents, never a free-form string.
+    raw_intent = payload.get("intent")
+    if not isinstance(raw_intent, str) or not raw_intent:
+        raise HTTPException(status_code=422, detail="intent is required (str)")
+    try:
+        intent = DispatchIntent(raw_intent)
+    except ValueError:
+        allowed = ", ".join(member.value for member in DispatchIntent)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown intent {raw_intent!r}; allowed intents: {allowed}",
+        )
+
+    from_role = payload.get("from_role")
+    if not isinstance(from_role, str) or not from_role:
+        raise HTTPException(status_code=422, detail="from_role is required (str)")
+
+    to_role = payload.get("to_role")
+    step_key = payload.get("step_key")
+
+    # signal_complete addresses the next role via the step; every other
+    # intent names its target role explicitly (mirrors dispatch.py's CLI).
+    if intent is DispatchIntent.SIGNAL_COMPLETE:
+        if not isinstance(step_key, str) or not step_key:
+            raise HTTPException(
+                status_code=422,
+                detail="step_key is required for intent 'signal_complete'",
+            )
+    else:
+        if not isinstance(to_role, str) or not to_role:
+            raise HTTPException(
+                status_code=422,
+                detail=f"to_role is required for intent '{intent.value}'",
+            )
+
+    handoff_id = payload.get("id")
+    if handoff_id is not None and (not isinstance(handoff_id, str) or not handoff_id):
+        raise HTTPException(status_code=422, detail="id must be a non-empty str when provided")
+
+    force = payload.get("force", False)
+    if not isinstance(force, bool):
+        raise HTTPException(status_code=422, detail="force must be a bool when provided")
+
+    db_path = get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {exc}")
+
+    try:
+        # (a) Flow must exist.
+        flow_row = conn.execute(
+            "SELECT 1 FROM bridge_flows WHERE flow_key = ? AND is_active = 1",
+            (flow_key,),
+        ).fetchone()
+        if flow_row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Flow '{flow_key}' not found in bridge_flows",
+            )
+
+        # (b) Referenced roles must exist.
+        missing = []
+        for role_key in (from_role, to_role):
+            if role_key is None:
+                continue
+            row = conn.execute(
+                "SELECT 1 FROM bridge_roles WHERE role_key = ? AND is_active = 1",
+                (role_key,),
+            ).fetchone()
+            if row is None:
+                missing.append(role_key)
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail="Unknown role(s): " + ", ".join(missing),
+            )
+    finally:
+        conn.close()
+
+    # Server-side path derivation — the client never supplies these.
+    bridge_dir = dispatch._bridge_dir()
+
+    # Idempotency/receipts: normalize an explicit id exactly as dispatch's
+    # CLI does (strip a non-numeric suffix), else allocate from the flow's
+    # own counter. The signal function still owns the duplicate-delivery
+    # guard, the counter bump and the job/trace records.
+    if handoff_id:
+        match = re.match(r"^(\d+)", handoff_id)
+        if match and match.group(1) != handoff_id:
+            handoff_id = match.group(1)
+    else:
+        handoff_id = f"{get_next_id_for_flow(flow_key, db_path=db_path):03d}"
+
+    # Verbatim reuse: the closed intent maps to the existing signal function.
+    if intent is DispatchIntent.SIGNAL_SEND:
+        ok = dispatch.signal_send(flow_key, from_role, to_role, handoff_id, bridge_dir)
+    elif intent is DispatchIntent.SIGNAL_ESCALATION:
+        ok = dispatch.signal_escalation(flow_key, from_role, to_role, handoff_id, bridge_dir)
+    elif intent is DispatchIntent.SIGNAL_ANSWER:
+        ok = dispatch.signal_answer(flow_key, from_role, to_role, handoff_id, bridge_dir)
+    else:  # SIGNAL_COMPLETE
+        ok = dispatch.signal_complete(
+            flow_key, step_key, from_role, handoff_id, bridge_dir, force=force
+        )
+
+    result = {
+        "status": "ok" if ok else "dispatch_error",
+        "intent": intent.value,
+        "flow_key": flow_key,
+        "handoff_id": handoff_id,
+        "from_role": from_role,
+    }
+    if intent is DispatchIntent.SIGNAL_COMPLETE:
+        result["step_key"] = step_key
+    else:
+        result["to_role"] = to_role
+    return result
+
+
 @router.get("/flows/{flow_key}/trace")
 async def bridge_v2_flow_trace(
     flow_key: str,
@@ -1317,16 +1500,32 @@ async def bridge_v2_stop_servers_for_flow(flow_key: str):
     aliases = [r["default_model_alias"] for r in rows
                if not (r["execution_target"] or "").strip()]
 
+    stopped = []
+    errors = []
+
+    # Harness resources DPMtF started for this flow and therefore owns. Stop
+    # only what is recorded in the ownership registry — never by executable
+    # name, never an externally started process. One-shot codex exec / DSH
+    # headless invocations carry no row and so require no shutdown here.
+    try:
+        for resource_id in runtime_owner.stop_owned_harness_processes(flow_key):
+            stopped.append("harness:" + resource_id)
+    except Exception as exc:
+        errors.append("harness sweep: " + str(exc))
+
     if not aliases and not remote_roles:
+        if errors:
+            return {"status": "partial", "message": "Errors: " + "; ".join(errors),
+                    "stopped": stopped, "errors": errors}
+        if stopped:
+            return {"status": "ok", "message": "Stopped harness processes: " + ", ".join(stopped),
+                    "stopped": stopped}
         return {"status": "ok", "message": "No model servers to stop for flow '" + flow_key + "'", "stopped": []}
 
     allocator_script = os.path.join(
         config.get_project_path("model-allocator"),
         "scripts", "model-allocator",
     )
-
-    stopped = []
-    errors = []
 
     for role_key, target in remote_roles:
         # Resolved ON the worker, stopped ON the worker. The script goes via

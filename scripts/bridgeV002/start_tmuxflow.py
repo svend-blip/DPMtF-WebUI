@@ -14,6 +14,9 @@ import sqlite3
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import runtime_owner  # noqa: E402
+
 
 def get_required_sessions(db_path, flow_key):
     """Fetch all unique role tmux sessions for an active flow.
@@ -107,6 +110,10 @@ def main():
             try:
                 create_session(s)
                 created.append(s)
+                # Ownership rule: a session DPMtF created is a session DPMtF
+                # may later tear down. Record it so Stop servers never has to
+                # guess, and never touches an externally created session.
+                runtime_owner.record(args.flow_key, "tmux_session", s)
                 print(f"    created")
             except subprocess.CalledProcessError as e:
                 print(f"    ERROR: Failed to create session: {e}")

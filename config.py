@@ -14,6 +14,7 @@ import json
 import ast
 import os
 import configparser
+import tempfile
 from pathlib import Path
 
 
@@ -92,6 +93,97 @@ def get_opencode_bin() -> str:
     if configured:
         return configured
     return os.path.join(get_home_dir(), ".opencode", "bin", "opencode")
+
+def get_codex_bin() -> str:
+    """Codex CLI launcher. Env CODEX_BIN, .ini [harness] codex_bin, or 'codex' on PATH."""
+    configured = _config.get("harness", "codex_bin", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("CODEX_BIN", "codex")
+
+def get_codex_workdir() -> str:
+    """Codex CLI working root (``-C``). Env CODEX_WORKDIR, .ini [harness]
+    codex_workdir, or empty.
+
+    Empty means "use the flow's resolved target cwd" (the historical behaviour
+    — start_coding.py already `cd`s there), so no ``-C`` flag is emitted.
+    """
+    configured = _config.get("harness", "codex_workdir", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("CODEX_WORKDIR", "")
+
+def get_codex_add_dirs() -> list:
+    """Additional writable directories for Codex (``--add-dir``).
+
+    Env CODEX_ADD_DIRS (colon- or comma-separated) or .ini [harness]
+    codex_add_dirs. Defaults to the bridge dir, the project root and the OS
+    temp dir — the locations an implementer always needs: deliverables live in
+    the bridge dir, governance/checks in Father, and builds/tools write to the
+    temp dir. The temp dir is resolved via ``tempfile.gettempdir()`` (respects
+    ``TMPDIR``), never hardcoded.
+    """
+    configured = _config.get("harness", "codex_add_dirs", fallback=None)
+    raw = configured if configured else os.environ.get("CODEX_ADD_DIRS", "")
+    if raw:
+        return [p.strip() for p in raw.replace(",", ":").split(":") if p.strip()]
+    return [get_bridge_dir(), get_project_root(), tempfile.gettempdir()]
+
+def get_codex_sandbox() -> str:
+    """Codex sandbox mode (``--sandbox``). Env CODEX_SANDBOX, .ini [harness]
+    codex_sandbox, or ``workspace-write``."""
+    configured = _config.get("harness", "codex_sandbox", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("CODEX_SANDBOX", "workspace-write")
+
+def get_codex_ask_for_approval() -> str:
+    """Codex approval policy (``--ask-for-approval``). Env CODEX_ASK_FOR_APPROVAL,
+    .ini [harness] codex_ask_for_approval, or ``never`` (autonomous)."""
+    configured = _config.get("harness", "codex_ask_for_approval", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("CODEX_ASK_FOR_APPROVAL", "never")
+
+def get_dsh_bin() -> str:
+    """DeepSeek Harness launcher. Env DSH_BIN, .ini [harness] dsh_bin, or npx.
+
+    The default is `npx @deepseek-ai/dsh` — the verified non-browser path —
+    rather than a hardcoded absolute path, so the harness resolves on any
+    machine that has the package installed or reachable via the registry.
+    """
+    configured = _config.get("harness", "dsh_bin", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("DSH_BIN", "npx @deepseek-ai/dsh")
+
+def get_dsh_profile() -> str:
+    """DeepSeek Harness profile. Env DSH_PROFILE, .ini [harness] dsh_profile, or 'headless'.
+
+    'headless' is the verified one-shot profile: `dsh --profile headless <task>`
+    answers one task, prints the result, and exits. That matches DPMtF's
+    stateless-per-wakeup supervisor design — the DeepSeek Harness is invoked
+    fresh per wakeup from the flow's persistent tmux shell, never as a resident
+    process. There is no 'tui' profile in the installed dsh release.
+    """
+    configured = _config.get("harness", "dsh_profile", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("DSH_PROFILE", "headless")
+
+def get_dsh_patch_path() -> str:
+    """Path to the DeepSeek Harness patch overlay that pins the V4 Pro model.
+
+    Env DSH_V4_PRO_PATCH, .ini [harness] dsh_v4_pro_patch, or empty (no
+    overlay). Empty means the harness runs with its own default model config;
+    the patch is the way the deepseek-official/deepseek-v4-pro pair is
+    supplied without hardcoding a machine-specific path.
+    """
+    configured = _config.get("harness", "dsh_v4_pro_patch", fallback=None)
+    if configured:
+        return configured
+    return os.environ.get("DSH_V4_PRO_PATCH", "")
+
 
 def get_bridge_dir() -> str:
     """Bridge directory. Env var DPMTF_BRIDGE_DIR, or .ini [paths] bridge_dir."""

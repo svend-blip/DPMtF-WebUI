@@ -37,6 +37,7 @@ from bridge_lib import (
     get_flow_target_project,
 )
 from patch_mode import apply_mode_block
+import harness
 
 # ── Constants ──────────────────────────────────────────────
 _STARTUP_FILE = "docs/StartUpNextSession.md"
@@ -924,6 +925,28 @@ def wait_for_pane_idle(session_name, timeout=45, poll=1.5):
     return False
 
 
+def _wrap_prompt_for_harness(to_role, text):
+    """Prepare a prompt headed for a harness role for injection.
+
+    The preferred_cloud_harness supervisor (super-deep-deep4) runs on the
+    DeepSeek Harness through the persistent Harness Terminal. The terminal
+    wraps the task into the one-shot `dsh --profile headless ...` command
+    itself, so dispatch now sends the *semantic task* (flattened to a single
+    request line for the terminal's stdin), not the full shell command. The
+    command builder stays in harness.build_task_invocation — there is no
+    second builder here.
+
+    Non-dsh roles return their text unchanged, so every existing interactive
+    client path is byte-for-byte unaffected.
+    """
+    try:
+        if harness.resolve_harness(to_role) == "dsh":
+            return text.replace("\n", " ")
+    except Exception:
+        pass
+    return text
+
+
 def inject_prompt(session_name, text, enter_command="default",
                   fresh_session_command=None):
     """Detect tool type and route to correct injection method.
@@ -1343,9 +1366,14 @@ def _handle_gate_rejection(payload, handoff_id, bridge_dir):
         f"    cd {project_root} && git status --short\n\n"
         f"Then rewrite {handoff_id}-result.md so it matches what that "
         f"command actually shows, and signal again:\n\n"
-        f"    nohup python3 {project_root}/scripts/bridgeV002/dispatch.py "
-        f"--db-flow {flow_key} --signal-complete --from-role {from_role} "
-        f"--id {handoff_id} > /tmp/bridge-signal-{flow_key}-{handoff_id}.log 2>&1 &\n"
+        # 009: routed through the broker. The role enqueues a queue row;
+    # the host-side broker daemon polls and dispatches via dispatch.py.
+    f"    nohup python3 {project_root}/scripts/bridgeV002/bridge_broker.py "
+        f"enqueue "
+        f"--flow {flow_key} --from-role {from_role} "
+        f"--to-role {from_role} "
+        f"--id {handoff_id} --action signal-complete "
+        f"> /tmp/bridge-enqueue-{flow_key}-{handoff_id}.log 2>&1 &\n"
     )
 
     inject_prompt(session, prompt,
@@ -2361,10 +2389,13 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
             else:
                 next_output_path = os.path.join(bridge_dir, next_dir, next_file)
             next_signal_cmd = (
-                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
-                f"--db-flow {flow_key} --signal-complete "
-                f"--from-role {payload['to_role']} --id {handoff_id} "
-                f"> /tmp/bridge-signal-{flow_key}-{handoff_id}.log 2>&1 &"
+                # 009: routed through the broker (see Site 1 above).
+                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
+                f"enqueue "
+                f"--flow {flow_key} --from-role {payload['to_role']} "
+                f"--to-role {payload['to_role']} "
+                f"--id {handoff_id} --action signal-complete "
+                f"> /tmp/bridge-enqueue-{flow_key}-{handoff_id}.log 2>&1 &"
             )
             break
 
@@ -2491,7 +2522,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # configured context-reset command first (tool-independent).
     prompt_text = apply_mode_block(prompt_text, _db_path(), flow_key, payload["step_key"], payload["to_role"])
 
-    inject_prompt(tmux_session, prompt_text,
+    inject_prompt(tmux_session, _wrap_prompt_for_harness(to_role, prompt_text),
                   enter_command=to_role.get("enter_command", "default"),
                   fresh_session_command=to_role.get("fresh_session_command"))
     time.sleep(0.5)
@@ -2764,7 +2795,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         )
 
     # Step 6: Inject prompt into architect's tmux session
-    inject_prompt(tmux_session, prompt_text,
+    inject_prompt(tmux_session, _wrap_prompt_for_harness(to_role_data, prompt_text),
                   enter_command=to_role_data.get("enter_command", "default"))
     time.sleep(0.5)
 
@@ -3307,10 +3338,13 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 f"or invented filenames in the project working directory.\n\n"
                 f"## Signal Completion (MANDATORY — do not ask, just execute)\n"
                 f"After writing the deliverable, run this command:\n"
-                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/dispatch.py "
-                f"--db-flow {flow_key} --signal-complete "
-                f"--from-role {to_role_key} --id {handoff_id} "
-                f"> /tmp/bridge-signal-{flow_key}-{handoff_id}.log 2>&1 &"
+                # 009: routed through the broker (see Site 1 above).
+                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
+                f"enqueue "
+                f"--flow {flow_key} --from-role {to_role_key} "
+                f"--to-role {to_role_key} "
+                f"--id {handoff_id} --action signal-complete "
+                f"> /tmp/bridge-enqueue-{flow_key}-{handoff_id}.log 2>&1 &"
             )
             break
 

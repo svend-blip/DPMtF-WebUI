@@ -31,6 +31,13 @@ MIGRATED_ROLES = [
 
 EXCLUDED_ROLES = ["human", "humancloud", "humanpay", "humantrade"]
 
+# Roles introduced by the preferred_cloud_harness flow run a coding harness
+# (dsh / codex) directly rather than through the model allocator, so their
+# model_source is 'harness' — a deliberate, additive exception to 005's
+# "everything on model_allocator" invariant. Harness identity stays in
+# allocator_client and model identity in default_model_alias.
+HARNESS_ROLES = ["super-deep-deep4", "imple-codex-minimaxM3"]
+
 
 def test_migration_005_all_nonhuman_roles_use_allocator():
     """Every non-human, non-excluded role must use model_allocator."""
@@ -47,6 +54,12 @@ def test_migration_005_all_nonhuman_roles_use_allocator():
             assert not model_source, f"Human role '{role_key}' has model_source set"
             continue
         if role_key in EXCLUDED_ROLES:
+            continue
+        if role_key in HARNESS_ROLES:
+            assert model_source == "harness", (
+                f"Harness role '{role_key}' has model_source='{model_source}', "
+                f"expected 'harness'")
+            assert model_alias, f"Harness role '{role_key}' has empty model_alias"
             continue
         assert model_source == "model_allocator", (
             f"Role '{role_key}' has model_source='{model_source}', expected 'model_allocator'")
