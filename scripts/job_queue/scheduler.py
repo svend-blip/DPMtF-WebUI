@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import time
@@ -730,6 +731,35 @@ class Scheduler:
         state[key] = state.get(key, 0) + 1
         self._write_nudge_state(state)
 
+    def _flow_supervisor_role(self, flow_key: str) -> Optional[str]:
+        """Return the supervisor role name for a flow, or None to fall back.
+
+        Reads `bridge_flows.supervisor_role` for the given flow_key. When
+        the column is set, the wake-up should be delivered into THAT role's
+        session. When NULL (or the table/column/row cannot be read), the
+        caller falls back to the historical `supervisor_auto` session.
+
+        Never raises: a missing table (production DB never set up, test
+        fixture with the bridge schema absent) returns None — preserving
+        today's wake-up target exactly.
+        """
+        try:
+            conn = sqlite3.connect(self.repo.db_path)
+            try:
+                row = conn.execute(
+                    "SELECT supervisor_role FROM bridge_flows "
+                    "WHERE flow_key = ? AND is_active = 1",
+                    (flow_key,),
+                ).fetchone()
+            finally:
+                conn.close()
+        except Exception:
+            return None
+        if not row:
+            return None
+        role_name = row[0]
+        return role_name if role_name else None
+
     def _maybe_stall_wake_up(self, job: Job, from_role: str, to_role: str,
                              hid: str, nudge_key: str, out_path: str) -> bool:
         """Fire the stall wake-up at most ONCE per exhausted step.
@@ -760,21 +790,26 @@ class Scheduler:
         Never raises — a failed wake-up must not crash the tick.
         """
         try:
+            # Resolve the wake-up target role: per-flow supervisor_role
+            # when set, otherwise fall back to the historical supervisor_auto
+            # session. NULL preserves today's behavior exactly. Failure to
+            # resolve the flow row is also a fall-back — never fatal.
+            target_role = self._flow_supervisor_role(job.flow_key) or "supervisor_auto"
             from bridge_lib import load_role_from_db
-            supervisor_role = load_role_from_db("supervisor_auto", db_path=self.repo.db_path)
+            supervisor_role = load_role_from_db(target_role, db_path=self.repo.db_path)
 
             if not supervisor_role:
-                print("  Warning: supervisor_auto role not found, cannot wake up on stall")
+                print(f"  Warning: {target_role} role not found, cannot wake up on stall")
                 return
 
             tmux_session = supervisor_role.get("tmux_session", "")
             if not tmux_session:
-                print("  Warning: supervisor_auto session not configured, cannot wake up on stall")
+                print(f"  Warning: {target_role} session not configured, cannot wake up on stall")
                 return
 
             from dispatch import inject_prompt, session_alive
             if not session_alive(tmux_session):
-                print(f"  Warning: supervisor_auto session '{tmux_session}' not alive, cannot wake up on stall")
+                print(f"  Warning: {target_role} session '{tmux_session}' not alive, cannot wake up on stall")
                 return
 
             governance = supervisor_role.get("governance_file", "451_SUPERVISED_REVIEW_SUPERVISOR.md")
@@ -791,7 +826,7 @@ class Scheduler:
 
             inject_prompt(tmux_session, prompt_text, "default",
                           fresh_session_command=supervisor_role.get("fresh_session_command"))
-            print("  Stall wake-up injected into supervisor_auto session")
+            print(f"  Stall wake-up injected into {target_role} session")
         except Exception as e:
             print(f"  Warning: Failed to inject stall wake-up prompt: {e}")
 

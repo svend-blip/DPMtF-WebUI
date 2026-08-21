@@ -278,6 +278,100 @@ def _notify(title, body):
             f"escalation is in this log only")
 
 
+def _supervisor_wake_up(key, why):
+    """Inject a one-time stall wake-up into the flow's supervisor session.
+
+    Resolves bridge_flows.supervisor_role for the flow_key (the leading
+    component of `key`, which is "{flow_key}:{run_id}:{stalled}" — see
+    escalate()'s key construction). When NULL (or the row cannot be
+    resolved), NOTHING happens — the notify-send path inside escalate()
+    is the fallback and has already been attempted; this helper is
+    additive only.
+
+    Never raises. The handoff binds: a failed resolve/load/inject falls
+    through silently, escalating never becomes fatal because of this
+    addition. The supervisor wake-up is separate from the scheduler's
+    own once-per-step marker — it lives inside escalate()'s own
+    ESCALATION_REPEAT_MINUTES rate-limit, so a stalled flow never gets
+    more than one wake-up per backoff window.
+    """
+    try:
+        # key format: "{flow_key}:{run_id}:{stalled}"
+        flow_key = (key or "").split(":", 1)[0]
+        if not flow_key:
+            return
+        conn = sqlite3.connect(str(PROJECT_ROOT / "databases" / "dpmtf.db"))
+        try:
+            row = conn.execute(
+                "SELECT supervisor_role FROM bridge_flows "
+                "WHERE flow_key = ? AND is_active = 1",
+                (flow_key,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row or not row[0]:
+            return  # no per-flow supervisor — fallback to notify-send only
+        target_role = row[0]
+
+        # Defer imports so this helper is cheap when the column is NULL.
+        try:
+            from bridge_lib import load_role_from_db
+            role_cfg = load_role_from_db(target_role)
+        except Exception as exc:  # noqa: BLE001 — wake-up never fatal
+            log(f"WARN: supervisor wake-up load_role_from_db({target_role}) "
+                f"failed ({type(exc).__name__}: {exc}) — notify-send only")
+            return
+        if not role_cfg:
+            log(f"WARN: supervisor wake-up: role '{target_role}' not found "
+                f"— notify-send only")
+            return
+
+        tmux_session = role_cfg.get("tmux_session", "")
+        if not tmux_session:
+            log(f"WARN: supervisor wake-up: role '{target_role}' has no "
+                f"tmux_session — notify-send only")
+            return
+
+        try:
+            from dispatch import session_alive, inject_prompt
+        except Exception as exc:  # noqa: BLE001
+            log(f"WARN: supervisor wake-up: dispatch import failed "
+                f"({type(exc).__name__}: {exc}) — notify-send only")
+            return
+        if not session_alive(tmux_session):
+            log(f"WARN: supervisor wake-up: session '{tmux_session}' "
+                f"not alive — notify-send only")
+            return
+
+        governance = role_cfg.get(
+            "governance_file", "451_SUPERVISED_REVIEW_SUPERVISOR.md"
+        )
+        prompt_text = (
+            f"Wake-up event: ESCALATION.\n"
+            f"The watchdog exhausted the nudge budget for flow {flow_key} "
+            f"(key: {key}).\n"
+            f"Reason: {why}\n"
+            f"\n"
+            f"Read your governance file ({governance}) and follow its "
+            f"wake-up protocol to diagnose and decide."
+        )
+        try:
+            inject_prompt(
+                tmux_session, prompt_text, "default",
+                fresh_session_command=role_cfg.get("fresh_session_command"),
+            )
+            log(f"WATCHDOG: stall wake-up injected into {target_role} session "
+                f"({tmux_session})")
+        except Exception as exc:  # noqa: BLE001
+            log(f"WARN: supervisor wake-up: inject_prompt failed "
+                f"({type(exc).__name__}: {exc}) — notify-send only")
+    except Exception as exc:  # noqa: BLE001 — outermost guard
+        # Anything else (bad key, missing DB path, etc.) is logged, never
+        # propagates. escalate()'s notify-send has already been attempted.
+        log(f"WARN: supervisor wake-up failed ({type(exc).__name__}: {exc}) "
+            f"— notify-send only")
+
+
 def escalate(key, why, state, dry_run=False):
     """Tell the Human a chain needs them, at most once per backoff window.
 
@@ -295,6 +389,16 @@ def escalate(key, why, state, dry_run=False):
     state[stamp_key] = time.time()
     save_state(state)
     _notify(f"BridgeV002 stalled: {key}", why)
+    # Additive: also try to inject a wake-up into the flow's
+    # supervisor_role session (when configured). notify-send has already
+    # been attempted and stays the universal fallback — a failed wake-up
+    # never makes escalate() fatal (helper catches internally, escalate()
+    # also guards the call as defense-in-depth).
+    try:
+        _supervisor_wake_up(key, why)
+    except Exception as exc:  # noqa: BLE001 — escalate() never fatal
+        log(f"WARN: supervisor wake-up outer guard caught "
+            f"({type(exc).__name__}: {exc}) — notify-send already done")
     return True
 
 

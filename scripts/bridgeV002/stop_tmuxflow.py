@@ -19,6 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from attach_tmux import VIEWER_SESSION_PREFIX  # noqa: E402
+import runtime_owner  # noqa: E402
 
 
 def get_flow_tmux_sessions(db_path, flow_key):
@@ -169,6 +170,18 @@ def main():
     remote = get_remote_roles(db_path, args.flow_key)
     if remote:
         killed += kill_remote_sessions(remote)
+
+    # D2: release the flow's owned runtime resources so Stop tmux does not
+    # accumulate dead ownership claims. Both `tmux_session` and
+    # `harness_process` rows for this flow are released; nothing not
+    # recorded by this flow is touched (the ownership rule is unchanged).
+    released = runtime_owner.release_for_flow(args.flow_key, db_path=db_path)
+    if released:
+        print(f"Released {len(released)} flow_runtime_resources row(s) for "
+              f"'{args.flow_key}'.")
+    else:
+        print(f"No flow_runtime_resources rows for '{args.flow_key}'.")
+
     print(f"\nDone: {len(killed)} session(s) killed.")
 
 

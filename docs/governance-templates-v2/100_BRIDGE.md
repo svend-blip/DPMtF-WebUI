@@ -167,6 +167,44 @@ Review01 or Review02                  Architect
 
 ---
 
+### Two-Stage Review Flow Type (Deliberate)
+
+`strict_review` is the canonical **two-stage review** flow — it carries
+**two review steps**, a terminal Human step, and the
+`post-dispatch-common.py` dispatch tail:
+
+```
+Step 1: archi01 → imple01   [handoff convention]
+Step 2: imple01 → review01  [technical_review convention]
+Step 3: review01 → review02 [verdict convention]
+Step 4: review02 → human    [human_delivery convention]
+```
+
+This two-review-stage shape is an **intentional flow type**, NOT a
+defect to harmonize away. It binds a deliberate second-pass governance
+check (`review01` validates the technical/contractual correctness;
+`review02` validates the meta/governance posture) before the verdict
+reaches the Human. Treating it as "extra" and collapsing it into one
+review step would lose the second-pass governance check.
+
+Documenting it explicitly keeps a new flow from being wired by assuming
+the architect-driven single-review shape (`cloud_llm`, `cloud_pay`) is
+the universal default — it is **not**: both `strict_review` and
+`reveng` carry two review steps, and the architect-driven flows do not.
+
+The two-review-stage property is **orthogonal** to the supervisor-
+driven / architect-driven classification in the Flow Type Matrix:
+
+- `strict_review` — architect-driven, two review steps (canonical).
+- `reveng` — supervisor-driven, two review steps (plus the
+  `gate-deliverable-evidence` pre-dispatch script — design spec §B.2
+  item 3 — so the review dispatch refuses to advance when the
+  upstream deliverable's evidence chain is broken).
+- `cloud_llm` / `cloud_pay` — architect-driven, one review step
+  (single-pass: review01 → human).
+
+---
+
 ## Handoff Prompt Format
 
 The handoff prompt MUST contain all information the Implementer needs to
@@ -377,3 +415,114 @@ Each convention defines:
 12. **All database-driven** — zero hardcoded paths, zero INI dependencies.
     Role config, flow steps, and convention templates are resolved from
     the database at runtime.
+
+
+---
+
+## Three-Layer Model
+
+Every BridgeV002 flow uses the same three layers; a flow type may leave
+a layer thinner, never different. The three layers are **delivery** (how
+a prompt reaches a role), **advancement** (how the chain moves), and
+**recovery** (what acts when the chain does not move).
+
+### Delivery
+
+How a prompt reaches a role:
+
+- **tmux injection** with `verify_injection_submitted` — all roles.
+  Dispatch injects the prompt, then verifies the receiver's pane shows
+  the injected markers (defense against the busy-pane and menu-selector
+  edge cases the sequential-flow invariant guards).
+- **Persistent Harness Terminal** with heartbeats — for roles whose
+  backend is a coding harness (codex / claude code / OpenCode). The
+  terminal keeps the resident client alive across one-shot harness
+  invocations and exposes a heartbeat so dispatch can observe liveness
+  before injecting.
+
+### Advancement
+
+How the chain moves from one role to the next:
+
+- **Broker's two DB queues** — `bridge_dispatch_queue` (dispatch rows)
+  and `bridge_materialize_queue` (file-materialize rows) — are the
+  ONLY role-facing signal path. Every `chain_advancement` block in a
+  handoff template enqueues via `bridge_broker.py enqueue`; no role
+  invokes `dispatch.py` directly (direct dispatch is documented as
+  Human-recovery only). This is the broker as the universal signal
+  path (design spec §B.2 item 2; the four convention-rule migrations
+  that formalize it ship in 059).
+- **`dispatch.py`** executes host-side — tmux injection, deliverable
+  validation, post-dispatch `ollama stop`. The broker claims rows,
+  invokes `dispatch.py`, and updates `trace.log`. Direct `dispatch.py
+  --signal-*` calls are still supported for Human recovery and for
+  tests, but a role never calls them in normal flow.
+- **The `callback` convention rule** (migration 057) fixes verdict
+  destinations — a callback step writes the verdict into the same
+  directory the prior deliverable used, never into a step-pair's
+  hand-rolled sub-directory.
+
+### Recovery
+
+What acts when the chain does not move:
+
+- **`chain_watchdog`** — systemd user unit, polls each flow for sender
+  and receiver stalls and auto-nudges the chain with the correct
+  normalized `--id` (and, when `bridge_flows.supervisor_role` is set,
+  additionally attempts a supervisor wake-up; `notify-send` stays as
+  the universal fallback).
+- **`scheduler._advance_chain`** — cron-driven fallback layer (legacy
+  job_queue scheduler), nudges per-flow job rows when the broker has
+  not moved the chain.
+- **Generalized stall wake-up** — when the nudge budget is exhausted,
+  the wake-up targets `bridge_flows.supervisor_role` for the
+  flow_key (migration 061); NULL preserves the historical behavior
+  (wake the `supervisor_auto` role from the scheduler, escalate via
+  `notify-send` from the watchdog).
+- **Lease sweep** — `JobRepository.recover_expired_leases()` reaps
+  claimed rows whose lease has expired (the broker / scheduler
+  separation guard).
+- **Evidence gate** — `gate-deliverable-evidence.py` runs on review
+  steps of supervisor-shaped flows, blocking the review dispatch
+  when the deliverable is missing or its evidence chain is broken.
+- **`supervisor_state.py` + cold-start skill** — supervisor-side
+  observable state for cold-start / continuation / assessment.
+- **Runtime ownership registry** — `flow_runtime_resources` records
+  every session/process DPMtF starts (record-only-on-start); the
+  watchdog / scheduler / Stop-servers sweeps release them by recorded
+  pid/session only. Nothing not recorded by the flow is ever touched.
+
+A new mechanism is added to one of these three layers; adding a fourth
+layer is a redesign and out of scope for the current protocol.
+
+---
+
+## Flow Type Matrix
+
+A new BridgeV002 flow is wired by copying its type's row. The columns
+are non-overlapping — a flow belongs to exactly one type, classified
+by **who authors the start artifact** and **who drives the first
+dispatch**:
+
+| Mechanism | Supervisor-driven | Architect-driven | Bare / other |
+|---|---|---|---|
+| **Flows** | llama_SG, preferred_cloud, preferred_cloud_harness, reveng | strict_review, cloud_llm, cloud_pay | supervisor, pi_test, lightworker |
+| **Start artifacts** | `runs/NNN/GOAL.md` + `BACKLOG.md` + `RUN-LEDGER.md` | handoff file in `{flow}/handoffs/` | per-flow minimal contract |
+| **GOAL requirements** | testgoals block + scope fence + budget | n/a (contract lives in the handoff) | n/a |
+| **Author** | Human approves the GOAL — renaming `GOAL-DRAFT.md` → `GOAL.md` **is** the approval act. The supervisor may materialize BACKLOG/LEDGER via the broker. | Human / Architect writes the handoff | Human |
+| **First dispatch** | wake-up to the supervisor role (broker `enqueue` or `dispatch.py --signal-send`) | `--signal-send` Human → first role | manual |
+| **Verification** | `supervisor_state.py --flow {flow}` assessment string | role cold-start skill (`STRICTREVIEW` / `CLOUDLLM` / `CLOUDPAY`) | n/a |
+| **Session bring-up** | `start_tmuxflow.py` → `start_coding.py` → harness terminal for harness roles → broker daemon check | same minus the harness terminal | per flow |
+
+### Binding rules across types
+
+- **A directory is not a run until it holds a run artifact.**
+  `GOAL-DRAFT.md` is never adopted; only Human-rename counts as the
+  approval act.
+- **Broker daemon liveness is a precondition.** Any flow whose roles
+  are sandboxed cannot start until the broker daemon is reachable
+  (the broker is the role-facing signal path; a daemon-less start
+  silently loses every chain step).
+- The matrix is read from top to bottom: a new flow that does not
+  fit a published row is a new type — add a column or split an
+  existing one, never patch in-place.

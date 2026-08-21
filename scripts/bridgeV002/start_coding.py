@@ -166,13 +166,14 @@ def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
 
 
 def _pane_pid(session_name):
-    """The foreground process id in a tmux pane, or None when unavailable.
+    """The pane shell pid of a tmux session, or None when unavailable.
 
-    Best-effort ownership anchor for a tmux-resident harness. The recorded pid
-    is whatever is running in the pane at capture time — a harness that has
-    already launched, or its parent shell. The authoritative teardown for a
-    tmux-resident harness remains Stop tmux; this pid only ever backs the
-    optional harness_process sweep in Stop servers.
+    This is the pane's INTERACTIVE BASH — TERM-immune (start_coding always
+    sees it, even across harness restarts). Recording IT as the
+    harness_process anchor reports a stop while stopping nothing, so
+    ownership recording must go one level deeper; this helper now only
+    exists as a stepping stone for `_harness_child_pid`. Never record the
+    pane-shell pid as the harness anchor (D3, 2026-08-21 incident).
     """
     result = subprocess.run(
         ["tmux", "display-message", "-p", "-t", "=" + session_name + ":0",
@@ -183,11 +184,70 @@ def _pane_pid(session_name):
     return int(pid_text) if pid_text.isdigit() else None
 
 
+def _harness_child_pid(session_name, max_wait_s=2.0):
+    """Resolve the harness CHILD pid in a tmux pane, or None.
+
+    Walks one level down from the pane's interactive bash (`# {pane_pid}`)
+    to the direct child process — the harness DPMtF just launched via
+    send-keys (e.g. `python3 harness_terminal.py ...`). The pane shell
+    pid is TERM-immune and must never be recorded as the anchor; this
+    helper returns its youngest direct child instead.
+
+    Deterministic and testable against any process tree (NOT codex-
+    specific). Uses portable `ps --ppid <pane_pid> -o pid=` semantics.
+    Bounded poll (`max_wait_s`, default 2 s) for the child to appear
+    after send-keys — start_coding's own `time.sleep(0.5)` between
+    send-keys and `_record_harness_ownership` is normally enough, but
+    the bound is there for slower hosts.
+
+    Returns None when the pane shell cannot be resolved OR no direct
+    child appears within the bound — the caller falls back to
+    recording pid=None (the existing degrade path), never to the
+    pane-shell pid.
+    """
+    pane = _pane_pid(session_name)
+    if pane is None:
+        return None
+    deadline = time.monotonic() + max_wait_s
+    while True:
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "pid=", "--no-headers", "--ppid", str(pane)],
+                capture_output=True, text=True, timeout=2,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+        pids = []
+        for line in (result.stdout or "").splitlines():
+            tok = line.strip()
+            if tok.isdigit():
+                pids.append(int(tok))
+        if pids:
+            # The earliest direct child (smallest pid) is the harness
+            # that the start command forked first; subsequent children
+            # are grandchildren or follow-on helpers, not the anchor.
+            return min(pids)
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.1)
+
+
 def _record_harness_ownership(flow_key, session_name):
-    """Record that DPMtF launched (and therefore owns) this flow's harness."""
+    """Record that DPMtF launched (and therefore owns) this flow's harness.
+
+    The recorded pid is the harness CHILD pid (the actual resident
+    harness process launched inside the pane), not the pane shell pid —
+    the pane shell is TERM-immune, so recording it as the anchor reports
+    a stop while stopping nothing (2026-08-21: codex pane pid 1510133
+    while the real harness child was 1511263). On resolution failure
+    (child not yet visible, or pane gone) the helper falls back to
+    recording pid=None — the existing degrade path. The pane-shell pid
+    is NEVER recorded as the anchor.
+    """
     try:
+        child_pid = _harness_child_pid(session_name)
         runtime_owner.record(
-            flow_key, "harness_process", session_name, pid=_pane_pid(session_name)
+            flow_key, "harness_process", session_name, pid=child_pid
         )
     except Exception:
         # Ownership recording must never fail the start itself.
