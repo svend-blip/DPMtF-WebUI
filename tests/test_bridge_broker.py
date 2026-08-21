@@ -38,6 +38,7 @@ PART B — artifact-materialization broker (handoff 010):
 """
 
 from __future__ import annotations
+from datetime import datetime, timezone
 
 import os
 import sqlite3
@@ -50,7 +51,10 @@ from unittest import mock
 import pytest
 
 # Make the bridgeV002 package importable so we can import bridge_broker directly.
-_REPO = Path("/home/svend/DPMtF-WebUI")
+# Auto-fail pattern fix (Run 006): derive the repo root from this test
+# file's location so the suite measures its own worktree instead of a
+# hardcoded production path. Run from any checkout.
+_REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "scripts" / "bridgeV002"))
 
 import bridge_broker  # noqa: E402
@@ -182,7 +186,7 @@ def test_enqueue_writes_a_row(tmp_db: str) -> None:
         "preferred_cloud_harness",
         "imple-codex-minimaxM3",
         "review-claude-sonnet5",
-        "42",
+        "042",
         "signal-complete",
         "pending",
     )]
@@ -235,7 +239,7 @@ def test_enqueue_is_idempotent_for_completed_rows(tmp_db: str) -> None:
         "(flow_key, from_role, to_role, handoff_id, action, status) "
         "VALUES (?, ?, ?, ?, ?, 'completed')",
         ("preferred_cloud_harness", "imple-codex-minimaxM3",
-         "review-claude-sonnet5", "45", "signal-complete"),
+         "review-claude-sonnet5", "045", "signal-complete"),
     )
     conn.commit()
     conn.close()
@@ -267,7 +271,7 @@ def test_enqueue_allows_re_dispatch_for_failed_rows(tmp_db: str) -> None:
         " error_msg) "
         "VALUES (?, ?, ?, ?, ?, 'failed', ?)",
         ("preferred_cloud_harness", "imple-codex-minimaxM3",
-         "review-claude-sonnet5", "46", "signal-complete",
+         "review-claude-sonnet5", "046", "signal-complete",
          "ERROR: target not running"),
     )
     conn.commit()
@@ -285,7 +289,7 @@ def test_enqueue_allows_re_dispatch_for_failed_rows(tmp_db: str) -> None:
     conn = sqlite3.connect(tmp_db)
     rows = conn.execute(
         "SELECT status FROM bridge_dispatch_queue "
-        "WHERE handoff_id='46' ORDER BY id"
+        "WHERE handoff_id='046' ORDER BY id"
     ).fetchall()
     conn.close()
     assert [r[0] for r in rows] == ["failed", "pending"]
@@ -425,6 +429,415 @@ def test_process_preserves_fifo_order(
     for _ in range(3):
         bridge_broker.main(["process-once"])
     assert seen == ["100", "101", "102"]
+
+
+# ── 2a. sequential-flow invariant (Run 006 D6(a)) ──────
+
+
+def _seed_pending(
+    conn: sqlite3.Connection, flow_key: str, handoff_id: str,
+    action: str = "signal-complete",
+) -> int:
+    """Insert a 'pending' row in bridge_dispatch_queue; return its id."""
+    cur = conn.execute(
+        "INSERT INTO bridge_dispatch_queue "
+        "(flow_key, from_role, to_role, handoff_id, action, status) "
+        "VALUES (?, ?, ?, ?, ?, 'pending')",
+        (flow_key, "imple-codex-minimaxM3",
+         "review-claude-sonnet5", handoff_id, action),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def _complete_row(conn: sqlite3.Connection, row_id: int) -> None:
+    """Move a 'processing' row to 'completed' (simulates _process_one
+    success path)."""
+    conn.execute(
+        "UPDATE bridge_dispatch_queue "
+        "SET status = 'completed', processed_at = datetime('now'), "
+        "    error_msg = NULL "
+        "WHERE id = ?",
+        (row_id,),
+    )
+    conn.commit()
+
+
+def _row_status(conn: sqlite3.Connection, row_id: int) -> str:
+    """Read the status of a row by id."""
+    cur = conn.execute(
+        "SELECT status FROM bridge_dispatch_queue WHERE id = ?",
+        (row_id,),
+    )
+    return cur.fetchone()[0]
+
+
+def test_sequential_same_flow_blocks_second_claim(
+    tmp_db: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two pending rows for the SAME flow: the first is held in
+    'processing' (simulating an in-flight delivery); the second stays
+    'pending' because the per-flow claim guard forbids claiming a
+    second row while another row for the same flow is in flight.
+    This is Run 006 D6(a) — measured live 2026-08-21 as two queued
+    '/clear' commands piling up in a busy reviewer pane."""
+    conn = sqlite3.connect(tmp_db)
+    id_first = _seed_pending(conn, "preferred_cloud_harness", "100")
+    id_second = _seed_pending(conn, "preferred_cloud_harness", "101")
+    # Simulate id_first having been claimed by another broker — the
+    # claim guard MUST observe this and refuse to claim id_second.
+    conn.execute(
+        "UPDATE bridge_dispatch_queue SET status = 'processing', "
+        "    claimed_at = datetime('now'), broker_pid = 999999 "
+        "WHERE id = ?",
+        (id_first,),
+    )
+    conn.commit()
+    conn.close()
+
+    # Mock dispatch so the SECOND attempt cannot claim anything — we
+    # only need to verify id_second stays 'pending'.
+    monkeypatch.setattr(bridge_broker, "_run_dispatch",
+                        lambda _r: (0, ""))
+    rc = bridge_broker.main(["process-once"])
+    # process-once returns 0 whether or not a row was claimable.
+    assert rc == 0
+
+    conn = sqlite3.connect(tmp_db)
+    # id_first is still 'processing' (untouched).
+    assert _row_status(conn, id_first) == "processing"
+    # id_second stayed 'pending' — the per-flow guard held.
+    assert _row_status(conn, id_second) == "pending"
+    conn.close()
+
+
+def test_sequential_different_flows_both_claimable(
+    tmp_db: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two pending rows for DIFFERENT flows: both are claimable
+    (no cross-flow blocking). The guard is per-flow, not global."""
+    conn = sqlite3.connect(tmp_db)
+    id_a = _seed_pending(conn, "preferred_cloud_harness", "100")
+    id_b = _seed_pending(conn, "preferred_cloud", "101")
+    conn.close()
+
+    def _fake_dispatch(_row):
+        return (0, "")
+
+    monkeypatch.setattr(bridge_broker, "_run_dispatch", _fake_dispatch)
+    # Two process-once calls — one per flow. Both rows complete.
+    bridge_broker.main(["process-once"])
+    bridge_broker.main(["process-once"])
+
+    conn = sqlite3.connect(tmp_db)
+    statuses = {r[0]: r[1] for r in conn.execute(
+        "SELECT id, status FROM bridge_dispatch_queue ORDER BY id"
+    ).fetchall()}
+    conn.close()
+    assert statuses[id_a] == "completed"
+    assert statuses[id_b] == "completed"
+
+
+def test_sequential_after_completion_second_becomes_claimable(
+    tmp_db: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once the first row completes (status 'completed'), the second
+    pending row for the same flow becomes claimable again."""
+    conn = sqlite3.connect(tmp_db)
+    id_first = _seed_pending(conn, "preferred_cloud_harness", "100")
+    id_second = _seed_pending(conn, "preferred_cloud_harness", "101")
+    conn.close()
+
+    def _fake_dispatch(_row):
+        return (0, "")
+
+    monkeypatch.setattr(bridge_broker, "_run_dispatch", _fake_dispatch)
+    # First claim + complete.
+    bridge_broker.main(["process-once"])
+    # id_second is still pending; now id_first is completed so the
+    # per-flow guard releases id_second.
+    bridge_broker.main(["process-once"])
+
+    conn = sqlite3.connect(tmp_db)
+    assert _row_status(conn, id_first) == "completed"
+    assert _row_status(conn, id_second) == "completed"
+    conn.close()
+
+
+def test_sequential_backoff_skips_recently_refused_row(
+    tmp_db: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row requeued with backoff (claimed_at in the future) is skipped
+    by the next claim — the refusal-backoff from D6(b). The mocked
+    dispatch refuses; the broker requeues with claimed_at = now + N
+    seconds; the next claim observes claimed_at in the future and
+    moves on to the next pending row."""
+    conn = sqlite3.connect(tmp_db)
+    _seed_pending(conn, "preferred_cloud_harness", "100")
+    _seed_pending(conn, "preferred_cloud", "101")
+    conn.close()
+
+    def _fake_refuse(_row):
+        # Return rc=2: the broker's "REFUSED_INJECTION" path.
+        return (2, "REFUSED_INJECTION: pane busy")
+
+    monkeypatch.setattr(bridge_broker, "_run_dispatch", _fake_refuse)
+    # First claim picks row 100, refuses, requeues with backoff.
+    rc = bridge_broker.main(["process-once"])
+    assert rc == 0
+    # Second claim should pick row 101 (different flow) and refuse it too.
+    bridge_broker.main(["process-once"])
+
+    conn = sqlite3.connect(tmp_db)
+    rows = conn.execute(
+        "SELECT handoff_id, status, claimed_at FROM "
+        "bridge_dispatch_queue ORDER BY id"
+    ).fetchall()
+    conn.close()
+    # Both rows are 'pending' again with a future claimed_at.
+    assert [(r[0], r[1]) for r in rows] == [("100", "pending"), ("101", "pending")]
+    # claimed_at was set to a future time by the broker's refusal
+    # requeue. Check via SQLite (single source of truth): every row's
+    # claimed_at is >= datetime('now'). This avoids cross-process
+    # clock-skew issues between Python's datetime and SQLite's.
+    conn = sqlite3.connect(tmp_db)
+    forward_dated = conn.execute(
+        "SELECT COUNT(*) FROM bridge_dispatch_queue "
+        "WHERE claimed_at >= datetime('now')"
+    ).fetchone()[0]
+    conn.close()
+    assert forward_dated == 2  # both refused rows are in the future
+
+
+def test_sequential_after_backoff_expires_claimable_again(
+    tmp_db: str, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once the refusal backoff has expired (claimed_at < now), the row
+    becomes claimable again. Simulates the passage of backoff by
+    directly rewriting claimed_at to the past."""
+    conn = sqlite3.connect(tmp_db)
+    id_only = _seed_pending(conn, "preferred_cloud_harness", "100")
+    conn.close()
+
+    refused_count = {"n": 0}
+
+    def _fake_refuse_then_succeed(_row):
+        refused_count["n"] += 1
+        if refused_count["n"] == 1:
+            return (2, "REFUSED_INJECTION: pane busy")
+        return (0, "")
+
+    monkeypatch.setattr(bridge_broker, "_run_dispatch", _fake_refuse_then_succeed)
+    # First call: refuses, row requeued with future claimed_at.
+    bridge_broker.main(["process-once"])
+    # Force the backoff to "have expired" by setting claimed_at to the
+    # distant past — simulates the daemon waiting _REFUSAL_BACKOFF_SECONDS.
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "UPDATE bridge_dispatch_queue SET claimed_at = "
+        "datetime('now', '-1 hour') WHERE id = ?",
+        (id_only,),
+    )
+    conn.commit()
+    conn.close()
+    # Second call: row is now claimable; the dispatch succeeds.
+    bridge_broker.main(["process-once"])
+
+    conn = sqlite3.connect(tmp_db)
+    assert _row_status(conn, id_only) == "completed"
+    conn.close()
+
+
+# ── 2b. orphan recovery (Run 006 D4) ──────────────────
+
+
+def _seed_processing_row(
+    conn: sqlite3.Connection, handoff_id: str,
+    broker_pid: int | None,
+) -> None:
+    """Insert a 'processing' row in bridge_dispatch_queue."""
+    conn.execute(
+        "INSERT INTO bridge_dispatch_queue "
+        "(flow_key, from_role, to_role, handoff_id, action, status, "
+        " claimed_at, broker_pid) "
+        "VALUES (?, ?, ?, ?, ?, 'processing', "
+        " datetime('now'), ?)",
+        ("preferred_cloud_harness", "imple-codex-minimaxM3",
+         "review-claude-sonnet5", handoff_id, "signal-complete",
+         broker_pid),
+    )
+    conn.commit()
+
+
+def test_orphan_no_trace_requeues_dead_processing_row(
+    tmp_db: str, tmp_path: Path,
+) -> None:
+    """A 'processing' row whose broker_pid is dead (and whose trace has
+    NO delivery for this transition) is REQUEUED by recover_orphaned_rows.
+
+    This is the canonical orphan case observed live 2026-08-21 (dispatch
+    row 36, handoff 018): the broker was killed before dispatch.py
+    completed; the trace never recorded a delivery, so the row must
+    re-enter 'pending' so the next daemon picks it up.
+    """
+    trace_path = tmp_path / "trace.log"
+    # An empty trace (no delivery recorded).
+    conn = sqlite3.connect(tmp_db)
+    # Use a pid that is guaranteed not to exist (2^31 is far above any
+    # running pid on a Linux box).
+    _seed_processing_row(conn, "018", 2_147_483_647)
+    conn.close()
+
+    rc = bridge_broker.recover_orphaned_rows(
+        bridge_broker._open_db(tmp_db), trace_path=str(trace_path),
+    )
+    assert rc == 1
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute(
+        "SELECT status, claimed_at, broker_pid, error_msg, processed_at "
+        "FROM bridge_dispatch_queue WHERE handoff_id='018'"
+    ).fetchone()
+    conn.close()
+    # Row is requeued: pending, claim fields cleared.
+    assert row[0] == "pending"
+    assert row[1] is None
+    assert row[2] is None
+    assert row[3] is None
+    # processed_at stays NULL for a requeue (it would be set on a
+    # mark-completed branch).
+    assert row[4] is None
+
+
+def test_orphan_with_trace_delivery_marks_completed(
+    tmp_db: str, tmp_path: Path,
+) -> None:
+    """A 'processing' row whose broker_pid is dead BUT whose trace has
+    a 'signal_complete' delivery for that exact transition is marked
+    COMPLETED (not requeued).
+
+    This is the m2 mutation guard from GOAL.md section 5: a broker that
+    requeues despite a trace-recorded delivery must go red. It is also
+    the live failure mode that recover_orphaned_rows is designed to
+    repair — the daemon died AFTER dispatch.py recorded delivery.
+    """
+    trace_path = tmp_path / "trace.log"
+    trace_path.write_text(
+        "2026-08-21T10:00:00Z | imple-codex-minimaxM3->review-claude-sonnet5"
+        " | 019 | signal_complete | dispatch | delivered\n",
+        encoding="utf-8",
+    )
+    conn = sqlite3.connect(tmp_db)
+    _seed_processing_row(conn, "019", 2_147_483_647)
+    conn.close()
+
+    rc = bridge_broker.recover_orphaned_rows(
+        bridge_broker._open_db(tmp_db), trace_path=str(trace_path),
+    )
+    assert rc == 1
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute(
+        "SELECT status, claimed_at, broker_pid, error_msg, processed_at "
+        "FROM bridge_dispatch_queue WHERE handoff_id='019'"
+    ).fetchone()
+    conn.close()
+    # Mark completed (NOT requeued).
+    assert row[0] == "completed"
+    assert row[1] is None
+    assert row[2] is None
+    assert row[3] is None
+    assert row[4] is not None  # processed_at set
+
+
+def test_orphan_with_null_broker_pid_requeues_when_no_trace(
+    tmp_db: str, tmp_path: Path,
+) -> None:
+    """A 'processing' row whose broker_pid is NULL is treated as orphan
+    regardless of trace content (NULL pid has no live owner). With no
+    trace delivery, the row is requeued."""
+    trace_path = tmp_path / "trace.log"
+    conn = sqlite3.connect(tmp_db)
+    _seed_processing_row(conn, "020", None)
+    conn.close()
+
+    rc = bridge_broker.recover_orphaned_rows(
+        bridge_broker._open_db(tmp_db), trace_path=str(trace_path),
+    )
+    assert rc == 1
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute(
+        "SELECT status FROM bridge_dispatch_queue WHERE handoff_id='020'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "pending"
+
+
+def test_orphan_skips_live_processing_row(
+    tmp_db: str, tmp_path: Path,
+) -> None:
+    """A 'processing' row whose broker_pid IS alive is left alone by
+    recover_orphaned_rows (it is not an orphan)."""
+    trace_path = tmp_path / "trace.log"
+    conn = sqlite3.connect(tmp_db)
+    # os.getpid() is always a live process — this row is NOT an orphan.
+    _seed_processing_row(conn, "021", os.getpid())
+    conn.close()
+
+    rc = bridge_broker.recover_orphaned_rows(
+        bridge_broker._open_db(tmp_db), trace_path=str(trace_path),
+    )
+    assert rc == 0
+    conn = sqlite3.connect(tmp_db)
+    row = conn.execute(
+        "SELECT status, broker_pid FROM bridge_dispatch_queue "
+        "WHERE handoff_id='021'"
+    ).fetchone()
+    conn.close()
+    # Status and broker_pid untouched.
+    assert row[0] == "processing"
+    assert row[1] == os.getpid()
+
+
+def test_orphan_skips_non_processing_rows(
+    tmp_db: str, tmp_path: Path,
+) -> None:
+    """recover_orphaned_rows only inspects status='processing'; pending,
+    completed, and failed rows are not its concern."""
+    trace_path = tmp_path / "trace.log"
+    conn = sqlite3.connect(tmp_db)
+    # Pending with a dead pid — must NOT be touched.
+    conn.execute(
+        "INSERT INTO bridge_dispatch_queue "
+        "(flow_key, from_role, to_role, handoff_id, action, status, "
+        " broker_pid) "
+        "VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+        ("preferred_cloud_harness", "imple-codex-minimaxM3",
+         "review-claude-sonnet5", "022", "signal-complete",
+         2_147_483_647),
+    )
+    # Completed with a dead pid — must NOT be touched (already done).
+    conn.execute(
+        "INSERT INTO bridge_dispatch_queue "
+        "(flow_key, from_role, to_role, handoff_id, action, status, "
+        " broker_pid, processed_at) "
+        "VALUES (?, ?, ?, ?, ?, 'completed', ?, datetime('now'))",
+        ("preferred_cloud_harness", "imple-codex-minimaxM3",
+         "review-claude-sonnet5", "023", "signal-complete",
+         2_147_483_647),
+    )
+    conn.commit()
+    conn.close()
+
+    rc = bridge_broker.recover_orphaned_rows(
+        bridge_broker._open_db(tmp_db), trace_path=str(trace_path),
+    )
+    assert rc == 0
+    conn = sqlite3.connect(tmp_db)
+    rows = conn.execute(
+        "SELECT handoff_id, status FROM bridge_dispatch_queue "
+        "ORDER BY id"
+    ).fetchall()
+    conn.close()
+    assert rows == [("022", "pending"), ("023", "completed")]
 
 
 # ── 3. governance preservation (TG11) ─────────────────────

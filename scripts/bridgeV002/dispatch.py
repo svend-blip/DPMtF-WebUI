@@ -947,6 +947,84 @@ def _wrap_prompt_for_harness(to_role, text):
     return text
 
 
+class PaneBusyRefused(Exception):
+    """Raised by inject_prompt when the target pane refuses to accept a paste.
+
+    Bound by preferred_cloud_harness Run 006 GOAL.md §1 D6(b): a busy pane
+    (mid-turn activity markers) or an interactive menu/selector must not
+    be pasted into, and the delivery must be REQUEUED with backoff —
+    never silently dropped, never marked completed, never double-injected.
+
+    The signal_*() call sites catch this and:
+      1. print a "REFUSED_INJECTION: <reason>" marker to stdout/stderr so
+         the broker can detect the refusal and requeue the row (the broker
+         inspects stdout for the REFUSED_INJECTION prefix);
+      2. return False so dispatch.py main() exits 0 without logging a
+         trace.log delivery entry — recover_orphaned_rows and
+         dispatch.py:transition_recently_delivered will both see the
+         transition as NOT delivered, and the next claim retries.
+    """
+
+
+# Menu / selector patterns. Deliberately narrow and conservative — these
+# match genuine interactive menus, NOT the ordinary idle footer (which
+# carries generic glyphs and token totals — see the _ACTIVITY_MARKERS
+# comment). The m3 mutation guard (GOAL.md §5) binds here: removing the
+# menu-refusal condition must make the new dispatch_injection tests go RED.
+_MENU_PATTERNS = (
+    # Numbered option list ("1. yes", "1) yes", " 1. yes - description")
+    r"\n\s*\d+[\.\)]\s+\S",
+    # Select/choose prompts (case-insensitive)
+    r"\bselect\s+(an?\s+)?option\b",
+    r"\bchoose\s+(an?\s+)?option\b",
+    r"\bplease\s+(select|choose|pick)\b",
+    # Plan-approval modal
+    r"\(y/n\)",
+    r"\[y/n\]",
+    r"\bapprove\s+(this\s+)?plan\b",
+    r"\bdo you want to proceed\b",
+)
+
+
+def _pane_has_menu_or_selector(tail: str) -> bool:
+    """True iff the pane tail shows an interactive menu/selector.
+
+    Used by both inject_prompt (refuse to paste) and
+    verify_injection_submitted (refuse to press Enter) — the menu check
+    is shared so a pane that looked like a menu at injection time and
+    a pane that looks like a menu at verify time get the same refusal.
+    """
+    if not tail:
+        return False
+    for pat in _MENU_PATTERNS:
+        if re.search(pat, tail, re.IGNORECASE):
+            return True
+    return False
+
+
+def _check_pane_safe_to_inject(session_name: str) -> None:
+    """Read the pane tail and raise PaneBusyRefused if it shows
+    activity markers (mid-turn) or an interactive menu/selector.
+
+    Callers (signal_send / signal_complete / signal_escalation /
+    signal_answer) catch the exception and emit REFUSED_INJECTION so
+    the broker requeues with backoff (Run 006 D6(b)).
+    """
+    tail = _pane_tail(session_name)
+    markers = activity_markers(session_name)
+    for marker in markers:
+        if marker in tail:
+            raise PaneBusyRefused(
+                f"pane '{session_name}' is busy (activity marker "
+                f"{marker!r} present in tail)"
+            )
+    if _pane_has_menu_or_selector(tail):
+        raise PaneBusyRefused(
+            f"pane '{session_name}' shows interactive menu/selector "
+            f"(would select an arbitrary option on submit)"
+        )
+
+
 def inject_prompt(session_name, text, enter_command="default",
                   fresh_session_command=None):
     """Detect tool type and route to correct injection method.
@@ -970,6 +1048,14 @@ def inject_prompt(session_name, text, enter_command="default",
       - 'c-j': Two-step C-j
       - 'c-d': Two-step C-d
     """
+    # Run 006 D6(b): refuse to paste into a busy pane (mid-turn activity
+    # markers) or an interactive menu/selector. The refusal is requeued
+    # with backoff by the broker — never silently dropped, never marked
+    # completed, never double-injected. This check runs BEFORE the
+    # fresh_session_command path AND before any actual paste, because
+    # send-keys into a menu pane would select an arbitrary option.
+    _check_pane_safe_to_inject(session_name)
+
     tool = get_pane_command(session_name)
     # Observability: prompt size per dispatch (context-tuning data point).
     print(f"  Injection: {len(text)} chars (~{len(text) // 4} est. tokens) "
@@ -1160,6 +1246,12 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
     markers (spinner/token counter) in the pane. A stuck paste shows the
     paste-expand hint or no activity. Remedy: resend Enter, recheck.
     Never raises; prints the outcome for the dispatch log.
+
+    Run 006 D6(c): when the pane tail shows an interactive menu/selector,
+    this function NEVER presses Enter (an Enter would select an arbitrary
+    menu option). It reports the injection as UNCONFIRMED and leaves the
+    pane alone. The stuck-paste remedy (resending Enter on the
+    'paste again to expand' hint) still works — that hint is not a menu.
     """
     markers = activity_markers(session_name)
     for attempt in range(1, attempts + 1):
@@ -1172,12 +1264,20 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
                             _pane_target(session_name),
                             "Enter"], capture_output=True)
             continue
+        if _pane_has_menu_or_selector(tail):
+            # Run 006 D6(c): never press Enter into a menu pane. An
+            # Enter would select an arbitrary option. Report
+            # UNCONFIRMED and leave the pane alone.
+            print(f"  Injection verify: '{session_name}' shows interactive "
+                  f"menu/selector — leaving pane alone, UNCONFIRMED")
+            return False
         if any(marker in tail for marker in markers):
             print(f"  Injection verify: '{session_name}' active "
                   f"(attempt {attempt})")
             return True
-        # No activity and no stuck-paste hint: the prompt may be sitting
-        # unsubmitted without the hint (observed flow 064 portfolio01).
+        # No activity and no stuck-paste hint and no menu: the prompt
+        # may be sitting unsubmitted without the hint (observed flow
+        # 064 portfolio01).
         print(f"  Injection verify: no activity in '{session_name}' "
               f"(attempt {attempt}) — sending Enter")
         subprocess.run(["tmux", "send-keys", "-t",
@@ -1376,9 +1476,15 @@ def _handle_gate_rejection(payload, handoff_id, bridge_dir):
         f"> /tmp/bridge-enqueue-{flow_key}-{handoff_id}.log 2>&1 &\n"
     )
 
-    inject_prompt(session, prompt,
-                  enter_command=role_data.get("enter_command", "default"),
-                  fresh_session_command=None)
+    # Run 006 D6(b): busy/menu pane → refuse + requeue (broker seam).
+    try:
+        inject_prompt(session, prompt,
+                      enter_command=role_data.get("enter_command", "default"),
+                      fresh_session_command=None)
+    except PaneBusyRefused as _exc:
+        print(f"REFUSED_INJECTION: {_exc}", flush=True)
+        print(f"REFUSED_INJECTION: {_exc}", file=sys.stderr)
+        return False
     log(direction, handoff_id, "gate_rejected",
         f"Evidence gate blocked the deliverable; returned to {from_role} "
         f"(attempt {attempts}/{_GATE_MAX_REJECTIONS})")
@@ -1853,9 +1959,15 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     prompt_text = apply_mode_block(prompt_text, _db_path(), flow_key, payload["step_key"], payload["to_role"])
 
-    inject_prompt(tmux_session, prompt_text,
-                  enter_command=to_role.get("enter_command", "default"),
-                  fresh_session_command=to_role.get("fresh_session_command"))
+    # Run 006 D6(b): busy/menu pane → refuse + requeue (broker seam).
+    try:
+        inject_prompt(tmux_session, prompt_text,
+                      enter_command=to_role.get("enter_command", "default"),
+                      fresh_session_command=to_role.get("fresh_session_command"))
+    except PaneBusyRefused as _exc:
+        print(f"REFUSED_INJECTION: {_exc}", flush=True)
+        print(f"REFUSED_INJECTION: {_exc}", file=sys.stderr)
+        return False
     time.sleep(0.5)
 
     # Post-dispatch: run post-script (cleanup/verification).
@@ -2522,9 +2634,15 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # configured context-reset command first (tool-independent).
     prompt_text = apply_mode_block(prompt_text, _db_path(), flow_key, payload["step_key"], payload["to_role"])
 
-    inject_prompt(tmux_session, _wrap_prompt_for_harness(to_role, prompt_text),
-                  enter_command=to_role.get("enter_command", "default"),
-                  fresh_session_command=to_role.get("fresh_session_command"))
+    # Run 006 D6(b): busy/menu pane → refuse + requeue (broker seam).
+    try:
+        inject_prompt(tmux_session, _wrap_prompt_for_harness(to_role, prompt_text),
+                      enter_command=to_role.get("enter_command", "default"),
+                      fresh_session_command=to_role.get("fresh_session_command"))
+    except PaneBusyRefused as _exc:
+        print(f"REFUSED_INJECTION: {_exc}", flush=True)
+        print(f"REFUSED_INJECTION: {_exc}", file=sys.stderr)
+        return False
     time.sleep(0.5)
 
     # Step 8a: Log the completion event IMMEDIATELY after injection.
@@ -2795,8 +2913,14 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         )
 
     # Step 6: Inject prompt into architect's tmux session
-    inject_prompt(tmux_session, _wrap_prompt_for_harness(to_role_data, prompt_text),
-                  enter_command=to_role_data.get("enter_command", "default"))
+    # Run 006 D6(b): busy/menu pane → refuse + requeue (broker seam).
+    try:
+        inject_prompt(tmux_session, _wrap_prompt_for_harness(to_role_data, prompt_text),
+                      enter_command=to_role_data.get("enter_command", "default"))
+    except PaneBusyRefused as _exc:
+        print(f"REFUSED_INJECTION: {_exc}", flush=True)
+        print(f"REFUSED_INJECTION: {_exc}", file=sys.stderr)
+        return False
     time.sleep(0.5)
 
     # Step 7: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)
@@ -2939,8 +3063,14 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         prompt_text += f"\n\n## Note\nNo separate response file found. The architect may have provided inline guidance."
 
     # Step 4: Inject prompt into review's tmux session
-    inject_prompt(tmux_session, prompt_text,
-                  enter_command=to_role_data.get("enter_command", "default"))
+    # Run 006 D6(b): busy/menu pane → refuse + requeue (broker seam).
+    try:
+        inject_prompt(tmux_session, prompt_text,
+                      enter_command=to_role_data.get("enter_command", "default"))
+    except PaneBusyRefused as _exc:
+        print(f"REFUSED_INJECTION: {_exc}", flush=True)
+        print(f"REFUSED_INJECTION: {_exc}", file=sys.stderr)
+        return False
     time.sleep(0.5)
 
     # Step 5: Post-dispatch — stop from_role's Ollama model (VRAM cleanup)

@@ -1,0 +1,51 @@
+# bridge-broker — host-side seam for sandboxed role transitions.
+#
+# The broker exists so a sandboxed role (super-deep-deep4 in the DeepSeek
+# Harness sandbox; imple-codex-minimaxM3 in the Codex workspace-write sandbox)
+# can request a role-to-role transition without gaining unrestricted host
+# filesystem or host tmux access. The role's only host-visible side-effect
+# is writing a row to bridge_dispatch_queue; the daemon polls that table
+# and runs dispatch.py on each row, dispatch.py being the one process
+# allowed to write to /home/svend/flows and to inject into tmux panes.
+#
+# Before this unit existed, the daemon was hand-started via
+# `nohup … bridge_broker.py daemon …` on a pty. When that shell died —
+# logout, SSH drop, terminal close — the daemon died with it and nobody
+# restarted it: queued rows piled up while the chain silently stalled.
+# preferred_cloud run 004 paid for it once (2026-07-21, dispatch row 19
+# stuck 'pending' for 41 minutes before a Human noticed).
+#
+# This unit removes "nobody restarted it" as a failure mode. Restart=always
+# + RestartSec=15 means a crashed daemon comes back in ≤15 s with no Human
+# in the loop, and is_active=true is what TG12 measures.
+#
+# Installation (idempotent):
+#   install -m 0644 scripts/bridgeV002/bridge-broker.service \
+#     ~/.config/systemd/user/bridge-broker.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now bridge-broker.service
+#
+# Recovery (manual only — DO NOT use as a normal restart path):
+#   nohup python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/bridge_broker.py \
+#     daemon > /tmp/bridge-broker.log 2>&1 &
+# The systemd path is the only operator-facing start path; the manual
+# nohup is documented here so a future operator who cannot reach systemd
+# (e.g. a remote session that cannot talk to the user busd) still has a
+# recovery. It is NOT a substitute for installing the unit — a manual
+# restart dies with the parent shell exactly the way the original failure
+# did.
+
+[Unit]
+Description=bridge-broker — host-side queue poller for BridgeV002 role transitions
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/svend/DPMtF-WebUI
+ExecStart=/usr/bin/python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/bridge_broker.py daemon
+Restart=always
+RestartSec=15
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

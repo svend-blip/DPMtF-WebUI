@@ -498,9 +498,20 @@ def _run_dispatch(row: sqlite3.Row) -> tuple[int, str]:
     if completed.returncode != 0:
         return (completed.returncode, out[:2000])
 
-    # Look for ERROR: in the dispatch.py output. Use a strict prefix
-    # match so we do not catch the literals inside the dispatch.py
-    # help text or the broker's own stderr.
+    # Look for REFUSED_INJECTION: / ERROR: in the dispatch.py output.
+    # Use a strict prefix match so we do not catch the literals inside
+    # the dispatch.py help text or the broker's own stderr.
+    has_refusal = any(
+        line.lstrip().startswith("REFUSED_INJECTION")
+        for line in out.splitlines()
+    )
+    if has_refusal:
+        # Distinct return code (2) so _process_one can map this to a
+        # requeue-with-backoff outcome (Run 006 D6(b)). The dispatch
+        # deliberately logged nothing to trace.log, so the refused
+        # delivery is invisible to recover_orphaned_rows — exactly the
+        # "refuse, never drop" outcome GOAL.md §1 D6 binds.
+        return (2, out[:2000])
     has_error = any(
         line.lstrip().startswith("ERROR")
         for line in out.splitlines()
@@ -739,10 +750,24 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
     without writing a duplicate. This matches dispatch.py's
     transition_recently_delivered guard (semantically: a delivered
     dispatch stays delivered).
+
+    Handoff-id normalization (Run 006 D5): `args.handoff_id` is run
+    through `normalize_handoff_id` BEFORE the idempotency check AND
+    before the INSERT, so the stored `bridge_dispatch_queue.handoff_id`
+    is always zero-padded (e.g. '21' -> '021'). That makes dispatch.py's
+    `--id 042` resolve the canonical `042-handoff.md` correctly (the
+    live orphan is dispatch row 47, handoff_id stored unpadded '21').
     """
     db_path = args.db_path or _get_db_path()
     conn = _open_db(db_path)
     _ensure_schema(conn)
+
+    # Normalize handoff_id to its canonical zero-padded form. Must
+    # run BEFORE the idempotency check AND the INSERT so both see the
+    # same value (otherwise a '21' enqueue and a '021' enqueue for the
+    # same transition would each be treated as a fresh row, double-
+    # dispatching; --observed live 2026-08-21 as dispatch row 47).
+    args.handoff_id = normalize_handoff_id(args.handoff_id)
 
     # Validate handoff_path exists if provided — this is the broker's
     # narrow scope-fence check (a missing handoff file would fail
@@ -816,6 +841,22 @@ def cmd_materialize(args: argparse.Namespace) -> int:
     _ensure_schema(conn)
 
     role_key = getattr(args, "role_key", None)
+
+    # Normalize handoff_id for consistency with cmd_enqueue (Run 006 D5).
+    # The materialize queue column is INTEGER, so we re-cast back to int
+    # for storage; the canonical destination in `_canonical_destination`
+    # uses `handoff_id:03d`, which works correctly for either an int or
+    # a zero-padded numeric string — keeping the same 011-handoff.md /
+    # 042-handoff.md shape the enqueue side already produced.
+    if args.handoff_id is not None:
+        normalized = normalize_handoff_id(args.handoff_id)
+        try:
+            args.handoff_id = int(normalized)
+        except (TypeError, ValueError):
+            # Defensive: a non-numeric normalized form is rejected by
+            # the integer validation that runs next. Leave the original
+            # value so the error message names it.
+            pass
 
     # Read content (inline or from stdin).
     if args.content_stdin:
@@ -941,12 +982,32 @@ def cmd_materialize(args: argparse.Namespace) -> int:
 
 # ── the original signal-transition process ──────────────
 
+# Backoff applied when inject_prompt refuses to paste into a busy
+# or menu pane (Run 006 D6(b)). The refused row is requeued with
+# `claimed_at` set to a future time, so the next claim skips it until
+# the backoff elapses — a persistently-busy pane does not produce a
+# tight re-claim loop.
+_REFUSAL_BACKOFF_SECONDS = 10
+
+
 def _process_one(conn: sqlite3.Connection) -> bool:
     """Claim one pending signal row, dispatch it, update status.
 
     Returns True if a row was processed, False if the queue is empty.
+
+    Claim guard (Run 006 D6(a)): at most ONE 'processing' dispatch
+    row per flow_key at any moment. A pending row for a flow that
+    already has an in-flight row stays 'pending' until the in-flight
+    row completes or fails. A row for a DIFFERENT flow is never
+    blocked. The materialize queue is unaffected (the guard only
+    inspects bridge_dispatch_queue).
+
+    Backoff (Run 006 D6(b)): pending rows whose `claimed_at` is in
+    the future are skipped (they are waiting out a refusal requeue).
     """
-    # Atomic claim: only one broker processes any given row.
+    # Atomic claim: only one broker processes any given row, and only
+    # one row per flow at a time. The `claimed_at < now()` filter
+    # honors the refusal-backoff (requeued rows wait out the window).
     cur = conn.execute(
         """
         UPDATE bridge_dispatch_queue
@@ -956,6 +1017,11 @@ def _process_one(conn: sqlite3.Connection) -> bool:
         WHERE id = (
             SELECT id FROM bridge_dispatch_queue
             WHERE status = 'pending'
+              AND (claimed_at IS NULL OR claimed_at < datetime('now'))
+              AND flow_key NOT IN (
+                  SELECT DISTINCT flow_key FROM bridge_dispatch_queue
+                  WHERE status = 'processing'
+              )
             ORDER BY id ASC
             LIMIT 1
         )
@@ -989,6 +1055,26 @@ def _process_one(conn: sqlite3.Connection) -> bool:
             WHERE id = ?
             """,
             (row["id"],),
+        )
+    elif rc == 2:
+        # Inject_prompt refused to paste (busy pane or interactive
+        # menu/selector). Requeue with backoff so a persistently-busy
+        # pane does not cause a tight re-claim loop. The row is NOT
+        # marked completed (nothing was delivered) and NOT marked
+        # failed (it deserves a retry), so the next claim picks it up
+        # after the backoff window — bound by Run 006 GOAL.md §1 D6
+        # "refuse, never drop".
+        conn.execute(
+            """
+            UPDATE bridge_dispatch_queue
+            SET status = 'pending',
+                claimed_at = datetime('now', ?),
+                broker_pid = NULL,
+                error_msg = NULL,
+                processed_at = NULL
+            WHERE id = ?
+            """,
+            (f"+{_REFUSAL_BACKOFF_SECONDS} seconds", row["id"]),
         )
     else:
         conn.execute(
@@ -1026,17 +1112,211 @@ def cmd_process_once(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── public helpers (Run 006 D4 / D5) ────────────────────────
+
+
+def normalize_handoff_id(value) -> str:
+    """Zero-pad a numeric handoff_id to three digits.
+
+    Accepts an int or a str. Numeric values are zero-padded to three
+    digits so the stored id and dispatch.py's `--id` flag always match
+    the canonical `<id>-handoff.md` filename:
+
+        '21'  -> '021'    (str, unpadded)
+        '7'   -> '007'    (str, unpadded)
+        21    -> '021'    (int)
+        '021' -> '021'    (str, already padded, idempotent)
+        '100' -> '100'    (str, three digits already, idempotent)
+
+    A value that is not a plain non-negative integer is returned
+    unchanged (defensive pass-through) — this flow only ever uses
+    numeric handoff ids, but a non-numeric caller must not crash the
+    helper. (bool is treated as the int it is a subclass of; it is not
+    a valid handoff id and will fail downstream validation.)
+
+    Names and semantics are bound by preferred_cloud_harness Run 006
+    GOAL.md section 2 (D5); reviewers and criteria import this name.
+    """
+    # bool is a subclass of int — handle explicitly so True/False do
+    # not silently get padded into '001'/'000'.
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return f"{value:03d}"
+    if isinstance(value, str):
+        s = value.strip()
+        if s.isdigit():
+            return f"{int(s):03d}"
+        return value
+    return str(value)
+
+
+def _trace_records_delivery(
+    trace_lines: list[str], from_role: str, to_role: str,
+    handoff_id: object,
+) -> bool:
+    """True iff any trace line records a delivery of this transition.
+
+    Mirrors dispatch.py:transition_recently_delivered's delivery
+    semantics exactly (so recover_orphaned_rows and dispatch.py agree
+    on what "already delivered" means): split the line on " | ", and
+    accept it when
+
+        parts[1] == f"{from_role}->{to_role}"
+        parts[2] == str(handoff_id)
+        parts[3] in ('dispatched', 'signal_complete',
+                     'signal_complete_to_human')
+
+    'dispatched' is signal-send (handoff dispatched to the next role);
+    'signal_complete' is the callback injection; 'signal_complete_to_human'
+    is the Human-targeted variant. Failed attempts (gate_rejected,
+    signal_complete_failed, gate_rejection_undelivered) do NOT count
+    — that matches dispatch.py.
+    """
+    direction = f"{from_role}->{to_role}"
+    handoff_str = str(handoff_id)
+    for line in trace_lines:
+        parts = line.split(" | ")
+        if len(parts) < 4:
+            continue
+        if parts[1] != direction or parts[2] != handoff_str:
+            continue
+        if parts[3] in (
+            "dispatched", "signal_complete", "signal_complete_to_human",
+        ):
+            return True
+    return False
+
+
+def recover_orphaned_rows(
+    conn: sqlite3.Connection, trace_path: str | None = None,
+) -> int:
+    """Requeue or complete orphaned 'processing' rows.
+
+    A row in `bridge_dispatch_queue` with status='processing' is
+    ORPHANED when its broker_pid is NULL or no live process owns that
+    pid (os.kill(pid, 0) raises ProcessLookupError). For each orphaned
+    row:
+
+      - if `trace_path` (default `os.path.join(_get_bridge_dir(),
+        'trace.log')`) already records a completed delivery of that
+        exact transition (see `_trace_records_delivery`), mark the row
+        status='completed' (set processed_at, clear claimed_at /
+        broker_pid / error_msg);
+      - otherwise REQUEUE it: status='pending', clear claimed_at /
+        broker_pid / error_msg so the daemon re-claims it.
+
+    Returns the count of rows recovered (requeued + completed) as an
+    int. A PermissionError from os.kill (PID exists but not ours) is
+    NOT an orphan — that row still has a live owner.
+
+    Names and signature are bound by preferred_cloud_harness Run 006
+    GOAL.md section 2 (D4); reviewers and criteria import this name.
+
+    Called once at daemon startup (cmd_daemon) with the daemon's own
+    DB connection.
+    """
+    if trace_path is None:
+        trace_path = os.path.join(_get_bridge_dir(), "trace.log")
+    try:
+        with open(trace_path, "r", encoding="utf-8") as f:
+            trace_lines = f.read().splitlines()
+    except OSError:
+        trace_lines = []
+
+    rows = conn.execute(
+        """
+        SELECT id, flow_key, from_role, to_role, handoff_id,
+               action, broker_pid
+        FROM bridge_dispatch_queue
+        WHERE status = 'processing'
+        ORDER BY id ASC
+        """,
+    ).fetchall()
+
+    recovered = 0
+    for row in rows:
+        pid = row["broker_pid"]
+        is_orphan = pid is None
+        if not is_orphan:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                is_orphan = True
+            except PermissionError:
+                # The PID exists; we just don't own it. Treat as live.
+                is_orphan = False
+            except OSError:
+                # Any other OS-level failure to query the PID (e.g. on
+                # exotic platforms) — treat defensively as an orphan
+                # so the row does not stay stuck forever.
+                is_orphan = True
+        if not is_orphan:
+            continue
+
+        delivered = _trace_records_delivery(
+            trace_lines, row["from_role"], row["to_role"],
+            row["handoff_id"],
+        )
+        if delivered:
+            conn.execute(
+                """
+                UPDATE bridge_dispatch_queue
+                SET status = 'completed',
+                    processed_at = datetime('now'),
+                    claimed_at = NULL,
+                    broker_pid = NULL,
+                    error_msg = NULL
+                WHERE id = ?
+                """,
+                (row["id"],),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE bridge_dispatch_queue
+                SET status = 'pending',
+                    claimed_at = NULL,
+                    broker_pid = NULL,
+                    error_msg = NULL
+                WHERE id = ?
+                """,
+                (row["id"],),
+            )
+        recovered += 1
+    if recovered:
+        conn.commit()
+    return recovered
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     """Process pending rows forever (host-side deployment step).
 
     Polls both queues in priority order: materialize first, then
     signal transitions. Sleeps `interval` seconds when both queues
     are empty.
+
+    Startup recovery (Run 006 D4): before the poll loop, run
+    `recover_orphaned_rows` once on the daemon's own DB connection.
+    Any `processing` row whose `broker_pid` is dead (or NULL) is
+    either requeued (status='pending') or marked completed if the
+    trace already records a delivery for that transition. Without
+    this, a pre-delivery kill of the broker leaves the row stuck
+    in 'processing' forever and silently loses the delivery (the
+    live orphan was dispatch row 36, handoff 018, observed
+    2026-08-21).
     """
     db_path = args.db_path or _get_db_path()
     conn = _open_db(db_path)
     _ensure_schema(conn)
     interval = max(0.5, float(args.interval))
+    recovered = recover_orphaned_rows(conn)
+    if recovered:
+        print(
+            f"bridge_broker: recovered {recovered} orphaned row(s) "
+            f"at startup",
+            file=sys.stderr,
+        )
     try:
         while True:
             if _process_one_materialize(conn):

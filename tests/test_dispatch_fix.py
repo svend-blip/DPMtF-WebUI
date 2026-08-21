@@ -163,7 +163,7 @@ def test_s2_mid_chain_callback_keeps_deliverable_and_signal(cyclic_env):
     prompt = cyclic_env.captured["prompt"]
     assert "Your Deliverable" in prompt
     assert "Signal Completion" in prompt
-    assert "--signal-complete" in prompt
+    assert "bridge_broker.py enqueue" in prompt
     assert "--from-role review01sup" in prompt
     assert f"--id {HID}" in prompt
     # review01's own deliverable (next step's file), not the original handoff:
