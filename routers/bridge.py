@@ -5,7 +5,7 @@ and response shape is identical to the previous inline definitions.
 Only the code location and the decorator prefix (`@app.X` →
 `@router.X`) changed.
 
-Endpoints (29 total):
+Endpoints (30 total):
   GET    /api/bridge-v2/status
   GET    /api/bridge-v2/roles
   GET    /api/bridge-v2/roles/{role_key}
@@ -24,6 +24,7 @@ Endpoints (29 total):
   POST   /api/bridge-v2/flows/{flow_key}/attach-tmux
   POST   /api/bridge-v2/flows/{flow_key}/dispatch
   GET    /api/bridge-v2/flows/{flow_key}/trace
+  GET    /api/bridge-v2/flows/{flow_key}/steps/{step_key}/execution-config
   GET    /api/bridge-v2/steps/{flow_key}
   POST   /api/bridge-v2/steps/{flow_key}
   PUT    /api/bridge-v2/steps/{flow_key}/{step_id}
@@ -179,6 +180,53 @@ async def bridge_v2_get_flow(flow_key: str):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load bridge flow: {e}")
+
+
+@router.get("/flows/{flow_key}/steps/{step_key}/execution-config")
+async def bridge_v2_get_step_execution_config(flow_key: str, step_key: str):
+    """Return the unified resolver's dict for (flow_key, step_key) verbatim.
+
+    Run 008 / handoff 033 (D4, spec section 18): the explainability
+    endpoint. The resolver computes every dimension (governance / model /
+    harness / implementation_mode) WITH its source_level (step / role
+    default / system); this endpoint exposes that dict over HTTP so the
+    operator never has to infer why a value was selected.
+
+    Contract (handoff 033, D4a):
+        * Resolves via execution_config.resolve_execution_config(flow_key,
+          step_key, db_path=get_db_path()) -- the SINGLE resolver. No
+          re-implementation of any precedence, no direct column reads.
+        * Returns the resolver dict EXACTLY -- all 13 keys (flow_key,
+          step_key, from_role, to_role, governance_file,
+          governance_source_level, model_source, model_alias,
+          model_source_level, harness_source, harness_profile,
+          harness_source_level, implementation_mode). JSON null for a
+          None field is fine (it is the dict's own value, not a
+          reformatting).
+        * 404 (not 500) when the flow_key does not exist (mirrors the
+          existing GET /steps/{flow_key} 404 behavior for the flow).
+        * 404 when the step_key does not exist for that flow (the
+          resolver raises a clear ValueError naming both flow_key and
+          step_key; we forward that message verbatim).
+
+    db_path is sourced from get_db_path() (the same DB the surrounding
+    endpoints use, including the test fixture monkey-patch). This
+    keeps the endpoint and the resolver from silently reading different
+    databases.
+    """
+    db_path = get_db_path()
+    # Flow check first -- mirrors the GET /steps/{flow_key} behavior:
+    # flow-not-found 404 uses a flow-shaped message, step-not-found 404
+    # uses the resolver's message (which already names both keys).
+    try:
+        load_flow_from_db(flow_key, db_path)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=f"Flow '{flow_key}' not found")
+    try:
+        from execution_config import resolve_execution_config
+        return resolve_execution_config(flow_key, step_key, db_path=db_path)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/scripts")

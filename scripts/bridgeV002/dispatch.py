@@ -38,6 +38,7 @@ from bridge_lib import (
 )
 from patch_mode import apply_mode_block
 import harness
+from execution_config import resolve_for_receiver, runtime_context_block
 
 # ── Constants ──────────────────────────────────────────────
 _STARTUP_FILE = "docs/StartUpNextSession.md"
@@ -126,6 +127,32 @@ def build_target_project_block(flow_key):
         f"If a command reports a missing file or a count disagrees with "
         f"the delivered result, check `pwd` before concluding anything.\n\n"
     )
+
+def _resolve_receiver_execution_config(flow_key, receiver_role, handoff_id):
+    """Thin logged wrapper around execution_config.resolve_for_receiver.
+
+    Selection + precedence live ENTIRELY in execution_config.py; this
+    wrapper only adds dispatch's standard log() call so the resolved
+    governance_file + governance_source_level show up in trace.log
+    alongside the rest of the dispatch event (handoff 032, D3b step 4).
+    It MUST NOT re-derive the step selection or any precedence -- that
+    is the whole point of the "single resolver" architecture.
+
+    db_path is sourced from dispatch's own _db_path() so test fixtures
+    that monkeypatch dispatch._db_path to a temp DB continue to work
+    (the resolver would otherwise fall through to config.get_db_path()
+    and read the production DB, which is what the legacy direct-column
+    read did NOT do -- so this matters for parity, not just for tests).
+    """
+    resolved = resolve_for_receiver(flow_key, receiver_role, db_path=_db_path())
+    log(
+        receiver_role,
+        handoff_id,
+        "receiver_execution_config",
+        f"flow={flow_key} gov_file={resolved['governance_file']} "
+        f"source_level={resolved['governance_source_level']}",
+    )
+    return resolved
 
 # ── Trade-MCP push contexts (PILOT) ────────────────────────
 # Deterministic pre-fetched contexts injected into selected trade-role
@@ -2556,15 +2583,28 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # Prepend governance file reference for target role
     # The governance file defines the role, responsibilities, and boundaries.
     # Do NOT hardcode role descriptions here — the governance file is the single source of truth.
-    gov_file = to_role.get("governance_file")
+    # Run 008 / handoff 032 (D3b Site 1): the legacy direct-column read of the
+    # receiver role is replaced by the unified resolver. The receiver here is
+    # payload["to_role"] -- the role the composed prompt is being injected
+    # INTO (NOT the sender, NOT the step being signaled). Selection +
+    # precedence live in execution_config.py; this call is the only place
+    # dispatch reads governance_file for Site 1.
+    _resolved_sc = _resolve_receiver_execution_config(
+        payload["flow_key"], payload["to_role"], handoff_id)
+    gov_file = _resolved_sc["governance_file"]
     project_root_sc = PROJECT_ROOT
+    gov_ref_sc = ""
     if gov_file:
         gov_path = os.path.join(project_root_sc, "docs", "governance-templates-v2", gov_file)
-        prompt_text = (
-            f"{build_target_project_block(payload['flow_key'])}"
-            f"Read your role definition at {gov_path} before proceeding.\n\n"
-            f"{prompt_text}"
-        )
+        gov_ref_sc = f"Read your role definition at {gov_path} before proceeding.\n\n"
+    # Per handoff 032 step 3: RUNTIME CONTEXT block is ALWAYS prepended;
+    # governance reference line is CONDITIONAL on gov_file being set.
+    prompt_text = (
+        f"{build_target_project_block(payload['flow_key'])}"
+        f"{runtime_context_block(_resolved_sc)}"
+        f"{gov_ref_sc}"
+        f"{prompt_text}"
+    )
 
     # Trade-MCP push path (PILOT): chain advancement delivers the next
     # role's work prompt through THIS injection (not signal_send), so the
@@ -2922,15 +2962,25 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         )
 
     # Prepend governance file reference for target role
-    gov_file = to_role_data.get("governance_file")
+    # Run 008 / handoff 032 (D3b Site 2): the legacy direct-column read of
+    # the receiver role is replaced by the unified resolver. The receiver
+    # here is to_role_key -- the escalation target, the role the composed
+    # prompt is being injected INTO.
+    _resolved_e = _resolve_receiver_execution_config(flow_key, to_role_key, handoff_id)
+    gov_file = _resolved_e["governance_file"]
+    gov_ref_e = ""
     if gov_file:
         gov_path_e = os.path.join(PROJECT_ROOT,
                                   "docs", "governance-templates-v2", gov_file)
-        prompt_text = (
-            f"{build_target_project_block(flow_key)}"
-            f"Your role is defined in {gov_path_e}. Read it now before proceeding.\n\n"
-            f"{prompt_text}"
-        )
+        gov_ref_e = f"Your role is defined in {gov_path_e}. Read it now before proceeding.\n\n"
+    # Per handoff 032 step 3: RUNTIME CONTEXT block is ALWAYS prepended;
+    # governance reference line is CONDITIONAL on gov_file being set.
+    prompt_text = (
+        f"{build_target_project_block(flow_key)}"
+        f"{runtime_context_block(_resolved_e)}"
+        f"{gov_ref_e}"
+        f"{prompt_text}"
+    )
 
     # Step 6: Inject prompt into architect's tmux session
     # Run 006 D6(b): busy/menu pane → refuse + requeue (broker seam).
@@ -3409,7 +3459,13 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             _run_allocator_start(to_alias)
 
     # Step 5: Prepend governance file reference if target role has one
-    gov_file = to_role_data.get("governance_file")
+    # Run 008 / handoff 032 (D3b Site 3): the legacy direct-column read of
+    # the receiver role is replaced by the unified resolver. The receiver
+    # here is to_role_key -- the dispatch target, the role the composed
+    # prompt is being injected INTO (NOT the sender, NOT the transition
+    # step being signaled -- see spec section 15, binding semantics).
+    _resolved_s = _resolve_receiver_execution_config(flow_key, to_role_key, handoff_id)
+    gov_file = _resolved_s["governance_file"]
     project_root = PROJECT_ROOT
     if gov_file:
         gov_path = os.path.join(project_root, "docs", "governance-templates-v2", gov_file)
@@ -3499,12 +3555,17 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
             break
 
     # Prepend governance file reference for target role
+    # Per handoff 032 step 3: RUNTIME CONTEXT block is ALWAYS prepended;
+    # governance reference line is CONDITIONAL on gov_file being set.
+    gov_ref_s = ""
     if gov_file:
-        prompt_text = (
-            f"{build_target_project_block(flow_key)}"
-            f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
-            f"{prompt_text}"
-        )
+        gov_ref_s = f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
+    prompt_text = (
+        f"{build_target_project_block(flow_key)}"
+        f"{runtime_context_block(_resolved_s)}"
+        f"{gov_ref_s}"
+        f"{prompt_text}"
+    )
 
     # Trade-MCP push path (PILOT): deterministic context for selected roles
     prompt_text = append_trade_mcp_context(
