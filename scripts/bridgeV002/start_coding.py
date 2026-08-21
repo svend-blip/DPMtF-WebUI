@@ -194,6 +194,31 @@ def _record_harness_ownership(flow_key, session_name):
         runtime_owner.record(flow_key, "harness_process", session_name, pid=None)
 
 
+def _apply_fresh_context_policy(flow_key, harness_key, policy):
+    """Apply a requested Codex fresh-context policy for a new work unit.
+
+    The reset boundary lives here, at ``start_coding.py`` startup, rather
+    than in dispatch, injection, or the persistent Harness Terminal. A
+    correction in the same governed work unit therefore reuses the resident
+    Codex session unless a new work unit explicitly requests ``work_unit``.
+    Only flow-owned harness processes are stopped; externally started
+    harnesses are never addressed by name. DSH is intentionally untouched.
+    """
+    if harness_key != "codex" or policy != "work_unit":
+        return []
+
+    stopped = runtime_owner.stop_owned_harness_processes(flow_key)
+    if stopped:
+        print(
+            "    Fresh context requested; stopped "
+            f"{len(stopped)} flow-owned Codex process(es): "
+            + ", ".join(stopped)
+        )
+    else:
+        print("    Fresh context requested; no flow-owned Codex process was running.")
+    return stopped
+
+
 def _compose_initial_supervisor_prompt(role, flow_key, project_root):
     """Cold-start context for a headless harness role's first wakeup.
 
@@ -449,6 +474,8 @@ def main():
 
             # codex is a resident TUI: launch it and record ownership, so Stop
             # servers can tear down exactly what DPMtF started.
+            policy = harness.get_codex_fresh_context_policy()
+            _apply_fresh_context_policy(args.flow_key, harness_key, policy)
             try:
                 shell_str = harness.build_launch_command(harness_key, role)
             except ValueError as exc:

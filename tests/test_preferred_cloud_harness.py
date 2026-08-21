@@ -368,6 +368,44 @@ def test_non_dsh_startup_is_unchanged():
     assert "_record_harness_ownership" in source
 
 
+def test_fresh_context_work_unit_stops_owned_codex(monkeypatch):
+    """A new work unit explicitly requests a fresh Codex context."""
+    import start_coding
+
+    seen = []
+
+    def fake_stop(flow_key, db_path=None, _kill=None):
+        seen.append((flow_key, db_path, _kill))
+        return ["owned-codex-session"]
+
+    monkeypatch.setattr(start_coding.runtime_owner, "stop_owned_harness_processes", fake_stop)
+    stopped = start_coding._apply_fresh_context_policy(FLOW, "codex", "work_unit")
+    assert stopped == ["owned-codex-session"]
+    assert seen == [(FLOW, None, None)]
+
+
+def test_fresh_context_off_does_not_stop_owned_codex(monkeypatch):
+    """The default policy preserves the existing Codex lifecycle."""
+    import start_coding
+
+    def fail_stop(*args, **kwargs):
+        raise AssertionError("off policy must not stop a Codex process")
+
+    monkeypatch.setattr(start_coding.runtime_owner, "stop_owned_harness_processes", fail_stop)
+    assert start_coding._apply_fresh_context_policy(FLOW, "codex", "off") == []
+
+
+def test_fresh_context_work_unit_does_not_stop_dsh(monkeypatch):
+    """The one-shot DSH branch is outside the fresh-context reset boundary."""
+    import start_coding
+
+    def fail_stop(*args, **kwargs):
+        raise AssertionError("DSH must not be stopped by the Codex policy")
+
+    monkeypatch.setattr(start_coding.runtime_owner, "stop_owned_harness_processes", fail_stop)
+    assert start_coding._apply_fresh_context_policy(FLOW, "dsh", "work_unit") == []
+
+
 # ── 4, 5: existing flows are untouched ──────────────────────────────
 
 def test_preferred_cloud_unchanged(migrated_db):
@@ -712,6 +750,13 @@ def test_seam_is_native_and_missing_env_delegate_to_standalone():
     assert harness.missing_env("codex") == ha.missing_env("codex")
     assert harness.describe_missing("dsh", ["DEEPSEEK_API_KEY"]) == \
         ha.describe_missing("dsh", ["DEEPSEEK_API_KEY"])
+
+
+def test_seam_fresh_context_policy_delegates_to_standalone(monkeypatch):
+    """The integration reads the policy from the standalone allocator."""
+    ha = harness._standalone()
+    monkeypatch.setattr(ha, "get_codex_fresh_context_policy", lambda: "work_unit")
+    assert harness.get_codex_fresh_context_policy() == "work_unit"
 
 
 def test_seam_role_without_model_target_does_not_substitute_model():

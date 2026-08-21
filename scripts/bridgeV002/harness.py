@@ -113,6 +113,11 @@ def describe_missing(harness, missing):
     return _standalone().describe_missing(harness, missing)
 
 
+def get_codex_fresh_context_policy() -> str:
+    """The optional Codex fresh-context policy from the standalone allocator."""
+    return _standalone().get_codex_fresh_context_policy()
+
+
 def _model_target_from_role(role_config):
     """Extract the already-resolved model target from a role mapping.
 
