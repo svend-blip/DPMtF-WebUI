@@ -45,8 +45,8 @@ Usage:
     bridge_broker.py enqueue   --flow FLOW --from-role ROLE --to-role ROLE \\
                                 --id N --action {signal-send|signal-complete|...} \\
                                 [--handoff-path PATH]
-    bridge_broker.py materialize --flow FLOW --type {backlog|run-ledger|handoff|end-report} \\
-                                  [--run-id N] [--id N] \\
+    bridge_broker.py materialize --flow FLOW --type {backlog|run-ledger|handoff|end-report|escalation-response} \\
+                                  [--run-id N] [--id N] [--role ROLE] \\
                                   --content "..." (or --content-stdin)
     bridge_broker.py process-once   [--db-path PATH]
     bridge_broker.py daemon         [--interval SECONDS] [--db-path PATH]
@@ -99,10 +99,13 @@ def _get_bridge_dir() -> str:
 
 # ── enums / constants ───────────────────────────────────
 
-# The four governed artifact types the broker accepts. Anything else
-# is rejected. These names are part of the binding constraint from
-# the Human amendment to GOAL.md Run 003.
-_ARTIFACT_TYPES = ("backlog", "run-ledger", "handoff", "end-report")
+# The governed artifact types the broker accepts. Anything else is
+# rejected. The first four are the binding constraint from the Human
+# amendment to GOAL.md Run 003; `escalation-response` is the narrow
+# Run 004 extension for supervisor escalation answers.
+_ARTIFACT_TYPES = (
+    "backlog", "run-ledger", "handoff", "end-report", "escalation-response",
+)
 
 # Append vs replace per artifact type. Computed once.
 _ARTIFACT_MODE = {
@@ -110,6 +113,7 @@ _ARTIFACT_MODE = {
     "run-ledger": "append",
     "handoff": "create",
     "end-report": "replace",
+    "escalation-response": "create",
 }
 
 # Size limit for inline --content to keep the queue DB bounded.
@@ -140,14 +144,16 @@ CREATE TABLE IF NOT EXISTS bridge_dispatch_queue (
 # authoritative schema source would be a future migration file
 # (out of scope for 010 — the broker's inline schema is the single
 # source of truth today and the broker never accepts arbitrary paths
-# or schema definitions).
-_SCHEMA_MATERIALIZE_SQL = """
+# or schema definitions). Run 004 adds `role_key` (identity input for
+# escalation-response) and the `escalation-response` artifact type.
+_MATERIALIZE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS bridge_materialize_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     flow_key TEXT NOT NULL,
     run_id INTEGER,
     handoff_id INTEGER,
-    artifact_type TEXT NOT NULL CHECK (artifact_type IN ('backlog', 'run-ledger', 'handoff', 'end-report')),
+    role_key TEXT,
+    artifact_type TEXT NOT NULL CHECK (artifact_type IN ('backlog', 'run-ledger', 'handoff', 'end-report', 'escalation-response')),
     content TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -156,11 +162,16 @@ CREATE TABLE IF NOT EXISTS bridge_materialize_queue (
     error_msg TEXT,
     broker_pid INTEGER
 );
+"""
+
+_MATERIALIZE_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS bridge_materialize_queue_status_idx
     ON bridge_materialize_queue(status, id);
 CREATE INDEX IF NOT EXISTS bridge_materialize_queue_flow_idx
     ON bridge_materialize_queue(flow_key, status, id);
 """
+
+_SCHEMA_MATERIALIZE_SQL = _MATERIALIZE_TABLE_SQL + _MATERIALIZE_INDEX_SQL
 
 
 def _open_db(db_path: str) -> sqlite3.Connection:
@@ -170,7 +181,7 @@ def _open_db(db_path: str) -> sqlite3.Connection:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Apply 058 + 010 inline schemas.
+    """Apply 058 + 010 inline schemas, then migrate if required.
 
     Both inline mirrors of the broker queue tables. Idempotent.
     The migration files (058, future 059) remain the authoritative
@@ -180,21 +191,67 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     """
     conn.executescript(_SCHEMA_DISPATCH_SQL)
     conn.executescript(_SCHEMA_MATERIALIZE_SQL)
+    _migrate_materialize_schema(conn)
     conn.commit()
+
+
+def _migrate_materialize_schema(conn: sqlite3.Connection) -> None:
+    """Bring a pre-Run-004 materialize table up to date.
+
+    The Run 003 table had neither a `role_key` column nor the
+    `escalation-response` artifact type in its CHECK constraint. SQLite
+    cannot add a column to a CHECK or alter the CHECK in place, so the
+    table is rebuilt: old rows are copied verbatim (their `role_key`
+    stays NULL — the type did not exist then), then the old table is
+    dropped. Idempotent: an already-current table is left untouched.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master "
+        "WHERE type = 'table' AND name = 'bridge_materialize_queue'"
+    ).fetchone()
+    if row is None:
+        return
+    table_sql = row[0] or ""
+    cols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(bridge_materialize_queue)")}
+    if "role_key" in cols and "escalation-response" in table_sql:
+        return      # already current
+
+    conn.executescript(
+        """
+        DROP INDEX IF EXISTS bridge_materialize_queue_status_idx;
+        DROP INDEX IF EXISTS bridge_materialize_queue_flow_idx;
+        ALTER TABLE bridge_materialize_queue
+            RENAME TO bridge_materialize_queue_old;
+        """
+        + _MATERIALIZE_TABLE_SQL
+        + _MATERIALIZE_INDEX_SQL
+        + """
+        INSERT INTO bridge_materialize_queue
+            (id, flow_key, run_id, handoff_id, role_key, artifact_type,
+             content, status, created_at, claimed_at, processed_at,
+             error_msg, broker_pid)
+        SELECT id, flow_key, run_id, handoff_id, NULL, artifact_type,
+               content, status, created_at, claimed_at, processed_at,
+               error_msg, broker_pid
+        FROM bridge_materialize_queue_old;
+        DROP TABLE bridge_materialize_queue_old;
+        """
+    )
 
 
 # ── canonical destination derivation ─────────────────────
 
 def _canonical_destination(
     flow_key: str, run_id: int | None, handoff_id: int | None,
-    artifact_type: str,
+    artifact_type: str, role_key: str | None = None,
 ) -> str:
     """Compute the canonical write destination from identity + type.
 
     NEVER accepts a caller-supplied path. The destination is a pure
-    function of (flow_key, run_id, handoff_id, artifact_type) — so the
-    broker can never be tricked into writing to an arbitrary host
-    path. If any input does not match the artifact type's expected
+    function of (flow_key, run_id, handoff_id, role_key, artifact_type)
+    — so the broker can never be tricked into writing to an arbitrary
+    host path. If any input does not match the artifact type's expected
     identity, this raises (validation has already enforced it; the
     raise is a defensive belt-and-braces).
     """
@@ -216,6 +273,17 @@ def _canonical_destination(
                 "handoff_id must be a positive integer for "
                 "artifact_type='handoff'"
             )
+    if artifact_type == "escalation-response":
+        if not isinstance(handoff_id, int) or handoff_id < 1:
+            raise ValueError(
+                "handoff_id must be a positive integer for "
+                "artifact_type='escalation-response'"
+            )
+        if not isinstance(role_key, str) or not role_key:
+            raise ValueError(
+                "role_key must be a non-empty string for "
+                "artifact_type='escalation-response'"
+            )
 
     if artifact_type == "backlog":
         return f"{bridge_dir}/{flow_key}/runs/{run_id:03d}/BACKLOG.md"
@@ -225,6 +293,10 @@ def _canonical_destination(
         return f"{bridge_dir}/{flow_key}/handoffs/{handoff_id:03d}-handoff.md"
     if artifact_type == "end-report":
         return f"{bridge_dir}/{flow_key}/runs/{run_id:03d}/END-REPORT.md"
+    if artifact_type == "escalation-response":
+        # Matches dispatch.py signal_answer's lookup:
+        #   {bridge_dir}/escalations/{handoff_id}-{from_role}-response.md
+        return f"{bridge_dir}/escalations/{handoff_id:03d}-{role_key}-response.md"
     # Defensive — unreachable given the check above.
     raise ValueError(f"unhandled artifact_type: {artifact_type!r}")  # pragma: no cover
 
@@ -249,9 +321,45 @@ def _validate_known_flow(conn: sqlite3.Connection, flow_key: str) -> str | None:
     return None
 
 
+def _validate_role_in_flow(
+    conn: sqlite3.Connection, flow_key: str, role_key: str,
+) -> str | None:
+    """Reject a role_key that is not a member of this flow's chain.
+
+    escalation-response is written BY the answering role and read back by
+    dispatch.py signal_answer as
+    `{handoff_id}-{from_role}-response.md`. The role must therefore be a
+    real role in `bridge_roles` AND appear as a from_role or to_role in
+    this flow's steps — an arbitrary role string would write a response
+    file signal_answer will never look up.
+    """
+    if not isinstance(role_key, str) or not role_key:
+        return "role_key must be a non-empty string"
+    row = conn.execute(
+        "SELECT 1 FROM bridge_roles WHERE role_key = ? LIMIT 1",
+        (role_key,),
+    ).fetchone()
+    if row is None:
+        return f"unknown role_key: {role_key!r} (not in bridge_roles)"
+    row = conn.execute(
+        """
+        SELECT 1 FROM bridge_flow_steps
+        WHERE flow_key = ? AND (from_role = ? OR to_role = ?)
+        LIMIT 1
+        """,
+        (flow_key, role_key, role_key),
+    ).fetchone()
+    if row is None:
+        return (
+            f"role_key {role_key!r} is not a member of flow "
+            f"{flow_key!r} (not in bridge_flow_steps)"
+        )
+    return None
+
+
 def _validate_materialize_identity(
     artifact_type: str, run_id: int | None, handoff_id: int | None,
-    content: str,
+    role_key: str | None, content: str,
 ) -> str | None:
     """Validate the identity inputs without touching the filesystem.
 
@@ -280,6 +388,11 @@ def _validate_materialize_identity(
                 f"handoff_id must not be supplied for "
                 f"artifact_type={artifact_type!r}"
             )
+        if role_key is not None:
+            return (
+                f"role_key must not be supplied for "
+                f"artifact_type={artifact_type!r}"
+            )
 
     if artifact_type == "handoff":
         if not isinstance(handoff_id, int) or handoff_id < 1:
@@ -291,6 +404,25 @@ def _validate_materialize_identity(
             return (
                 "run_id must not be supplied for "
                 "artifact_type='handoff'"
+            )
+        if role_key is not None:
+            return "role_key must not be supplied for artifact_type='handoff'"
+
+    if artifact_type == "escalation-response":
+        if not isinstance(handoff_id, int) or handoff_id < 1:
+            return (
+                "handoff_id must be a positive integer for "
+                "artifact_type='escalation-response'"
+            )
+        if run_id is not None:
+            return (
+                "run_id must not be supplied for "
+                "artifact_type='escalation-response'"
+            )
+        if not isinstance(role_key, str) or not role_key:
+            return (
+                "role_key must be a non-empty string for "
+                "artifact_type='escalation-response'"
             )
 
     if not isinstance(content, str) or len(content) == 0:
@@ -413,7 +545,8 @@ def _process_one_materialize(conn: sqlite3.Connection) -> bool:
 
     row = conn.execute(
         """
-        SELECT id, flow_key, run_id, handoff_id, artifact_type, content
+        SELECT id, flow_key, run_id, handoff_id, role_key, artifact_type,
+               content
         FROM bridge_materialize_queue
         WHERE broker_pid = ? AND status = 'processing'
         ORDER BY id DESC LIMIT 1
@@ -460,12 +593,15 @@ def _write_materialize_artifact(
     flow_key = row["flow_key"]
     run_id = row["run_id"]
     handoff_id = row["handoff_id"]
+    role_key = row["role_key"]
     artifact_type = row["artifact_type"]
     content = row["content"]
 
     # Compute canonical destination — never caller-supplied.
     try:
-        dest = _canonical_destination(flow_key, run_id, handoff_id, artifact_type)
+        dest = _canonical_destination(
+            flow_key, run_id, handoff_id, artifact_type, role_key,
+        )
     except (TypeError, ValueError) as exc:
         return (2, f"canonical-destination error: {exc}")
 
@@ -519,6 +655,23 @@ def _write_materialize_artifact(
             return (
                 1,
                 f"handoff file already exists: {dest_path}; "
+                f"refusing to overwrite",
+            )
+
+    if artifact_type == "escalation-response":
+        # The escalations directory is created by the escalation path
+        # (dispatch.py signal_escalation). Refuse to invent it, and
+        # refuse to overwrite an existing response.
+        if not parent.exists() or not parent.is_dir():
+            return (
+                1,
+                f"escalations directory missing: {parent} "
+                f"(artifact_type=escalation-response, handoff_id={handoff_id})",
+            )
+        if dest_path.exists():
+            return (
+                1,
+                f"escalation response already exists: {dest_path}; "
                 f"refusing to overwrite",
             )
 
@@ -662,15 +815,18 @@ def cmd_materialize(args: argparse.Namespace) -> int:
     conn = _open_db(db_path)
     _ensure_schema(conn)
 
+    role_key = getattr(args, "role_key", None)
+
     # Read content (inline or from stdin).
     if args.content_stdin:
         content = sys.stdin.read()
     else:
         content = args.content or ""
 
-    # Identity validation (artifact_type + run_id/handoff_id + content).
+    # Identity validation (artifact_type + run_id/handoff_id/role_key
+    # + content).
     identity_err = _validate_materialize_identity(
-        args.artifact_type, args.run_id, args.handoff_id, content,
+        args.artifact_type, args.run_id, args.handoff_id, role_key, content,
     )
     if identity_err is not None:
         print(f"bridge_broker: ERROR {identity_err}", file=sys.stderr)
@@ -684,12 +840,24 @@ def cmd_materialize(args: argparse.Namespace) -> int:
         conn.close()
         return 1
 
-    # Idempotency semantics (handoff 012 fix). Three modes:
+    # Role validation against bridge_roles + bridge_flow_steps.
+    if args.artifact_type == "escalation-response":
+        role_err = _validate_role_in_flow(conn, args.flow_key, role_key)
+        if role_err is not None:
+            print(f"bridge_broker: ERROR {role_err}", file=sys.stderr)
+            conn.close()
+            return 1
+
+    # Idempotency semantics (handoff 012 fix). Four modes:
     #   - handoff (create, one-shot per handoff_id): skip if ANY
     #     'completed' row exists for (flow_key, handoff_id, 'handoff').
     #     Preserves exclusive-create / refuse-overwrite.
     #   - end-report (replace, one-shot per run_id): skip if ANY
     #     'completed' row exists for (flow_key, run_id, 'end-report').
+    #     Preserves refuse-overwrite.
+    #   - escalation-response (create, one-shot per handoff_id + role):
+    #     skip if ANY 'completed' row exists for
+    #     (flow_key, handoff_id, role_key, 'escalation-response').
     #     Preserves refuse-overwrite.
     #   - run-ledger (append, multi-write per run_id) and backlog
     #     (replace, multi-write per run_id): skip ONLY if a 'pending' or
@@ -724,6 +892,17 @@ def cmd_materialize(args: argparse.Namespace) -> int:
             """,
             (args.flow_key, args.run_id, args.artifact_type),
         ).fetchone()
+    elif args.artifact_type == "escalation-response":
+        # one-shot per (handoff_id, role_key) (refuse-overwrite).
+        existing = conn.execute(
+            """
+            SELECT id FROM bridge_materialize_queue
+            WHERE flow_key = ? AND handoff_id = ? AND role_key = ?
+              AND artifact_type = ? AND status = 'completed'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (args.flow_key, args.handoff_id, role_key, args.artifact_type),
+        ).fetchone()
     else:
         # run-ledger or backlog (multi-write per run_id).
         # Skip only if a 'pending' or 'completed' row already holds
@@ -747,11 +926,11 @@ def cmd_materialize(args: argparse.Namespace) -> int:
     conn.execute(
         """
         INSERT INTO bridge_materialize_queue
-            (flow_key, run_id, handoff_id, artifact_type,
+            (flow_key, run_id, handoff_id, role_key, artifact_type,
              content, status)
-        VALUES (?, ?, ?, ?, ?, 'pending')
+        VALUES (?, ?, ?, ?, ?, ?, 'pending')
         """,
-        (args.flow_key, args.run_id, args.handoff_id,
+        (args.flow_key, args.run_id, args.handoff_id, role_key,
          args.artifact_type, content),
     )
     conn.commit()
@@ -995,7 +1174,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     pm.add_argument(
         "--id", type=int, default=None, dest="handoff_id",
-        help="Handoff id (required for handoff type).",
+        help="Handoff id (required for handoff / escalation-response type).",
+    )
+    pm.add_argument(
+        "--role", default=None, dest="role_key",
+        help="Answering role key (required for escalation-response type).",
     )
     content_group = pm.add_mutually_exclusive_group(required=True)
     content_group.add_argument(

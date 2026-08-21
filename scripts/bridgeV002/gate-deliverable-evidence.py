@@ -99,7 +99,12 @@ def target_projects(flow_key):
 
     A flow's configured target plus Father: cross-repo handoffs are normal
     (llama_SG changes both DPMtF-WebUI and model-allocator), so a claim is
-    checked against whichever repo actually contains the file.
+    checked against whichever repo actually contains the file. Repositories
+    the handoff additionally governs are added separately by
+    `declared_scope_roots`. This function must NOT sweep every sibling git
+    repository: doing so attributed unrelated human work in
+    AI-Genealogy-Research-Assistant to preferred_cloud_harness merely because
+    it shared the home directory.
     """
     roots = []
     try:
@@ -116,16 +121,6 @@ def target_projects(flow_key):
         pass
     if PROJECT_ROOT not in roots:
         roots.append(PROJECT_ROOT)
-    # Sibling projects referenced by name in handoffs (model-allocator etc.)
-    try:
-        import config as _cfg
-        base = _cfg.get_projects_base_dir()
-        for entry in sorted(os.listdir(base)):
-            full = os.path.join(base, entry)
-            if os.path.isdir(os.path.join(full, ".git")) and full not in roots:
-                roots.append(full)
-    except Exception:
-        pass
     return roots
 
 
@@ -149,9 +144,9 @@ def git_dirty_files(repo_root):
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
-            return set()
+            return {}
     except Exception:
-        return set()
+        return {}
     dirty = {}
     for line in result.stdout.splitlines():
         if len(line) > 3:
@@ -360,6 +355,128 @@ def _expand_glob(pattern, roots):
     return found
 
 
+def _expand_dir(token, roots):
+    """Absolute paths of existing files beneath a directory fence entry.
+
+    A scope entry may name a directory, with or without a trailing slash
+    (`tests/`, `harness_allocator/`). Such an entry authorizes every file
+    beneath it — the directory itself is never a claim, but the files under
+    it are. The old parser only kept tokens with a recognised filename
+    suffix, so a directory entry was dropped and every file inside it was
+    then reported as a scope breach. preferred_cloud_harness run 004 handoff
+    017 paid for that: `/home/svend/harness-allocator/tests/` was invisible
+    to the fence and the implementer's test file was rejected.
+
+    Mirrors `_expand_glob`'s containment rules: `..` is refused, and only
+    existing files with a checked suffix count.
+    """
+    found = set()
+    if ".." in token.split("/"):
+        return found
+    for root in roots:
+        rel = token
+        if os.path.isabs(rel):
+            if not rel.startswith(root.rstrip("/") + "/"):
+                continue
+            rel = os.path.relpath(rel, root)
+        if not rel or rel == ".":
+            continue            # a bare marker or "." must not mean the repo
+        base = Path(root) / rel
+        if not base.is_dir():
+            continue
+        try:
+            for hit in base.rglob("*"):
+                if hit.is_file() and hit.suffix.lower() in CODE_SUFFIXES:
+                    found.add(str(hit))
+        except (ValueError, OSError):
+            continue
+    return found
+
+
+def _scope_block(text):
+    """The handoff's `<scope>` fence body, or None.
+
+    The tag must open a line. A handoff that mentions `<scope>` in prose —
+    "the model-allocator repo will be tempting, see `<scope>`" — used to win
+    this match 170 lines above the real block, and the gate then enforced the
+    handoff's *read* list as if it were the write list. Falls back to a
+    markdown `## Scope fence` heading block for handoffs written without the
+    XML tag.
+    """
+    match = re.search(r"^[ \t]*<scope>(.*?)^[ \t]*</scope>", text,
+                      re.S | re.I | re.M)
+    if match:
+        return match.group(1)
+    match = re.search(r"^#{1,6}\s*scope\s+fence\s*$(.*?)(?=^#{1,6}\s|\Z)",
+                      text, re.S | re.I | re.M)
+    return match.group(1) if match else None
+
+
+def _repo_root_of(abs_path, known_roots):
+    """The repository root an absolute fence path lives under, or None.
+
+    Walks up from the path to the nearest directory that looks like a git
+    repository (has a `.git` child) or one of the known roots. A directory
+    whose `.git` is not a real repository still yields an empty dirty set in
+    `git_dirty_files` (git fails closed), so no false attribution follows.
+    """
+    cur = abs_path.rstrip("/")
+    while True:
+        if cur in known_roots:
+            return cur
+        if os.path.isdir(os.path.join(cur, ".git")):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+
+def declared_scope_roots(handoff_path, known_roots):
+    """Repo roots the handoff's scope fence explicitly declares as governed.
+
+    A cross-repo handoff names absolute paths in its "Allowed to change"
+    fence (e.g. `/home/svend/model-allocator/README.md`). The repositories
+    those paths live under are part of this handoff's evidence surface. The
+    "MUST NOT change" entries are explicitly NOT governed, so they
+    contribute nothing — including them would pull a forbidden sibling
+    repo's dirty files back into the attribution the gate exists to prevent.
+    """
+    try:
+        text = Path(handoff_path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    block = _scope_block(text)
+    if block is None:
+        return []
+
+    roots = []
+    listing_allowed = True
+    for line in block.splitlines():
+        if SCOPE_ALLOW_HEADING.search(line):
+            listing_allowed = True
+            continue
+        if SCOPE_DENY_HEADING.search(line):
+            listing_allowed = False
+            continue
+        if not listing_allowed:
+            continue
+        if not re.match(r"^\s*(?:[-*+]|\d+\.)\s", line):
+            continue
+        cleaned = line.replace("`", " ").replace("*", " ")
+        if SCOPE_DENY_HEADING.search(cleaned):
+            continue
+        for token in PATH_TOKEN.findall(cleaned):
+            token = token.strip("._-")
+            if not os.path.isabs(token):
+                continue
+            root = _repo_root_of(token, known_roots)
+            if root and root not in roots:
+                roots.append(root)
+    return roots
+
+
 def scope_allowed(handoff_path, roots):
     """Absolute paths the handoff permits changing, or None if unparseable.
 
@@ -373,18 +490,7 @@ def scope_allowed(handoff_path, roots):
     except OSError:
         return None
 
-    # The tag must open a line. A handoff that mentions `<scope>` in prose —
-    # "the model-allocator repo will be tempting, see `<scope>`" — used to win
-    # this match 170 lines above the real block, and the gate then enforced the
-    # handoff's *read* list as if it were the write list. Run 004's handoff 005
-    # was rejected that way for changing three files its fence allowed.
-    match = re.search(r"^[ \t]*<scope>(.*?)^[ \t]*</scope>", text,
-                      re.S | re.I | re.M)
-    block = match.group(1) if match else None
-    if block is None:
-        match = re.search(r"^#{1,6}\s*scope\s+fence\s*$(.*?)(?=^#{1,6}\s|\Z)",
-                          text, re.S | re.I | re.M)
-        block = match.group(1) if match else None
+    block = _scope_block(text)
     if block is None:
         return None
 
@@ -410,20 +516,34 @@ def scope_allowed(handoff_path, roots):
         # A token wrapped in asterisks on both ends is markdown emphasis
         # (**bold**, *italic*), not a glob — unwrap it and let the literal
         # pass below pick up what remains.
+        line_has_glob = False
         for token in GLOB_TOKEN.findall(line.replace("`", " ")):
             token = token.strip("._-")
             while (len(token) > 1 and token.startswith("*")
                    and token.endswith("*")):
                 token = token[1:-1]
             if "*" in token or "?" in token:
+                line_has_glob = True
                 allowed |= _expand_glob(token, roots)
         for token in PATH_TOKEN.findall(cleaned):
             token = token.strip("._-")
-            if Path(token).suffix.lower() not in CODE_SUFFIXES:
-                continue
-            root, rel = locate(token, roots)
-            if root:
-                allowed.add(os.path.join(root, rel))
+            if not token:
+                continue        # a bare list marker ("-" → "") is not a path
+            if Path(token).suffix.lower() in CODE_SUFFIXES:
+                root, rel = locate(token, roots)
+                if root:
+                    allowed.add(os.path.join(root, rel))
+            elif not line_has_glob and "/" in token:
+                # A bare directory entry — `/home/svend/.../tests/` — has no
+                # filename suffix, so the old suffix gate dropped it and then
+                # reported every file beneath it as a scope breach. A fence
+                # entry that names an existing directory authorizes the files
+                # under it. A glob line already enumerated its matches above,
+                # so do NOT also widen it to the whole directory. Only a
+                # path-shaped token counts — a bare prose word such as "tests"
+                # in "(new/extended tests)" must not expand every repo's
+                # `tests/` directory.
+                allowed |= _expand_dir(token, roots)
 
     if not allowed and not saw_any_heading:
         return None
@@ -673,13 +793,22 @@ def main():
             "verdict carries no Evidence section and no command output — "
             "it asserts without showing anything was checked")
 
+    handoff_path = os.path.join(
+        bridge_dir, args.flow_key, "handoffs", f"{args.handoff_id}-handoff.md")
+
     roots = target_projects(args.flow_key)
+    # A cross-repo handoff declares the extra repositories it governs in its
+    # scope fence. Add those — and only those — to the evidence surface. This
+    # is the replacement for the old sibling-repo sweep, which took every git
+    # repo under the home directory and attributed unrelated work to the flow.
+    for extra in declared_scope_roots(handoff_path, roots):
+        if extra not in roots:
+            roots.append(extra)
+
     dirty_by_root = {root: git_dirty_files(root) for root in roots}
     since = handoff_mtime(bridge_dir, args.flow_key, args.handoff_id,
                           gated_deliverable=path, to_role=args.from_role)
 
-    handoff_path = os.path.join(
-        bridge_dir, args.flow_key, "handoffs", f"{args.handoff_id}-handoff.md")
     allowed = scope_allowed(handoff_path, roots)
 
     unchanged = []

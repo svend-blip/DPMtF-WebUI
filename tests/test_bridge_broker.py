@@ -1560,3 +1560,282 @@ def test_materialize_allows_re_dispatch_for_failed_rows(
     ).fetchall()]
     conn.close()
     assert statuses == ["failed", "completed"]
+
+
+# ══════════════════════════════════════════════════════════
+# PART C — escalation-response materialization (Run 004)
+# ══════════════════════════════════════════════════════════
+
+
+@pytest.fixture()
+def tmp_broker_escalation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> tuple[str, Path]:
+    """DB with bridge_flows + bridge_roles + bridge_flow_steps, and a
+    bridge_dir holding an escalations/ directory (as signal_escalation
+    creates it)."""
+    db_path = tmp_path / "esc.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript(bridge_broker._SCHEMA_DISPATCH_SQL)
+    conn.executescript(bridge_broker._SCHEMA_MATERIALIZE_SQL)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS bridge_flows (
+            flow_key TEXT PRIMARY KEY,
+            name TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS bridge_roles (
+            role_key TEXT PRIMARY KEY
+        );
+        CREATE TABLE IF NOT EXISTS bridge_flow_steps (
+            flow_key TEXT NOT NULL,
+            from_role TEXT,
+            to_role TEXT
+        );
+    """)
+    conn.execute(
+        "INSERT INTO bridge_flows (flow_key, name) VALUES (?, ?)",
+        ("preferred_cloud_harness", "Preferred Cloud Harness"),
+    )
+    conn.execute(
+        "INSERT INTO bridge_roles (role_key) VALUES (?)",
+        ("super-deep-deep4",),
+    )
+    conn.execute(
+        "INSERT INTO bridge_flow_steps (flow_key, from_role, to_role) "
+        "VALUES (?, ?, ?)",
+        ("preferred_cloud_harness", "super-deep-deep4",
+         "imple-codex-minimaxM3"),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bridge_broker, "_get_db_path", lambda: str(db_path))
+
+    bridge_dir = tmp_path / "bridge"
+    (bridge_dir / "escalations").mkdir(parents=True)
+    monkeypatch.setattr(bridge_broker, "_get_bridge_dir",
+                        lambda: str(bridge_dir))
+    return str(db_path), bridge_dir
+
+
+def test_canonical_destination_escalation_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bridge_broker, "_get_bridge_dir",
+                        lambda: str(tmp_path))
+    dest = bridge_broker._canonical_destination(
+        "preferred_cloud_harness", None, 17, "escalation-response",
+        "super-deep-deep4",
+    )
+    assert dest == f"{tmp_path}/escalations/017-super-deep-deep4-response.md"
+
+
+def test_canonical_destination_escalation_response_zero_pads_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(bridge_broker, "_get_bridge_dir",
+                        lambda: str(tmp_path))
+    dest = bridge_broker._canonical_destination(
+        "preferred_cloud_harness", None, 7, "escalation-response", "r",
+    )
+    assert dest == f"{tmp_path}/escalations/007-r-response.md"
+
+
+def test_canonical_destination_escalation_response_requires_role() -> None:
+    with pytest.raises(ValueError):
+        bridge_broker._canonical_destination(
+            "preferred_cloud_harness", None, 17, "escalation-response",
+        )
+
+
+def test_canonical_destination_escalation_response_requires_handoff_id(
+) -> None:
+    with pytest.raises(ValueError):
+        bridge_broker._canonical_destination(
+            "preferred_cloud_harness", None, 0, "escalation-response", "r",
+        )
+
+
+def test_materialize_escalation_response_writes_at_canonical_path(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17",
+        "--role", "super-deep-deep4", "--content", "# RESPONSE\nbody\n",
+    ])
+    assert rc == 0
+    # Enqueue is DB-only; the file is written by the host-side process.
+    resp = bridge_dir / "escalations" / "017-super-deep-deep4-response.md"
+    assert not resp.exists()
+    bridge_broker.main(["process-once"])
+    assert resp.exists()
+    assert resp.read_text() == "# RESPONSE\nbody\n"
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT status, role_key FROM bridge_materialize_queue"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "completed"
+    assert row[1] == "super-deep-deep4"
+
+
+def test_materialize_escalation_response_rejects_unknown_role(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17",
+        "--role", "not-a-real-role", "--content", "x",
+    ])
+    assert rc == 1
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM bridge_materialize_queue"
+    ).fetchone()
+    conn.close()
+    assert rows[0] == 0
+
+
+def test_materialize_escalation_response_rejects_role_not_in_flow(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO bridge_roles (role_key) VALUES (?)",
+                 ("other-role",))
+    conn.commit()
+    conn.close()
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17",
+        "--role", "other-role", "--content", "x",
+    ])
+    assert rc == 1
+
+
+def test_materialize_escalation_response_missing_role_rejected(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17", "--content", "x",
+    ])
+    assert rc == 1
+
+
+def test_materialize_escalation_response_requires_handoff_id(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--role", "super-deep-deep4",
+        "--content", "x",
+    ])
+    assert rc == 1
+
+
+def test_materialize_escalation_response_refuses_overwrite(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    resp = bridge_dir / "escalations" / "017-super-deep-deep4-response.md"
+    resp.write_text("# EXISTING\n")
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17",
+        "--role", "super-deep-deep4", "--content", "# NEW\n",
+    ])
+    assert rc == 0
+    bridge_broker.main(["process-once"])
+    assert resp.read_text() == "# EXISTING\n"
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT status FROM bridge_materialize_queue"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "failed"
+
+
+def test_materialize_escalation_response_idempotent_per_handoff_and_role(
+    tmp_broker_escalation: tuple[str, Path],
+) -> None:
+    db_path, bridge_dir = tmp_broker_escalation
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17",
+        "--role", "super-deep-deep4", "--content", "# FIRST\n",
+    ])
+    assert rc == 0
+    bridge_broker.main(["process-once"])
+    # A second materialize for the same (handoff, role) with DIFFERENT
+    # content is a no-op (refuse-overwrite).
+    rc = bridge_broker.main([
+        "materialize", "--flow", "preferred_cloud_harness",
+        "--type", "escalation-response", "--id", "17",
+        "--role", "super-deep-deep4", "--content", "# SECOND\n",
+    ])
+    assert rc == 0
+    conn = sqlite3.connect(db_path)
+    count = conn.execute(
+        "SELECT COUNT(*) FROM bridge_materialize_queue "
+        "WHERE artifact_type = 'escalation-response'"
+    ).fetchone()[0]
+    conn.close()
+    assert count == 1
+    resp = bridge_dir / "escalations" / "017-super-deep-deep4-response.md"
+    assert resp.read_text() == "# FIRST\n"
+
+
+def test_materialize_schema_migrates_from_run003_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Run 003 table (no role_key, no escalation-response in its CHECK)
+    is rebuilt in place, preserving existing rows."""
+    db_path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE bridge_materialize_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            flow_key TEXT NOT NULL,
+            run_id INTEGER,
+            handoff_id INTEGER,
+            artifact_type TEXT NOT NULL CHECK (artifact_type IN ('backlog', 'run-ledger', 'handoff', 'end-report')),
+            content TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            claimed_at TEXT,
+            processed_at TEXT,
+            error_msg TEXT,
+            broker_pid INTEGER
+        );
+    """)
+    conn.execute(
+        "INSERT INTO bridge_materialize_queue "
+        "(flow_key, run_id, artifact_type, content, status) "
+        "VALUES ('f', 3, 'backlog', 'x', 'completed')"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(bridge_broker, "_get_db_path", lambda: str(db_path))
+    bridge_broker._ensure_schema(bridge_broker._open_db(str(db_path)))
+
+    conn = sqlite3.connect(str(db_path))
+    cols = {r[1] for r in conn.execute(
+        "PRAGMA table_info(bridge_materialize_queue)").fetchall()}
+    assert "role_key" in cols
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM bridge_materialize_queue"
+    ).fetchone()[0]
+    assert rows == 1
+    # The new CHECK accepts escalation-response.
+    conn.execute(
+        "INSERT INTO bridge_materialize_queue "
+        "(flow_key, handoff_id, role_key, artifact_type, content, status) "
+        "VALUES ('f', 17, 'r', 'escalation-response', 'y', 'pending')"
+    )
+    conn.commit()
+    conn.close()

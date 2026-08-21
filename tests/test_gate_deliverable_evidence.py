@@ -308,6 +308,162 @@ class GlobPatternsInTheFence(unittest.TestCase):
         self.assertEqual(allowed, {self._p("patcher/policy.py")})
 
 
+class DirectoryScopeEntries(unittest.TestCase):
+    """A fence entry may name a directory, and every file beneath it is in
+    scope.
+
+    preferred_cloud_harness run 004 handoff 017 listed
+    `/home/svend/harness-allocator/tests/` as an allowed directory. The old
+    parser only kept tokens with a recognised filename suffix, so the
+    directory was dropped and the implementer's test file was reported as a
+    scope breach — the implementer reverted the tests to dodge the gate.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        for rel in (
+            "tests/test_harness_allocator.py",
+            "tests/helpers/fixtures.py",
+            "harness_allocator/config.py",
+            "docs/notes.md",
+        ):
+            full = Path(self.root, rel)
+            full.parent.mkdir(parents=True, exist_ok=True)
+            full.write_text("x\n", encoding="utf-8")
+        self.addCleanup(self._tmp.cleanup)
+
+    def _fence(self, *entries):
+        import tempfile
+        body = "\n".join(f"- {entry}" for entry in entries)
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(f"<scope>\n{body}\n</scope>\n")
+            path = fh.name
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+        return gate.scope_allowed(path, [self.root])
+
+    def _p(self, rel):
+        return str(Path(self.root, rel))
+
+    def test_a_bare_directory_entry_authorizes_files_beneath_it(self):
+        allowed = self._fence("tests/")
+        self.assertIn(self._p("tests/test_harness_allocator.py"), allowed)
+        self.assertIn(self._p("tests/helpers/fixtures.py"), allowed)
+
+    def test_a_directory_entry_stays_inside_its_directory(self):
+        allowed = self._fence("tests/")
+        self.assertNotIn(self._p("harness_allocator/config.py"), allowed)
+        self.assertNotIn(self._p("docs/notes.md"), allowed)
+
+    def test_an_absolute_directory_entry_resolves(self):
+        allowed = self._fence(f"{self.root}/tests/")
+        self.assertIn(self._p("tests/test_harness_allocator.py"), allowed)
+
+    def test_a_bare_prose_word_does_not_expand_a_directory(self):
+        """`tests` as a bare word is prose, not a directory declaration.
+
+        Handoff 017's fence read `tests/ (new/extended tests)`. The parenthetical
+        prose word `tests` must not expand every repo's `tests/` directory —
+        that silently pulled DPMtF-WebUI's own test tree into the fence.
+        """
+        allowed = self._fence("tests/ (new/extended tests)")
+        self.assertIn(self._p("tests/test_harness_allocator.py"), allowed)
+        self.assertEqual(len(allowed), 2)  # the file + helpers fixture only
+
+    def test_a_literal_file_entry_still_resolves_beside_a_directory(self):
+        allowed = self._fence(
+            f"tests/", f"{self.root}/harness_allocator/config.py")
+        self.assertIn(self._p("tests/test_harness_allocator.py"), allowed)
+        self.assertIn(self._p("harness_allocator/config.py"), allowed)
+
+    def test_a_glob_entry_does_not_widen_to_the_whole_directory(self):
+        """`tests/*.py` names only the direct children, not the subdirectory."""
+        allowed = self._fence("tests/*.py")
+        self.assertIn(self._p("tests/test_harness_allocator.py"), allowed)
+        self.assertNotIn(self._p("tests/helpers/fixtures.py"), allowed)
+
+
+class SiblingRepositoryAttribution(unittest.TestCase):
+    """A repo root is only in the evidence surface if the handoff declares it.
+
+    preferred_cloud_harness run 004 handoff 017: the old `target_projects()`
+    swept every sibling `.git` directory under the projects base dir, so a
+    Human's unrelated work in AI-Genealogy-Research-Assistant was attributed
+    to the implementer. The root selection must come from the handoff's own
+    scope fence, the flow target, and Father — never from "every git repo
+    next door".
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = self._tmp.name
+        # Two sibling git repos.
+        self.target = Path(self.base, "target")
+        (self.target / ".git").mkdir(parents=True)
+        self.sibling = Path(self.base, "sibling")
+        (self.sibling / ".git").mkdir(parents=True)
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_repo_root_of_finds_a_git_root(self):
+        self.assertEqual(
+            gate._repo_root_of(
+                str(self.sibling / "README.md"), [str(self.target)],
+            ),
+            str(self.sibling),
+        )
+
+    def test_repo_root_of_prefers_a_known_root(self):
+        self.assertEqual(
+            gate._repo_root_of(
+                str(self.target / "tests" / "x.py"), [str(self.target)],
+            ),
+            str(self.target),
+        )
+
+    def test_repo_root_of_returns_none_outside_any_repo(self):
+        self.assertIsNone(
+            gate._repo_root_of("/somewhere/not/a/repo/file.py", [str(self.target)]),
+        )
+
+    def test_declared_scope_roots_extracts_allowed_roots(self):
+        import tempfile
+        fence = (
+            "<scope>\n"
+            "Allowed to change:\n"
+            f"- {self.sibling}/README.md\n"
+            "MUST NOT change any other file:\n"
+            f"- {self.target}/\n"
+            "</scope>\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(fence)
+            path = fh.name
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+        roots = gate.declared_scope_roots(path, [])
+        self.assertIn(str(self.sibling), roots)
+        self.assertNotIn(str(self.target), roots)
+
+    def test_declared_scope_roots_does_not_sweep_undeclared_siblings(self):
+        import tempfile
+        # The fence only declares `target`; `sibling` must not appear.
+        fence = (
+            "<scope>\n"
+            f"- {self.target}/tests/x.py\n"
+            "</scope>\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(fence)
+            path = fh.name
+        self.addCleanup(lambda: Path(path).unlink(missing_ok=True))
+        roots = gate.declared_scope_roots(path, [str(self.target)])
+        self.assertNotIn(str(self.sibling), roots)
+
+
 class DenyingHeadingsAreNotChangeSections(unittest.TestCase):
     """A heading that names a change only to deny it lists no claims.
 
