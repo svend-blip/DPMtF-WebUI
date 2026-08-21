@@ -264,10 +264,18 @@ def test_pane_busy_refused_carries_reason() -> None:
 def test_pane_has_menu_or_selector_recognizes_patterns() -> None:
     """The helper recognizes the canonical menu patterns but does NOT
     match ordinary idle footers."""
-    # Numbered option.
+    # Numbered option list WITH a selection affordance.
     assert _dispatch._pane_has_menu_or_selector(
         "Choose:\n  1. yes\n  2. no\n"
     ) is True
+    # A bare numbered list with NO affordance is NOT a menu: idle
+    # scrollback legitimately contains model-authored numbered lists,
+    # and treating them as menus livelocked every delivery to the
+    # supervisor terminal (run 007 row 71, 2026-08-21).
+    assert _dispatch._pane_has_menu_or_selector(
+        "Summary of work done:\n  1. added migration\n  2. wired tests\n"
+        "\nStatus: READY\n\nsuper-deep-deep4>\n"
+    ) is False
     # y/n.
     assert _dispatch._pane_has_menu_or_selector(
         "Apply change? (y/n)"

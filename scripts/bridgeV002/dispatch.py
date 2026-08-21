@@ -971,19 +971,34 @@ class PaneBusyRefused(Exception):
 # carries generic glyphs and token totals — see the _ACTIVITY_MARKERS
 # comment). The m3 mutation guard (GOAL.md §5) binds here: removing the
 # menu-refusal condition must make the new dispatch_injection tests go RED.
-_MENU_PATTERNS = (
-    # Numbered option list ("1. yes", "1) yes", " 1. yes - description")
-    r"\n\s*\d+[\.\)]\s+\S",
+# A selector AFFORDANCE is sufficient on its own: it only renders while a
+# widget is actually waiting for input.
+_MENU_AFFORDANCE_PATTERNS = (
     # Select/choose prompts (case-insensitive)
     r"\bselect\s+(an?\s+)?option\b",
     r"\bchoose\s+(an?\s+)?option\b",
     r"\bplease\s+(select|choose|pick)\b",
-    # Plan-approval modal
+    # Selection headers ending in a colon ("Choose an action:", "Choose:")
+    # — the colon separates a prompt from prose that merely mentions
+    # choosing.
+    r"\b(select|choose|pick)(\s+an?\s+\w+)?\s*:",
+    r"\benter to select\b",
+    r"\bpress enter to continue\b",
+    # Confirmation prompts (npx install, plan approval, ...)
+    r"\bok to proceed\b",
     r"\(y/n\)",
     r"\[y/n\]",
     r"\bapprove\s+(this\s+)?plan\b",
     r"\bdo you want to proceed\b",
 )
+
+# A numbered option list ("1. yes", "1) yes") is NOT sufficient on its own:
+# model-authored summaries in an idle pane's scrollback are full of numbered
+# lists, and treating them as menus refused every delivery to the supervisor
+# terminal in a livelock (run 007, row 71, 2026-08-21 — the harness
+# terminal's own turn summary matched). A numbered list counts only when a
+# selector affordance is present in the same tail.
+_MENU_NUMBERED_LIST = r"\n\s*\d+[\.\)]\s+\S"
 
 
 def _pane_has_menu_or_selector(tail: str) -> bool:
@@ -993,10 +1008,15 @@ def _pane_has_menu_or_selector(tail: str) -> bool:
     verify_injection_submitted (refuse to press Enter) — the menu check
     is shared so a pane that looked like a menu at injection time and
     a pane that looks like a menu at verify time get the same refusal.
+
+    An affordance ("Enter to select", "Ok to proceed", "(y/n)", ...) is
+    conclusive alone. A bare numbered list never is — it must co-occur
+    with an affordance, because idle scrollback legitimately contains
+    numbered lists (see _MENU_NUMBERED_LIST comment).
     """
     if not tail:
         return False
-    for pat in _MENU_PATTERNS:
+    for pat in _MENU_AFFORDANCE_PATTERNS:
         if re.search(pat, tail, re.IGNORECASE):
             return True
     return False
