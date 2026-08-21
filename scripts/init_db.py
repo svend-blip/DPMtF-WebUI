@@ -146,7 +146,7 @@ ui_labels_data = [
     ("LBL-1000006", "phase_status.show_completed", "main", "Show completed phases", "Toggle label to show/hide completed phases"),
     # ── 2F-bis: Main layout labels ──
     ("LBL-1000007", "lbl_page_title", "main", "DPMtF WebUI", "Page title"),
-    ("LBL-1000008", "lbl_heading_main", "main", "Deterministic Prompt – MockUp to Finalised", "Main heading"),
+    ("LBL-1000008", "lbl_heading_main", "main", "DPMtF — Deterministic Process Management to Finalisation", "Main heading"),
     ("LBL-1000009", "lbl_panel_db_status", "main", "Database Status", "Database Status panel heading"),
     ("LBL-1000010", "lbl_panel_phase_status", "main", "Phase Status", "Phase Status panel heading"),
     ("LBL-1000011", "lbl_panel_hitrates", "main", "Prompt Hitrates", "Prompt Hitrates panel heading"),

@@ -1,5 +1,11 @@
 # DPMtF-WebUI — Father Project
 
+**DPMtF — Deterministic Process Management to Finalisation.**
+
+DPMtF is a deterministic multi-agent process orchestration framework for
+taking defined work from intent to verified finalisation through governed
+flows, steps, roles, harnesses, models, gates, and artifacts.
+
 DPMtF-WebUI is the **Father project** in the DPMtF ecosystem. It owns the
 authoritative governance templates, hosts the **BridgeV002** dispatch system
 for AI role-to-role communication, and provides a **Job Queue** for fully
@@ -29,6 +35,7 @@ Four components, one machine boundary:
 | DPMtF-WebUI | model-allocator (same machine), SQLite | flows, dispatch, evidence gates, LightWorker endpoints, watchdog |
 | mcp-light | read access to DPMtF-WebUI's files and database | governance/flow/verdict lookup over MCP |
 | DPMtF-LightWorker | model-allocator (worker machine), Father reachable over Tailscale | remote role execution |
+| harness-allocator | nothing (stdlib-only Python) | harness identity and adapters (dsh, codex, claude-code), one-shot execution, the persistent Harness Terminal for harness-backed roles |
 
 **Install order — each step's preflight checks the one before it:**
 
@@ -39,6 +46,10 @@ Four components, one machine boundary:
    the tailnet unit if remote workers should reach it.
 4. **DPMtF-LightWorker** — on each worker: venv → `worker.yaml` → auth
    token → base client config → `preflight.sh` 16/16 → daemon.
+5. **harness-allocator** — on Father (optional, required only for
+   harness-backed roles such as dsh/codex chains): clone next to
+   DPMtF-WebUI; `scripts/bridgeV002/harness.py` finds it via
+   `config.get_project_path` or `HARNESS_ALLOCATOR_PATH`.
 
 Each repository's own Installation section covers its steps in detail.
 
