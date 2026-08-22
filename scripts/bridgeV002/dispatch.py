@@ -128,6 +128,66 @@ def build_target_project_block(flow_key):
         f"the delivered result, check `pwd` before concluding anything.\n\n"
     )
 
+def build_runtime_context(resolved):
+    """Wrap runtime_context_block with the three model-aware keys (D5).
+
+    The base block is the five-line deterministic preamble defined in
+    runtime_context_block (handoff 032). This wrapper keeps those five
+    lines BYTE-IDENTICAL and APPENDS three more lines, each in the same
+    `- name: value` shape, in the fixed order documented below.
+
+    Order (fixed; do not reorder):
+        - model_source:    {resolved["model_source"]}
+        - harness_source:  {resolved["harness_source"]}
+        - autonomous:      yes|no
+
+    `autonomous` resolves to "yes" when the flow named by
+    resolved["flow_key"] has a non-NULL, non-empty `supervisor_role`
+    in `bridge_flows`, else "no". The lookup mirrors the one in
+    chain_watchdog.py: rows where `is_active = 1` and the column is
+    set point to an autonomous flow; rows where the column is NULL or
+    empty point to a Human-paired one.
+
+    Deterministic: same resolved dict + same DB state yields a
+    byte-identical string on every call. The block still ends in the
+    same `\n\n` seam runtime_context_block produces, so the
+    surrounding prompt assembly in dispatch.py is unchanged.
+    """
+    base = runtime_context_block(resolved)
+    # runtime_context_block ends with "\n\n". Strip ONE trailing "\n"
+    # so the appended lines sit on their own with one blank-line gap
+    # to the base block, then re-add the seam "\n\n" at the end.
+    if base.endswith("\n\n"):
+        base = base[:-1]  # now ends with single "\n"
+
+    # None renders as the stable literal "None" (matches runtime_context_block).
+    def _r(value):
+        if value is None:
+            return "None"
+        return str(value)
+
+    # Autonomous = the flow has a per-flow supervisor_role in bridge_flows.
+    # Mirrors chain_watchdog.py: "WHERE flow_key = ? AND is_active = 1".
+    conn = sqlite3.connect(str(_db_path()))
+    try:
+        row = conn.execute(
+            "SELECT supervisor_role FROM bridge_flows "
+            "WHERE flow_key = ? AND is_active = 1",
+            (resolved["flow_key"],),
+        ).fetchone()
+    finally:
+        conn.close()
+    sup = row[0] if row else None
+    autonomous = "yes" if (sup is not None and str(sup).strip() != "") else "no"
+
+    return (
+        f"{base}"
+        f"\n- model_source: {_r(resolved['model_source'])}"
+        f"\n- harness_source: {_r(resolved['harness_source'])}"
+        f"\n- autonomous: {autonomous}\n\n"
+    )
+
+
 def _resolve_receiver_execution_config(flow_key, receiver_role, handoff_id):
     """Thin logged wrapper around execution_config.resolve_for_receiver.
 
@@ -2601,7 +2661,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     # governance reference line is CONDITIONAL on gov_file being set.
     prompt_text = (
         f"{build_target_project_block(payload['flow_key'])}"
-        f"{runtime_context_block(_resolved_sc)}"
+        f"{build_runtime_context(_resolved_sc)}"
         f"{gov_ref_sc}"
         f"{prompt_text}"
     )
@@ -2977,7 +3037,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
     # governance reference line is CONDITIONAL on gov_file being set.
     prompt_text = (
         f"{build_target_project_block(flow_key)}"
-        f"{runtime_context_block(_resolved_e)}"
+        f"{build_runtime_context(_resolved_e)}"
         f"{gov_ref_e}"
         f"{prompt_text}"
     )
@@ -3562,7 +3622,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         gov_ref_s = f"Your role is defined in {gov_path}. Read it now before proceeding.\n\n"
     prompt_text = (
         f"{build_target_project_block(flow_key)}"
-        f"{runtime_context_block(_resolved_s)}"
+        f"{build_runtime_context(_resolved_s)}"
         f"{gov_ref_s}"
         f"{prompt_text}"
     )
