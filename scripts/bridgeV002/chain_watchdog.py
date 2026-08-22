@@ -344,7 +344,7 @@ def _supervisor_wake_up(key, why):
             return
 
         governance = role_cfg.get(
-            "governance_file", "451_SUPERVISED_REVIEW_SUPERVISOR.md"
+            "governance_file", "SUPERVISOR_AUTONOMOUS.md"
         )
         prompt_text = (
             f"Wake-up event: ESCALATION.\n"
