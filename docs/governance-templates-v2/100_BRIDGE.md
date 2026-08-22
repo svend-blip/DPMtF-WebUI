@@ -426,6 +426,30 @@ a layer thinner, never different. The three layers are **delivery** (how
 a prompt reaches a role), **advancement** (how the chain moves), and
 **recovery** (what acts when the chain does not move).
 
+### Harness Source
+
+`default_harness_source` is the single authoritative role-level harness
+source — the three readers (`scripts/bridgeV002/harness.py`,
+`scripts/bridgeV002/start_coding.py`,
+`scripts/bridgeV002/import-flow-output.py`) were switched to read it as
+PRIMARY in Run 013, with belt-and-suspenders fallbacks to keep legacy
+rows working.
+
+`allocator_client` is DEPRECATED. Nothing in the launch path reads it as
+a primary source; the column stays in the `bridge_roles` schema and in
+every existing row as a frozen mirror of `default_harness_source` until
+a distant cleanup phase (no DROP, no rename, no value rewrite — Run 013
+binding constraint). The deprecation is verified mechanically by
+TG5 — every remaining `allocator_client` reference in the three
+readers is either a `# deprecated`/fallback annotation or the second
+operand of an `or` fallback.
+
+`model_source='harness'` is legacy-pending-HA-1 (model-allocator client
+adapters for dsh and codex). It is carried today by exactly the two
+dsh/codex roles whose model is pinned in the harness launch:
+`super-deep-deep4` (dsh) and `imple-codex-minimaxM3` (codex). Run 013
+binds the value UNTOUCHED — TG8 = 2 — until HA-1 lands.
+
 ### Delivery
 
 How a prompt reaches a role:

@@ -61,12 +61,16 @@ def _build_start_command(role):
     if model_source != "model_allocator" or not model_alias:
         return None
 
-    # Determine client from enter_command (Freebuff uses c-m)
+    # Determine harness source. PRIMARY read is default_harness_source
+    # (single authoritative role-level source); allocator_client is the deprecated fallback
+    # mirror; enter_command is the last-resort fallback default
+    # (Freebuff uses c-m, everything else is opencode).
     enter_cmd = role.get("enter_command", "default")
-    if enter_cmd == "c-m":
-        allocator_client = "freebuff"
-    else:
-        allocator_client = "opencode"
+    harness_source = (
+        role.get("default_harness_source")
+        or role.get("allocator_client")
+        or ("freebuff" if enter_cmd == "c-m" else "opencode")
+    )
 
     import config as _cfg
     allocator_path = os.path.join(
@@ -77,7 +81,7 @@ def _build_start_command(role):
         result = subprocess.run(
             [allocator_path, "run",
              "--role", role["role_key"],
-             "--client", allocator_client],
+             "--client", harness_source],
             capture_output=True, text=True, timeout=60,
         )
         if result.returncode == 0:

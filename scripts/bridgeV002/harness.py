@@ -14,7 +14,7 @@ Delegation boundary (this module never duplicates what the standalone already
 owns):
 
 - ``resolve_harness`` — *identity*, with a DPMtF-only fallback to
-  ``"opencode"`` so existing role rows without ``allocator_client`` keep
+  ``"opencode"`` so existing role rows without ``default_harness_source`` keep
   working. No silent harness substitution beyond that explicit fallback.
 - ``is_native`` / ``missing_env`` / ``describe_missing`` — thin delegates.
 - ``build_launch_command`` / ``build_dsh_invocation`` / ``build_task_invocation`` —
@@ -80,13 +80,13 @@ def _standalone():
 
 
 def resolve_harness(role_config):
-    """The harness key for a role, falling back to allocator_client then opencode.
+    """The harness key for a role, falling back to opencode when no source is set.
 
     ``role_config`` is a mapping of bridge_roles columns (the same shape
     ``load_role_from_db`` returns). The delegation to the standalone returns
     the empty string when the role carries no harness key; we apply the
     DPMtF-only explicit fallback to ``"opencode"`` here so existing rows
-    without ``allocator_client`` keep routing through the default harness
+    without ``default_harness_source`` keep routing through the default harness
     (no silent harness substitution beyond that one explicit default).
     """
     ha = _standalone()

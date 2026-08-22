@@ -59,7 +59,8 @@ def get_flow_roles(db_path, flow_key):
                r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
-               r.allocator_client,
+               r.allocator_client,  # deprecated: fallback mirror of default_harness_source
+               r.default_harness_source,
                r.workdir_mode,
                s.sort_order
         FROM bridge_flow_steps s
@@ -80,7 +81,8 @@ def get_flow_roles(db_path, flow_key):
                r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
-               r.allocator_client,
+               r.allocator_client,  # deprecated: fallback mirror of default_harness_source
+               r.default_harness_source,
                r.workdir_mode,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
@@ -113,7 +115,7 @@ def get_flow_roles(db_path, flow_key):
                 "default_model_alias": row["default_model_alias"],
                 "max_output_tokens": row["max_output_tokens"],
                 "config_dir": row["config_dir"],
-                "allocator_client": row["allocator_client"] or "opencode",
+                "harness_source": (row["default_harness_source"] or row["allocator_client"] or "opencode"),  # allocator_client kept as fallback mirror
                 "workdir_mode": row["workdir_mode"] or "target_project",
             })
 
@@ -385,8 +387,11 @@ def main():
             errors.append(role["role_key"])
             continue
 
-        # Allocator client per role from the database (bridge_roles.allocator_client)
-        allocator_client = role.get("allocator_client") or "opencode"
+        # Harness source per role from the database. PRIMARY read is
+        # default_harness_source (single authoritative role-level source);
+        # allocator_client is the deprecated fallback mirror (kept for
+        # backwards compatibility with rows that have not yet been backfilled).
+        harness_source = role.get("default_harness_source") or role.get("allocator_client") or "opencode"
 
         # V1B pilot: use Model Allocator when role opts in.
         model_source, model_alias = get_effective_model_source(
@@ -402,7 +407,7 @@ def main():
             # V2.2: regenerate role-specific opencode.json so the OpenCode TUI
             # uses the allocator-selected model. This is only needed/correct for
             # the opencode client; other clients follow the existing path.
-            if allocator_client == "opencode":
+            if harness_source == "opencode":
                 config_dir = role.get("config_dir") or role["role_key"]
                 opencode_json_path = os.path.expanduser(
                     f"~/.config/opencode-roles/{config_dir}/opencode.json"
@@ -432,7 +437,7 @@ def main():
                     model_allocator_path,
                     "run",
                     "--role", role["role_key"],
-                    "--client", allocator_client,
+                    "--client", harness_source,
                 ]
                 # Pass per-role max_output_tokens from DB
                 if role.get("max_output_tokens"):
@@ -478,7 +483,7 @@ def main():
         # Native harness (dsh, codex) — DPMtF builds the launch command itself,
         # because the model allocator has no client adapter for these harnesses.
         if model_source == "harness":
-            harness_key = allocator_client
+            harness_key = harness_source
             missing = harness.missing_env(harness_key)
             if missing:
                 print(f"  {role['role_key']:15s} → '{session_name}'")
