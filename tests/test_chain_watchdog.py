@@ -346,7 +346,14 @@ def test_missing_first_deliverable_reports_idle_not_a_stall(flow):
 # thinking.
 
 
-def test_fast_path_nudges_after_consecutive_idle_passes(flow):
+def test_fast_path_nudges_after_consecutive_idle_passes(flow, monkeypatch):
+    # Pin the pass threshold: IDLE_PASSES is machine-local configuration
+    # (profiles/machine.local.json), and this test must not change meaning
+    # when the operator tunes it — it did on 2026-08-21, when the host
+    # raised idle_passes 3 -> 10 after the fast path nudged a working
+    # Codex implementer, and this test silently went red.
+    import chain_watchdog as _cw
+    monkeypatch.setattr(_cw, "IDLE_PASSES", 3)
     flow.write(0, "21")
     flow.dispatch("supervisor_auto", "imple01", "21", age_minutes=3)
     flow.record_nudges()
