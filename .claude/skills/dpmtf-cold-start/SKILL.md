@@ -149,3 +149,5 @@ Some roles are given an explicit tool allowlist — a reviewer that can read
 and run commands but not write, for instance. That is governance the client
 enforces, not an oversight. If the handoff asks for something your tools
 cannot do, say so in the result instead of working around it.
+
+Flow startup contract: docs/governance-templates-v2/103_FLOW_STARTUP.md

@@ -503,3 +503,5 @@ still active. See the END-REPORT rule below. Backlog item 17.
 - **Append a ledger entry for every action taken after a cold start** — the
   ledger, not the session, is the run's memory.
 - **All communication in English (en-US)** except direct Human interaction.
+
+Flow startup contract: docs/governance-templates-v2/103_FLOW_STARTUP.md

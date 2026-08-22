@@ -151,3 +151,5 @@ how the flow is wired:
 - **NEVER start work if another role is active** (Rule 1 — NO parallel work).
 - **NEVER dispatch without updating current-cycle-cloud-llm.json first** (§4 save-state procedure).
 - **All communication in English (en-US)** except direct Human interaction.
+
+Flow startup contract: docs/governance-templates-v2/103_FLOW_STARTUP.md

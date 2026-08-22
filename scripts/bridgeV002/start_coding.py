@@ -302,6 +302,12 @@ def _compose_initial_supervisor_prompt(role, flow_key, project_root):
         f"`python3 scripts/bridgeV002/supervisor_state.py --flow {flow_key}` "
         f"and follow the {flow_key} cold-start skill and your governance file."
     )
+    flow_startup_path = os.path.join(
+        project_root, "docs", "governance-templates-v2", "103_FLOW_STARTUP.md"
+    )
+    parts.append(
+        f"The flow startup contract is {flow_startup_path}."
+    )
     parts.append(f"Target project: {project_root}.")
     return " ".join(parts)
 

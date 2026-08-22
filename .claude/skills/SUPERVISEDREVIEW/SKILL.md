@@ -197,3 +197,5 @@ unprocessed event found in Step 6, proceed per the 451 wake-up protocol).
 - **Append a ledger entry for every action taken after a cold start** — the
   ledger, not the session, is the run's memory.
 - **All communication in English (en-US)** except direct Human interaction.
+
+Flow startup contract: docs/governance-templates-v2/103_FLOW_STARTUP.md

@@ -245,3 +245,5 @@ Habits from `llama_SG` that are wrong in this flow:
 - **Append a ledger entry for every action** — the ledger, not the session, is
   the run's memory.
 - **All communication in English (en-US)** except direct Human interaction.
+
+Flow startup contract: docs/governance-templates-v2/103_FLOW_STARTUP.md
