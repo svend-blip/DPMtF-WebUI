@@ -255,7 +255,7 @@ async def compile_prompt(request: Request):
             governance_file = to_role_data.get("governance_file", "")
         else:
             target_session = "claude_implementer"
-            governance_file = "03_IMPLEMENTOR.md"
+            governance_file = "IMPLEMENTOR.md"
 
         # Read governance file content from disk
         gov_path = os.path.join(
@@ -383,16 +383,16 @@ async def compile_prompt(request: Request):
 
     # Map session to governance role
     if "implementer" in target_session.lower():
-        governance_role_file = "03_IMPLEMENTOR.md"
+        governance_role_file = "IMPLEMENTOR.md"
         role_name = "Implementor"
     elif "architect" in target_session.lower():
-        governance_role_file = "02_ARCHITECT.md"
+        governance_role_file = "ARCHITECT.md"
         role_name = "Architect"
     elif "review" in target_session.lower():
-        governance_role_file = "04_REVIEW.md"
+        governance_role_file = "REVIEW.md"
         role_name = "Review"
     else:
-        governance_role_file = "03_IMPLEMENTOR.md"
+        governance_role_file = "IMPLEMENTOR.md"
         role_name = "Implementor"
 
     # ── Determine deliverable path and signal command ─────
