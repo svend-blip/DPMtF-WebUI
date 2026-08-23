@@ -259,6 +259,195 @@ def save_state(state):
     STATE_PATH.write_text(json.dumps(state, indent=1))
 
 
+# ── Liveness by process activity (Spec #14, Run 019 D1) ─────────────
+#
+# The idle fast-path nudged a working Codex implementer 3 minutes after
+# dispatch (2026-08-21 incident): a harness session reads its handoff
+# and goes visually idle between commands, so pane idleness is NOT
+# evidence of a stalled receiver for harness roles. We measure liveness
+# by the HARNESS CHILD's CPU activity instead — anchored via the
+# flow_runtime_resources harness_process row, with a CPU-jiffies delta
+# (utime+stime from /proc/<pid>/stat) recorded per pass in the watchdog
+# state.
+#
+# This module is the D1 helper only; the fast-path consultation is D2
+# (handoff 073). The counter block around lines 741-762 is byte-identical
+# until then.
+
+def _read_proc_stat(pid):
+    """Read /proc/<pid>/stat. Returns the raw stat line, or None.
+
+    Isolated seam so tests can monkeypatch the /proc read without
+    spawning a process. The comm field (field 2) may contain spaces or
+    parens, so callers MUST split after the LAST ')'.
+    """
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read()
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return None
+
+
+def _parse_proc_stat(stat_line):
+    """Parse /proc/<pid>/stat into (state_char, jiffies).
+
+    The state char is the first token after the LAST ')' (the closing
+    paren of the comm field, which may contain spaces/parens). utime
+    is field 14 (1-indexed) and stime is field 15 — after ')':
+    tokens 11 and 12. Returns (None, None) on a malformed line.
+    """
+    if not stat_line:
+        return None, None
+    try:
+        rparen = stat_line.rindex(")")
+    except ValueError:
+        return None, None
+    rest = stat_line[rparen + 2:]  # skip ') '
+    fields = rest.split()
+    if len(fields) < 12:
+        return None, None
+    state_char = fields[0]
+    try:
+        utime = int(fields[11])
+        stime = int(fields[12])
+    except (ValueError, IndexError):
+        return None, None
+    return state_char, utime + stime
+
+
+def _resolve_role_session(to_role, db_path=None):
+    """Resolve a role_key to its tmux_session name via bridge_roles.
+
+    Returns the session name, or to_role as the fallback resource_id
+    when the role row cannot be read (missing table, role unknown,
+    etc.). Never raises — the caller treats a None / fallback the same.
+    """
+    try:
+        from bridge_lib import load_role_from_db
+        role = load_role_from_db(to_role, db_path=db_path)
+        sess = (role or {}).get("tmux_session") or ""
+        if sess:
+            return sess
+    except Exception:
+        pass
+    return to_role
+
+
+def _anchor_pid(flow_key, resource_id, db_path=None):
+    """Return the harness_process anchor pid for (flow_key, resource_id),
+    or None when no anchor row exists / the table is missing / the pid
+    column is NULL.
+    """
+    try:
+        import runtime_owner
+        rows = runtime_owner.list_for_flow(
+            flow_key, resource_type="harness_process",
+            db_path=db_path,
+        )
+    except Exception:
+        return None
+    for r in rows:
+        if r.get("resource_id") == resource_id:
+            return r.get("pid")
+    return None
+
+
+def receiver_process_active(flow_key, to_role, state):
+    """Return True when a harness-backed receiver's child process is live.
+
+    Process-activity liveness (Spec #14): a harness receiver counts as
+    ACTIVE when its anchored process shows activity since the previous
+    watchdog pass — either a CPU-jiffies delta (utime+stime) recorded
+    per pass in the watchdog state, or run-state R/D at observation time.
+    This is
+    the fix for the 2026-08-21 incident where the idle fast-path nudged
+    a working Codex implementer 3 minutes after dispatch (a harness
+    pane reads idle between commands).
+
+    Returns False when:
+      (a) no harness_process anchor is recorded for the role — the
+          caller MUST keep today's behavior for non-harness roles
+          (the helper is additive, not a replacement);
+      (b) the anchored pid is NULL or dead;
+      (c) the jiffies did not advance between passes AND the process
+          is not in R/D.
+
+    Tolerates a missing flow_runtime_resources table (fresh-checkout
+    DBs lack it) and any read-only probe failure: returns False, never
+    raises, never writes to the DB.
+
+    Args:
+        flow_key: the flow this pass is checking.
+        to_role: the receiver role_key (resolves to tmux_session via
+            bridge_roles; falls back to to_role as resource_id).
+        state: the in-memory watchdog state dict. Mutated IN PLACE to
+            record {pid, jiffies} for the next pass. Persistence is
+            the caller's job — the helper does NOT call save_state().
+
+    Returns:
+        True when the receiver's anchored process is active, False
+        otherwise.
+    """
+    db_path = _db_path()
+    session = _resolve_role_session(to_role, db_path=db_path)
+    pid = _anchor_pid(flow_key, session, db_path=db_path)
+    key = f"proc:{flow_key}:{to_role}"
+
+    if not pid:
+        # Non-harness role (no anchor recorded): leave the baseline
+        # untouched and report inactive. The caller (D2 fast-path)
+        # decides what to do with a False here.
+        return False
+
+    stat = _read_proc_stat(pid)
+    if stat is None:
+        # Dead pid at observation time. Drop the prior baseline so a
+        # relaunch of the same role starts fresh next pass.
+        state.pop(key, None)
+        return False
+
+    state_char, jiffies = _parse_proc_stat(stat)
+    if state_char is None or jiffies is None:
+        # Malformed /proc/<pid>/stat — treat as inactive, do not poison
+        # the baseline (a transient parse failure should not flip the
+        # active state to False for one cycle).
+        return False
+
+    # Run-state R/D → ACTIVE regardless of jiffies. These are the
+    # states where the kernel has the process on-CPU or in an
+    # uninterruptible syscall (often I/O wait); both are concrete
+    # evidence the receiver is doing work right now.
+    if state_char in ("R", "D"):
+        state[key] = {"pid": pid, "jiffies": jiffies}
+        return True
+
+    prior = state.get(key)
+    if not prior:
+        # First observation for this (flow, role): record the baseline
+        # and report ACTIVE so the fast-path doesn't nudge on a cold
+        # start. The next pass will measure delta against THIS value.
+        state[key] = {"pid": pid, "jiffies": jiffies}
+        return True
+
+    if prior.get("pid") != pid:
+        # Process restarted under the same role between passes. Treat
+        # as a fresh first-observation — record the new pid/jiffies
+        # and report ACTIVE.
+        state[key] = {"pid": pid, "jiffies": jiffies}
+        return True
+
+    # Same pid, baseline established: ACTIVE iff jiffies advanced.
+    if jiffies > prior.get("jiffies", 0):
+        state[key] = {"pid": pid, "jiffies": jiffies}
+        return True
+
+    # jiffies did not advance — the process is alive but idle at the
+    # CPU level. Update the baseline anyway so a subsequent advance
+    # compares against THIS observation, not a stale earlier one.
+    state[key] = {"pid": pid, "jiffies": jiffies}
+    return False
+
+
 def _notify(title, body):
     """Raise a desktop notification. Never let the absence of one matter.
 
@@ -747,6 +936,20 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
                 # that acknowledged the injection and stopped is caught in
                 # ~IDLE_PASSES minutes instead of twelve
                 # (preferred_cloud run 011).
+
+                # Harness-awareness (Spec #14 D2): the pane read idle this
+                # pass, but a harness receiver's child may still be
+                # burning CPU (jiffies advancing) or in run-state R/D.
+                # Consult the process-activity probe BEFORE counting an
+                # idle pass.
+                if receiver_process_active(flow_key, step["to_role"], state):
+                    state.pop(idle_key, None)
+                    if not dry_run:
+                        save_state(state)
+                    log(f"WATCH: {step['to_role']} pane idle but harness "
+                        f"child active — not an idle pass (run {run_id})")
+                    return "active"
+
                 n = state.get(idle_key, 0) + 1
                 state[idle_key] = n
                 if not dry_run:
