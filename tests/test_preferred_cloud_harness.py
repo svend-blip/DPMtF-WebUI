@@ -109,11 +109,11 @@ def test_steps_form_the_supervisor_chain(migrated_db):
 def test_harness_model_mappings(migrated_db):
     roles = _roles(migrated_db)
     assert roles["super-deep-deep4"]["allocator_client"] == "dsh"
-    assert roles["super-deep-deep4"]["default_model_source"] == "harness"
+    assert roles["super-deep-deep4"]["default_model_source"] == "harness_provider"
     assert roles["super-deep-deep4"]["default_model_alias"] == "deepseek-v4-pro"
 
     assert roles["imple-codex-minimaxM3"]["allocator_client"] == "codex"
-    assert roles["imple-codex-minimaxM3"]["default_model_source"] == "harness"
+    assert roles["imple-codex-minimaxM3"]["default_model_source"] == "harness_provider"
     assert roles["imple-codex-minimaxM3"]["default_model_alias"] == "MiniMax-M3"
 
     # Reviewer reuses the existing model allocator sonnet5 alias.

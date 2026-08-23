@@ -56,9 +56,9 @@ def test_migration_005_all_nonhuman_roles_use_allocator():
         if role_key in EXCLUDED_ROLES:
             continue
         if role_key in HARNESS_ROLES:
-            assert model_source == "harness", (
+            assert model_source in ("harness", "harness_provider"), (
                 f"Harness role '{role_key}' has model_source='{model_source}', "
-                f"expected 'harness'")
+                f"expected 'harness' or 'harness_provider'")
             assert model_alias, f"Harness role '{role_key}' has empty model_alias"
             continue
         assert model_source == "model_allocator", (

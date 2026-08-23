@@ -37,6 +37,12 @@ import runtime_owner  # noqa: E402
 
 # All roles use model_allocator — direct command_builder path removed.
 
+# Dual-acceptance (Run 021 §1 D1, GOAL.md Run 021): the native-launch branch
+# accepts BOTH legacy 'harness' and replacement 'harness_provider' model_source
+# values. The replacement value is bound before migration 070 flips the two
+# active roles. The legacy literal is kept for dead-value tolerance.
+HARNESS_MODEL_SOURCES = ("harness", "harness_provider")
+
 
 def get_flow_roles(db_path, flow_key):
     """Fetch all role data for active steps in a flow (both from_role and to_role).
@@ -488,7 +494,7 @@ def main():
 
         # Native harness (dsh, codex) — DPMtF builds the launch command itself,
         # because the model allocator has no client adapter for these harnesses.
-        if model_source == "harness":
+        if model_source in HARNESS_MODEL_SOURCES:
             harness_key = harness_source
             missing = harness.missing_env(harness_key)
             if missing:
@@ -569,7 +575,7 @@ def main():
         # If a role reaches here, it has an unknown model_source.
         print(f"  {role['role_key']:15s} → '{session_name}'")
         print(f"  ERROR: role has model_source='{model_source}' — "
-              f"expected 'model_allocator' or 'harness'")
+              f"expected 'model_allocator', 'harness', or 'harness_provider'")
         errors.append(role["role_key"])
 
     # Summary

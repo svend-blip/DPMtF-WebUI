@@ -156,7 +156,8 @@ def _resolve_model(step, role):
     "the alias is the format the source expects" and a step changing the
     format without changing the source would be incoherent.
 
-    model_source='harness' passes through UNCHANGED (legacy, GOAL.md
+    model_source='harness' and model_source='harness_provider' BOTH pass
+    through UNCHANGED (harness-backed sources, GOAL.md Run 021 §1 D1 +
     section 1 D2). The literal "inherit_from_role" is treated as unset
     (already handled by _is_set for both source and alias keys).
 

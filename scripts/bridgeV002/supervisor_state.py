@@ -330,11 +330,12 @@ def flow_uses_local_models(flow_key, db_path=None):
         conn.close()
     cloud = ("opus5", "sonnet5", "fable5", "cloud_minimax", "review-cloud",
              "archi-pay", "imple-pay", "company-knowledge", "openrouter-test")
-    # A 'harness' source (dsh, codex) talks to a hosted API, never a local
-    # model server, so it must not trigger the :8080 probe — same reason the
-    # cloud aliases are excluded. Legacy NULL source keeps the old behaviour.
+    # A harness-backed source ('harness' legacy, 'harness_provider' replacement;
+    # Run 021 §1 D1, GOAL.md Run 021) talks to a hosted API (dsh, codex), never a
+    # local model server, so it must not trigger the :8080 probe — same reason
+    # the cloud aliases are excluded. Legacy NULL source keeps the old behaviour.
     return any(
-        r[1] and (r[0] or "") != "harness" and r[1] not in cloud
+        r[1] and (r[0] or "") not in ("harness", "harness_provider") and r[1] not in cloud
         for r in rows
     )
 
