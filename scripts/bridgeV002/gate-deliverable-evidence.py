@@ -708,6 +708,14 @@ def handoff_mtime(bridge_dir, flow_key, handoff_id, gated_deliverable="",
                 # not re-touch is guaranteed to fail again, and the run
                 # escalates over a clock it set itself. run 024, handoff 073.
                 continue
+            if path.name.endswith("-notification.md"):
+                # Written by the signalling role itself at signal time, so it
+                # always postdates the work it announces. Counting it moves
+                # the step-start cutoff past every file the role created, and
+                # untracked files — which have only the mtime test — fail on
+                # every attempt. Same self-fulfilling clock as the rejection
+                # notice above. run 050, handoff 138.
+                continue
             if real == handoff_file and dispatched is not None:
                 # When this role was handed the work, per trace.log — not
                 # when the dispatcher last rewrote the file. See dispatch_time.
