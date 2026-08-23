@@ -99,7 +99,7 @@ def test_steps_form_the_supervisor_chain(migrated_db):
     ]
     # The evidence gate guards the two deliverable-carrying callbacks, as in
     # preferred_cloud (028).
-    assert steps[0]["pre_dispatch_script"] is None
+    assert steps[0]["pre_dispatch_script"] == "codex-context-release"
     assert steps[1]["pre_dispatch_script"] == "gate-deliverable-evidence"
     assert steps[2]["pre_dispatch_script"] == "gate-deliverable-evidence"
 

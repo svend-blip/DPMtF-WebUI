@@ -1839,6 +1839,52 @@ def execute_script_with_params(script_path, payload):
     return True
 
 
+def _run_pre_dispatch_scripts(pre_script_value, payload, bridge_dir=None):
+    """Run the chain's pre-dispatch scripts in listed order; abort on first failure.
+
+    The pre_dispatch_script column on bridge_flow_steps may hold a single
+    script key (today's contract) OR a comma-separated list of keys
+    (Run 018 Spec #13). The helper splits on commas, resolves each key,
+    runs them in listed order, and aborts on the first failure. A single
+    script behaves byte-identically to today's behavior:
+      * one resolve call
+      * one "Running pre-dispatch script: <path>" line
+      * one execute_script_with_params call
+      * the same "Pre-dispatch script failed -- aborting" message on failure
+
+    Returns (ok, ran_any):
+      ok == False iff a script FAILED (caller MUST abort).
+      ran_any == True iff at least one script actually executed (i.e.
+      at least one key resolved to a real path AND we got past the
+      resolve step). Callers that gate a downstream exists-check on
+      "did a pre-dispatch run" (signal_complete) MUST consult ran_any
+      so the check is byte-identical to today's "check runs only
+      after a resolved script actually executed".
+
+    An unregistered key (resolve returns None) is SKIPPED — neither
+    runs nor aborts. Today this is exactly the existing behavior at
+    both call sites (resolve returning None falls through, no print,
+    no abort). The chaining refactor preserves it for each list entry.
+    """
+    if not pre_script_value:
+        return True, False
+    keys = [k.strip() for k in pre_script_value.split(",") if k.strip()]
+    ran_any = False
+    for key in keys:
+        resolved_path = resolve_script_key(key, bridge_dir=bridge_dir)
+        if resolved_path is None:
+            # Unregistered key: SKIP (today's behavior — neither runs
+            # nor aborts). The split-then-strip guarantees we never
+            # downgrade a real-but-unregistered key into "".
+            continue
+        print(f"  Running pre-dispatch script: {resolved_path}")
+        ran_any = True
+        if not execute_script_with_params(resolved_path, payload):
+            print(f"  Pre-dispatch script failed -- aborting")
+            return False, True
+    return True, ran_any
+
+
 def session_alive(session_name):
     """Check if tmux session exists and is running. Instant yes/no, no wait."""
     result = subprocess.run(
@@ -1985,14 +2031,16 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         _stop_other_local_models(to_alias)
         _run_allocator_start(to_alias)
 
-    pre_script = target_step.get("pre_dispatch_script")
-    if pre_script:
-        resolved_path = resolve_script_key(pre_script, bridge_dir=bridge_dir)
-        if resolved_path:
-            print(f"  Running pre-dispatch script: {resolved_path}")
-            if not execute_script_with_params(resolved_path, payload):
-                print(f"  Pre-dispatch script failed -- aborting")
-                return False
+    # Pre-dispatch scripts: a single key (today) or comma-separated list
+    # (Run 018 Spec #13). Single value behaves byte-identically to
+    # today's inline resolve + execute + abort; a list runs in order,
+    # aborts on first failure. See _run_pre_dispatch_scripts for the
+    # contract.
+    ok, _ = _run_pre_dispatch_scripts(
+        target_step.get("pre_dispatch_script"), payload, bridge_dir=bridge_dir
+    )
+    if not ok:
+        return False
 
     # Auto-prepend missing XML sections + validate deliverable
     step_validation_required = target_step.get("validation_required", 0)
@@ -2424,39 +2472,42 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
     except Exception:
         pass
 
-    # Run pre_dispatch_script if configured (e.g. import before portfolio01)
-    pre_script = current_step.get("pre_dispatch_script")
-    if pre_script:
-        resolved_path = resolve_script_key(pre_script, bridge_dir=bridge_dir)
-        if resolved_path:
-            print(f"  Running pre-dispatch script: {resolved_path}")
-            if not execute_script_with_params(resolved_path, payload):
-                print(f"  Pre-dispatch script failed -- aborting")
-                # Aborting alone leaves the author believing it succeeded.
-                # Hand the refusal back so the chain can repair itself.
-                _handle_gate_rejection(payload, handoff_id, bridge_dir)
-                return False
-            # The pre-dispatch import moves the deliverable: to processed/
-            # (leaving a pending symlink) on success, to rejected/ on gate
-            # failure. A rejected deliverable MUST stop the chain — the
-            # next role would otherwise be dispatched with a dangling
-            # input reference and hang (observed: portfolio01, flows
-            # 061/062).
-            if not os.path.exists(full_deliverable_path):
-                print(
-                    f"  ERROR: Deliverable no longer resolves after "
-                    f"pre-dispatch script (rejected by import gates?): "
-                    f"{full_deliverable_path} — chain stopped before "
-                    f"{payload['to_role']}"
-                )
-                log(
-                    f"{payload['from_role']}->{payload['to_role']}",
-                    handoff_id,
-                    "signal_complete_failed",
-                    "Deliverable rejected by pre-dispatch import — "
-                    "chain stopped",
-                )
-                return False
+    # Run pre_dispatch_script if configured (e.g. import before portfolio01).
+    # Single key or comma-separated list (Run 018 Spec #13). The helper
+    # aborts on first failure (returned ok=False) and signals via ran_any
+    # whether any script actually executed — the deliverable-moved
+    # exists-check below is gated on ran_any to preserve today's
+    # byte-identical behavior (the check only runs when a script ran).
+    ok, ran_any = _run_pre_dispatch_scripts(
+        current_step.get("pre_dispatch_script"), payload, bridge_dir=bridge_dir
+    )
+    if not ok:
+        # Aborting alone leaves the author believing it succeeded.
+        # Hand the refusal back so the chain can repair itself.
+        _handle_gate_rejection(payload, handoff_id, bridge_dir)
+        return False
+    if ran_any:
+        # The pre-dispatch import moves the deliverable: to processed/
+        # (leaving a pending symlink) on success, to rejected/ on gate
+        # failure. A rejected deliverable MUST stop the chain — the
+        # next role would otherwise be dispatched with a dangling
+        # input reference and hang (observed: portfolio01, flows
+        # 061/062).
+        if not os.path.exists(full_deliverable_path):
+            print(
+                f"  ERROR: Deliverable no longer resolves after "
+                f"pre-dispatch script (rejected by import gates?): "
+                f"{full_deliverable_path} — chain stopped before "
+                f"{payload['to_role']}"
+            )
+            log(
+                f"{payload['from_role']}->{payload['to_role']}",
+                handoff_id,
+                "signal_complete_failed",
+                "Deliverable rejected by pre-dispatch import — "
+                "chain stopped",
+            )
+            return False
 
     # The deliverable survived the gate — now it is worth paying for the
     # GPU swap, and the target's model is up well before injection.
