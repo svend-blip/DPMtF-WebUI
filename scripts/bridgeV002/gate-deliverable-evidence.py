@@ -177,8 +177,27 @@ _DENIAL = re.compile(
 
 
 def _is_denial(line):
-    """True when the line says these files were NOT changed."""
-    return bool(_DENIAL.search(line))
+    """True when the line says these files were NOT changed.
+
+    Strips inline emphasis markup before matching the denial regex: a
+    denial whose negation is wrapped in emphasis markers (double-asterisk
+    bold, single-asterisk italic, underscore bold, underscore italic,
+    or backticks) is still a denial. The strip runs on a COPY of the
+    line used ONLY for the denial decision -- path extraction in
+    claimed_paths() sees the ORIGINAL line and is unaffected, so
+    underscores inside identifiers (e.g. test_qwen_adapter.py) survive
+    in the path-extraction pass.
+
+    D2 fix (run 023, handoff 089): the 085 shape was a denial line whose
+    NOT was wrapped in emphasis (a doubled asterisk before, another after).
+    The plain-text _DENIAL regex requires 'not' and its verb to be
+    ADJACENT, and the emphasis wrapping breaks that adjacency. After
+    emphasis stripping, that line reads as 'NOT touched' and the denial
+    regex matches exactly as it does for plain-text forms the gate has
+    always recognized.
+    """
+    stripped = re.sub(r"\*\*|\*|__|_|`", "", line)
+    return bool(_DENIAL.search(stripped))
 
 
 def claimed_paths(text):

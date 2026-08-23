@@ -243,3 +243,94 @@ def test_no_fence_candidate_nonexistent_stays_non_claim(
         f"bare 'config.py' naming no existing file must stay a "
         f"non-claim ((None, None)); got {result!r}"
     )
+
+
+# ── D2 denial-extraction fixtures ─────────────────────────────────────
+#
+# The 085 defect was a claim-EXTRACTION defect: an "only"-scoped
+# affirmative line and a markup-hidden negation on the same Files Changed
+# section were both read as claims — `_DENIAL` requires "not" and its verb
+# to be ADJACENT, and the `**` in `**NOT**` breaks that adjacency. The
+# fix is to strip inline emphasis markup (`*`, `_`, backticks) before
+# matching `_DENIAL`, on a copy used ONLY for the denial decision.
+#
+# Every test NAME below contains the substring `denial` — that is TG2's
+# `-k` filter contract; no matching name = pytest exit 5 = red.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_markup_hidden_negation_denial_yields_exactly_one_claim():
+    """**NOT** between two emphasis markers must be read as a denial.
+
+    The 085 shape: an "only"-scoped affirmative ("ONE file ... — X only")
+    followed by a denial line whose path list is wrapped in backticks and
+    whose negation is wrapped in double asterisks (`**NOT**`). Before the
+    D2 fix, `_is_denial()` missed `**NOT**` because the regex requires
+    `not` and its verb to be ADJACENT, and the `**` breaks that
+    adjacency. The denial line's first path then leaked as a claim.
+
+    After the D2 fix, the markup-stripped denial line is a denial in
+    exactly the way its plain-text form already is, so `claimed_paths`
+    returns ONLY the affirmative's path.
+    """
+    text = (
+        "## Files Changed\n"
+        "\n"
+        "- ONE file in the target repo was modified — "
+        "/abs/config.py only.\n"
+        "- Everything else "
+        "(`/abs/adapter.py`, `/abs/definition.py`, "
+        "`/abs/capabilities.py`, `/abs/test_qwen_adapter.py`) "
+        "was **NOT** touched.\n"
+    )
+
+    result = gate.claimed_paths(text)
+
+    assert result == ["/abs/config.py"], (
+        f"markup-hidden **NOT** must be read as a denial, so the denial "
+        f"line contributes zero paths; the affirmative contributes "
+        f"exactly /abs/config.py. Got {result!r}"
+    )
+
+
+def test_only_scoped_affirmative_denial_claims_exactly_its_file():
+    """An 'only'-scoped affirmative still claims exactly its file.
+
+    Pin: a line like 'ONE file was modified — /abs/foo.py only.' must
+    yield `['/abs/foo.py']` and nothing else. The D2 fix must not turn
+    this into zero or multiple claims.
+    """
+    text = (
+        "## Files Changed\n"
+        "\n"
+        "- ONE file was modified — /abs/foo.py only.\n"
+    )
+
+    result = gate.claimed_paths(text)
+
+    assert result == ["/abs/foo.py"], (
+        f"only-scoped affirmative must claim exactly its file; got "
+        f"{result!r}"
+    )
+
+
+def test_plain_text_denial_still_claims_nothing():
+    """Plain-text denial (no markup) still claims nothing.
+
+    Regression guard: a line like '`a.py`, `b.py` are untouched.' must
+    yield `[]`. The D2 markup-stripping must not weaken the already-
+    working plain-text denial path — past run 006 paid for a fix that
+    lost this property.
+    """
+    text = (
+        "## Files Changed\n"
+        "\n"
+        "- `a.py`, `b.py` are untouched.\n"
+    )
+
+    result = gate.claimed_paths(text)
+
+    assert result == [], (
+        f"plain-text denial 'untouched' must yield zero claims; got "
+        f"{result!r}"
+    )
