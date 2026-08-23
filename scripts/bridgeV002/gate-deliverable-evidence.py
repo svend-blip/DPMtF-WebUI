@@ -260,12 +260,38 @@ def claimed_paths(text):
     return found
 
 
+# Sentinel for an unresolved bare-name claim: the bare name matches
+# multiple fence candidates (ambiguous), or a same-named file exists
+# outside the fence (foreign-repo shape). The rejection text must name
+# the candidate set so the implementer can resolve the ambiguity — an
+# actionable refusal. The D1 fix (run 023) introduces this; before,
+# locate() silently picked whichever repo happened to sort first,
+# turning the gate's own ambiguity into a scope-breach accusation
+# (the exact 085 misresolution).
+class _UnresolvedSentinel:
+    def __repr__(self):
+        return "<UNRESOLVED>"
+
+
+UNRESOLVED = _UnresolvedSentinel()
 def locate(path_claim, roots, prefer=None):
     """Resolve a claimed path to (repo_root, relative_path) if it exists.
 
     `prefer` is the set of absolute paths the handoff's scope fence allows.
     It only breaks ties for ambiguous relative names; it never invents a
     match that does not exist on disk.
+
+    For a BARE claim (no "/" in it) and a non-empty `prefer`, the gate
+    matches the claim's BASENAME against `prefer` BEFORE the cross-root
+    fallback (the D1 fix from run 023 — the 085 misresolution): a bare
+    name that lives in a SUBDIRECTORY of the fence repo (e.g.
+    `harness_allocator/config.py` inside `harness-allocator/`) must
+    resolve into the fence repo, not silently fall back to a same-named
+    root file in a foreign repo. A unique basename match in `prefer`
+    resolves THERE; multiple matches → UNRESOLVED (with the candidate
+    set, so the rejection text is actionable); no match → fall through
+    to today's logic with the foreign-repo fallback downgraded to
+    UNRESOLVED (so the gate never silently picks a foreign-repo file).
 
     Order matters. A claim often carries the repo name as its first segment
     ("model-allocator/README.md"), and several repos hold files with the
@@ -289,7 +315,28 @@ def locate(path_claim, roots, prefer=None):
                 full = os.path.join(root, remainder)
                 return (root, remainder) if os.path.exists(full) else (None, None)
 
-    # 2. Path as given, relative to each repo. When the name is ambiguous —
+    is_bare = "/" not in path_claim
+
+    # 2. Bare-name basename match against the scope fence (D1 fix).
+    #    A bare claim's basename is matched against `prefer` BEFORE the
+    #    cross-root fallback. Unique match → resolve into the fence
+    #    (preserving its subdirectory). Multiple matches → UNRESOLVED.
+    if prefer and is_bare:
+        basename = os.path.basename(path_claim)
+        fence_matches = [p for p in prefer if os.path.basename(p) == basename]
+        if len(fence_matches) == 1:
+            full = fence_matches[0]
+            fence_root = next(
+                (r for r in roots
+                 if full.startswith(r.rstrip("/") + "/")),
+                None,
+            )
+            if fence_root is not None:
+                return fence_root, os.path.relpath(full, fence_root)
+        if len(fence_matches) > 1:
+            return (UNRESOLVED, sorted(fence_matches))
+
+    # 3. Path as given, relative to each repo. When the name is ambiguous —
     #    every repo here has a README.md, a config.py, a tests/ — let the
     #    scope fence break the tie. A report that writes the bare name means
     #    the file the handoff asked about, and resolving to whichever repo
@@ -300,10 +347,31 @@ def locate(path_claim, roots, prefer=None):
             full = os.path.join(root, path_claim)
             if os.path.exists(full) and full in prefer:
                 return root, path_claim
-    for root in roots:
-        full = os.path.join(root, path_claim)
-        if os.path.exists(full):
-            return root, path_claim
+
+    # 4. Cross-root fallback. When `prefer` is empty/None, today's behavior
+    #    is preserved: silently pick the first repo whose root has the
+    #    bare-name file. When `prefer` is non-empty AND no fence candidate
+    #    matched, a foreign-repo match is reported as UNRESOLVED rather
+    #    than silently picked (the 085 pathology). A bare claim naming NO
+    #    existing file anywhere stays (None, None) — today's behavior,
+    #    protected by the nothing-that-passes-today-may-start-failing rule.
+    if not prefer:
+        for root in roots:
+            full = os.path.join(root, path_claim)
+            if os.path.exists(full):
+                return root, path_claim
+        return (None, None)
+
+    # prefer is non-empty and bare: collect foreign-repo matches as
+    # UNRESOLVED candidates; report them in the rejection text.
+    if is_bare:
+        foreign = sorted(
+            os.path.join(root, path_claim)
+            for root in roots
+            if os.path.exists(os.path.join(root, path_claim))
+        )
+        if foreign:
+            return (UNRESOLVED, foreign)
 
     # Deliberately no third attempt. Stripping a leading directory that
     # named no known repository and searching every root again is guesswork:
@@ -821,9 +889,18 @@ def main():
 
     unchanged = []
     out_of_scope = []
+    unresolved = []
     checked = 0
     for claim in claimed_paths(text):
-        root, rel = locate(claim, roots, prefer=allowed)
+        result = locate(claim, roots, prefer=allowed)
+        # UNRESOLVED (D1 fix — run 023): the bare-name basename matched
+        # multiple fence candidates, or a foreign-repo file matched when
+        # the fence had no candidate. Report as an actionable refusal
+        # naming the candidate set, not silently skip.
+        if isinstance(result, tuple) and len(result) == 2                 and result[0] is UNRESOLVED:
+            unresolved.append((claim, result[1]))
+            continue
+        root, rel = result
         if root is None:
             continue          # not a real path in any repo — not a file claim
         checked += 1
@@ -874,6 +951,17 @@ def main():
     else:
         undeclared = []
 
+    if unresolved:
+        # Actionable refusal (D1 fix — run 023): name the claim and its
+        # candidate set so the implementer can resolve the ambiguity.
+        details = "; ".join(
+            f"{claim!r} matches {candidates!r}"
+            for claim, candidates in unresolved
+        )
+        problems.append(
+            f"{len(unresolved)} claimed file(s) are unresolved (bare-name "
+            f"ambiguity — no fence candidate or multiple fence candidates): "
+            f"{details}")
     if unchanged:
         problems.append(
             f"{len(unchanged)} of {checked} claimed file(s) show no change "
