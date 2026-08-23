@@ -3459,7 +3459,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         repo = JobRepository()
         # Extract a short goal from the handoff's <task> block. The previous
         # "first non-XML line" heuristic grabbed continuation lines of
-        # multi-line tags (e.g. "Read 402_...md before proceeding.</role>")
+        # multi-line tags (e.g. "Read IMPLEMENTOR.md before proceeding.</role>")
         # and polluted the job records.
         goal_text = f"Handoff {handoff_id}: {from_role_key} -> {to_role_key}"
         try:

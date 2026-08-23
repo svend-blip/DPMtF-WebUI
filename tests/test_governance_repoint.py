@@ -594,12 +594,14 @@ class Test_file_exists:
     def test_file_exists_helper_reports_present_for_4xx_originals(
         self, original,
     ):
-        """The six absorbed originals are still on disk as the role-level
-        fallback pointers. The helper must report them present."""
+        """Post Phase-5 (Run 017): the six absorbed originals were
+        RETIRED via git rm (D3). The helper must report them absent
+        on disk now (the role-level repoint in migration 068 moved
+        bridge_roles.governance_file to its generic equivalent)."""
         exists, path = governance_file_exists(original, REPO_ROOT)
-        assert exists is True, (
-            f"absorbed original {original} must still be on disk "
-            f"(bridge_roles.governance_file points at it); path={path}"
+        assert exists is False, (
+            f"retired absorbed original {original} must NOT be on disk "
+            f"after Run 017 D3 git rm; path={path}"
         )
 
     def test_file_exists_helper_reports_missing_for_unknown_name(self):

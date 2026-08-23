@@ -59,11 +59,9 @@ ALLOWED_LINES = {
     "12_CODING_STANDARD.md": {
         'handoff_path = f"/home/svend/flows/strict_review/handoffs/{hid}-handoff.md"',
     },
-    # What handoff 006 actually said. Rewriting it would break the anecdote
-    # that justifies the rule it introduces.
-    "461_LLAMA_SG_SUPERVISOR.md": {
-        "`/home/svend/model-allocator/README.md` in all three declaration blocks and",
-    },
+    # What handoff 006 actually said. The 461_LLAMA_SG_SUPERVISOR.md
+    # file is RETIRED by Run 017 D3 (git rm); the entry is removed from
+    # ALLOWED_LINES so test_allowlist_has_no_stale_entries stays clean.
     # The worked example of a testgoals block, showing run 008's real
     # criterion. That run's TG2 existed precisely to stop a blanket
     # search-and-replace from destroying .env.example's "# Example:" lines,

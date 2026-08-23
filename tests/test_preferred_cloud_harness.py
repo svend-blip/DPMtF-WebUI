@@ -440,18 +440,45 @@ def test_cold_start_skill_resolves():
 
 
 def test_governance_files_resolve():
+    """Post Phase-5 (Run 017): the three harness-bound absorbed
+    originals (511/512/513) were RETIRED via git rm (D3). The role-
+    level repoint in migration 068 moved bridge_roles.governance_file
+    to the three generic equivalents, which now exist as the live
+    role-level fallback chain. This test asserts the post-D3 invariant:
+
+    * 511/512/513 are ABSENT on disk (retired).
+    * The three generic equivalents (SUPERVISOR_AUTONOMOUS.md,
+      IMPLEMENTOR.md, REVIEW.md) are PRESENT on disk.
+    * Each generic file declares the role category it governs
+      ("Autonomous Supervisor" / "Implementer" / "Review layer").
+      The literal harness role keys (super-deep-deep4, etc.) are NOT
+      in the generic files -- the generic files use {implementor_role_key}
+      placeholders and category-level prose by design (Run 017 §3
+      scope: no generic file is edited)."""
     gov = PROJECT_ROOT / "docs" / "governance-templates-v2"
+    retired = (
+        "511_PREFERRED_CLOUD_HARNESS_SUPERVISOR.md",
+        "512_PREFERRED_CLOUD_HARNESS_IMPLE01.md",
+        "513_PREFERRED_CLOUD_HARNESS_REVIEW01.md",
+    )
+    for filename in retired:
+        path = gov / filename
+        assert not path.exists(), (
+            f"retired {filename} must NOT be on disk after Run 017 D3"
+        )
     expected = {
-        "511_PREFERRED_CLOUD_HARNESS_SUPERVISOR.md": "super-deep-deep4",
-        "512_PREFERRED_CLOUD_HARNESS_IMPLE01.md": "imple-codex-minimaxM3",
-        "513_PREFERRED_CLOUD_HARNESS_REVIEW01.md": "review-claude-sonnet5",
+        "SUPERVISOR_AUTONOMOUS.md": "Autonomous Supervisor",
+        "IMPLEMENTOR.md": "Implementer",
+        "REVIEW.md": "Review layer",
     }
-    for filename, role in expected.items():
+    for filename, category_marker in expected.items():
         path = gov / filename
         assert path.exists(), filename
         text = path.read_text(encoding="utf-8")
-        assert role in text
-        assert "preferred_cloud_harness" in text
+        assert category_marker in text, (
+            f"{filename} must contain the role-category marker "
+            f"{category_marker!r} (its generic role identity)"
+        )
 
 
 def test_governance_references_governance_files_from_db(migrated_db):

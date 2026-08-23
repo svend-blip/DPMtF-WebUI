@@ -609,16 +609,37 @@ class Test_file_exists:
         assert path is None
 
     def test_file_exists_role_level_fallbacks_still_present(self):
-        """The six role-level fallback files (4xx/5xx originals) are
-        still on disk -- the 066 migration did NOT delete them; they
-        remain as the role-level fallback chain."""
+        """Post Phase-5 (Run 017): the six role-level fallback files
+        (4xx/5xx originals) are RETIRED -- Run 017 D3 git rm deleted
+        them. The role-level fallback chain now lives at the generic
+        equivalents (SUPERVISOR_AUTONOMOUS.md, IMPLEMENTOR.md,
+        REVIEW.md, etc.) repointed by migration 068.
+
+        This test asserts the post-D3 invariant: the six originals in
+        _ROLE_LEVEL_FALLBACK_FILES must be MISSING on disk, AND the
+        seven generic equivalents must be PRESENT."""
         for original in _ROLE_LEVEL_FALLBACK_FILES:
             exists, path = governance_file_exists(original, REPO_ROOT)
+            assert not exists, (
+                f"retired role-level fallback {original!r} must NOT be "
+                f"on disk after Run 017 D3 git rm; looked under {path}"
+            )
+        # The seven generic equivalents must still exist.
+        generic_equivalents = (
+            "SUPERVISOR_AUTONOMOUS.md",
+            "IMPLEMENTOR.md",
+            "REVIEW.md",
+            "ARCHITECT.md",
+            "HUMAN.md",
+            "TECHNICAL_REVIEW.md",
+            "GOVERNANCE_REVIEW.md",
+        )
+        for generic in generic_equivalents:
+            exists, path = governance_file_exists(generic, REPO_ROOT)
             assert exists, (
-                f"role-level fallback {original!r} missing on disk; "
-                f"the 066 migration must NOT delete the originals "
-                f"(bridge_roles.governance_file still points at them). "
-                f"Looked under {path}"
+                f"generic equivalent {generic} must exist on disk "
+                f"(the role-level fallback chain moved here after "
+                f"migration 068); looked under {path}"
             )
 
     def test_file_exists_helper_is_deterministic(self, tmp_path):

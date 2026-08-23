@@ -150,7 +150,7 @@ def test_load_role_from_db_happy_path_returns_dict_with_keys(temp_db):
     # Assert specific values
     assert role["role_key"] == "archi01"
     assert role["tmux_session"] == "archi01"
-    assert role["governance_file"] == "402_STRICT_REVIEW_ARCHI01.md"
+    assert role["governance_file"] == "ARCHITECT.md"
     assert role["role_type"] == "agent"
 
 

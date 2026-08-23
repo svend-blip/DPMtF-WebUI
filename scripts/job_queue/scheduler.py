@@ -812,7 +812,7 @@ class Scheduler:
                 print(f"  Warning: {target_role} session '{tmux_session}' not alive, cannot wake up on stall")
                 return
 
-            governance = supervisor_role.get("governance_file", "451_SUPERVISED_REVIEW_SUPERVISOR.md")
+            governance = supervisor_role.get("governance_file", "SUPERVISOR_AUTONOMOUS.md")
             prompt_text = (
                 f"Wake-up event: STALL.\n"
                 f"The scheduler exhausted the nudge budget for step "
