@@ -162,6 +162,43 @@ Every wake-up follows the same procedure — no exceptions:
    them. A handoff whose diff deletes tests is rejected at planning
    time.
 
+## Scratch Files — Write Them In The Run Directory
+
+Drafts, staging copies and any other working file you produce belong
+**inside the active run directory**
+(`{bridge_dir}/{flow_key}/runs/{run_id}/`), never in the root of a
+project checkout — not even briefly, and not even hidden behind a
+leading dot.
+
+The reason is that testgoals measure working trees. A preservation
+invariant that asks "did anything unexplained appear in this
+repository?" cannot tell your `.tmp-` draft from a scope-fence breach,
+and it should not have to.
+
+This has happened. On 2026-08-24 a supervisor staged its next handoff
+as `/home/svend/DPMtF-WebUI/.tmp-102-handoff.md` and its backlog as
+`.tmp-102-backlog.md`, one minute before a **different flow's**
+supervisor ran its own checker. That checker's TG18 counts unexplained
+entries in the Father working tree — `check_testgoals.py` defaults its
+cwd to `config.get_project_root()`, so its `git status` is the Father
+repository no matter which project the run targets. A closed, correct
+run read 17/18 instead of 18/18, and the supervisor spent a cycle
+proving the red belonged to somebody else's staging file.
+
+Nothing was wrong with the draft, and nothing was lost — the author
+cleaned up within the hour. The cost was entirely in a neighbouring
+run having to diagnose it.
+
+So:
+
+- Write scratch under the run directory, where it is inert.
+- If a file genuinely must exist at a repository root, say so in the
+  Run Ledger while it is there, so the next reader is not the one who
+  has to work it out.
+- **Never delete another flow's scratch to make your own check
+  green.** Diagnose it, name it in the ledger, and leave it alone. It
+  belongs to a run that is very likely still using it.
+
 ## Writing A Handoff — Absolute Paths in Every Instruction
 
 **Every path you write in a task step must be absolute.** Declaring it
