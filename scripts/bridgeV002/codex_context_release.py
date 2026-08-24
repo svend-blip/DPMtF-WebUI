@@ -229,6 +229,28 @@ def relaunch_in_session(session_name, role_config, db_path=None,
     )
     if has_session.returncode != 0:
         return False, "no-session"
+    # Run 024 / D2 path B: export CODEX_PROFILE from the resolved
+    # harness_profile BEFORE build_launch reads it. The harness seam
+    # exports the env itself for the in-process path (start_coding's
+    # native-launch codex branch already calls _apply_codex_profile_env
+    # inside _codex_command), but relaunch goes through ``_build_launch``
+    # which is injectable — the injection point bypasses the seam's
+    # in-process env handling. Doing it here keeps the contract
+    # uniform: env is set before the launch command is materialised,
+    # regardless of which entry point materialises it.
+    # Mirror harness._profile_from_role so both paths resolve the
+    # role's profile identically. Empty / absent profile UNSETS the
+    # env (no stale profile leaks into the new codex).
+    profile_raw = ""
+    if isinstance(role_config, dict):
+        profile_raw = role_config.get("harness_profile")
+        if profile_raw is None or profile_raw == "":
+            profile_raw = role_config.get("default_harness_profile")
+    profile = (profile_raw or "").strip()
+    if profile:
+        os.environ["CODEX_PROFILE"] = profile
+    else:
+        os.environ.pop("CODEX_PROFILE", None)
     cmd_str = build_launch("codex", role_config)
     return send_keys(session_name, cmd_str)
 

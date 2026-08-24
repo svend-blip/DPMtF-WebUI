@@ -184,6 +184,7 @@ def build_runtime_context(resolved):
         f"{base}"
         f"\n- model_source: {_r(resolved['model_source'])}"
         f"\n- harness_source: {_r(resolved['harness_source'])}"
+        f"\n- harness_profile: {_r(resolved.get('harness_profile'))}"
         f"\n- autonomous: {autonomous}\n\n"
     )
 

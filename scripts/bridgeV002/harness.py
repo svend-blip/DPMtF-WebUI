@@ -199,6 +199,118 @@ def build_task_invocation(harness, role_config, task, cfg=None):
     return " ".join(shlex.quote(part) for part in argv)
 
 
+def _profile_from_role(role_config):
+    """The resolved ``harness_profile`` for a role (or ``""`` when absent).
+
+    The role mapping may carry the key as ``harness_profile`` (D2b's
+    ``get_flow_roles`` shape) or as ``default_harness_profile`` (the
+    ``load_role_from_db`` shape used by ``relaunch_in_session``). Both
+    forms are accepted here so callers do not have to normalise.
+    Strips whitespace and returns the empty string on any falsy value —
+    the empty string is the "today's behaviour" sentinel for the
+    standalone adapter.
+    """
+    if not isinstance(role_config, dict):
+        return ""
+    raw = role_config.get("harness_profile")
+    if raw is None or raw == "":
+        raw = role_config.get("default_harness_profile")
+    return (raw or "").strip()
+
+
+def _apply_codex_profile_env(profile):
+    """Export ``CODEX_PROFILE`` when ``profile`` is non-empty; pop it when empty.
+
+    The D1 adapter (harness-allocator) reads the profile through its
+    config module, which checks ``CODEX_PROFILE`` from the env first.
+    Setting it here makes DPMtF's launch path observable to the adapter
+    without DPMtF ever editing its own config.py.
+
+    The contract is asymmetric: a non-empty profile is exported (and
+    left set — the role is mid-launch, the env should reflect the
+    resolved profile); an empty / absent profile is UNSET (the env var
+    MUST NOT carry over from a previous launch — that would silently
+    activate a stale profile on a profile-less role).
+
+    Returns the profile string for caller convenience.
+    """
+    if profile:
+        os.environ["CODEX_PROFILE"] = profile
+    else:
+        os.environ.pop("CODEX_PROFILE", None)
+    return profile
+
+
+class _ProfileAwareCfg:
+    """Wraps a DPMtF config with the profile getters the D1 adapter reads.
+
+    Run 024 / D2: the standalone adapter's ``_codex_argv`` reads the
+    profile via ``getattr(cfg, "get_codex_profile", lambda: "")()``.
+    DPMtF's ``config`` module has no ``get_codex_profile``; left bare,
+    the adapter's ``getattr`` falls through to the empty-string lambda
+    and the profile is silently ignored.
+
+    This wrapper forwards every other attribute to the wrapped config
+    (so today's add-dirs, sandbox, workdir, etc. all keep resolving
+    from the real DPMtF values), and exposes the three profile getters
+    the adapter calls. The profile getters read from the env, NOT from
+    the DPMtF config — the contract is "DPMtF exports CODEX_PROFILE,
+    the adapter reads it"; the values live where D2 set them, not
+    where some other module might shadow them.
+
+    The gpu sandbox / add-dirs getters carry the DPMtF-side defaults
+    (``danger-full-access`` / ``[]``) when no override env is set.
+    config.py is OUT OF SCOPE and is never edited here — defaults are
+    inlined below because the run-024 §3 fence forbids touching
+    config.py.
+    """
+    def __init__(self, base_cfg):
+        # __getattr__ runs only on MISSING attributes, so the attributes
+        # we set explicitly below take precedence. Setting them to
+        # None here is fine — __getattr__ will not be consulted.
+        object.__setattr__(self, "_base", base_cfg)
+
+    def __getattr__(self, name):
+        # Forward every other attribute to the real DPMtF config.
+        return getattr(self._base, name)
+
+    def get_codex_profile(self):
+        """Env ``CODEX_PROFILE`` (set by D2 right before this call).
+
+        Strips whitespace and returns ``""`` when absent — the
+        standalone adapter treats empty profile as "today's behaviour".
+        """
+        env = os.environ.get("CODEX_PROFILE")
+        if env is None:
+            return ""
+        return env.strip()
+
+    def get_codex_profile_gpu_sandbox(self):
+        """Override channel for the gpu sandbox mode (DPMtF default: ``danger-full-access``).
+
+        Reads ``CODEX_PROFILE_GPU_SANDBOX`` from the env when set, else
+        returns the DPMtF-side default. config.py is out of scope, so
+        the default is inlined.
+        """
+        env = os.environ.get("CODEX_PROFILE_GPU_SANDBOX")
+        if env is not None and env.strip():
+            return env.strip()
+        return "danger-full-access"
+
+    def get_codex_profile_gpu_add_dirs(self):
+        """Override channel for the gpu add-dirs (DPMtF default: ``[]``).
+
+        Reads ``CODEX_PROFILE_GPU_ADD_DIRS`` from the env when set
+        (colon- or comma-separated), else returns the DPMtF-side
+        default of an empty list. config.py is out of scope, so the
+        default is inlined.
+        """
+        raw = os.environ.get("CODEX_PROFILE_GPU_ADD_DIRS")
+        if raw is None or not raw.strip():
+            return []
+        return [p.strip() for p in raw.replace(",", ":").split(":") if p.strip()]
+
+
 def _codex_command(role_config, cfg):
     """`codex -m <model>` — model selected explicitly, provider from user config.
 
@@ -209,12 +321,27 @@ def _codex_command(role_config, cfg):
 
     Implementation: delegates to the standalone ``build_launch_argv('codex', ...)``
     so the argv shape and the shell-quoted string stay in sync.
+
+    Run 024 / D2: the resolved ``harness_profile`` from ``role_config`` is
+    exported as ``CODEX_PROFILE`` in the launch environment BEFORE the
+    adapter renders the argv. NULL / empty profile unsets the env var, so
+    today's launch is byte-identical. The adapter sees the profile
+    through a ``_ProfileAwareCfg`` wrapper around the DPMtF config so the
+    profile getters resolve from the env without editing config.py.
     """
+    profile = _profile_from_role(role_config)
+    _apply_codex_profile_env(profile)
     ha = _standalone()
+    # ALWAYS wrap so the adapter's ``getattr(cfg, "get_codex_profile")``
+    # call returns the env-driven value rather than falling through to
+    # the empty-string lambda. When profile is empty the wrapper still
+    # reads "" from the env (the env is unset) and the profile-less
+    # argv path is byte-identical to today.
+    effective_cfg = _ProfileAwareCfg(cfg if cfg is not None else config)
     argv = ha.build_launch_argv(
         "codex",
         model_target=_model_target_from_role(role_config),
-        cfg=cfg,
+        cfg=effective_cfg,
     )
     return " ".join(shlex.quote(part) for part in argv)
 

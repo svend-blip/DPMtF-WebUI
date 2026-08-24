@@ -57,12 +57,16 @@ LAUNCH_FIXTURES: Dict[str, Dict[str, str]] = {
     },
     "codex": {
         "role_key": "imple-codex-minimaxM3",
+        # Run 024 (migration 071): the role's harness_profile is 'gpu',
+        # so the derived launch carries the gpu sandbox. The fixture
+        # pins the NEW reality; the old pin (workspace-write,
+        # f818d760…) died with the 087 privilege inversion.
         "command": (
             "codex -m MiniMax-M3 --add-dir /home/svend/flows "
             "--add-dir {PROJECT_ROOT} --add-dir /tmp "
-            "--sandbox workspace-write --ask-for-approval never"
+            "--sandbox danger-full-access --ask-for-approval never"
         ),
-        "command_md5": "f818d760895d310d3ee8b01b7f1cbb6c",
+        "command_md5": "0126450cc17e9a3f4a618fba019cac97",
     },
     "dsh": {
         "role_key": "super-deep-deep4",

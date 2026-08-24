@@ -59,14 +59,19 @@ def get_flow_roles(db_path, flow_key):
     conn.row_factory = sqlite3.Row
 
     # Fetch from_role entries. Human roles never run a coding frontend.
+    # D2b / run 024: removed the legacy ``r.allocator_client # deprecated: ...``
+    # comment — sqlite rejects ``#`` inside SQL strings ("unrecognized token: '#'").
+    # The ``--`` comment lines already inside the SQL are VALID sqlite comments and
+    # remain (and are now used to tag the SELECT column below as a fallback mirror).
     from_rows = conn.execute(
         """
         SELECT r.role_key, r.tmux_session,
                r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
-               r.allocator_client,  # deprecated: fallback mirror of default_harness_source
+               r.allocator_client,  -- fallback mirror (deprecated): D2b keeps it as the second COALESCE operand
                r.default_harness_source,
+               r.default_harness_profile,
                r.workdir_mode,
                s.sort_order
         FROM bridge_flow_steps s
@@ -87,8 +92,9 @@ def get_flow_roles(db_path, flow_key):
                r.default_model_source, r.default_model_alias,
                r.max_output_tokens,
                r.config_dir,
-               r.allocator_client,  # deprecated: fallback mirror of default_harness_source
+               r.allocator_client,  -- fallback mirror (deprecated): D2b keeps it as the second COALESCE operand
                r.default_harness_source,
+               r.default_harness_profile,
                r.workdir_mode,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
@@ -121,7 +127,8 @@ def get_flow_roles(db_path, flow_key):
                 "default_model_alias": row["default_model_alias"],
                 "max_output_tokens": row["max_output_tokens"],
                 "config_dir": row["config_dir"],
-                "harness_source": (row["default_harness_source"] or row["allocator_client"] or "opencode"),  # allocator_client kept as fallback mirror
+                "harness_source": (row["default_harness_source"] or row["allocator_client"] or "opencode"),  # allocator_client kept as fallback mirror (deprecated)
+                "harness_profile": (row["default_harness_profile"] or ""),
                 "workdir_mode": row["workdir_mode"] or "target_project",
             })
 
