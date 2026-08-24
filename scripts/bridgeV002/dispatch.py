@@ -3495,6 +3495,17 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # Ensure deliverable subdirectory exists (for symlink)
     ensure_subdir(bridge_dir, deliverable_dir)
 
+    # Run the step's pre_dispatch_script (e.g. codex_context_release) before
+    # any job-record / lease / injection work — same 4-line pattern the two
+    # existing sites (run_flow_step_db at line ~2040, signal_complete at line
+    # ~2482) use. A failure aborts the send BEFORE inject_prompt (Step 8) and
+    # BEFORE the "dispatched" log event.
+    ok, _ = _run_pre_dispatch_scripts(
+        target_step.get("pre_dispatch_script"), payload, bridge_dir=bridge_dir
+    )
+    if not ok:
+        return False
+
     # Step 4: Resolve model source + alias (needed for job record + lease)
     to_source, to_alias = get_effective_model_source(
         to_role_data["role_key"],
