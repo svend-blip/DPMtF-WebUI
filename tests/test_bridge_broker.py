@@ -323,7 +323,7 @@ def _fake_completed(_row):
 
 
 def _fake_failed_error(_row):
-    return (1, "ERROR: target session 'foo' is not running\n")
+    return (1, "ERROR: dispatch subprocess crashed\n")
 
 
 def _seed(conn: sqlite3.Connection, n: int, action: str = "signal-complete") -> None:
@@ -940,7 +940,7 @@ def test_broker_detects_dispatch_py_error_in_output(
 
     class _ErrCompleted:
         returncode = 0
-        stdout = "ERROR: Target session 'review-claude-sonnet5' is not running\n"
+        stdout = "ERROR: dispatch subprocess crashed\n"
         stderr = ""
 
     monkeypatch.setattr(bridge_broker.subprocess, "run",
@@ -1478,26 +1478,47 @@ def test_materialize_refuses_handoff_overwrite(
 def test_materialize_refuses_end_report_overwrite(
     tmp_bridge_and_db: tuple[str, Path],
 ) -> None:
-    """A run can be closed only once — refuse to overwrite END-REPORT.md."""
+    """A run can be closed only once — refuse to overwrite END-REPORT.md.
+
+    D3 (Run 025) moved the destination-absence-keyed refusal to the
+    ENQUEUE guard, so the broker-level enqueue in the sandbox refuses
+    silently when it can see the destination file. This test exercises
+    the WRITE-LAYER refuse (the authoritative host-side gate that
+    still STANDS — see _write_materialize_artifact's end-report
+    branch, which catches the sandbox-blind case where the enqueue
+    proceeded because it could not see the destination). STRICT
+    assertion: row status MUST be 'failed' and error_msg MUST name
+    the refusal reason.
+    """
     db_path, bridge_dir = tmp_bridge_and_db
     endrep = bridge_dir / "preferred_cloud_harness" / "runs" / "003" / "END-REPORT.md"
     endrep.write_text("# EXISTING END REPORT\n")
-    rc = bridge_broker.main([
-        "materialize",
-        "--flow", "preferred_cloud_harness",
-        "--type", "end-report",
-        "--run-id", "3",
-        "--content", "# NEW END REPORT\n",
-    ])
-    assert rc == 0
+    # Simulate a sandbox-blind enqueue that proceeded (could not see
+    # the destination) — seed a PENDING end-report row directly into
+    # the temp DB.
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO bridge_materialize_queue "
+        "(flow_key, run_id, artifact_type, content, status) "
+        "VALUES ('preferred_cloud_harness', 3, 'end-report', "
+        "'# NEW END REPORT', 'pending')"
+    )
+    conn.commit()
+    conn.close()
+    # Run process-once — the write layer will see the destination
+    # exists and refuse to overwrite (rc 1, row marked 'failed').
     bridge_broker.main(["process-once"])
+    # File must NOT be overwritten.
     assert endrep.read_text() == "# EXISTING END REPORT\n"
     conn = sqlite3.connect(db_path)
     row = conn.execute(
-        "SELECT status FROM bridge_materialize_queue"
+        "SELECT status, error_msg FROM bridge_materialize_queue"
     ).fetchone()
     conn.close()
-    assert row[0] == "failed"
+    assert row is not None  # the seeded row exists
+    assert row[0] == "failed"  # write-layer refused
+    err = (row[1] or "").lower()
+    assert "overwrite" in err or "exists" in err  # refusal reason present
 
 
 # ── B.5 sandbox-safe enqueue ─────────────────────────────

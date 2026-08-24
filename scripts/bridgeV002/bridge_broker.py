@@ -61,8 +61,24 @@ import sqlite3
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+
+
+# Run 025 D2: bounded backoff for transient "target session not running"
+# failures inside _process_one. _RETRY_SLEEP is the seam tests
+# monkeypatch to a no-op so the bound stays observable (the broker
+# never sleeps in tests; the live process sleeps between retries).
+_RETRY_BACKOFF_SECONDS: tuple[int, ...] = (30, 60, 120)
+_RETRY_SLEEP = time.sleep
+
+# Parser-inert prefix for the retry trace line — see
+# `_write_retry_trace_line`. The existing trace consumers expect the
+# standard `{UTC-ts} | {direction} | {id} | {event} | ...` shape at
+# offset 0; lines starting with `delivery_retry | ` have a shifted
+# layout and are deliberately invisible to them.
+_RETRY_TRACE_PREFIX = "delivery_retry"
 
 # ── paths ────────────────────────────────────────────────
 
@@ -438,6 +454,110 @@ def _validate_materialize_identity(
 
 # ── dispatch.py subprocess wrapper ──────────────────────
 
+def _is_transient_failure(err: str) -> bool:
+    """Return True when the dispatch error is a transient session failure.
+
+    Run 025 D2: the session-check failure path inside dispatch.py emits
+    `ERROR: target session '<role>' is not running\n`. The substring
+    `is not running` is the canonical signature; a NON-transient error
+    (e.g. a real subprocess crash) does NOT contain that substring and
+    fails fast — there is no retry.
+    """
+    if not err:
+        return False
+    return "is not running" in err
+
+
+def _write_retry_trace_line(
+    bridge_dir: str, flow_key: str, from_role: str, to_role: str,
+    handoff_id: object, attempt_n: int, backoff: int,
+) -> None:
+    """Append ONE parser-inert retry trace line to bridge_dir/trace.log.
+
+    Run 025 D2. The line is parser-inert BY DESIGN — it starts with the
+    literal token `delivery_retry | ` so the position-shifted fields
+    match no existing trace consumer (which expects the dispatch.log
+    layout starting at offset 0). A future tooling change is free to
+    parse this prefix; until then the line is invisible to dispatch.py /
+    the broker's own `_last_relevant_trace_event` reader.
+
+    The write is defensive: a missing/unreadable bridge dir or trace
+    file is silently skipped (the broker never WRITES a file it
+    cannot reach — the original "no-touch" contract still holds).
+    """
+    if not bridge_dir:
+        return
+    try:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        return
+    line = (
+        f"{_RETRY_TRACE_PREFIX} | {ts} | {flow_key} | "
+        f"{from_role}->{to_role} | {handoff_id} | attempt {attempt_n}/3 | "
+        f"backoff {backoff}s | session check failed, retrying\n"
+    )
+    trace_log = os.path.join(bridge_dir, "trace.log")
+    try:
+        with open(trace_log, "a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        return
+
+
+def _dispatch_with_retry(row: sqlite3.Row) -> tuple[int, str, int]:
+    """Call _run_dispatch with bounded retry on transient failures.
+
+    Run 025 D2 — returns (final_rc, final_err, retries_used). The caller
+    (`_process_one`) uses `final_rc` to choose completed/requeue/failed,
+    and `final_err` as the row's error_msg on failure. `retries_used`
+    is for tests; the live broker reads the row state, not the count.
+
+    Bounded: initial attempt + 3 retries = 4 _run_dispatch
+    invocations total. Between attempts the broker sleeps for the
+    matching backoff (30s, 60s, 120s) via _RETRY_SLEEP — tests
+    monkeypatch that seam to a no-op so the bound is observable in
+    milliseconds rather than minutes.
+
+    Non-transient failures short-circuit the retry loop and return the
+    raw error message unchanged (today's `else: mark failed` behavior).
+    """
+    bridge_dir = _get_bridge_dir()
+    rc, err = _run_dispatch(row)
+    if rc == 0:
+        return rc, err, 0
+    if not _is_transient_failure(err):
+        return rc, err, 0
+
+    retries_used = 0
+    for attempt_n, backoff in enumerate(_RETRY_BACKOFF_SECONDS, start=1):
+        _RETRY_SLEEP(backoff)
+        _write_retry_trace_line(
+            bridge_dir,
+            flow_key=row["flow_key"],
+            from_role=row["from_role"],
+            to_role=row["to_role"],
+            handoff_id=row["handoff_id"],
+            attempt_n=attempt_n,
+            backoff=backoff,
+        )
+        retries_used += 1
+        rc, err = _run_dispatch(row)
+        if rc == 0:
+            return rc, err, retries_used
+        if not _is_transient_failure(err):
+            return rc, err, retries_used
+
+    # Retries exhausted with only transient failures — 4 total attempts,
+    # backoff 30s/60s/120s. Compose an error_msg that names BOTH the
+    # attempt count and the backoff (so a future operator reading the
+    # row knows the broker DID try, not that it gave up).
+    final_err = (
+        f"transient-session retry exhausted: 4 attempts, "
+        f"backoff 30s/60s/120s; last error: {err or ''}"
+    )
+    return rc, final_err, retries_used
+
+
 def _run_dispatch(row: sqlite3.Row) -> tuple[int, str]:
     """Invoke dispatch.py with the row's fields.
 
@@ -782,8 +902,28 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
             conn.close()
             return 1
 
-    # Idempotency: a completed row for this exact (flow, from, to, id, action)
-    # is the same dispatch the bridge already performed.
+    # Idempotency (Run 025 D1): a completed row for this exact
+    # (flow, from, to, id, action) suppresses a new enqueue ONLY IF its
+    # delivery actually reached the receiver. A row whose dispatch ended
+    # in a gate rejection (gate_rejected / gate_escalation_required in
+    # trace, per the SENDER of THIS transition) does NOT suppress —
+    # last-relevant-event-wins:
+    #   * last relevant trace event is a REJECTION  -> do NOT suppress
+    #   * last relevant trace event is a DELIVERY   -> suppress
+    #   * no relevant trace evidence                -> suppress (pre-025)
+    #
+    # REJECTION events: gate_rejected, gate_escalation_required.
+    # DELIVERY events:  dispatched, signal_complete, signal_complete_to_human.
+    #
+    # The trace anchor matches dispatch.py:_gate_rejection_state's anchor
+    # by SENDER (parts[1].split('->')[0] == from_role) and handoff_id
+    # (parts[2] == str(handoff_id)), not by literal enqueue to_role — a
+    # signal-complete enqueue self-addresses (from == to == sender) while
+    # the trace records the callback direction sender->reviewer.
+    #
+    # cmd_enqueue READS the bridge dir (trace.log); its no-touch contract
+    # now means "never WRITES". The read is defensive: missing or
+    # unreadable trace.log -> no evidence -> suppress (row stands).
     existing = conn.execute(
         """
         SELECT id FROM bridge_dispatch_queue
@@ -795,9 +935,19 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
          args.handoff_id, args.action),
     ).fetchone()
     if existing is not None:
-        # Already delivered; nothing to do.
-        conn.close()
-        return 0
+        last_event = _last_relevant_trace_event(
+            bridge_dir=_get_bridge_dir(),
+            from_role=args.from_role,
+            handoff_id=args.handoff_id,
+        )
+        if last_event != "rejection":
+            # Delivered (last_event == "delivery") or no evidence
+            # (last_event is None) -> row stands -> suppress.
+            conn.close()
+            return 0
+        # last_event == "rejection": the gate turned this delivery back,
+        # so the re-enqueue must NOT be silently swallowed. Fall through
+        # to INSERT below.
 
     conn.execute(
         """
@@ -923,16 +1073,36 @@ def cmd_materialize(args: argparse.Namespace) -> int:
             (args.flow_key, args.handoff_id, args.artifact_type),
         ).fetchone()
     elif args.artifact_type == "end-report":
-        # one-shot per run_id (refuse-overwrite).
-        existing = conn.execute(
-            """
-            SELECT id FROM bridge_materialize_queue
-            WHERE flow_key = ? AND run_id = ?
-              AND artifact_type = ? AND status = 'completed'
-            ORDER BY id DESC LIMIT 1
-            """,
-            (args.flow_key, args.run_id, args.artifact_type),
-        ).fetchone()
+        # D3 (Run 025): the ENQUEUE idempotency is keyed on the
+        # DESTINATION FILE'S ABSENCE, not on a prior 'completed' row —
+        # a superseded park that has been archived away host-side may
+        # be re-closed, because the durable anchor is the file's
+        # presence, not the row's history.
+        #
+        # TWO-LAYER NOTE (GOAL.md §2, INTENDED): the enqueue step
+        # here is sandbox-safe and cannot always reach /home/svend/flows;
+        # when the canonical-destination computation fails or the file
+        # is not visible to the sandbox, exists() returns False and the
+        # enqueue proceeds — the host-side _write_materialize_artifact
+        # refuse-if-exists check remains the authoritative gate, so a
+        # sandbox-blind enqueue still does NOT silently overwrite.
+        existing = None
+        try:
+            dest = _canonical_destination(
+                flow_key=args.flow_key,
+                run_id=args.run_id,
+                handoff_id=args.handoff_id,
+                artifact_type=args.artifact_type,
+                role_key=role_key,
+            )
+        except (TypeError, ValueError):
+            dest = None
+        if dest is not None and os.path.exists(dest):
+            # Destination is present — refuse (silently, matching the
+            # pre-D3 "completed row exists" convention; the host-side
+            # write check would refuse again with the same outcome).
+            conn.close()
+            return 0
     elif args.artifact_type == "escalation-response":
         # one-shot per (handoff_id, role_key) (refuse-overwrite).
         existing = conn.execute(
@@ -1043,7 +1213,7 @@ def _process_one(conn: sqlite3.Connection) -> bool:
         (os.getpid(),),
     ).fetchone()
 
-    rc, err = _run_dispatch(row)
+    rc, err, _retries = _dispatch_with_retry(row)
 
     if rc == 0:
         conn.execute(
@@ -1149,6 +1319,70 @@ def normalize_handoff_id(value) -> str:
             return f"{int(s):03d}"
         return value
     return str(value)
+
+
+def _last_relevant_trace_event(
+    bridge_dir: str, from_role: str, handoff_id: object,
+) -> str | None:
+    """Return the LAST relevant trace event for `from_role` + `handoff_id`.
+
+    Run 025 D1 idempotency guard — returns one of:
+      * "delivery"  — last matching event is a DELIVERY
+        (dispatched / signal_complete / signal_complete_to_human)
+      * "rejection" — last matching event is a REJECTION
+        (gate_rejected / gate_escalation_required)
+      * None        — no relevant evidence in the trace (defensive: a
+        missing or unreadable trace.log is treated as no evidence)
+
+    The trace is scanned in line order; "last" means the LAST matching
+    line in append-only trace.log (a later line is a later event).
+    Timestamp parsing is deliberately skipped — append-only log order
+    is the source of truth (mirrors the run-019 ordering lesson; if two
+    events share a second-resolution timestamp, the later line in the
+    file is the later event).
+
+    The SENDER anchor (parts[1].split('->')[0] == from_role) mirrors
+    dispatch.py:_gate_rejection_state's anchor exactly: a signal-complete
+    enqueue self-addresses (from_role == to_role == sender) while the
+    trace records the callback direction sender->reviewer, so matching
+    by literal enqueue to_role would miss the line. parts[2] is the
+    handoff_id (str-coerced for parity with dispatch's `parts[2] ==
+    str(handoff_id)` rule).
+    """
+    trace_log = os.path.join(bridge_dir, "trace.log")
+    try:
+        with open(trace_log, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        # Missing/unreadable trace -> no evidence -> caller suppresses.
+        return None
+
+    handoff_str = str(handoff_id)
+    delivery_events = (
+        "dispatched", "signal_complete", "signal_complete_to_human",
+    )
+    rejection_events = ("gate_rejected", "gate_escalation_required")
+
+    last_event: str | None = None
+    for line in lines:
+        parts = line.split(" | ")
+        if len(parts) < 4:
+            continue
+        # parts[1] is the direction "from->to". Match by SENDER so a
+        # signal-complete enqueue's self-addressed from_role still
+        # catches the callback direction line in the trace.
+        direction_sender = parts[1].split("->", 1)[0].strip()
+        if direction_sender != from_role:
+            continue
+        if parts[2] != handoff_str:
+            continue
+        if parts[3] in delivery_events:
+            last_event = "delivery"
+        elif parts[3] in rejection_events:
+            last_event = "rejection"
+        # Any other event name for this sender+handoff is ignored —
+        # only DELIVERY and REJECTION decide suppression.
+    return last_event
 
 
 def _trace_records_delivery(
