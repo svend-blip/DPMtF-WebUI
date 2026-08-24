@@ -66,7 +66,7 @@ LAUNCH_FIXTURES: Dict[str, Dict[str, str]] = {
             "--add-dir {PROJECT_ROOT} --add-dir /tmp "
             "--sandbox danger-full-access --ask-for-approval never"
         ),
-        "command_md5": "0126450cc17e9a3f4a618fba019cac97",
+        "command_md5": "9e4e0088b50962c7984d9821ea6516fb",
     },
     "dsh": {
         "role_key": "super-deep-deep4",
