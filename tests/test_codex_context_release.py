@@ -472,6 +472,7 @@ def test_re_anchor_records_child_pid(isolated_db):
     ok, msg = ccr.re_anchor(
         "preferred_cloud_harness", "session-x",
         db_path=isolated_db, _child_pid=fake_child_pid_resolver,
+        _pid_alive=lambda pid: True,
     )
     assert ok is True
     assert msg == f"re-anchored pid={fake_child_pid}"

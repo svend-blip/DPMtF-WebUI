@@ -202,6 +202,11 @@ def test_work_unit_runs_full_verified_path(monkeypatch, seeded_codex_role: str):
     # check returns rc=0 (the has-session check happens BEFORE the
     # injected _send_keys seam is reached).
     monkeypatch.setattr(ccr.subprocess, "run", _fake_subprocess_run)
+    # Run 033 D1: run_release's re_anchor consults
+    # ccr._default_pid_alive; this test is about anchor
+    # overwrite, NOT child survival. State the pre-condition
+    # explicitly.
+    monkeypatch.setattr(ccr, "_default_pid_alive", lambda pid: True)
 
     recorder = _SeamRecorder(kill_result=True, new_child_pid=77777)
 
@@ -298,6 +303,11 @@ def test_work_unit_anchor_overwritten_not_released(monkeypatch, seeded_codex_rol
     # check returns rc=0 (the has-session check happens BEFORE the
     # injected _send_keys seam is reached).
     monkeypatch.setattr(ccr.subprocess, "run", _fake_subprocess_run)
+    # Run 033 D1: run_release's re_anchor consults
+    # ccr._default_pid_alive; this test is about anchor
+    # overwrite, NOT child survival. State the pre-condition
+    # explicitly.
+    monkeypatch.setattr(ccr, "_default_pid_alive", lambda pid: True)
 
     recorder = _SeamRecorder(kill_result=True, new_child_pid=33333)
 

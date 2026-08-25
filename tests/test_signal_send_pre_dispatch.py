@@ -210,6 +210,10 @@ def test_signal_send_invokes_pre_dispatch_with_step_key(
     bridge_dir_str = seams.bridge_dir_str
     monkeypatch.setattr(dispatch, "load_flow_from_db",
                         make_load_flow("codex_context_release"))
+    # Run 033 D1: signal_send consults harness_alive; this test
+    # is about pre-dispatch wiring, NOT liveness. State the
+    # pre-condition explicitly.
+    monkeypatch.setattr(dispatch, "harness_alive", lambda *a, **k: True)
 
     rc = dispatch.signal_send(
         "preferred_cloud_harness",
@@ -283,6 +287,10 @@ def test_no_pre_dispatch_script_is_unchanged_noop(
     bridge_dir_str = seams.bridge_dir_str
     monkeypatch.setattr(dispatch, "load_flow_from_db",
                         make_load_flow(None))
+    # Run 033 D1: signal_send consults harness_alive; this test
+    # is about pre-dispatch wiring, NOT liveness. State the
+    # pre-condition explicitly.
+    monkeypatch.setattr(dispatch, "harness_alive", lambda *a, **k: True)
 
     rc = dispatch.signal_send(
         "preferred_cloud_harness",
@@ -315,6 +323,10 @@ def test_pre_dispatch_runs_before_inject_prompt(
     bridge_dir_str = seams.bridge_dir_str
     monkeypatch.setattr(dispatch, "load_flow_from_db",
                         make_load_flow("codex_context_release"))
+    # Run 033 D1: signal_send consults harness_alive; this test
+    # is about pre-dispatch wiring, NOT liveness. State the
+    # pre-condition explicitly.
+    monkeypatch.setattr(dispatch, "harness_alive", lambda *a, **k: True)
 
     rc = dispatch.signal_send(
         "preferred_cloud_harness",
