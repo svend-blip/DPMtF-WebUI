@@ -1323,6 +1323,50 @@ def transition_recently_delivered(bridge_dir, from_role, to_role, handoff_id,
         return ts >= cutoff
     return False
 
+def handoff_already_dispatched(flow_key, step, handoff_id):
+    """True when trace.log already shows a `dispatched` event for this
+    (handoff, dispatch-step).
+
+    Run 034 D1 — the injection-point guard. signal_complete's delivery
+    path (`run_flow_step_db` in dispatch.py) re-runs the FIRST flow step
+    whenever main() falls through after a signal action, and that step's
+    rule_key="handoff" convention re-injects the same handoff into the
+    implementer's pane. One signal — many redundant dispatches. This
+    reader is the answer: it asks trace.log whether this
+    (from_role->to_role, handoff_id) has already logged a `dispatched`
+    event, and the caller refuses to inject when it has.
+
+    FIELD-EXACT match on status: `dispatched_skipped` and
+    `dispatched_backend_down` must NOT match. The whole point of the
+    run-034 status taxonomy is that downstream consumers compare the
+    field exactly, so a substring needle would re-include what this
+    run's own refusal logs.
+
+    `flow_key` is part of the bound signature (GOAL.md §1) even though
+    the trace lookup keys on direction + handoff id; keep the parameter
+    and the name exactly as bound.
+    """
+    trace = os.path.join(_bridge_dir(), "trace.log")
+    try:
+        with open(trace, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()[-_TRACE_SCAN_LINES:]
+    except OSError:
+        return False
+    from_role = step.get("from_role")
+    to_role = step.get("to_role")
+    target_direction = f"{from_role}->{to_role}"
+    target_id = str(handoff_id)
+    for line in reversed(lines):
+        parts = line.split(" | ")
+        if len(parts) < 4:
+            continue
+        if parts[1] != target_direction or parts[2] != target_id:
+            continue
+        if parts[3] != "dispatched":
+            continue
+        return True
+    return False
+
 
 def _pane_target(session_name):
     """Exact-match pane target for capture-pane/send-keys.
@@ -2127,6 +2171,28 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
 
     # Extract rule_key for validation and content template resolution (Step 6-7)
     rule_key = target_step.get("rule_key")
+
+    # Run 034 D1: refuse a second dispatch of the SAME (handoff, dispatch-step).
+    # `signal_complete` falls through to `run_flow_step_db` for the chain's
+    # FIRST step (supervisor-imple01, rule_key="handoff"), whose convention
+    # re-injects the implementer's handoff into a pane that has already
+    # processed it. One signal — many redundant dispatches. The guard reads
+    # trace.log and refuses exactly when this (from_role->to_role, handoff_id)
+    # already has a `dispatched` event. The refusal is idempotent success
+    # (`return True`), never silent (print + trace), and never fatal —
+    # already-delivered is not an error. Callback (`rule_key="callback"`)
+    # and `agent_delivery` steps are untouched.
+    if rule_key == "handoff" and handoff_already_dispatched(
+            flow_key, target_step, handoff_id):
+        print(f"  SKIP: handoff #{handoff_id} already dispatched on step "
+              f"'{target_step.get('step_key')}' — refusing redundant re-dispatch")
+        log(
+            f"{target_step.get('from_role')}->{target_step.get('to_role')}",
+            handoff_id,
+            "dispatched_skipped",
+            "Handoff already dispatched on this step — redundant re-dispatch suppressed",
+        )
+        return True
 
     # Step 3: Load to_role from DB
     try:
@@ -4056,6 +4122,10 @@ def main():
             handoff_id,
             bridge_dir,
         )
+        # Run 034 D6: terminate explicitly on success. _dispatch_main_run
+        # returns on truthy result; the trailing run_flow_step_db call below
+        # was the fall-through that re-dispatched the implementer's handoff.
+        sys.exit(0)
 
     if args.signal_escalation:
         # Signal-escalation path: review escalates question to architect
@@ -4070,6 +4140,8 @@ def main():
             handoff_id,
             bridge_dir,
         )
+        # Run 034 D6: terminate explicitly on success.
+        sys.exit(0)
 
     if args.signal_answer:
         # Signal-answer path: architect responds back to review
@@ -4084,6 +4156,8 @@ def main():
             handoff_id,
             bridge_dir,
         )
+        # Run 034 D6: terminate explicitly on success.
+        sys.exit(0)
 
     if args.signal_complete:
         # Signal-complete path: role has finished its deliverable, dispatch to next role
@@ -4096,6 +4170,8 @@ def main():
             bridge_dir,
             force=args.force,
         )
+        # Run 034 D6: terminate explicitly on success.
+        sys.exit(0)
 
     # No signal flag but db-flow provided — run full flow step via DB dispatch
     _dispatch_main_run(

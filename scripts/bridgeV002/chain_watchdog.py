@@ -646,25 +646,31 @@ def nudge(role, run_id, flow_key=FLOW_KEY, dry_run=False, stalled=None,
     if dry_run:
         log("  dry-run: signal-complete NOT sent")
         return True
+    # Run 034 D3 — repair routes through the broker so the run-025 D1
+    # idempotency guard screens it. Self-addressed signal-complete:
+    # from == to == sender. The `force` parameter is now a no-op: the
+    # broker has no `--force`, and the run-025 D1 idempotency guard is
+    # exactly the screen D3 wants. Receiver-stall repairs are now
+    # subject to the broker's idempotency guard by design.
     cmd = [
         sys.executable,
-        str(Path(__file__).parent / "dispatch.py"),
-        "--db-flow", flow_key,
-        "--signal-complete",
+        str(Path(__file__).parent / "bridge_broker.py"),
+        "enqueue",
+        "--flow", flow_key,
         "--from-role", role,
+        "--to-role", role,
         "--id", run_id,
+        "--action", "signal-complete",
     ]
-    if force:
-        cmd.append("--force")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 timeout=120, cwd=str(PROJECT_ROOT))
         for line in (result.stdout or "").splitlines()[:8]:
-            log(f"  dispatch: {line.strip()}")
+            log(f"  broker: {line.strip()}")
         return result.returncode == 0
     except subprocess.TimeoutExpired:
-        log("  dispatch timed out (known post-dispatch hang) — signal "
-            "likely delivered; continuing")
+        log("  broker timed out (known post-dispatch hang) — signal "
+            "likely enqueued; continuing")
         return True
 
 
@@ -717,6 +723,48 @@ def recent_signal_delivered(role, next_role, run_id, within_minutes):
     if age is None:
         return False
     return within_minutes is None or age <= within_minutes
+
+
+def _dispatched_in_trace(bridge_dir, from_role, to_role, hid):
+    """Run 034 D2 — True when trace.log shows a `dispatched` event for
+    this (from_role, to_role, handoff_id).
+
+    Field-exact match on the status field: `dispatched_skipped` and
+    `dispatched_backend_down` MUST NOT match. The whole point of the
+    run-034 status taxonomy is that downstream consumers compare the
+    field exactly.
+
+    NO time window — a `dispatched` event of any age proves the handoff
+    was dispatched. This is the dispatch-step predicate
+    (`rule_key="handoff"`): the supervisor's anti-loop rule says the
+    sender NEVER signals completion for its own step, so the old
+    "did from_role signal?" predicate was permanently false. Reading
+    trace.log for `dispatched` is the honest question.
+
+    Mirror of `dispatch.handoff_already_dispatched` but uses the
+    CALLER's bridge_dir (config.get_bridge_dir()). Dispatch's helper
+    reads `dispatch._bridge_dir()` whose fallback is `~/.bridge` — WRONG
+    under cron where .env (DPMTF_BRIDGE_DIR=/home/svend/flows) is not
+    loaded.
+    """
+    trace = os.path.join(bridge_dir, "trace.log")
+    try:
+        with open(trace, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()[-4000:]
+    except OSError:
+        return False
+    direction = f"{from_role}->{to_role}"
+    target_id = str(hid)
+    for line in reversed(lines):
+        parts = line.split(" | ")
+        if len(parts) < 4:
+            continue
+        if parts[1] != direction or parts[2] != target_id:
+            continue
+        if parts[3] != "dispatched":
+            continue
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -789,11 +837,16 @@ def remote_activity(flow_key, role, run_id):
 
 
 def load_flow_steps(flow_key):
-    """Active steps (from_role, to_role, dir, pattern) in chain order."""
+    """Active steps (from_role, to_role, dir, pattern, rule_key) in chain order."""
     import sqlite3
     conn = sqlite3.connect(_db_path())
+    # Run 034 D2: include rule_key so check_once_generic can identify the
+    # dispatch step (rule_key="handoff") and apply the new trace-based
+    # predicate. Older runtimes get None for rule_key — that is the same
+    # shape as before this migration.
     rows = conn.execute(
-        "SELECT from_role, to_role, deliverable_dir, deliverable_pattern "
+        "SELECT from_role, to_role, deliverable_dir, deliverable_pattern, "
+        "rule_key "
         "FROM bridge_flow_steps WHERE flow_key = ? AND is_active = 1 "
         "ORDER BY sort_order",
         (flow_key,),
@@ -810,7 +863,8 @@ def load_flow_steps(flow_key):
         if deliverable_dir and not os.path.isabs(deliverable_dir):
             deliverable_dir = os.path.join(bridge_dir, deliverable_dir)
         steps.append({"from_role": r[0], "to_role": r[1],
-                      "dir": deliverable_dir, "pattern": r[3]})
+                      "dir": deliverable_dir, "pattern": r[3],
+                      "rule_key": r[4]})
     return steps
 
 
@@ -884,6 +938,18 @@ def check_once_generic(flow_key, steps, sessions, run_id, stall_minutes,
                                None):
         return "complete"
     for i, step in enumerate(steps):
+        # Run 034 D2 — for a dispatch step (rule_key="handoff"), the
+        # supervisor NEVER signals completion (anti-loop rule). The OLD
+        # "did from_role signal?" predicate was permanently false → the
+        # watchdog kept "repairing" → the repair re-dispatched the
+        # implementer's handoff (Mechanism A). With D2: a real
+        # `dispatched` event in trace.log proves the step is NOT stalled.
+        # Skip it cleanly. Heuristic for every other step is unchanged.
+        if step.get("rule_key") == "handoff" and _dispatched_in_trace(
+                config.get_bridge_dir(),
+                step["from_role"], step["to_role"], run_id):
+            continue  # dispatched — NOT stalled; skip to the next step
+
         out = step_deliverable(step, run_id)
         if out is None:
             # Chain is at or before this step — from_role should be working.

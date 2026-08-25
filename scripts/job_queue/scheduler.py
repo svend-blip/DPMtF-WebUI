@@ -42,6 +42,12 @@ class Scheduler:
         self.dispatch_script = str(
             PROJECT_ROOT / "scripts" / "bridgeV002" / "dispatch.py"
         )
+        # Run 034 D3: nudge repairs route through the broker so the run-025
+        # D1 idempotency guard screens them. The broker enqueue writes one
+        # DB row and returns 0; the daemon runs dispatch.py host-side.
+        self.broker_script = str(
+            PROJECT_ROOT / "scripts" / "bridgeV002" / "bridge_broker.py"
+        )
         # Chain-nudge configuration — shared with chain_watchdog.py via the
         # machine profile [watchdog] section (configurable, not hardcoded).
         wd = self._watchdog_profile()
@@ -681,6 +687,49 @@ class Scheduler:
             return True
         return first != second
 
+    @staticmethod
+    def _dispatched_in_trace(bridge_dir: str, from_role: str, to_role: str,
+                            hid: str) -> bool:
+        """Run 034 D2 — True when trace.log shows a `dispatched` event
+        for this (from_role, to_role, handoff_id).
+
+        Field-exact match on the status field: `dispatched_skipped` and
+        `dispatched_backend_down` MUST NOT match. The whole point of the
+        run-034 status taxonomy is that downstream consumers compare the
+        field exactly.
+
+        NO time window — a `dispatched` event of any age proves the
+        handoff was dispatched. This is the dispatch-step predicate
+        (`rule_key="handoff"`): the supervisor's anti-loop rule says the
+        sender NEVER signals completion for its own step, so the old
+        "did from_role signal?" predicate was permanently false. Reading
+        trace.log for `dispatched` is the honest question.
+
+        Mirror of `dispatch.handoff_already_dispatched` but uses the
+        CALLER's bridge_dir (scheduler already has its own, which falls
+        back to config.get_bridge_base_path()). Dispatch's helper reads
+        `dispatch._bridge_dir()` whose fallback is `~/.bridge` — WRONG
+        under cron where .env is not loaded.
+        """
+        trace = os.path.join(bridge_dir, "trace.log")
+        try:
+            with open(trace, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()[-4000:]
+        except OSError:
+            return False
+        direction = f"{from_role}->{to_role}"
+        target_id = str(hid)
+        for line in reversed(lines):
+            parts = line.split(" | ")
+            if len(parts) < 4:
+                continue
+            if parts[1] != direction or parts[2] != target_id:
+                continue
+            if parts[3] != "dispatched":
+                continue
+            return True
+        return False
+
     def _recent_delivery(self, bridge_dir: str, from_role: str, to_role: str,
                          hid: str, within_minutes: int) -> bool:
         """True when trace.log shows the transition was delivered recently.
@@ -926,6 +975,18 @@ class Scheduler:
                     self._write_nudge_state(nudge_state)
                 return False
 
+            # Run 034 D2 — for a dispatch step (rule_key="handoff"), the
+            # supervisor NEVER signals completion (anti-loop rule). The
+            # OLD "did from_role signal?" predicate is permanently false
+            # for this step → the nudge kept "repairing" → the repair
+            # re-dispatched the implementer's handoff (Mechanism A). With
+            # D2: a real `dispatched` event in trace.log proves the step is
+            # NOT stalled. Skip it cleanly. Heuristic for every other step
+            # is unchanged.
+            if step.get("rule_key") == "handoff" and self._dispatched_in_trace(
+                    bridge_dir, from_role, to_role, hid):
+                return False  # dispatched — NOT stalled; never nudge
+
             if self._recent_delivery(bridge_dir, from_role, to_role, hid,
                                      self.stall_minutes):
                 return False  # prompt delivered — target is loading/working
@@ -970,12 +1031,16 @@ class Scheduler:
                   f"{os.path.basename(out_path)} but never signaled — "
                   f"running signal-complete (-> {to_role})")
             try:
+                # Run 034 D3 — repair routes through the broker so the
+                # run-025 D1 idempotency guard screens it. Self-addressed
+                # signal-complete: from == to == sender.
                 result = subprocess.run(
-                    [sys.executable, self.dispatch_script,
-                     "--db-flow", job.flow_key,
-                     "--signal-complete",
+                    [sys.executable, self.broker_script, "enqueue",
+                     "--flow", job.flow_key,
                      "--from-role", from_role,
-                     "--id", hid],
+                     "--to-role", from_role,
+                     "--id", hid,
+                     "--action", "signal-complete"],
                     capture_output=True, text=True,
                     cwd=str(PROJECT_ROOT),
                     timeout=120,
