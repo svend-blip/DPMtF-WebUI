@@ -1134,7 +1134,8 @@ def _check_pane_safe_to_inject(session_name: str) -> None:
 
 
 def inject_prompt(session_name, text, enter_command="default",
-                  fresh_session_command=None):
+                  fresh_session_command=None, *,
+                  flow_key=None, to_role=None):
     """Detect tool type and route to correct injection method.
 
     For OpenCode sessions, prepends soft-clear preamble before actual prompt.
@@ -1194,7 +1195,8 @@ def inject_prompt(session_name, text, enter_command="default",
         # the task really does arrive as the next message. verify_injection_
         # submitted sends the Enter that a staged-but-unsubmitted command
         # needs; wait_for_pane_idle then keeps the paste out of a redraw.
-        verify_injection_submitted(session_name, attempts=2, settle_seconds=3)
+        verify_injection_submitted(session_name, attempts=2, settle_seconds=3,
+                        flow_key=flow_key, to_role=to_role)
         wait_for_pane_idle(session_name)
         print(f"  Fresh session: {fresh_session_command} sent to "
               f"'{session_name}' (context reset submitted before task)")
@@ -1226,7 +1228,7 @@ def inject_prompt(session_name, text, enter_command="default",
             inject_via_paste_buffer(session_name, combined, enter_command)
     else:
         inject_via_send_keys(session_name, text, enter_command)
-    verify_injection_submitted(session_name)
+    verify_injection_submitted(session_name, flow_key=flow_key, to_role=to_role)
 
 
 # Pane markers that indicate the client actually accepted/started the
@@ -1345,7 +1347,8 @@ def _pane_tail(session_name, lines=25):
     return "\n".join(result.stdout.splitlines()[-lines:]).lower()
 
 
-def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
+def verify_injection_submitted(session_name, attempts=3, settle_seconds=5, *,
+                             flow_key=None, to_role=None):
     """Verify the injected prompt was actually SUBMITTED, not left sitting
     in the client's input buffer (observed: 'paste again to expand' state,
     silent unsubmitted pastes — flows 062/064 required manual Enter).
@@ -1361,11 +1364,29 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
     pane alone. The stuck-paste remedy (resending Enter on the
     'paste again to expand' hint) still works — that hint is not a menu.
     """
+    # Run 032 D1: if BOTH flow_key and to_role are provided, gate
+    # the Enter fallback on harness_alive. A dead harness MUST NOT
+    # receive an Enter — that is the 2026-08-24 failure mode.
+    # When flow_key/to_role are NOT provided (legacy / internal
+    # callers), the prior behaviour is preserved: the Enter fallback
+    # fires without consulting harness_alive.
+    harness_gate_active = bool(flow_key) and bool(to_role)
+    harness_is_live = True
+    if harness_gate_active:
+        try:
+            harness_is_live = bool(harness_alive(flow_key, to_role))
+        except Exception:
+            harness_is_live = False
+
     markers = activity_markers(session_name)
     for attempt in range(1, attempts + 1):
         time.sleep(settle_seconds)
         tail = _pane_tail(session_name)
         if _PASTE_STUCK_MARKER in tail:
+            if harness_gate_active and not harness_is_live:
+                print(f"  Injection verify: stuck paste in '{session_name}' "
+                      f"but harness is dead (D1) — NOT resending Enter")
+                continue
             print(f"  Injection verify: stuck paste in '{session_name}' "
                   f"(attempt {attempt}) — resending Enter")
             subprocess.run(["tmux", "send-keys", "-t",
@@ -1386,6 +1407,10 @@ def verify_injection_submitted(session_name, attempts=3, settle_seconds=5):
         # No activity and no stuck-paste hint and no menu: the prompt
         # may be sitting unsubmitted without the hint (observed flow
         # 064 portfolio01).
+        if harness_gate_active and not harness_is_live:
+            print(f"  Injection verify: no activity in '{session_name}' "
+                  f"but harness is dead (D1) — NOT sending Enter")
+            continue
         print(f"  Injection verify: no activity in '{session_name}' "
               f"(attempt {attempt}) — sending Enter")
         subprocess.run(["tmux", "send-keys", "-t",
@@ -1895,6 +1920,161 @@ def session_alive(session_name):
     return result.returncode == 0
 
 
+# ── D1 seam helpers (Run 032 GOAL.md §1 D1) ──────────────────────
+# The harness_alive predicate has three external probes (os.kill(pid, 0),
+# a bridge_roles read, a flow_runtime_resources read). They are routed
+# through module-level seam functions so tests can monkeypatch the seams
+# without touching the live database or a real /proc. The seams default
+# to the real implementations; tests can replace them with fakes.
+
+def _default_pid_alive(pid):
+    """Return True iff pid is a live process (os.kill(pid, 0) probe).
+
+    Same exception semantics as runtime_owner._default_kill and
+    chain_watchdog._read_proc_stat: ProcessLookupError -> dead,
+    PermissionError/other OSError -> exists. A None pid is NOT
+    considered live.
+    """
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we can't signal it. Still alive.
+        return True
+    except OSError:
+        # Unmount or other /proc failure. Conservative: treat as
+        # NOT alive so a probe failure does not silently pass.
+        return False
+    return True
+
+
+def _default_load_role(role_name, db_path=None):
+    """Load a role row by name. Returns the row dict or None."""
+    if db_path is None:
+        db_path = _db_path()
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            "SELECT * FROM bridge_roles WHERE role_key = ?",
+            (role_name,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def _default_list_harness_anchors(flow_key, db_path=None):
+    """List flow_runtime_resources rows for a flow (harness_process anchors).
+
+    Returns a list of dicts. READ-ONLY — harness_alive never writes here.
+    """
+    if db_path is None:
+        db_path = _db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+    except sqlite3.OperationalError:
+        return []
+    try:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            "SELECT * FROM flow_runtime_resources WHERE flow_key = ?",
+            (flow_key,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+    except sqlite3.OperationalError:
+        # Schema not present (parallel flows may not have it). Empty.
+        return []
+    finally:
+        conn.close()
+
+
+def harness_alive(flow_key, to_role, db_path=None, *,
+                  _pid_alive=None, _load_role=None,
+                  _list_harness_anchors=None):
+    """Return True iff ``to_role``'s harness process is verifiably alive.
+
+    Required by preferred_cloud_harness Run 032 D1 (GOAL.md §1).
+
+    Algorithm:
+      1. Resolve ``to_role`` -> tmux_session via bridge_roles. If the
+         role row cannot be read, return False (a misconfigured flow
+         must not auto-inject).
+      2. READ the harness_process anchor for (flow_key, tmux_session)
+         from flow_runtime_resources. NEVER writes to that table.
+      3. If no anchor row exists (non-harness role, or a harness role
+         not yet anchored), return True. This preserves the parallel
+         preferred_cloud flow and the model_allocator / opencode roles
+         that have no harness_process anchor — D1 targets only the
+         failure mode where one WAS recorded and is now dead.
+      4. If an anchor row exists: return True iff the anchor pid is
+         non-NULL AND ``os.kill(pid, 0)`` reports a live process.
+
+    All three external probes are routed through keyword-only seams so
+    tests can monkeypatch them without touching the live database or a
+    real /proc.
+    """
+    # Lazy lookup of the default seams so tests can monkeypatch the
+    # module-level _default_* helpers and have them take effect.
+    if _pid_alive is None:
+        _pid_alive = _default_pid_alive
+    if _load_role is None:
+        _load_role = _default_load_role
+    if _list_harness_anchors is None:
+        _list_harness_anchors = _default_list_harness_anchors
+
+    if not flow_key or not to_role:
+        # Defensive: the predicate is only meaningful with both names.
+        return False
+
+    # 1) role -> tmux_session.
+    try:
+        role = _load_role(to_role, db_path=db_path)
+    except Exception:
+        return False
+    if not role:
+        return False
+    session = role.get("tmux_session") or to_role
+    if not session:
+        # A role row without a tmux_session has nothing to anchor.
+        return True
+
+    # 2) anchor lookup (READ-ONLY).
+    try:
+        anchors = _list_harness_anchors(flow_key, db_path=db_path) or []
+    except Exception:
+        anchors = []
+
+    anchor_pid = None
+    anchor_row_found = False
+    for row in anchors:
+        if not isinstance(row, dict):
+            continue
+        if row.get("resource_id") == session:
+            anchor_pid = row.get("pid")
+            anchor_row_found = True
+            break
+
+    # 3) No anchor row -> non-harness role. Keep parallel flows working.
+    if not anchor_row_found:
+        return True
+
+    # 4) Anchor exists: a NULL or dead pid fails the liveness test.
+    if anchor_pid is None:
+        return False
+    try:
+        return bool(_pid_alive(anchor_pid))
+    except Exception:
+        # A probe that itself errors (e.g. /proc unmounted in a
+        # container) must NOT silently pass — that would re-open the
+        # 2026-08-24 hole. Refuse.
+        return False
+
+
 def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     """Execute a single flow step using database-backed configuration.
 
@@ -1985,6 +2165,21 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             handoff_id,
             "failed",
             f"Target session '{tmux_session}' is not running",
+        )
+        return False
+
+    # Run 032 D1: refuse to inject into a dead-harness pane. A missing
+    # anchor row (non-harness role) still returns True so the parallel
+    # preferred_cloud flow and model_allocator roles keep working.
+    if not harness_alive(flow_key, payload["to_role"]):
+        print(f"  ERROR: Harness for '{tmux_session}' is not alive (D1) — "
+              f"refusing to inject into {payload['to_role']}")
+        log(
+            f"{payload['from_role']}->{payload['to_role']}",
+            handoff_id,
+            "failed",
+            f"Harness for '{tmux_session}' is not alive (D1) — "
+            f"refusing to inject",
         )
         return False
 
@@ -2119,7 +2314,8 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     try:
         inject_prompt(tmux_session, prompt_text,
                       enter_command=to_role.get("enter_command", "default"),
-                      fresh_session_command=to_role.get("fresh_session_command"))
+                      fresh_session_command=to_role.get("fresh_session_command"),
+                      flow_key=flow_key, to_role=payload["to_role"])
     except PaneBusyRefused as _exc:
         print(f"REFUSED_INJECTION: {_exc}", flush=True)
         print(f"REFUSED_INJECTION: {_exc}", file=sys.stderr)
@@ -3457,6 +3653,19 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         )
         return False
 
+    # Run 032 D1: refuse to inject into a dead-harness pane.
+    if not harness_alive(flow_key, to_role_key):
+        print(f"  ERROR: Harness for '{tmux_session}' is not alive (D1) — "
+              f"refusing to inject into {to_role_key}")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "send_failed",
+            f"Harness for '{tmux_session}' is not alive (D1) — "
+            f"refusing to inject",
+        )
+        return False
+
     # Step 3: Verify handoff file exists with required XML sections
     deliverable_dir = payload.get("deliverable_dir", "")
     handoff_path = os.path.join(bridge_dir, deliverable_dir, payload["deliverable_file"])
@@ -3709,7 +3918,8 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     # configured context-reset command first (tool-independent).
     inject_prompt(tmux_session, prompt_text,
                   enter_command=to_role_data.get("enter_command", "default"),
-                  fresh_session_command=to_role_data.get("fresh_session_command"))
+                  fresh_session_command=to_role_data.get("fresh_session_command"),
+                  flow_key=flow_key, to_role=to_role_key)
     time.sleep(0.5)
 
     print(f"  Handoff dispatch prompt injected into '{tmux_session}'")
@@ -3747,6 +3957,42 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
     _update_cycle_state(handoff_id, flow_key, to_role_key)
 
     return True
+
+
+def _dispatch_main_run(callable_, *args, **kwargs):
+    """Run a dispatch callable and surface its failure loudly.
+
+    Required by Run 032 D3 (GOAL.md §1 D3). A dispatch function that
+    returns False OR raises must NOT silently exit 0 — that is the
+    "completed with empty error_msg" defect. The wrapper:
+      - returns the callable's return value when it is truthy
+      - prints "ERROR: <name> returned False (dispatch aborted)" and
+        sys.exit(1) when the callable returns False (broker maps
+        nonzero rc to a `failed` row with the printed error in
+        error_msg)
+      - prints "ERROR: <name> raised <type>: <msg>" and sys.exit(1)
+        when the callable raises (same broker mapping)
+      - re-raises SystemExit untouched
+
+    This wrapper is the seam between dispatch.py and bridge_broker.py:
+    the broker only sees a subprocess with a non-zero exit code; the
+    error_msg it writes is whatever appeared on stdout/stderr before
+    the exit.
+    """
+    name = getattr(callable_, "__name__", repr(callable_))
+    try:
+        result = callable_(*args, **kwargs)
+    except SystemExit:
+        raise
+    except BaseException as exc:
+        print(f"ERROR: {name} raised {type(exc).__name__}: {exc}",
+              file=sys.stderr, flush=True)
+        sys.exit(1)
+    if not result:
+        print(f"ERROR: {name} returned {result!r} (dispatch aborted)",
+              file=sys.stderr, flush=True)
+        sys.exit(1)
+    return result
 
 
 def main():
@@ -3802,46 +4048,47 @@ def main():
         if not args.to_role:
             print("Error: --to-role is required for --signal-send")
             sys.exit(1)
-        signal_send(
+        _dispatch_main_run(
+            signal_send,
             args.db_flow,
             args.from_role,
             args.to_role,
             handoff_id,
             bridge_dir,
         )
-        sys.exit(0)
 
     if args.signal_escalation:
         # Signal-escalation path: review escalates question to architect
         if not args.to_role:
             print("Error: --to-role is required for --signal-escalation")
             sys.exit(1)
-        signal_escalation(
+        _dispatch_main_run(
+            signal_escalation,
             args.db_flow,
             args.from_role,
             args.to_role,
             handoff_id,
             bridge_dir,
         )
-        sys.exit(0)
 
     if args.signal_answer:
         # Signal-answer path: architect responds back to review
         if not args.to_role:
             print("Error: --to-role is required for --signal-answer")
             sys.exit(1)
-        signal_answer(
+        _dispatch_main_run(
+            signal_answer,
             args.db_flow,
             args.from_role,
             args.to_role,
             handoff_id,
             bridge_dir,
         )
-        sys.exit(0)
 
     if args.signal_complete:
         # Signal-complete path: role has finished its deliverable, dispatch to next role
-        signal_complete(
+        _dispatch_main_run(
+            signal_complete,
             args.db_flow,
             args.step_key,
             args.from_role,
@@ -3849,11 +4096,15 @@ def main():
             bridge_dir,
             force=args.force,
         )
-        sys.exit(0)
 
     # No signal flag but db-flow provided — run full flow step via DB dispatch
-    run_flow_step_db(args.db_flow, args.step_key, handoff_id, bridge_dir)
-    sys.exit(0)
+    _dispatch_main_run(
+        run_flow_step_db,
+        args.db_flow,
+        args.step_key,
+        handoff_id,
+        bridge_dir,
+    )
 
 
 if __name__ == "__main__":

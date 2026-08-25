@@ -101,6 +101,39 @@ _RELAUNCH_CHILD_POLL_S = 0.1
 
 
 # ---------------------------------------------------------------------------
+# D2 (Run 032 GOAL.md sec 1 D2): survive-or-refuse probe.
+#
+# On 2026-08-24 codex_context_release.py's re_anchor resolved a child
+# pid (2469038) and recorded it IMMEDIATELY, returning (True,
+# "re-anchored pid=2469038"). The codex had already hit an interactive
+# update prompt and died; the anchor pointed at a corpse and dispatch
+# reported success. D2 confirms the resolved child is still alive
+# BEFORE the record() call, and returns (False, ...) when it is not.
+#
+# _default_pid_alive mirrors dispatch._default_pid_alive
+# (os.kill(pid, 0); ProcessLookupError -> False; PermissionError /
+# other OSError -> True; else True) so the two liveness predicates
+# share one idiom. _pid_alive is the seam the D2 tests monkeypatch.
+# ---------------------------------------------------------------------------
+def _default_pid_alive(pid):
+    """True iff ``pid`` is verifiably a live process right now.
+
+    ProcessLookupError means the pid is gone (False). PermissionError
+    or any other OSError means something else owns the pid but it
+    exists (True -- same shape as runtime_owner._default_kill).
+    """
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+
+
+# ---------------------------------------------------------------------------
 # Pure helpers (no I/O beyond the seam calls) — imported by tests.
 # ---------------------------------------------------------------------------
 def resolve_receiving_harness(flow_key, to_role, db_path=None):
@@ -256,30 +289,53 @@ def relaunch_in_session(session_name, role_config, db_path=None,
 
 
 def re_anchor(flow_key, session_name, db_path=None,
-              _child_pid=None):
+              _child_pid=None, _pid_alive=None):
     """Re-record the harness_process anchor with the REAL child pid.
 
     Walks one level down from the pane bash (start_coding's
-    ``_harness_child_pid`` idiom — the #10 rule, never the pane bash).
+    ``_harness_child_pid`` idiom -- the #10 rule, never the pane bash).
     Bounded wait for the child to appear after send-keys. On
     resolution failure the anchor is recorded with pid=None (the
-    existing degrade path) — the relaunch is treated as a tolerated
+    existing degrade path) -- the relaunch is treated as a tolerated
     stale anchor and the function returns True (the relaunch
-    succeeded; the recording failure is degraded, not fatal — the
+    succeeded; the recording failure is degraded, not fatal -- the
     latter launch attempt and the eventual stop will surface it).
 
     Returns (ok, message):
-      * (True, "re-anchored pid=<n>")   — child pid resolved, recorded
-      * (True, "re-anchored pid=None")  — child pid unresolved, recorded None
-      * (False, "recording failed: <e>") — record() raised
+      * (True, "re-anchored pid=<n>")   -- child pid resolved, alive, recorded
+      * (True, "re-anchored pid=None")  -- child pid never resolved, recorded None
+      * (False, "child pid <n> did not survive")  -- D2: resolved but DEAD
+      * (False, "recording failed: <e>")          -- record() raised
 
-    ``_child_pid`` is injectable for tests (default: a private
-    bounded-poll ps --ppid walker).
+    D2 (Run 032 GOAL.md sec 1 D2): when a child pid WAS resolved, it
+    is re-checked for liveness BEFORE the record() call. A dead
+    resolved child is a refuse-to-record failure (the 2026-08-24
+    bug class -- a codex hit an interactive update prompt and died
+    between the ready-window walk and the record call; recording its
+    corpse and returning success was the lie). A never-resolved
+    child (None) is left to the existing degrade path (pid=None
+    recorded, (True, "re-anchored pid=None")).
+
+    ``_child_pid`` and ``_pid_alive`` are injectable for tests
+    (defaults: a private bounded-poll ps --ppid walker and the
+    shared os.kill(pid, 0) idiom).
     """
     if db_path is None:
         db_path = config.get_db_path()
     child_pid_resolver = _child_pid or _harness_child_pid
     child_pid = child_pid_resolver(session_name)
+    # D2 (Run 032): refuse to record a corpse. When a child pid was
+    # resolved, re-check liveness BEFORE the record() call. The
+    # never-resolved case (child_pid is None) is left to the
+    # existing degrade path below -- D2 only changes behaviour for
+    # a child that WAS resolved and is now dead.
+    if child_pid is not None:
+        alive = (_pid_alive or _default_pid_alive)(child_pid)
+        if not alive:
+            # Loud refusal -- DO NOT record. run_release turns this
+            # (False, ...) into "RE-ANCHOR FAILED ... aborting dispatch"
+            # and exits 5.
+            return False, f"child pid {child_pid} did not survive"
     try:
         runtime_owner.record(
             flow_key, "harness_process", session_name, pid=child_pid,

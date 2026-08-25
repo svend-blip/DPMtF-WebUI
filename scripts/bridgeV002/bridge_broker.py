@@ -614,13 +614,21 @@ def _run_dispatch(row: sqlite3.Row) -> tuple[int, str]:
     # stdout for an "ERROR:" line — that is the broker's local signal
     # that the dispatch did not complete cleanly. The trace.log entry
     # dispatched.py emitted remains the canonical record.
+    # D3 (Run 032 GOAL.md §1 D3) reorders the precedence so
+    # REFUSED_INJECTION is detected BEFORE the rc != 0 check.
+    # dispatch.py's _dispatch_main_run wrapper (D3) exits 1 when the
+    # dispatch callable returns False -- which is true for BOTH a
+    # transient busy-pane refusal (rc=2 requeue) and a hard pre-dispatch
+    # / harness refusal (rc=1 failed). The dispatch.py output already
+    # distinguishes the two by prefix: REFUSED_INJECTION: -> requeue,
+    # everything else with an "ERROR:" line -> failed. Checking the
+    # refusal prefix first preserves the Run 006 D6(b) requeue contract.
     out = ((completed.stdout or "") + (completed.stderr or "")).strip()
-    if completed.returncode != 0:
-        return (completed.returncode, out[:2000])
 
-    # Look for REFUSED_INJECTION: / ERROR: in the dispatch.py output.
-    # Use a strict prefix match so we do not catch the literals inside
-    # the dispatch.py help text or the broker's own stderr.
+    # Look for REFUSED_INJECTION: in the dispatch.py output FIRST so a
+    # busy-pane refusal still requeues even when the wrapper exits 1.
+    # Strict prefix match -- do not catch literals inside dispatch.py's
+    # help text or the broker's own stderr.
     has_refusal = any(
         line.lstrip().startswith("REFUSED_INJECTION")
         for line in out.splitlines()
@@ -629,9 +637,16 @@ def _run_dispatch(row: sqlite3.Row) -> tuple[int, str]:
         # Distinct return code (2) so _process_one can map this to a
         # requeue-with-backoff outcome (Run 006 D6(b)). The dispatch
         # deliberately logged nothing to trace.log, so the refused
-        # delivery is invisible to recover_orphaned_rows — exactly the
+        # delivery is invisible to recover_orphaned_rows -- exactly the
         # "refuse, never drop" outcome GOAL.md §1 D6 binds.
         return (2, out[:2000])
+    if completed.returncode != 0:
+        # dispatch.py exited nonzero without a REFUSED_INJECTION line.
+        # D3 (Run 032 §1 D3): a pre-dispatch script refusal, a
+        # dead-harness refusal (D1), an unhandled exception during
+        # injection, etc. all exit 1 via _dispatch_main_run. The broker
+        # maps anything but 2 to a `failed` row with error_msg set.
+        return (completed.returncode, out[:2000])
     has_error = any(
         line.lstrip().startswith("ERROR")
         for line in out.splitlines()
