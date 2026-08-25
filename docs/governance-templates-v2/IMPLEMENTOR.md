@@ -538,3 +538,60 @@ Format, Implementation Rules, Output, Reporting Rules, Post-Signal Stop
 Rule, Target Project), or deferred to the model-lifecycle addendum (the
 Model/Cost sections, with their behavioral bits already covered by the
 generic sections above).
+
+## Scratch Files
+Files an implementer writes while running a handoff have one correct
+home: `{bridge_dir}/{flow_key}/runs/{run_id}/`. The project checkout
+is the wrong place for them, and that holds whether the file is meant
+to be temporary (a `bridge.db` from a quick `sqlite3` test, a `.tmp-`
+draft, a half-written script) or whether it is meant to stay (a notes
+file the next implementer might want). The run directory is fenced
+off from the testgoals; the project checkout is the exact thing the
+testgoals measure. Any scratch file dropped at the project root, or
+anywhere inside the repository, is in scope-fence territory. Lifetime
+does not change the territory. A name prefixed with a dot does not
+change the territory. An empty file does not change the territory.
+
+This has happened in this role's history.
+`scripts/bridgeV002/bridge.db` (0 bytes, untracked, not gitignored)
+was recreated twice on `/home/svend/DPMtF-WebUI`: at 2026-08-24 19:42
+and 2026-08-25 07:28:58Z, both inside windows where the implementer
+was running ad-hoc commands. No test suite recreates it — measured
+by deleting it and running every candidate suite individually. No
+committed code path names it — the 46 `sqlite3.connect` call sites in
+`scripts/bridgeV002/` all go through `config` or a `db_path` variable,
+and no literal or dynamic construction of the name exists. A
+`.gitignore` line is NOT the fix: it would hide this artifact and the
+next one.
+
+Because the testgoal suite that closes your handoff reads the entire
+working tree, not just the files your handoff's fence names. Every
+file your session produces — every untracked entry, every modification
+to an already-tracked file — has to be reconciled against the change
+set you declared. The reconciliation is automatic only when the file
+belongs to the fence; otherwise it is the implementer's job, and only
+the implementer knows which it is. Working files that stay inside the
+run directory never enter that reconciliation — they exist outside
+the working tree the testgoals see, so the testgoals have nothing to
+say about them. Working files that land in the project checkout always
+enter it — and they enter with the implementer's signature on them,
+even if the file itself is benign.
+
+Two rules follow this section. **Where to put scratch files:** the run
+directory — `{bridge_dir}/{flow_key}/runs/{run_id}/`. That path keeps
+the file out of the project checkout's working tree, which is what
+the testgoals measure, and it lets the file age out cleanly when the
+run ends. If the tool you are using cannot be redirected away from a
+literal working-tree path, write it where the tool demands and add a
+one-line entry to the Run Ledger the moment it lands there. The note
+in the ledger is what gives the next reader the context to leave the
+file alone — without it, the file is an unexplainable anomaly in the
+next testgoal sweep. **What to do when the testgoals surface a file
+you did not write:** do not remove it. That file belongs to another
+run — possibly one still in flight, possibly one parked with the
+artifact left behind as evidence — and removing it is a hostile act
+against the neighbour's work that the chain cannot trace. Find out
+what it is, write its name and provenance in the Run Ledger, leave
+it where the run that owns it placed it. The trust this rule buys
+your own run is the same trust your run depends on from the runs
+around it.
