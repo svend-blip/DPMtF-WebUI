@@ -75,7 +75,7 @@ def test_launch_spec_delegates_to_resolved_harness():
     the returned dict has EXACTLY the five bound LaunchSpec keys."""
     role_config = {"harness": "dsh"}
     spec = harness.launch_spec(role_config)
-    expected_keys = {"mode", "needs_initial_prompt", "anchor", "required_env", "activity_markers"}
+    expected_keys = {"mode", "needs_initial_prompt", "anchor", "required_env", "activity_markers", "launch_owner"}
     assert set(spec.keys()) == expected_keys, (
         f"launch_spec returned keys {sorted(spec.keys())!r}, "
         f"expected exactly {sorted(expected_keys)!r}"

@@ -434,7 +434,8 @@ def launchspec_disagreements():
     disagreements = []
 
     # Fixed field order for deterministic output (handoff §STEP 2):
-    #   LaunchSpec:  mode, needs_initial_prompt, anchor, required_env, activity_markers
+    #   LaunchSpec:  mode, needs_initial_prompt, anchor, required_env,
+    #                activity_markers, launch_owner
     #   StopSpec:    signals, grace_seconds, verify
     launch_field_order = (
         "mode",
@@ -442,6 +443,7 @@ def launchspec_disagreements():
         "anchor",
         "required_env",
         "activity_markers",
+        "launch_owner",
     )
     stop_field_order = (
         "signals",
@@ -558,10 +560,20 @@ def _today_behavior(harness, hdef, hadapter, hinvoke, chain_watchdog, runtime_ow
       - ``verify``: ``"pid_gone"`` for every harness — runtime_owner verifies
         via polling ``os.kill(pid, 0)`` until ``ProcessLookupError``; invoke
         verifies via ``proc.poll()`` / ``proc.wait()``.
+      - ``launch_owner``: ``"harness_allocator"`` iff ``hdef.is_native(harness)``
+        else ``"model_allocator"`` — DPMtF's own ``is_native`` path
+        (``harness.is_native()`` delegates to the standalone's
+        ``definition.is_native``, i.e. ``harness in NATIVE_HARNESSES`` for the
+        allocator's SEVEN native harnesses). NOT the stale module-level
+        ``NATIVE_HARNESSES`` constant in ``harness.py`` (which is a
+        two-element re-export equal to ``("dsh", "codex")``, kept for
+        historical test compatibility only — using it would wrongly mark
+        qwen/goose/sweagent/aider/crush as ``"model_allocator"`` and
+        produce 5 spurious disagreements, breaking TG8).
 
-    Returns a dict with ``"launch"`` (5 keys: mode, needs_initial_prompt,
-    anchor, required_env, activity_markers) and ``"stop"`` (3 keys: signals,
-    grace_seconds, verify).
+    Returns a dict with ``"launch"`` (6 keys: mode, needs_initial_prompt,
+    anchor, required_env, activity_markers, launch_owner) and ``"stop"``
+    (3 keys: signals, grace_seconds, verify).
     """
     # Mode — see citations above.
     if harness == "dsh":
@@ -595,6 +607,11 @@ def _today_behavior(harness, hdef, hadapter, hinvoke, chain_watchdog, runtime_ow
         grace_seconds = int(hinvoke.CANCEL_GRACE_SECONDS)
     verify = "pid_gone"
 
+    # launch_owner — derive via hdef.is_native(harness) (NOT the stale
+    # module-level NATIVE_HARNESSES constant in harness.py — see the
+    # docstring "Constants imported" note above).
+    launch_owner = "harness_allocator" if hdef.is_native(harness) else "model_allocator"
+
     return {
         "launch": {
             "mode": mode,
@@ -602,6 +619,7 @@ def _today_behavior(harness, hdef, hadapter, hinvoke, chain_watchdog, runtime_ow
             "anchor": anchor,
             "required_env": sorted(env_names),
             "activity_markers": activity_markers,
+            "launch_owner": launch_owner,
         },
         "stop": {
             "signals": signals,

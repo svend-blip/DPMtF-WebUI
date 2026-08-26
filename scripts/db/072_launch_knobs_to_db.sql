@@ -1,0 +1,72 @@
+-- 072: Move the dsh harness profile and codex fresh-context policy out of
+--      harness-allocator.ini and into bridge_roles (the database).
+--
+-- Goal (GOAL.md Run 037 §1 D4, section 2, section 5):
+-- Today BOTH launch knobs are global values read from harness-allocator.ini:
+--   - dsh_profile                -> resolves to 'headless' (ini line commented out, default)
+--   - codex_fresh_context_policy -> resolves to 'off'     (explicit ini line)
+-- Run 037's contract is to move them to per-role columns on bridge_roles so
+-- the resolver reads them from the role row, with the ini keys kept as the
+-- fallback for any role that doesn't yet carry a row value. This migration
+-- does the first half of that move: it adds the codex_fresh_context_policy
+-- column (empty for now — the read side that consumes it is later-run work,
+-- GOAL.md §7) and it backfills default_harness_profile='headless' for the
+-- ONE role whose harness is dsh (super-deep-deep4), so the role row carries
+-- the same effective value the ini was returning.
+--
+-- Bindings:
+--   (a) The column ADD is a pure schema change with DEFAULT NULL. SQLite
+--       allows ALTER TABLE ... ADD COLUMN with a constant DEFAULT; existing
+--       rows read NULL after the add. Nothing reads codex_fresh_context_policy
+--       yet, so today's effective codex value ('off') is preserved by the
+--       unchanged ini fallback (the ini keys stay in place — GOAL.md §2).
+--   (b) The UPDATE is scoped to ONE role by name (super-deep-deep4), not a
+--       blanket WHERE default_harness_profile IS NULL match. The same
+--       discipline as 071: a blanket match would flip review-claude-sonnet5
+--       (currently NULL) and would silently change its effective dsh
+--       fallback if a future handoff ever pointed review-claude-sonnet5 at
+--       a dsh harness. role_key is the single source of truth for which row
+--       gets touched.
+--   (c) The literal 'headless' comes from STEP 0's verification — running
+--       `python3 -c "from harness_allocator.config import get_dsh_profile;
+--       print(repr(get_dsh_profile()))"` against the live ini returns
+--       'headless'. The migration captures the resolved value (not the
+--       ini key name) so a future ini change cannot silently rewrite what
+--       the role row reads.
+--   (d) The migration does NOT remove or comment-out the ini keys. They
+--       stay as the fallback path for any role whose row is NULL — see
+--       GOAL.md §2 ("the ini fallback remains intact"). The 071
+--       sentinel-trigger machinery is NOT required here: this migration
+--       is a guarded single-row UPDATE plus a column add, not a
+--       multi-role invariant flip. The "guard" is the WHERE role_key =
+--       'super-deep-deep4' scope itself.
+--   (e) Idempotency: SQLite tracks applied migrations by filename in
+--       schema_migrations (see scripts/migrate.py). Re-running migrate.py
+--       against an already-applied database skips this file by name. At
+--       the SQL level, the ALTER TABLE would error if re-run (column
+--       already exists); the UPDATE matches zero rows because the row
+--       already reads 'headless'. Either way: second run is a no-op.
+--   (f) No hardcoded /home/svend paths in the migration DATA. The header
+--       comment names "GOAL.md Run 037 §1 D4" without a filesystem path,
+--       matching the 067 / 071 house style.
+--
+-- Header comment follows the 067 / 069 / 070 / 071 house style and names
+-- GOAL.md Run 037 §1 D4.
+
+-- (a) Add the codex_fresh_context_policy column. DEFAULT NULL — the
+-- column is empty for every existing role and stays empty until the
+-- later-run read side (GOAL.md §7) starts consuming it. Nothing reads
+-- it today, so today's effective value ('off', from the ini fallback)
+-- is preserved unchanged.
+ALTER TABLE bridge_roles ADD COLUMN codex_fresh_context_policy TEXT DEFAULT NULL;
+
+-- (b) + (c) + (d) Record today's effective dsh profile on the dsh role.
+-- 'headless' is the value STEP 0 verified get_dsh_profile() returns
+-- against the live ini; capturing the resolved value (not the ini key
+-- name) insulates the role row from any future ini rename. Scoped to
+-- the ONE role whose default_harness_source is 'dsh' by role_key,
+-- not by an IS NULL match.
+UPDATE bridge_roles
+SET default_harness_profile = 'headless'
+WHERE is_active = 1
+  AND role_key = 'super-deep-deep4';
