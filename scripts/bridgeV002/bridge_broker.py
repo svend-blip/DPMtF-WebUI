@@ -128,6 +128,13 @@ def _get_bridge_dir() -> str:
 # Run 004 extension for supervisor escalation answers.
 _ARTIFACT_TYPES = (
     "backlog", "run-ledger", "handoff", "end-report", "escalation-response",
+    # Two-flow spec §3: the planning supervisor materializes the Run contract
+    # DRAFT through this queue. "goal" is deliberately NOT a type here:
+    # GOAL.md means the Human approved the Run (spec §4), and the queue is
+    # the sandboxed roles' only write channel into the artifact root — so a
+    # role physically cannot produce GOAL.md. Promotion is the host-side
+    # `promote-goal` command, which records who approved.
+    "goal-draft",
 )
 
 # Append vs replace per artifact type. Computed once.
@@ -137,6 +144,10 @@ _ARTIFACT_MODE = {
     "handoff": "create",
     "end-report": "replace",
     "escalation-response": "create",
+    # Replace, not create: the Human requesting changes produces a REVISED
+    # draft for the same run (spec §4's revision loop), and each revision
+    # supersedes the last. GOAL.md itself is never written through here.
+    "goal-draft": "replace",
 }
 
 # Size limit for inline --content to keep the queue DB bounded.
@@ -289,7 +300,7 @@ def _canonical_destination(
     # paths. The function remains pure in the security sense — the root
     # comes from the flow's own registered row, never from the caller.
     root = bridge_lib.get_effective_artifact_root(flow_key)
-    if artifact_type in ("backlog", "run-ledger", "end-report"):
+    if artifact_type in ("backlog", "run-ledger", "end-report", "goal-draft"):
         if not isinstance(run_id, int) or run_id < 1:
             raise ValueError(
                 f"run_id must be a positive integer for "
@@ -313,6 +324,8 @@ def _canonical_destination(
                 "artifact_type='escalation-response'"
             )
 
+    if artifact_type == "goal-draft":
+        return f"{bridge_dir}/{root}/runs/{run_id:03d}/GOAL-DRAFT.md"
     if artifact_type == "backlog":
         return f"{bridge_dir}/{root}/runs/{run_id:03d}/BACKLOG.md"
     if artifact_type == "run-ledger":
@@ -405,7 +418,7 @@ def _validate_materialize_identity(
             f"must be one of {_ARTIFACT_TYPES}"
         )
 
-    if artifact_type in ("backlog", "run-ledger", "end-report"):
+    if artifact_type in ("backlog", "run-ledger", "end-report", "goal-draft"):
         if not isinstance(run_id, int) or run_id < 1:
             return (
                 f"run_id must be a positive integer for "
@@ -768,7 +781,7 @@ def _write_materialize_artifact(
     # Filesystem validation per artifact type.
     parent = dest_path.parent
 
-    if artifact_type in ("backlog", "run-ledger", "end-report"):
+    if artifact_type in ("backlog", "run-ledger", "end-report", "goal-draft"):
         # The run directory must exist (sanity — runs are created by
         # the Human at run-opening time, the broker does not create
         # them).
@@ -1288,6 +1301,66 @@ def _process_one(conn: sqlite3.Connection) -> bool:
     return True
 
 
+def cmd_promote_goal(args: argparse.Namespace) -> int:
+    """Promote an approved GOAL-DRAFT.md to GOAL.md — the recorded approval.
+
+    Two-flow spec §4: GOAL.md means the Human approved this Run, and the
+    planning supervisor must not be able to self-authorize the transition.
+    The mechanics enforce that split: the materialize queue — the sandboxed
+    roles' only write channel into the artifact root — refuses type "goal",
+    so the ONLY path to GOAL.md is this host-side command, and it requires
+    --approved-by naming who approved. The promotion renames the draft (a
+    revision loop produces a fresh draft, not a second GOAL) and appends the
+    approval event to the run's RUN-LEDGER so the record survives the
+    session that performed it.
+
+    Deterministic and refusing rather than clever: no draft -> error;
+    GOAL.md already present -> error (a promoted Run is promoted once);
+    closed run -> error.
+    """
+    flow_key = args.flow
+    run_id = int(args.run_id)
+    approved_by = (args.approved_by or "").strip()
+    if not approved_by:
+        print("ERROR: --approved-by must name who approved", file=sys.stderr)
+        return 2
+
+    bridge_dir = _get_bridge_dir()
+    root = bridge_lib.get_effective_artifact_root(flow_key)
+    run_dir = Path(bridge_dir) / root / "runs" / f"{run_id:03d}"
+    draft = run_dir / "GOAL-DRAFT.md"
+    goal = run_dir / "GOAL.md"
+    end_report = run_dir / "END-REPORT.md"
+
+    if end_report.exists():
+        print(f"ERROR: run {run_id:03d} is closed ({end_report}); "
+              f"nothing to promote", file=sys.stderr)
+        return 1
+    if goal.exists():
+        print(f"ERROR: {goal} already exists — a Run is promoted once; a "
+              f"revision needs a NEW draft and a new approval", file=sys.stderr)
+        return 1
+    if not draft.exists():
+        print(f"ERROR: no draft at {draft}", file=sys.stderr)
+        return 1
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    draft.rename(goal)
+    ledger = run_dir / "RUN-LEDGER.md"
+    entry = (f"\n## {stamp} — GOAL promoted (recorded Human approval)\n"
+             f"- GOAL-DRAFT.md -> GOAL.md by `promote-goal`, "
+             f"approved-by: {approved_by}\n"
+             f"- flow: {flow_key} (artifact root: {root})\n")
+    if ledger.exists():
+        ledger.write_text(ledger.read_text(encoding="utf-8") + entry,
+                          encoding="utf-8")
+    else:
+        ledger.write_text(f"# RUN-LEDGER — run {run_id:03d}\n" + entry,
+                          encoding="utf-8")
+    print(f"PROMOTED: {goal} (approved-by: {approved_by})")
+    return 0
+
+
 def cmd_process_once(args: argparse.Namespace) -> int:
     """Process exactly one pending row (host-side only).
 
@@ -1734,6 +1807,17 @@ def _build_parser() -> argparse.ArgumentParser:
     pm.set_defaults(func=cmd_materialize)
 
     # process-once
+    pg = sub.add_parser(
+        "promote-goal",
+        help="Host-side: promote runs/NNN/GOAL-DRAFT.md to GOAL.md, "
+             "recording who approved. The queue refuses type 'goal', so "
+             "this is the only path to a promoted Run contract.",
+    )
+    pg.add_argument("--flow", required=True)
+    pg.add_argument("--run-id", required=True)
+    pg.add_argument("--approved-by", required=True)
+    pg.set_defaults(func=cmd_promote_goal)
+
     pp = sub.add_parser(
         "process-once",
         help="Host-side: process EXACTLY one pending row, then exit.",

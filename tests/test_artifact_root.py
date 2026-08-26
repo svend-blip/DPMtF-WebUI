@@ -207,3 +207,92 @@ class TestCallerSupplied(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGoalArtifacts(unittest.TestCase):
+    """Two-flow spec §3/§4: the draft flows through the queue; GOAL.md never does.
+
+    The mechanical property under test: the materialize queue is the
+    sandboxed roles' only write channel into the artifact root, and it has
+    no "goal" type — so a role physically cannot produce GOAL.md, and the
+    planning supervisor cannot self-authorize its own contract.
+    """
+
+    def setUp(self):
+        self.db = _make_db([("1000-01-PLOOP", "1000")])
+        self._orig = bridge_lib.get_effective_artifact_root
+        bridge_lib.get_effective_artifact_root = (
+            lambda fk, db_path=None, _o=self._orig, _db=self.db: _o(fk, db_path=_db))
+
+    def tearDown(self):
+        bridge_lib.get_effective_artifact_root = self._orig
+
+    def test_goal_draft_destination_is_run_scoped_under_the_shared_root(self):
+        got = bridge_broker._canonical_destination(
+            flow_key="1000-01-PLOOP", run_id=2, handoff_id=None,
+            artifact_type="goal-draft")
+        self.assertEqual(
+            got, f"{bridge_broker._get_bridge_dir()}/1000/runs/002/GOAL-DRAFT.md")
+
+    def test_goal_draft_is_replace_mode(self):
+        """A revision supersedes the draft; it does not append to it."""
+        self.assertEqual(bridge_broker._ARTIFACT_MODE["goal-draft"], "replace")
+
+    def test_goal_is_not_a_materializable_type(self):
+        """The load-bearing refusal: no queue path produces GOAL.md."""
+        self.assertNotIn("goal", bridge_broker._ARTIFACT_TYPES)
+        with self.assertRaises(ValueError):
+            bridge_broker._canonical_destination(
+                flow_key="1000-01-PLOOP", run_id=2, handoff_id=None,
+                artifact_type="goal")
+
+
+class TestPromoteGoal(unittest.TestCase):
+    def setUp(self):
+        import argparse
+        self.tmp = tempfile.mkdtemp()
+        self.db = _make_db([("1000-01-PLOOP", "1000")])
+        self._orig_root = bridge_lib.get_effective_artifact_root
+        bridge_lib.get_effective_artifact_root = (
+            lambda fk, db_path=None, _o=self._orig_root, _db=self.db: _o(fk, db_path=_db))
+        self._orig_bd = bridge_broker._get_bridge_dir
+        bridge_broker._get_bridge_dir = lambda: self.tmp
+        self.run_dir = Path(self.tmp) / "1000" / "runs" / "002"
+        self.run_dir.mkdir(parents=True)
+        self.args = argparse.Namespace(
+            flow="1000-01-PLOOP", run_id="2", approved_by="svend")
+
+    def tearDown(self):
+        bridge_lib.get_effective_artifact_root = self._orig_root
+        bridge_broker._get_bridge_dir = self._orig_bd
+
+    def test_promote_renames_the_draft_and_records_the_approval(self):
+        (self.run_dir / "GOAL-DRAFT.md").write_text("# GOAL — run 002\n")
+        rc = bridge_broker.cmd_promote_goal(self.args)
+        self.assertEqual(rc, 0)
+        self.assertTrue((self.run_dir / "GOAL.md").exists())
+        self.assertFalse((self.run_dir / "GOAL-DRAFT.md").exists(),
+                         "the draft is renamed, not copied — one contract")
+        ledger = (self.run_dir / "RUN-LEDGER.md").read_text()
+        self.assertIn("approved-by: svend", ledger)
+
+    def test_promote_without_a_draft_refuses(self):
+        self.assertEqual(bridge_broker.cmd_promote_goal(self.args), 1)
+
+    def test_promote_twice_refuses(self):
+        (self.run_dir / "GOAL-DRAFT.md").write_text("# v1\n")
+        bridge_broker.cmd_promote_goal(self.args)
+        (self.run_dir / "GOAL-DRAFT.md").write_text("# v2\n")
+        rc = bridge_broker.cmd_promote_goal(self.args)
+        self.assertEqual(rc, 1, "a promoted Run is promoted once")
+        self.assertEqual((self.run_dir / "GOAL.md").read_text(), "# v1\n")
+
+    def test_promote_on_a_closed_run_refuses(self):
+        (self.run_dir / "GOAL-DRAFT.md").write_text("# late\n")
+        (self.run_dir / "END-REPORT.md").write_text("# closed\n")
+        self.assertEqual(bridge_broker.cmd_promote_goal(self.args), 1)
+
+    def test_promote_requires_a_named_approver(self):
+        (self.run_dir / "GOAL-DRAFT.md").write_text("# x\n")
+        self.args.approved_by = "   "
+        self.assertEqual(bridge_broker.cmd_promote_goal(self.args), 2)
