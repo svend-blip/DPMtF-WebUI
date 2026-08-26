@@ -1328,7 +1328,16 @@ def cmd_promote_goal(args: argparse.Namespace) -> int:
     bridge_dir = _get_bridge_dir()
     root = bridge_lib.get_effective_artifact_root(flow_key)
     run_dir = Path(bridge_dir) / root / "runs" / f"{run_id:03d}"
-    draft = run_dir / "GOAL-DRAFT.md"
+    # Hybrid draft channel (Human decision 2026-08-26): the planning
+    # supervisor delivers the draft as an ORDINARY step deliverable,
+    # 1000/goals/{ID}-GOAL-DRAFT.md, and the deliverable id BECOMES the run
+    # id — so "only PLOOP allocates Run IDs" is enforced by the flow's own
+    # id counter rather than by convention. Dispatch writes the id
+    # unpadded; the run directory is padded. The broker goal-draft type
+    # remains a second, equivalent source (runs/NNN/GOAL-DRAFT.md).
+    goals_draft = Path(bridge_dir) / root / "goals" / f"{run_id}-GOAL-DRAFT.md"
+    run_draft = run_dir / "GOAL-DRAFT.md"
+    draft = goals_draft if goals_draft.exists() else run_draft
     goal = run_dir / "GOAL.md"
     end_report = run_dir / "END-REPORT.md"
 
@@ -1341,10 +1350,30 @@ def cmd_promote_goal(args: argparse.Namespace) -> int:
               f"revision needs a NEW draft and a new approval", file=sys.stderr)
         return 1
     if not draft.exists():
-        print(f"ERROR: no draft at {draft}", file=sys.stderr)
+        print(f"ERROR: no draft at {goals_draft} or {run_draft}",
+              file=sys.stderr)
         return 1
 
+    # Parse gate (Human decision 2026-08-26): a contract that cannot be
+    # read mechanically is refused AT APPROVAL, not discovered when the
+    # decomposer stands mid-run with it. Readability only — the criteria
+    # themselves must be red before a run, so nothing is executed here.
+    import check_testgoals
+    draft_text = draft.read_text(encoding="utf-8")
+    try:
+        criteria = check_testgoals.parse_block(draft_text)
+    except check_testgoals.CriterionError as exc:
+        print(f"REFUSED: testgoals block malformed — {exc}", file=sys.stderr)
+        print("Fix the draft and promote again; nothing was moved.",
+              file=sys.stderr)
+        return 1
+    if not criteria:
+        print("WARNING: draft has no ```testgoals block — promoting anyway "
+              "(hand-validation per 461); the ELOOP landing will need "
+              "criteria from somewhere", file=sys.stderr)
+
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run_dir.mkdir(parents=True, exist_ok=True)
     draft.rename(goal)
     ledger = run_dir / "RUN-LEDGER.md"
     entry = (f"\n## {stamp} — GOAL promoted (recorded Human approval)\n"

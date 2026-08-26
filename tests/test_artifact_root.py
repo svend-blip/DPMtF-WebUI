@@ -292,6 +292,37 @@ class TestPromoteGoal(unittest.TestCase):
         (self.run_dir / "END-REPORT.md").write_text("# closed\n")
         self.assertEqual(bridge_broker.cmd_promote_goal(self.args), 1)
 
+    def test_promote_from_the_hybrid_goals_channel(self):
+        """The deliverable id becomes the run id, unpadded in goals/,
+        padded in runs/ — and the goals-channel draft wins when present."""
+        goals = Path(self.tmp) / "1000" / "goals"
+        goals.mkdir(parents=True)
+        (goals / "2-GOAL-DRAFT.md").write_text(
+            "# GOAL 002\n```testgoals\nid: TG1\nwhat: x\n"
+            "run: echo 1\nexpect: equals 1\n```\n")
+        rc = bridge_broker.cmd_promote_goal(self.args)
+        self.assertEqual(rc, 0)
+        self.assertTrue((self.run_dir / "GOAL.md").exists())
+        self.assertFalse((goals / "2-GOAL-DRAFT.md").exists())
+
+    def test_promote_parse_gate_refuses_a_malformed_testgoals_block(self):
+        """A contract that cannot be read mechanically is refused AT
+        APPROVAL — the run-038 'not a field line' failure caught at the
+        door instead of at dispatch. Nothing is moved on refusal."""
+        (self.run_dir / "GOAL-DRAFT.md").write_text(
+            "# GOAL\n```testgoals\nid: TG1\nbroken line here\n```\n")
+        rc = bridge_broker.cmd_promote_goal(self.args)
+        self.assertEqual(rc, 1)
+        self.assertFalse((self.run_dir / "GOAL.md").exists())
+        self.assertTrue((self.run_dir / "GOAL-DRAFT.md").exists(),
+                        "a refused draft stays where it was")
+
+    def test_promote_without_a_testgoals_block_warns_but_promotes(self):
+        """Absent is not unreadable: hand-validation per 461 stays legal."""
+        (self.run_dir / "GOAL-DRAFT.md").write_text("# GOAL, no block\n")
+        self.assertEqual(bridge_broker.cmd_promote_goal(self.args), 0)
+        self.assertTrue((self.run_dir / "GOAL.md").exists())
+
     def test_promote_requires_a_named_approver(self):
         (self.run_dir / "GOAL-DRAFT.md").write_text("# x\n")
         self.args.approved_by = "   "
