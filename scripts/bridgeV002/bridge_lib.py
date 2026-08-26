@@ -590,6 +590,62 @@ def load_flow_from_db(flow_name, db_path=None):
     return {"flow": flow, "steps": steps}
 
 
+def get_effective_artifact_root(flow_key, db_path=None):
+    """The filesystem root a flow's durable artifacts resolve under.
+
+    Two-flow specification §1: two orchestration flows may share one
+    durable artifact structure. ``bridge_flows.artifact_root`` names that
+    root; NULL/empty means "the flow key is the root", which is the
+    historical behaviour and the default for every existing flow.
+
+    This is THE resolver — the specification requires one canonical
+    implementation rather than several ``artifact_root or flow_key``
+    copies scattered across the codebase, and every consumer (the broker's
+    canonical destinations, supervisor_state, run_report,
+    laguna_swap_guard, the evidence gate) goes through this function.
+    Re-implementing the fallback inline anywhere else is a defect.
+
+    The broker's security property is unaffected: destinations remain
+    computed internally as a pure function; this only changes which root
+    that function keys on. The caller still supplies no filesystem path.
+
+    An unknown flow_key returns flow_key itself rather than raising:
+    every current caller derives paths for flows it has already loaded,
+    and a lookup failure here must not turn a read-only status probe into
+    a crash. The DB read failing (missing column on an unmigrated
+    database, unreadable file) degrades the same way, to the historical
+    behaviour.
+
+    Args:
+        flow_key: The flow_key to resolve.
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        str: the effective artifact root. Never empty for a non-empty
+        flow_key.
+    """
+    if not flow_key:
+        return flow_key
+    if db_path is None:
+        db_path = config.get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT artifact_root FROM bridge_flows WHERE flow_key = ?",
+                (flow_key,)
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return flow_key
+    if row and row[0] and str(row[0]).strip():
+        return str(row[0]).strip()
+    return flow_key
+
+
 def get_flow_target_project(flow_key, db_path=None):
     """Return the absolute path of the project a flow operates on.
 

@@ -42,6 +42,8 @@ PROJECT_ROOT = os.environ.get(
     str(Path(__file__).resolve().parent.parent.parent),
 )
 sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bridge_lib  # noqa: E402  — the ONE artifact-root resolver (two-flow spec §2)
 
 # Extensions worth checking. A claim about a file we cannot classify as
 # source or documentation is not worth a false positive.
@@ -780,10 +782,12 @@ def handoff_mtime(bridge_dir, flow_key, handoff_id, gated_deliverable="",
     times = []
     if bridge_dir and flow_key and handoff_id:
         gated = os.path.realpath(gated_deliverable) if gated_deliverable else ""
+        # Effective artifact root, not the flow key (two-flow spec §2).
+        root = bridge_lib.get_effective_artifact_root(flow_key)
         handoff_file = os.path.realpath(str(Path(
-            bridge_dir, flow_key, "handoffs", f"{handoff_id}-handoff.md")))
+            bridge_dir, root, "handoffs", f"{handoff_id}-handoff.md")))
         dispatched = dispatch_time(bridge_dir, handoff_id, to_role)
-        for path in Path(bridge_dir, flow_key).glob(f"*/{handoff_id}-*.md"):
+        for path in Path(bridge_dir, root).glob(f"*/{handoff_id}-*.md"):
             real = os.path.realpath(str(path))
             if gated and real == gated:
                 continue
@@ -889,7 +893,8 @@ def main():
             "it asserts without showing anything was checked")
 
     handoff_path = os.path.join(
-        bridge_dir, args.flow_key, "handoffs", f"{args.handoff_id}-handoff.md")
+        bridge_dir, bridge_lib.get_effective_artifact_root(args.flow_key),
+        "handoffs", f"{args.handoff_id}-handoff.md")
 
     roots = target_projects(args.flow_key)
     # A cross-repo handoff declares the extra repositories it governs in its

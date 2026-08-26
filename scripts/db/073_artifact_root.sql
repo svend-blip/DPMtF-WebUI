@@ -1,0 +1,16 @@
+-- 073: bridge_flows.artifact_root — the shared artifact root.
+--
+-- Two-flow specification (TWO-FLOW-PLOOP-ELOOP.md §1, Human-approved
+-- 2026-08-26): two orchestration flows may share one durable artifact
+-- structure. The flow key remains the orchestration identity; this column
+-- names the filesystem root the flow's broker-owned Run artifacts resolve
+-- under. NULL means "the flow key is the root", so every existing flow is
+-- untouched by definition — no backfill, no behaviour change.
+--
+-- The broker's security property is unchanged: destinations remain a pure
+-- function computed internally, now of (effective_artifact_root(flow_key),
+-- run_id, artifact_type). The caller still supplies no filesystem path.
+--
+-- Idempotency comes from migrate.py's schema_migrations tracking: an applied
+-- migration is skipped by name on re-run, so this ALTER executes exactly once.
+ALTER TABLE bridge_flows ADD COLUMN artifact_root TEXT NULL;

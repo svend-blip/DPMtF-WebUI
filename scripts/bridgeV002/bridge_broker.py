@@ -64,6 +64,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# The ONE canonical artifact-root resolver (two-flow spec §1/§2). A local
+# `artifact_root or flow_key` reimplementation here would be exactly the
+# scattering the specification forbids. bridge_lib self-inserts the project
+# root for its config import, and both the CLI (script dir on sys.path) and
+# the tests (explicit insert) can already import it.
+import bridge_lib
+
 
 
 # Run 025 D2: bounded backoff for transient "target session not running"
@@ -277,6 +284,11 @@ def _canonical_destination(
             f"must be one of {_ARTIFACT_TYPES}"
         )
     bridge_dir = _get_bridge_dir()
+    # The destination keys on the flow's EFFECTIVE artifact root, not the
+    # flow key itself (two-flow spec §1): flows sharing a root share these
+    # paths. The function remains pure in the security sense — the root
+    # comes from the flow's own registered row, never from the caller.
+    root = bridge_lib.get_effective_artifact_root(flow_key)
     if artifact_type in ("backlog", "run-ledger", "end-report"):
         if not isinstance(run_id, int) or run_id < 1:
             raise ValueError(
@@ -302,13 +314,13 @@ def _canonical_destination(
             )
 
     if artifact_type == "backlog":
-        return f"{bridge_dir}/{flow_key}/runs/{run_id:03d}/BACKLOG.md"
+        return f"{bridge_dir}/{root}/runs/{run_id:03d}/BACKLOG.md"
     if artifact_type == "run-ledger":
-        return f"{bridge_dir}/{flow_key}/runs/{run_id:03d}/RUN-LEDGER.md"
+        return f"{bridge_dir}/{root}/runs/{run_id:03d}/RUN-LEDGER.md"
     if artifact_type == "handoff":
-        return f"{bridge_dir}/{flow_key}/handoffs/{handoff_id:03d}-handoff.md"
+        return f"{bridge_dir}/{root}/handoffs/{handoff_id:03d}-handoff.md"
     if artifact_type == "end-report":
-        return f"{bridge_dir}/{flow_key}/runs/{run_id:03d}/END-REPORT.md"
+        return f"{bridge_dir}/{root}/runs/{run_id:03d}/END-REPORT.md"
     if artifact_type == "escalation-response":
         # Matches dispatch.py signal_answer's lookup:
         #   {bridge_dir}/escalations/{handoff_id}-{from_role}-response.md

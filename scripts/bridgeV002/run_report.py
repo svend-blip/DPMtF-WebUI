@@ -32,6 +32,8 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import config  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bridge_lib  # noqa: E402  — the ONE artifact-root resolver (two-flow spec §2)
 
 
 def _load(name):
@@ -88,7 +90,9 @@ def gather(flow_key):
     if state["run"] is None:
         raise SystemExit("No active run — nothing to report on.")
 
-    run_path = (Path(state["bridge_dir"]) / flow_key / "runs" / state["run"])
+    run_path = (Path(state["bridge_dir"])
+                / bridge_lib.get_effective_artifact_root(flow_key)
+                / "runs" / state["run"])
     goal = run_path / "GOAL.md"
 
     results = _testgoals.check(goal) if goal.exists() else []

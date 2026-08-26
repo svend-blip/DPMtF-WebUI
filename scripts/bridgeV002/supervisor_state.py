@@ -35,6 +35,8 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import config  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bridge_lib  # noqa: E402  — the ONE artifact-root resolver (two-flow spec §2)
 
 # "**First handoff id: 011**", "First handoff id: 11", with or without markup.
 _FIRST_ID = re.compile(r"First handoff id:\s*\**\s*(\d+)", re.IGNORECASE)
@@ -75,7 +77,9 @@ def _tmux_sessions(names):
 
 
 def run_dir(bridge_dir, flow_key):
-    return Path(bridge_dir) / flow_key / "runs"
+    # Effective artifact root, not the flow key (two-flow spec §2): flows
+    # sharing a root share their runs/ namespace. NULL root = flow key.
+    return Path(bridge_dir) / bridge_lib.get_effective_artifact_root(flow_key) / "runs"
 
 
 #: Artefacts that prove a run was actually opened, whatever else is missing.
@@ -166,7 +170,7 @@ def flow_counter(flow_key, db_path=None):
 
 def handoffs_at_or_above(bridge_dir, flow_key, floor):
     """Handoff ids this run owns. Everything below the floor is a closed run's."""
-    base = Path(bridge_dir) / flow_key / "handoffs"
+    base = Path(bridge_dir) / bridge_lib.get_effective_artifact_root(flow_key) / "handoffs"
     if not base.is_dir():
         return []
     ids = []
@@ -181,7 +185,7 @@ def handoffs_at_or_above(bridge_dir, flow_key, floor):
 
 def deliverables_for(bridge_dir, flow_key, handoff_id):
     """Which of the three chain artefacts exist for one handoff."""
-    base = Path(bridge_dir) / flow_key
+    base = Path(bridge_dir) / bridge_lib.get_effective_artifact_root(flow_key)
     padded = f"{handoff_id:03d}"
     return {
         "handoff": (base / "handoffs" / f"{padded}-handoff.md").exists(),
@@ -254,7 +258,9 @@ def last_movement(bridge_dir, flow_key, run_path, current, last_signal):
         candidates.append((epoch, "trace signal"))
 
     if current is not None:
-        handoff = Path(bridge_dir) / flow_key / "handoffs" / f"{current:03d}-handoff.md"
+        handoff = (Path(bridge_dir)
+                   / bridge_lib.get_effective_artifact_root(flow_key)
+                   / "handoffs" / f"{current:03d}-handoff.md")
         if handoff.exists():
             # A written handoff is not a delivered one — only the trace line
             # means delivered. It still dates the attempt, which is what a

@@ -73,6 +73,7 @@ def _load(name):
 
 
 _state = _load("supervisor_state")
+_bridge_lib = _load("bridge_lib")  # the ONE artifact-root resolver (two-flow spec §2)
 
 _LAGUNA_HEALTH = "http://127.0.0.1:8080/health"
 _OLLAMA_PS = "http://127.0.0.1:11434/api/ps"
@@ -110,7 +111,9 @@ def undelivered_verdict(bridge_dir, flow_key, floor, min_age):
         return None
     current = ids[-1]
 
-    verdict = Path(bridge_dir) / flow_key / "verdicts" / f"{current:03d}-verdict.md"
+    verdict = (Path(bridge_dir)
+               / _bridge_lib.get_effective_artifact_root(flow_key)
+               / "verdicts" / f"{current:03d}-verdict.md")
     if not verdict.exists():
         return None                      # reviewer still working — normal
     age = time.time() - verdict.stat().st_mtime
