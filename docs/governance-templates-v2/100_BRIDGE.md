@@ -403,16 +403,60 @@ Each convention defines:
 6. **Handoff IDs are unique and sequential per flow** — auto-generated via
    `get_next_id_for_flow()`. Gaps from incomplete handoffs are normal.
 7. **trace.log is append-only** — never edit existing entries.
-8. **`signal_complete` and `signal_answer` called WITHOUT `/clear`** —
+
+   **And it is FLOW-WIDE, while the id counter is not.** Rule 6 says handoff
+   ids are unique *per flow*; `/home/svend/flows/trace.log` holds every flow.
+   A handoff id is therefore **not a key**. Anything that measures a run's
+   traffic — a testgoal, a supervisor's state report, a duplicate check —
+   must match on **flow AND id**, and a run's contract must state its first
+   handoff id so ids below the floor can be excluded.
+
+   Measured cost, twice. `dispatch_time()` in `gate-deliverable-evidence.py`
+   carries the first: `| 073 |` alone also matches another flow's handoff 073
+   from a different day, and the role pair is the only thing in a line that
+   identifies the flow. `preferred_cloud` run 024 paid for that. On
+   2026-08-25 a supervisor session re-derived the same trap from scratch —
+   a field-exact match on id 124 returned eight `preferred_cloud` entries
+   from three days earlier alongside `preferred_cloud_harness`'s two, which
+   reads exactly like a duplicate dispatch and cost a diagnosis before the
+   roles were printed out and the mistake became obvious.
+
+   Two related shapes, same family:
+
+   - **Compare fields, not substrings.** `signal_complete_failed` contains
+     `signal_complete`; `"review01SG" in "imple01SG->review01SG"` charges a
+     rejection to the wrong role. Split the line and compare the field.
+   - **trace.log has more than one line shape.** A `delivery_retry` line
+     orders its columns differently from a `dispatched` line. Reading a
+     fixed column position across all statuses produces confident nonsense.
+
+8. **A dispatched handoff file's own mtime is not when the role started.**
+   `auto_prepend` supplies XML sections a model omitted and rewrites the file
+   *after* dispatch, advancing its mtime. Use the `dispatched` event in
+   `trace.log` as the clock instead. `preferred_cloud` run 024 paid for this
+   one too: every delivered file predated a mtime that was supposed to mark
+   the start, and the gate reported "no change during this handoff" about
+   work done three minutes into it. The role had done everything right.
+
+   Related, and NOT covered by that accommodation: a **deliverable** file
+   whose mtime moves after dispatch for any other reason is genuinely out of
+   fence, and the gate is right to say so. `preferred_cloud_harness` run 026
+   lost two handoffs when a mutation rehearsal was told to disturb code that
+   lived in a file the same handoff declared READ-ONLY. **A rehearsal is a
+   write even when it is reverted — mtime outlives content.** Before binding
+   a mutation into a contract, look up where that code physically lives and
+   confirm the file is inside the handoff's own fence.
+
+9. **`signal_complete` and `signal_answer` called WITHOUT `/clear`** —
    otherwise the prompt is overwritten before the receiver sees it.
-9. **Architect escalation is read-only** — Architect only makes decisions,
+10. **Architect escalation is read-only** — Architect only makes decisions,
    never implements. Implementation always goes through the
    Implementer → Review loop.
-10. **No direct Architect → Implementer communication** — all communication
+11. **No direct Architect → Implementer communication** — all communication
     goes through the Review layer.
-11. **Human recipients skip tmux injection** — `role_type = "human"` means
+12. **Human recipients skip tmux injection** — `role_type = "human"` means
     the dispatch returns success after writing the deliverable file.
-12. **All database-driven** — zero hardcoded paths, zero INI dependencies.
+13. **All database-driven** — zero hardcoded paths, zero INI dependencies.
     Role config, flow steps, and convention templates are resolved from
     the database at runtime.
 
