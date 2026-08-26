@@ -3747,12 +3747,26 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         )
         return False
 
-    # Validate required XML sections in handoff content (skip for json_output)
+    # Validate required XML sections in handoff content (skip for json_output).
+    #
+    # The step's OWN convention schema governs, not a hardcoded handoff
+    # triple. Measured 2026-08-26 during the ELOOP lifecycle proof: a manual
+    # signal-send on an auto_dispatch=0 CALLBACK step (the sanctioned form
+    # dispatch itself points at in its refusal message) rejected a
+    # schema-valid callback deliverable for lacking <role>/<task>/
+    # <constraint> — the handoff rule's sections, which no callback file
+    # carries. The handoff rule keeps the legacy triple verbatim so no
+    # existing flow's behaviour changes; every other rule validates against
+    # its registered schema via the one canonical helper.
     if rule_key != "json_output":
-        with open(handoff_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        required_sections = ["<role>", "<task>", "<constraint>"]
-        missing = [s for s in required_sections if s not in content]
+        if rule_key != "handoff":
+            check = validate_deliverable_against_schema(handoff_path, rule_key)
+            missing = check.get("missing", []) if not check.get("valid") else []
+        else:
+            with open(handoff_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            required_sections = ["<role>", "<task>", "<constraint>"]
+            missing = [s for s in required_sections if s not in content]
         if missing:
             print(f"  ERROR: Handoff file missing required XML sections: "
                   f"{', '.join(missing)}")
