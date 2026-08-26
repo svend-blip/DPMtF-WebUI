@@ -934,9 +934,19 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
             )
         data["implementation_mode"] = mode or None
 
+    # artifact_root (two-flow spec §2): free text, NO directory validation —
+    # an artifact root may name a workspace the first run will create.
+    # Empty/whitespace means NULL = "the flow key is the root" (the resolver's
+    # fallback). Mirrors target_project_path's normalize-to-NULL shape, minus
+    # the isdir gate.
+    if "artifact_root" in data:
+        root = (data["artifact_root"] or "").strip()
+        data["artifact_root"] = root or None
+
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
         "auto_complete_enabled", "use_machine_profile", "target_project_path",
+        "artifact_root",
         "implementation_mode",
     ]
     sets = []

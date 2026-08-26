@@ -2288,6 +2288,21 @@ function renderFlowCard(flow, steps) {
   }
   card.appendChild(tpLine);
 
+  // Artifact root — shown on the card too, so an unset root is visible
+  // before dispatching. Reuses the edit form's label (migration 078).
+  var arLine = el("p", "dpmtf-small");
+  arLine.appendChild(el("span", "dpmtf-muted",
+    lbl("lbl_bridge_flow_artifact_root", "Artifact Root") + ": "));
+  if (flow.artifact_root) {
+    var arValue = el("span", null, flow.artifact_root);
+    arValue.style.fontFamily = "monospace";
+    arLine.appendChild(arValue);
+  } else {
+    arLine.appendChild(el("span", "dpmtf-muted",
+      lbl("lbl_bridge_flow_artifact_root_placeholder", "Empty = flow key is the root")));
+  }
+  card.appendChild(arLine);
+
   // Step count badge
   if (steps && steps.length) {
     card.appendChild(el("p", "dpmtf-badge dpmtf-badge-info", String(steps.length) + " step(s)"));
@@ -3194,6 +3209,9 @@ function editBridgeFlowFull(flowKey) {
         var tpInput = document.getElementById("bridge-edit-input-target_project_path");
         if (tpInput) body.target_project_path = tpInput.value.trim();
 
+        var arInput = document.getElementById("bridge-edit-input-artifact_root");
+        if (arInput) body.artifact_root = arInput.value.trim();
+
         var imSelect = document.getElementById("bridge-edit-input-implementation_mode");
         if (imSelect) body.implementation_mode = imSelect.value;
 
@@ -3272,6 +3290,20 @@ function editBridgeFlowFull(flowKey) {
         lbl("lbl_bridge_flow_target_project_help",
           "Absolute path to the repository this flow's roles work in. Must exist. Leave empty for flows that operate on this project.")));
       form.appendChild(tpDiv);
+
+      // artifact_root — where run artifacts live (two-flow spec §2). Empty
+      // means NULL = "the flow key is the root" (the resolver's fallback).
+      var arDiv = el("div", "dpmtf-form-group");
+      arDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_artifact_root", "Artifact Root")));
+      var arInput = el("input", null);
+      arInput.id = "bridge-edit-input-artifact_root";
+      arInput.type = "text";
+      arInput.value = flow.artifact_root || "";
+      arInput.placeholder = lbl("lbl_bridge_flow_artifact_root_placeholder",
+        "Empty = flow key is the root");
+      arDiv.appendChild(arInput);
+      form.appendChild(arDiv);
 
       // implementation_mode — Deterministic Patcher opt-in at flow level.
       // Inherit (NULL) falls through to the global default 'direct'; the

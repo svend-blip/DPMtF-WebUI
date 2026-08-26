@@ -3428,6 +3428,8 @@ _bridge_setup_labels = [
     ("LBL-1000507", "lbl_bridge_step_harness_source", "main", "Step Harness Source", "Step harness source input"),
     ("LBL-1000508", "lbl_bridge_step_harness_profile", "main", "Step Harness Profile", "Step harness profile input"),
     ("LBL-1000509", "lbl_bridge_step_harness_source_inherit", "main", "Inherit from role", "Step harness source inherit option"),
+    # ── Run 040 D3: Artifact-root UI label ──
+    ("LBL-1000510", "lbl_bridge_flow_artifact_root", "main", "Artifact Root", "Flow edit form: free-text artifact root (where run artifacts live). Empty = the flow key is the root."),
     # ── V3B: Model Allocator status/lifecycle labels ──
     ("LBL-1000366", "lbl_bridge_allocator_status", "main", "Allocator Status", "Allocator status card heading"),
     ("LBL-1000367", "lbl_bridge_runtime_status", "main", "Runtime Status", "Allocator runtime status label"),
@@ -3806,6 +3808,8 @@ _bridge_setup_translations = [
     ("LBL-1000508", "da-DK", "Trin harness-profil"),
     ("LBL-1000509", "en-US", "Inherit from role"),
     ("LBL-1000509", "da-DK", "Nedarv fra rolle"),
+    ("LBL-1000510", "en-US", "Artifact Root"),
+    ("LBL-1000510", "da-DK", "Artifact-rod"),
     # de-DE
     ("LBL-1000355", "de-DE", "Standardmodell-Quelle"),
     ("LBL-1000356", "de-DE", "Standardmodell-Alias"),
@@ -3824,6 +3828,7 @@ _bridge_setup_translations = [
     ("LBL-1000507", "de-DE", "Schritt-Harness-Quelle"),
     ("LBL-1000508", "de-DE", "Schritt-Harness-Profil"),
     ("LBL-1000509", "de-DE", "Von Rolle erben"),
+    ("LBL-1000510", "de-DE", "Artefakt-Stammverzeichnis"),
     # sv-SE
     ("LBL-1000355", "sv-SE", "Standard modellkälla"),
     ("LBL-1000356", "sv-SE", "Standard modellalias"),
@@ -3842,6 +3847,7 @@ _bridge_setup_translations = [
     ("LBL-1000507", "sv-SE", "Steg harnesskälla"),
     ("LBL-1000508", "sv-SE", "Steg harnessprofil"),
     ("LBL-1000509", "sv-SE", "Ärv från roll"),
+    ("LBL-1000510", "sv-SE", "Artifaktrot"),
     # ── V3B: Model Allocator status/lifecycle translations ──
     ("LBL-1000366", "en-US", "Allocator Status"),
     ("LBL-1000366", "da-DK", "Allocator-status"),
@@ -4004,6 +4010,8 @@ _bridge_setup_slots = [
     ("lbl_bridge_step_harness_source", "Step harness source input"),
     ("lbl_bridge_step_harness_profile", "Step harness profile input"),
     ("lbl_bridge_step_harness_source_inherit", "Step harness source inherit option"),
+    # ── Run 040 D3: Artifact-root slot ──
+    ("lbl_bridge_flow_artifact_root", "Flow edit form: artifact root field label"),
     # ── V3B: Model Allocator slots ──
     ("lbl_bridge_allocator_status", "Allocator status card heading"),
     ("lbl_bridge_runtime_status", "Allocator runtime status label"),
@@ -4136,6 +4144,8 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_step_harness_source", "lbl_bridge_step_harness_source"),
     ("lbl_bridge_step_harness_profile", "lbl_bridge_step_harness_profile"),
     ("lbl_bridge_step_harness_source_inherit", "lbl_bridge_step_harness_source_inherit"),
+    # ── Run 040 D3: Artifact-root slot label ──
+    ("lbl_bridge_flow_artifact_root", "lbl_bridge_flow_artifact_root"),
     # ── V3B: Model Allocator slot labels ──
     ("lbl_bridge_allocator_status", "lbl_bridge_allocator_status"),
     ("lbl_bridge_runtime_status", "lbl_bridge_runtime_status"),
