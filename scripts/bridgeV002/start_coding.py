@@ -410,7 +410,20 @@ def main():
         # default_harness_source (single authoritative role-level source);
         # allocator_client is the deprecated fallback mirror (kept for
         # backwards compatibility with rows that have not yet been backfilled).
-        harness_source = role.get("default_harness_source") or role.get("allocator_client") or "opencode"
+        # get_flow_roles emits this already-resolved under the key
+        # "harness_source" (it applies the same default_harness_source ->
+        # allocator_client precedence at the SQL row). Reading the raw column
+        # names here found NEITHER key and silently fell through to
+        # "opencode" for EVERY role — invisible while every role happened to
+        # be an opencode role, and a hard failure the moment one was not:
+        # the 1000 planning supervisor (claude-code/opus5) was launched with
+        # --client opencode and refused, "client 'opencode' is not supported
+        # by alias 'opus5'". The legacy names stay as fallbacks so any caller
+        # passing a raw row keeps working.
+        harness_source = (role.get("harness_source")
+                          or role.get("default_harness_source")
+                          or role.get("allocator_client")
+                          or "opencode")
 
         # V1B pilot: use Model Allocator when role opts in.
         model_source, model_alias = get_effective_model_source(
