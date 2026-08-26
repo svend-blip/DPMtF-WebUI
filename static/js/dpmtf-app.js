@@ -470,6 +470,78 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   };
 }
 
+/**
+ * createHarnessControl — Run 038 / D2. Mirrors createModelSourceControl's
+ * shape for the harness fields but with FREE TEXT inputs (no dropdown,
+ * no datalist, no SUPPORTED_HARNESSES vocabulary coupling — GOAL.md Human
+ * decision (b)). The step-level call additionally offers an
+ * "Inherit from role" checkbox that, when checked, disables the source
+ * text input and clears its value; the save handler reads that state
+ * back as the resolver's documented "inherit_from_role" sentinel
+ * (matching the model step control's literal).
+ */
+function createHarnessControl(prefix, sourceValue, profileValue, labels, stepLevel) {
+  const container = el("div", "dpmtf-form-group");
+
+  // SOURCE — text input
+  const srcDiv = el("div", "dpmtf-form-group");
+  const srcLabel = el("label", "dpmtf-label", lbl(labels.source, "Harness Source"));
+  srcLabel.htmlFor = prefix + "-harness-source";
+  const srcInput = el("input", null);
+  srcInput.type = "text";
+  srcInput.id = prefix + "-harness-source";
+  srcInput.value = sourceValue === "inherit_from_role" ? "" : (sourceValue || "");
+  srcInput.placeholder = "e.g. dsh";
+  srcDiv.appendChild(srcLabel);
+  srcDiv.appendChild(srcInput);
+  container.appendChild(srcDiv);
+
+  // STEP-LEVEL ONLY — inherit checkbox
+  let inheritCheckbox = null;
+  if (stepLevel) {
+    const inheritDiv = el("div", "dpmtf-form-group");
+    inheritCheckbox = el("input", null);
+    inheritCheckbox.type = "checkbox";
+    inheritCheckbox.id = prefix + "-harness-source-inherit";
+    inheritCheckbox.checked = sourceValue === "inherit_from_role";
+    const inheritLabel = el("label", "dpmtf-label", " " + lbl("lbl_bridge_step_harness_source_inherit", "Inherit from role"));
+    inheritLabel.htmlFor = inheritCheckbox.id;
+    inheritDiv.appendChild(inheritCheckbox);
+    inheritDiv.appendChild(inheritLabel);
+    container.appendChild(inheritDiv);
+  }
+
+  // PROFILE — text input
+  const profDiv = el("div", "dpmtf-form-group");
+  const profLabel = el("label", "dpmtf-label", lbl(labels.profile, "Harness Profile"));
+  profLabel.htmlFor = prefix + "-harness-profile";
+  const profInput = el("input", null);
+  profInput.type = "text";
+  profInput.id = prefix + "-harness-profile";
+  profInput.value = profileValue || "";
+  profInput.placeholder = "e.g. headless";
+  profDiv.appendChild(profLabel);
+  profDiv.appendChild(profInput);
+  container.appendChild(profDiv);
+
+  // Sync the inherit checkbox against the source input
+  function syncInherit() {
+    if (!inheritCheckbox) return;
+    if (inheritCheckbox.checked) {
+      srcInput.value = "";
+      srcInput.disabled = true;
+    } else {
+      srcInput.disabled = false;
+    }
+  }
+  if (inheritCheckbox) {
+    inheritCheckbox.onchange = syncInherit;
+    syncInherit();
+  }
+
+  return { container: container };
+}
+
 /* ── 3. Database Status ────────────────────────────── */
 function loadDbStatus() {
   var container = document.getElementById("db-status-content");
@@ -2518,6 +2590,12 @@ function addBridgeRole() {
     if (msEl) body.default_model_source = msEl.value || null;
     if (maEl && !maEl.disabled) body.default_model_alias = maEl.value.trim() || null;
 
+    // Run 038 D2: harness source / profile (role level)
+    const hsEl = document.getElementById("bridge-role-harness-source");
+    const hpEl = document.getElementById("bridge-role-harness-profile");
+    if (hsEl) body.default_harness_source = hsEl.value.trim() || null;
+    if (hpEl) body.default_harness_profile = hpEl.value.trim() || null;
+
     fetch("/api/bridge-v2/roles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2610,6 +2688,19 @@ function addBridgeRole() {
     ]
   );
   form.appendChild(allocatorControl.container);
+
+  // Run 038 D2: harness source / profile (role level — no step inherit option)
+  const harnessControl = createHarnessControl(
+    "bridge-role",
+    null,
+    null,
+    {
+      source: "lbl_bridge_default_harness_source",
+      profile: "lbl_bridge_default_harness_profile"
+    },
+    false
+  );
+  form.appendChild(harnessControl.container);
 
   var btnRow = el("div", null);
   btnRow.appendChild(saveBtn);
@@ -2822,6 +2913,12 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
         if (msEl) body.default_model_source = msEl.value || null;
         if (maEl && !maEl.disabled) body.default_model_alias = maEl.value.trim() || null;
 
+        // Run 038 D2: harness source / profile (role level)
+        const hsEl = document.getElementById("bridge-edit-role-harness-source");
+        const hpEl = document.getElementById("bridge-edit-role-harness-profile");
+        if (hsEl) body.default_harness_source = hsEl.value.trim() || null;
+        if (hpEl) body.default_harness_profile = hpEl.value.trim() || null;
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -2996,6 +3093,19 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
         ]
       );
       form.appendChild(allocatorControl.container);
+
+      // Run 038 D2: harness source / profile (role level — no step inherit option)
+      const editHarnessControl = createHarnessControl(
+        "bridge-edit-role",
+        role.default_harness_source,
+        role.default_harness_profile,
+        {
+          source: "lbl_bridge_default_harness_source",
+          profile: "lbl_bridge_default_harness_profile"
+        },
+        false
+      );
+      form.appendChild(editHarnessControl.container);
 
       // H160: Target Project (read-only, from Prompt Compiler)
       var tpDiv = el("div", "dpmtf-form-group");
@@ -3540,6 +3650,14 @@ function _showStepForm(initialData, container) {
     if (msEl) body.model_source = msEl.value || null;
     if (maEl && !maEl.disabled) body.model_alias = maEl.value.trim() || null;
 
+    // Run 038 D2: harness source / profile (step level — inherit sentinel matches model control)
+    const hsEl = document.getElementById("bridge-step-harness-source");
+    const hpEl = document.getElementById("bridge-step-harness-profile");
+    const hiEl = document.getElementById("bridge-step-harness-source-inherit");
+    if (hiEl && hiEl.checked) body.harness_source = "inherit_from_role";
+    else if (hsEl) body.harness_source = hsEl.value.trim() || null;
+    if (hpEl) body.harness_profile = hpEl.value.trim() || null;
+
     _submitBridgeStep(_bridgeStepsFlowKey, _bridgeEditingStepId, body, container);
   };
 
@@ -3595,6 +3713,19 @@ function _showStepForm(initialData, container) {
     ]
   );
   form.appendChild(stepAllocatorControl.container);
+
+  // Run 038 D2: harness source / profile (step level — with inherit checkbox)
+  const stepHarnessControl = createHarnessControl(
+    "bridge-step",
+    data.harness_source,
+    data.harness_profile,
+    {
+      source: "lbl_bridge_step_harness_source",
+      profile: "lbl_bridge_step_harness_profile"
+    },
+    true
+  );
+  form.appendChild(stepHarnessControl.container);
 
   // From role dropdown
   var frDiv = el("div", "dpmtf-form-group");

@@ -433,8 +433,9 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
             (flow_key, step_key, from_role, to_role, deliverable_dir, deliverable_pattern,
              pre_dispatch_script, post_dispatch_script, error_msg, rule_key, sort_order,
              auto_chain_to_next, validation_required,
-             model_source, model_alias)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             model_source, model_alias,
+             harness_source, harness_profile)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         flow_key, data["step_key"], data["from_role"], data["to_role"],
         deliverable_dir, deliverable_pattern,
@@ -444,6 +445,8 @@ async def bridge_v2_create_step(request: Request, flow_key: str):
         int(data.get("validation_required", 0)),
         data.get("model_source"),
         data.get("model_alias"),
+        data.get("harness_source"),
+        data.get("harness_profile"),
     ))
     new_id = cursor.lastrowid
     conn.commit()
@@ -491,6 +494,8 @@ async def bridge_v2_update_step(request: Request, flow_key: str, step_id: int):
         "validation_required": "validation_required",
         "model_source": "model_source",
         "model_alias": "model_alias",
+        "harness_source": "harness_source",
+        "harness_profile": "harness_profile",
     }
 
     for field, column in field_map.items():
@@ -592,8 +597,9 @@ async def bridge_v2_create_role(request: Request):
              setup_script, teardown_script, deliver_error_msg, enter_command,
              config_dir,
              default_model_source, default_model_alias,
+             default_harness_source, default_harness_profile,
              trade_mcp_push_mode, max_output_tokens)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["role_key"],
             data["tmux_session"],
@@ -604,6 +610,8 @@ async def bridge_v2_create_role(request: Request):
             data.get("config_dir"),
             data.get("default_model_source"),
             data.get("default_model_alias"),
+            data.get("default_harness_source"),
+            data.get("default_harness_profile"),
             data.get("trade_mcp_push_mode"),
             data.get("max_output_tokens"),
         ))
@@ -616,6 +624,7 @@ async def bridge_v2_create_role(request: Request):
                       "setup_script", "teardown_script",
                       "deliver_error_msg", "enter_command",
                       "config_dir", "default_model_source", "default_model_alias",
+                      "default_harness_source", "default_harness_profile",
                       "trade_mcp_push_mode", "max_output_tokens"]:
             if field in data:
                 sets.append(f"{field} = ?")
@@ -657,6 +666,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "enter_command",  # H150: per-role Enter key configuration
         "config_dir",  # OpenCode config directory override
         "default_model_source", "default_model_alias",  # V3A: Model Allocator source / alias
+        "default_harness_source", "default_harness_profile",  # Run 038 D1: harness fields
         "trade_mcp_push_mode", "max_output_tokens",  # Migration 004: runtime config
         "workdir_mode",  # Migration 023: coding-session working directory
     ]

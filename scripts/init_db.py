@@ -3422,6 +3422,12 @@ _bridge_setup_labels = [
     ("LBL-1000363", "lbl_bridge_validation_error", "main", "Error", "Allocator validation error label"),
     ("LBL-1000364", "lbl_bridge_model_source_default", "main", "Default / inherit", "Default/inherit model source option"),
     ("LBL-1000365", "lbl_bridge_step_model_source_inherit", "main", "Inherit from role", "Step model source inherit option"),
+    # ── Run 038 D3: Harness-field UI labels ──
+    ("LBL-1000505", "lbl_bridge_default_harness_source", "main", "Default Harness Source", "Role default harness source input"),
+    ("LBL-1000506", "lbl_bridge_default_harness_profile", "main", "Default Harness Profile", "Role default harness profile input"),
+    ("LBL-1000507", "lbl_bridge_step_harness_source", "main", "Step Harness Source", "Step harness source input"),
+    ("LBL-1000508", "lbl_bridge_step_harness_profile", "main", "Step Harness Profile", "Step harness profile input"),
+    ("LBL-1000509", "lbl_bridge_step_harness_source_inherit", "main", "Inherit from role", "Step harness source inherit option"),
     # ── V3B: Model Allocator status/lifecycle labels ──
     ("LBL-1000366", "lbl_bridge_allocator_status", "main", "Allocator Status", "Allocator status card heading"),
     ("LBL-1000367", "lbl_bridge_runtime_status", "main", "Runtime Status", "Allocator runtime status label"),
@@ -3789,6 +3795,17 @@ _bridge_setup_translations = [
     ("LBL-1000364", "da-DK", "Standard / nedarv"),
     ("LBL-1000365", "en-US", "Inherit from role"),
     ("LBL-1000365", "da-DK", "Nedarv fra rolle"),
+    # ── Run 038 D3: Harness-field translations (en-US + da-DK) ──
+    ("LBL-1000505", "en-US", "Default Harness Source"),
+    ("LBL-1000505", "da-DK", "Standard harness-kilde"),
+    ("LBL-1000506", "en-US", "Default Harness Profile"),
+    ("LBL-1000506", "da-DK", "Standard harness-profil"),
+    ("LBL-1000507", "en-US", "Step Harness Source"),
+    ("LBL-1000507", "da-DK", "Trin harness-kilde"),
+    ("LBL-1000508", "en-US", "Step Harness Profile"),
+    ("LBL-1000508", "da-DK", "Trin harness-profil"),
+    ("LBL-1000509", "en-US", "Inherit from role"),
+    ("LBL-1000509", "da-DK", "Nedarv fra rolle"),
     # de-DE
     ("LBL-1000355", "de-DE", "Standardmodell-Quelle"),
     ("LBL-1000356", "de-DE", "Standardmodell-Alias"),
@@ -3801,6 +3818,12 @@ _bridge_setup_translations = [
     ("LBL-1000363", "de-DE", "Fehler"),
     ("LBL-1000364", "de-DE", "Standard / erben"),
     ("LBL-1000365", "de-DE", "Von Rolle erben"),
+    # ── Run 038 D3: Harness-field translations (de-DE) ──
+    ("LBL-1000505", "de-DE", "Standard-Harness-Quelle"),
+    ("LBL-1000506", "de-DE", "Standard-Harness-Profil"),
+    ("LBL-1000507", "de-DE", "Schritt-Harness-Quelle"),
+    ("LBL-1000508", "de-DE", "Schritt-Harness-Profil"),
+    ("LBL-1000509", "de-DE", "Von Rolle erben"),
     # sv-SE
     ("LBL-1000355", "sv-SE", "Standard modellkälla"),
     ("LBL-1000356", "sv-SE", "Standard modellalias"),
@@ -3813,6 +3836,12 @@ _bridge_setup_translations = [
     ("LBL-1000363", "sv-SE", "Fel"),
     ("LBL-1000364", "sv-SE", "Standard / ärv"),
     ("LBL-1000365", "sv-SE", "Ärv från roll"),
+    # ── Run 038 D3: Harness-field translations (sv-SE) ──
+    ("LBL-1000505", "sv-SE", "Standard harnesskälla"),
+    ("LBL-1000506", "sv-SE", "Standard harnessprofil"),
+    ("LBL-1000507", "sv-SE", "Steg harnesskälla"),
+    ("LBL-1000508", "sv-SE", "Steg harnessprofil"),
+    ("LBL-1000509", "sv-SE", "Ärv från roll"),
     # ── V3B: Model Allocator status/lifecycle translations ──
     ("LBL-1000366", "en-US", "Allocator Status"),
     ("LBL-1000366", "da-DK", "Allocator-status"),
@@ -3969,6 +3998,12 @@ _bridge_setup_slots = [
     ("lbl_bridge_validation_error", "Allocator validation error label"),
     ("lbl_bridge_model_source_default", "Default/inherit model source option"),
     ("lbl_bridge_step_model_source_inherit", "Step model source inherit option"),
+    # ── Run 038 D3: Harness-field slots ──
+    ("lbl_bridge_default_harness_source", "Role default harness source input"),
+    ("lbl_bridge_default_harness_profile", "Role default harness profile input"),
+    ("lbl_bridge_step_harness_source", "Step harness source input"),
+    ("lbl_bridge_step_harness_profile", "Step harness profile input"),
+    ("lbl_bridge_step_harness_source_inherit", "Step harness source inherit option"),
     # ── V3B: Model Allocator slots ──
     ("lbl_bridge_allocator_status", "Allocator status card heading"),
     ("lbl_bridge_runtime_status", "Allocator runtime status label"),
@@ -4095,6 +4130,12 @@ _bridge_setup_slot_labels = [
     ("lbl_bridge_validation_error", "lbl_bridge_validation_error"),
     ("lbl_bridge_model_source_default", "lbl_bridge_model_source_default"),
     ("lbl_bridge_step_model_source_inherit", "lbl_bridge_step_model_source_inherit"),
+    # ── Run 038 D3: Harness-field slot labels ──
+    ("lbl_bridge_default_harness_source", "lbl_bridge_default_harness_source"),
+    ("lbl_bridge_default_harness_profile", "lbl_bridge_default_harness_profile"),
+    ("lbl_bridge_step_harness_source", "lbl_bridge_step_harness_source"),
+    ("lbl_bridge_step_harness_profile", "lbl_bridge_step_harness_profile"),
+    ("lbl_bridge_step_harness_source_inherit", "lbl_bridge_step_harness_source_inherit"),
     # ── V3B: Model Allocator slot labels ──
     ("lbl_bridge_allocator_status", "lbl_bridge_allocator_status"),
     ("lbl_bridge_runtime_status", "lbl_bridge_runtime_status"),
