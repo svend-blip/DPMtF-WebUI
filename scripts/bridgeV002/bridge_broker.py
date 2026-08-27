@@ -1372,6 +1372,48 @@ def cmd_promote_goal(args: argparse.Namespace) -> int:
               "(hand-validation per 461); the ELOOP landing will need "
               "criteria from somewhere", file=sys.stderr)
 
+    # OD-3 (Human decision 2026-08-26): a Run's baseline is the target
+    # repository's HEAD at promotion, recorded durably beside the approver.
+    # It is the honest answer to "what did the Human approve this Run
+    # against", it needs no schema, and it cannot drift, because a Run is
+    # promoted once.
+    #
+    # The dirty-file count travels with it because a baseline is only
+    # meaningful against a clean tree: if the target holds uncommitted work
+    # at promotion, the recorded commit describes something other than what
+    # is on disk, and the evidence gate compares the working tree rather
+    # than git history. Promotion does not refuse a dirty tree — the
+    # workspace's own dpmtf.db is permanently dirty by design — but an
+    # unrecorded dirty tree would let a later reader mistake the baseline
+    # for a full description of the starting state. Recording the count
+    # makes the caveat legible instead of silent.
+    baseline_line = "- baseline: NOT RECORDED (no target project for flow)\n"
+    try:
+        target = bridge_lib.get_flow_target_project(flow_key)
+    except Exception as exc:  # pragma: no cover - defensive
+        target = None
+        baseline_line = f"- baseline: NOT RECORDED (lookup failed: {exc})\n"
+    if target:
+        head = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "HEAD"],
+            capture_output=True, text=True,
+        )
+        if head.returncode == 0:
+            sha = head.stdout.strip()
+            dirty = subprocess.run(
+                ["git", "-C", str(target), "status", "--porcelain",
+                 "--untracked-files=all"],
+                capture_output=True, text=True,
+            )
+            files = [ln for ln in dirty.stdout.splitlines() if ln.strip()]
+            state = ("clean" if not files
+                     else f"{len(files)} uncommitted path(s) at promotion")
+            baseline_line = (f"- baseline: `{sha}` in {target} "
+                             f"(working tree: {state})\n")
+        else:
+            baseline_line = (f"- baseline: NOT RECORDED ({target} is not a "
+                             f"git repository)\n")
+
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     run_dir.mkdir(parents=True, exist_ok=True)
     draft.rename(goal)
@@ -1379,7 +1421,8 @@ def cmd_promote_goal(args: argparse.Namespace) -> int:
     entry = (f"\n## {stamp} — GOAL promoted (recorded Human approval)\n"
              f"- GOAL-DRAFT.md -> GOAL.md by `promote-goal`, "
              f"approved-by: {approved_by}\n"
-             f"- flow: {flow_key} (artifact root: {root})\n")
+             f"- flow: {flow_key} (artifact root: {root})\n"
+             + baseline_line)
     if ledger.exists():
         ledger.write_text(ledger.read_text(encoding="utf-8") + entry,
                           encoding="utf-8")
