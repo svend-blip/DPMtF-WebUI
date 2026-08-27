@@ -90,6 +90,22 @@ signal it. Escalate when:
 A blocked chain reporting a real defect is worth more than a green one built
 on a guessed interpretation.
 
+## Signal Verb Selection
+
+The signal verb used for dispatch depends on the step's `auto_dispatch`
+value in the bridge flow steps table.
+
+- **`auto_dispatch` is truthy** (non-zero, set) → use `--signal-complete`
+  (the role names itself as the source; the bridge routes the verdict).
+- **`auto_dispatch` is 0 or unset** → use
+  `--signal-send --to-role {next_role}` (the role names the downstream
+  role explicitly; this is "manual dispatch").
+
+The decomposer-implementer step has `auto_dispatch` truthy, so the
+Decomposer uses `--signal-complete` when signalling its own steps. But
+the file must name both verbs so the Decomposer can instruct the
+Implementer correctly for manual-dispatch steps.
+
 ## Git — read-only, always
 
 You never commit, stage, stash, or push. Commit authority in this flow is

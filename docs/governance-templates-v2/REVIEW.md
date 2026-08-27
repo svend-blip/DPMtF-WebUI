@@ -193,7 +193,19 @@ reference — never run checks there.
 
 ## Dispatching the Verdict
 
-After writing your verdict, signal complete:
+After writing your verdict, signal complete.
+
+The signal verb to use depends on the step's `auto_dispatch` value in the
+bridge flow steps table. Check the value for your step (query
+`bridge_flow_steps WHERE step_key = '<your-step-key>'`).
+
+- **`auto_dispatch` is truthy** (non-zero, set) → use `--signal-complete`
+  (the role names itself as the source; the bridge routes the verdict).
+- **`auto_dispatch` is 0 or unset** → use
+  `--signal-send --to-role {next_role}` (the role names the downstream
+  role explicitly; this is "manual dispatch").
+
+For the currently active step, the command is:
 
 ```bash
 python3 {project_root}/scripts/bridgeV002/dispatch.py \
@@ -206,9 +218,9 @@ reviewed.
 ## Stop Condition
 
 **Then check that it worked.** Read the output. If it says
-`signal_complete_failed`, your verdict is not at the path dispatch looked
-for — fix the filename and signal again. Reporting "signal sent" for a
-call that failed leaves the chain blocked until a Human notices.
+`signal_complete_failed`, read the refusal text — it names the real
+reason, which may be a step-refusal (manual-dispatch only), a model not
+starting, a permission dialog, or a genuine path mismatch. Then stop.
 
 Then stop. The downstream decision-maker will process your verdict on its
 next wake-up.
