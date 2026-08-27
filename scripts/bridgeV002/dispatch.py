@@ -35,6 +35,7 @@ from bridge_lib import (
     list_scripts_from_db,
     get_effective_model_source,
     get_flow_target_project,
+    get_effective_artifact_root,
 )
 from patch_mode import apply_mode_block
 import harness
@@ -1200,8 +1201,9 @@ def _check_pane_safe_to_inject(session_name: str) -> None:
     """
     tail = _pane_tail(session_name)
     markers = activity_markers(session_name)
+    haystack = busy_search_text(tail, get_pane_command(session_name))
     for marker in markers:
-        if marker in tail:
+        if marker in haystack:
             raise PaneBusyRefused(
                 f"pane '{session_name}' is busy (activity marker "
                 f"{marker!r} present in tail)"
@@ -1329,12 +1331,55 @@ _ACTIVITY_MARKERS_BY_TOOL = {
     "pi": ("working...",),
 }
 
+# A substring that identifies a tool's STATUS BAR — the last rendered line,
+# which is where a busy marker genuinely appears. Everything above it is
+# conversation content, where the same words can occur for a completely
+# different reason.
+#
+# 2026-08-27, run 015: the Implementer was refused for six minutes while idle,
+# because its own output contained the sentence "the signal-send is refused by
+# design when the reviewer pane has an 'esc interrupt'". The marker sat in line
+# 3 of a 24-line tail; the status bar read the working directory, i.e. idle.
+# **A role that writes about the busy check poisons its own pane for 25 lines.**
+#
+# Run 002 reached for this defect from the opposite side and stripped the
+# status-bar lines before searching — which removes the one line carrying the
+# true signal and keeps the twenty-four that carry the false ones. That change
+# was reverted; this is the same defect fixed the right way round.
+_STATUS_BAR_SIGNATURE_BY_TOOL = {
+    "opencode": "ctrl+p commands",
+    "pi": "ctrl+p commands",
+}
+
 
 def activity_markers(session_name):
     """Busy markers for whichever client occupies this session's pane."""
     return _ACTIVITY_MARKERS_BY_TOOL.get(
         get_pane_command(session_name), _ACTIVITY_MARKERS
     )
+
+
+def busy_search_text(tail: str, tool: str) -> str:
+    """The part of a pane tail in which a busy marker means "busy".
+
+    Returns the status-bar line alone when one can be positively identified
+    for this tool, and the whole tail otherwise.
+
+    Narrowing only on a POSITIVE identification is the conservative direction.
+    The two errors are not symmetric: a false "busy" refuses a delivery, which
+    the broker retries and a human notices; a false "idle" injects into a
+    working role and destroys the turn it was in the middle of. So a tool whose
+    status bar cannot be recognised keeps the historical whole-tail behaviour
+    rather than gaining a narrower check nobody has measured.
+    """
+    signature = _STATUS_BAR_SIGNATURE_BY_TOOL.get(tool)
+    if not signature:
+        return tail
+    for line in reversed(tail.splitlines()):
+        if not line.strip():
+            continue
+        return line if signature in line else tail
+    return tail
 
 
 _PASTE_STUCK_MARKER = "paste again to expand"
@@ -2433,6 +2478,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
             prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
             prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
             prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+            prompt_text = prompt_text.replace("{artifact_root}", get_effective_artifact_root(payload["flow_key"], db_path=_db_path()))
             prompt_text = prompt_text.replace("{escalation_role}", escalation_role(payload["flow_key"]))
             prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
             prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
@@ -2446,6 +2492,7 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{handoff_id}", payload["handoff_id"])
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{artifact_root}", get_effective_artifact_root(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{escalation_role}", escalation_role(payload["flow_key"]))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
@@ -2935,6 +2982,7 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         prompt_text = prompt_text.replace("{next_role}", payload["to_role"])
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", payload["flow_key"])
+        prompt_text = prompt_text.replace("{artifact_root}", get_effective_artifact_root(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{escalation_role}", escalation_role(payload["flow_key"]))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(payload["flow_key"], db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", payload["deliverable_dir"])
@@ -3404,6 +3452,7 @@ def signal_escalation(flow_key, from_role_key, to_role_key, handoff_id, bridge_d
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{artifact_root}", get_effective_artifact_root(flow_key, db_path=_db_path()))
         prompt_text = prompt_text.replace("{escalation_role}", escalation_role(flow_key))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
         # Inject the actual question file path so architect knows what to read
@@ -3571,6 +3620,7 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{artifact_root}", get_effective_artifact_root(flow_key, db_path=_db_path()))
         prompt_text = prompt_text.replace("{escalation_role}", escalation_role(flow_key))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
     else:
@@ -3987,6 +4037,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
         prompt_text = prompt_text.replace("{next_role}", to_role_key)
         prompt_text = prompt_text.replace("{bridge_dir}", bridge_dir)
         prompt_text = prompt_text.replace("{flow_key}", flow_key)
+        prompt_text = prompt_text.replace("{artifact_root}", get_effective_artifact_root(flow_key, db_path=_db_path()))
         prompt_text = prompt_text.replace("{escalation_role}", escalation_role(flow_key))
         prompt_text = prompt_text.replace("{project_path}", get_flow_target_project(flow_key, db_path=_db_path()))
         prompt_text = prompt_text.replace("{deliverable_dir}", deliverable_dir)
