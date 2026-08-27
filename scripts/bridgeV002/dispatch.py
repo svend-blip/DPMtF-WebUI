@@ -659,6 +659,55 @@ def _resolve_real_model(alias):
     return ""
 
 
+_ALIAS_GPU_CACHE = {}
+
+
+def _alias_holds_no_gpu(alias):
+    """True only when the alias VERIFIABLY binds to no GPU (cached).
+
+    The discriminator is the allocator's ``resolved_gpu``, never the backend
+    name. Backend is the wrong test twice over: ``cloud_deepseek`` has
+    backend ``ollama`` and is a CLOUD endpoint, while ``imple01-local`` has
+    the same backend and sits on cuda0; and the allocator's
+    LOCAL_SERVER_BACKENDS omits ollama for an unrelated reason (it evicts its
+    own models), so that list would wrongly describe a resident ollama target
+    as needing no VRAM.
+
+    Resolution here is deliberately MORE tolerant than
+    ``_resolve_real_model``, which accepts only returncodes 0 and 2. A
+    validation ERROR is usually "this client does not support this alias"
+    (``opus5`` + opencode, ``freebuff-cli`` + either) and says nothing about
+    GPU binding, while ``resolved_gpu`` in the same payload is authoritative.
+    Measured 2026-08-27: ``freebuff-cli`` — the alias of the active role
+    ``imple01cloud`` — resolves under NO client at rc 0 or 2, so the stricter
+    filter would have left it sweeping.
+
+    Fails CLOSED: an alias whose payload will not parse returns False, so an
+    unreadable allocator leaves the existing sweep behaviour untouched
+    rather than silently disabling VRAM reclaim.
+    """
+    if alias in _ALIAS_GPU_CACHE:
+        return _ALIAS_GPU_CACHE[alias]
+    for client in ("opencode", "claude-code"):
+        try:
+            result = subprocess.run(
+                [_model_allocator_path(), "validate",
+                 "--alias", alias, "--client", client, "--json"],
+                capture_output=True, text=True, timeout=20,
+            )
+            if not result.stdout.strip():
+                continue
+            data = json.loads(result.stdout)
+            if not data.get("resolved_real_model"):
+                continue
+            _ALIAS_GPU_CACHE[alias] = not data.get("resolved_gpu")
+            return _ALIAS_GPU_CACHE[alias]
+        except Exception:
+            continue
+    _ALIAS_GPU_CACHE[alias] = False
+    return False
+
+
 def _allocator_state_dir():
     """The directory where local backend adapters keep their PID files."""
     return os.environ.get("MODEL_ALLOCATOR_STATE_DIR") or tempfile.gettempdir()
@@ -675,8 +724,25 @@ def _stop_other_local_models(to_alias):
     in the state dir, so residency is enumerable without hardcoding aliases.
     Aliases sharing the target's real model are left loaded — the target
     reuses those weights.
+
+    A target that binds to NO GPU is exempt: it needs nothing freed, so
+    sweeping on its behalf only evicts models it will never use — and on a
+    host where two flows share one card, what it evicts belongs to the OTHER
+    flow. Measured live 2026-08-27: dispatching preferred_cloud's
+    ``Pre-super-cl`` (alias ``opus5``, an Anthropic endpoint holding no VRAM)
+    stopped the FreeToken server that flow 1000-02-ELOOP's decomposer was
+    mid-turn on, 27 s after that role had been handed its work. It died on
+    "Cannot connect to API" — no GPU fault, no Xid in dmesg. A cloud flow
+    must not sweep another flow's local models.
+
+    Local targets are unaffected, ollama included: contention between two
+    resident local models is real and eviction there is still the point.
     """
     if not to_alias:
+        return
+    if _alias_holds_no_gpu(to_alias):
+        print(f"  GPU sweep: skipped — target '{to_alias}' binds to no GPU "
+              f"and needs no VRAM freed")
         return
     prefix = "model-allocator-"
     try:
