@@ -40,6 +40,7 @@ import os
 import shlex
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _PROJECT_ROOT not in sys.path:
@@ -212,7 +213,38 @@ def build_native_child_env(harness, model_target, base_url):
     if builder is None:
         return {}
     cfg = _ResolvedEndpoint(ha.config, base_url) if base_url else ha.config
-    return builder(model_target=model_target, cfg=cfg)
+    env = builder(model_target=model_target, cfg=cfg)
+
+    # A locally allocated runtime needs no credential, but an OpenAI-compatible
+    # CLIENT generally refuses to consider a provider configured without one.
+    # Qwen Code drops into its interactive "Connect a Provider" wizard when
+    # OPENAI_API_KEY is unset, however correct the endpoint is — and a role
+    # sitting in a wizard swallows every dispatch it is sent.
+    #
+    # This is a protocol filler, not a secret, and it is deliberately NOT
+    # configuration: harness-allocator stores the NAME of a variable holding a
+    # real key, and writing a fake value into that slot would corrupt an
+    # indirection that exists to keep secrets out of config files. DPMtF is
+    # also the only layer that knows the endpoint is loopback, which is what
+    # makes the filler safe.
+    #
+    # Narrow on purpose: only a loopback endpoint, and only when no real key
+    # was wired. A remote endpoint or a configured key is left exactly alone,
+    # so this can never mask a genuine missing credential.
+    if _is_loopback(base_url) and "OPENAI_API_KEY" not in env:
+        env["OPENAI_API_KEY"] = "local-no-auth-required"
+    return env
+
+
+def _is_loopback(base_url):
+    """True when a URL points at this machine, so no credential can be needed."""
+    if not base_url:
+        return False
+    try:
+        host = urlparse(base_url).hostname or ""
+    except ValueError:
+        return False
+    return host in ("127.0.0.1", "::1", "localhost")
 
 
 def build_dsh_invocation(role_config, task=None, cfg=None):
