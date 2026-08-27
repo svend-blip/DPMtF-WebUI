@@ -412,7 +412,8 @@ def main():
         # backwards compatibility with rows that have not yet been backfilled).
         # get_flow_roles emits this already-resolved under the key
         # "harness_source" (it applies the same default_harness_source ->
-        # allocator_client precedence at the SQL row). Reading the raw column
+        # deprecated allocator_client fallback precedence at the SQL row).
+        # Reading the raw column
         # names here found NEITHER key and silently fell through to
         # "opencode" for EVERY role — invisible while every role happened to
         # be an opencode role, and a hard failure the moment one was not:
@@ -429,6 +430,88 @@ def main():
         model_source, model_alias = get_effective_model_source(
             role["role_key"], db_path=db_path
         )
+        # An allocated model behind a NATIVELY launched interface. Neither
+        # branch below could serve this: the model_allocator branch calls
+        # `model-allocator run --client <harness>`, which needs a client
+        # adapter the allocator does not have for these harnesses, and the
+        # native branch is gated on model_source being a harness source.
+        #
+        # The two 1000 ELOOP roles are exactly this shape — freetoken alias,
+        # qwen interface — and were unlaunchable in both directions until
+        # 2026-08-27: "Role not found" from the allocator, and no route to
+        # the native builder. The lesson is in the condition: model_source
+        # says who supplies the MODEL, harness_source says who can LAUNCH,
+        # and routing on the first to answer the second is the defect.
+        #
+        # Deliberately additive. dsh and codex roles keep their existing
+        # path untouched; only the previously impossible combination is new.
+        if harness.is_native(harness_source) and model_source == "model_allocator":
+            missing = harness.missing_env(harness_source)
+            if missing:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR: {harness.describe_missing(harness_source, missing)}",
+                      file=sys.stderr)
+                errors.append(role["role_key"])
+                continue
+
+            # The endpoint is the allocator's to answer: only it knows which
+            # port a runtime profile got and what real model sits behind an
+            # alias. Guessing it would launch the role against the harness's
+            # own default endpoint — for Qwen Code a cloud service — which
+            # answers, bills, and is the wrong model.
+            allocator_bin = os.path.join(
+                config_mod.get_project_path("model-allocator"),
+                "scripts", "model-allocator",
+            )
+            try:
+                probe = subprocess.run(
+                    [allocator_bin, "resolve",
+                     "--role", role["role_key"],
+                     "--client", harness_source],
+                    capture_output=True, text=True, check=True, timeout=60,
+                )
+                resolved = json.loads(probe.stdout)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                    ValueError) as exc:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR resolving model for native harness "
+                      f"'{harness_source}': {exc}", file=sys.stderr)
+                if isinstance(exc, subprocess.CalledProcessError) and exc.stderr:
+                    print(f"    stderr: {exc.stderr.strip()}", file=sys.stderr)
+                errors.append(role["role_key"])
+                continue
+
+            port = resolved.get("port")
+            base_url = f"http://127.0.0.1:{port}" if port else ""
+            try:
+                child_env = harness.build_native_child_env(
+                    harness_source,
+                    resolved.get("real_model") or "",
+                    base_url,
+                )
+                shell_str = harness.build_launch_command(harness_source, role)
+            except (ValueError, ImportError, AttributeError) as exc:
+                print(f"  {role['role_key']:15s} → '{session_name}'")
+                print(f"  ERROR building native launch: {exc}", file=sys.stderr)
+                errors.append(role["role_key"])
+                continue
+
+            cwd = project_root if role["workdir_mode"] == "father" else target_cwd
+            prefix = " ".join(f"{k}={shlex.quote(str(v))}"
+                              for k, v in sorted(child_env.items()))
+            cmd_str = f"cd {cwd} && {prefix} {shell_str}".replace("&&  ", "&& ")
+            print(f"  {role['role_key']:15s} → '{session_name}'  "
+                  f"(harness={harness_source}, model={resolved.get('alias')}) ...")
+            if run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
+                started.append(session_name)
+                print(f"    Command sent to session.")
+                _record_harness_ownership(args.flow_key, session_name)
+            else:
+                print(f"    ERROR running command in '{session_name}'.",
+                      file=sys.stderr)
+                errors.append(role["role_key"])
+            continue
+
         if model_source == "model_allocator":
             model_allocator_path = os.path.join(
                 config_mod.get_project_path("model-allocator"),

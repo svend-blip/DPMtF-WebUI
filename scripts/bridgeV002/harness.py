@@ -148,7 +148,71 @@ def build_launch_command(harness, role_config, cfg=None, task=None):
         return _codex_command(role_config, cfg)
     if harness == "dsh":
         return build_dsh_invocation(role_config, task, cfg)
-    raise ValueError(f"not a native harness: {harness!r}")
+    # Every other native harness (qwen, goose, aider, crush, sweagent) is
+    # built by the standalone against ITS OWN config, deliberately — and the
+    # omission of ``cfg`` below is the whole point, not an oversight.
+    #
+    # codex and dsh read their knobs from DPMtF's config.py because they
+    # predate harness-allocator. The launch knobs of a harness DPMtF never
+    # modelled belong to the component that owns interface launches, and
+    # mirroring six getters into config.py would create two surfaces for one
+    # setting whose defaults could silently drift apart. So DPMtF asks for
+    # the argv and does not attempt to configure it.
+    ha = _standalone()
+    if not ha.is_native(harness):
+        raise ValueError(f"not a native harness: {harness!r}")
+    argv = ha.build_launch_argv(
+        harness,
+        model_target=_model_target_from_role(role_config),
+        task=task,
+    )
+    return " ".join(shlex.quote(part) for part in argv)
+
+
+class _ResolvedEndpoint:
+    """The standalone's config with its endpoint replaced by a resolved one.
+
+    A native harness reaches its model over an OpenAI-compatible endpoint
+    that only the MODEL allocator knows: the port a runtime profile got, and
+    the real model name behind an alias. harness-allocator's env builders
+    read that endpoint from their own config, which is empty by default —
+    empty means "the harness's own default endpoint", which for Qwen Code is
+    a cloud service, not the local server the role was allocated.
+
+    That failure is silent and expensive: the role launches, answers, and
+    bills, against the wrong model. So the endpoint is injected rather than
+    configured, and everything else still comes from the standalone — the
+    ``/v1`` forcing and the read-the-key-by-name indirection stay in the one
+    place that owns them.
+    """
+
+    def __init__(self, base, base_url):
+        self._base = base
+        self._base_url = base_url
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
+
+    def get_qwen_base_url(self):
+        return self._base_url
+
+
+def build_native_child_env(harness, model_target, base_url):
+    """Endpoint environment overrides for a native harness, or ``{}``.
+
+    ``base_url`` is the resolved endpoint from the model allocator (scheme,
+    host and port); the standalone appends ``/v1`` when it is missing. A
+    harness the standalone has no env builder for returns an empty dict,
+    which means "inherit the parent environment" — never a guess.
+    """
+    ha = _standalone()
+    from harness_allocator import adapter as ha_adapter  # noqa: E402
+
+    builder = getattr(ha_adapter, f"build_{harness}_env", None)
+    if builder is None:
+        return {}
+    cfg = _ResolvedEndpoint(ha.config, base_url) if base_url else ha.config
+    return builder(model_target=model_target, cfg=cfg)
 
 
 def build_dsh_invocation(role_config, task=None, cfg=None):
