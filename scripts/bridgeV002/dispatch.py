@@ -768,6 +768,20 @@ def _stop_other_local_models(to_alias):
         _wait_for_vram_release()
 
 
+# Backends whose adapter owns a model server PROCESS on this machine, so that
+# "the server is not running" is a meaningful, probeable statement. Mirrors
+# the allocator's own LOCAL_SERVER_BACKENDS (model_allocator/cli.py). Ollama
+# is deliberately absent from both: it is a daemon that evicts its own models,
+# so its "running" says nothing about whether a given model is loaded.
+#
+# `freetoken` was missing here until 2026-08-27. The gate below is the one
+# whose whole purpose is to make "injected into a role whose model is dead"
+# visible, and it silently failed open for the backend all three 1000-02-ELOOP
+# roles run on. When that flow's decomposer lost its FreeToken server mid-turn,
+# nothing reported it; a human found it by reading the pane.
+LOCAL_SERVER_BACKENDS = ("llama_cpp", "sglang", "freetoken")
+
+
 def _backend_is_down(alias):
     """True when the alias resolves to a LOCAL backend whose server is dead.
 
@@ -789,7 +803,7 @@ def _backend_is_down(alias):
         status = json.loads(result.stdout) if result.stdout.strip() else {}
     except Exception:
         return False
-    if status.get("backend") not in ("llama_cpp", "sglang"):
+    if status.get("backend") not in LOCAL_SERVER_BACKENDS:
         return False
     return not status.get("running", True)
 
