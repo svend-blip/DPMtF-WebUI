@@ -45,6 +45,8 @@ sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bridge_lib  # noqa: E402  — the ONE artifact-root resolver (two-flow spec §2)
 
+from scripts.testing.git_changes import changed_files  # noqa: E402  — D1 shared change detector
+
 # Extensions worth checking. A claim about a file we cannot classify as
 # source or documentation is not worth a false positive.
 CODE_SUFFIXES = {
@@ -127,36 +129,29 @@ def target_projects(flow_key):
 
 
 def git_dirty_files(repo_root):
-    """Paths git reports as changed, relative to the repo root.
+    """Return a dict of relative_path → git_status_code.
 
-    `--untracked-files=all` is not optional. Git's default collapses an
-    untracked directory to a single entry — `?? database/migrations/` — and
-    never names the files inside it. preferred_cloud run 024 paid for that:
-    handoff 072 created `database/migrations/` with one file in it, handoff
-    073 added two more, and `git status --short` reported exactly what it had
-    reported before. The two new migrations were invisible to this function,
-    so the mtime fallback below decided their fate and rejected them. Every
-    file created inside a directory that was already untracked has the same
-    shape, which makes the collapse a systematic blind spot rather than an
-    edge case.
+    Delegates to D1's ``changed_files()`` and maps the five-label vocabulary
+    back to git's two-character ``--name-status`` codes so that the gate's
+    existing verification logic (which checks codes, not labels) works
+    unchanged.
+
+    Mapping:
+        "modified"   → " M"
+        "added"      → "A "
+        "deleted"    → "D "
+        "renamed"    → " R"
+        "untracked"  → "??"
     """
-    try:
-        result = subprocess.run(
-            ["git", "-C", repo_root, "status", "--short", "--untracked-files=all"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode != 0:
-            return {}
-    except Exception:
-        return {}
-    dirty = {}
-    for line in result.stdout.splitlines():
-        if len(line) > 3:
-            path = line[3:].strip().strip('"')
-            if " -> " in path:            # renames
-                path = path.split(" -> ", 1)[1]
-            dirty[path] = line[:2]
-    return dirty
+    code_map = {
+        "modified":   " M",
+        "added":      "A ",
+        "deleted":    "D ",
+        "renamed":    " R",
+        "untracked":  "??",
+    }
+    labels = changed_files(repo_root, include_untracked=True)
+    return {path: code_map[label] for path, label in labels.items()}
 
 
 # Phrases that turn a sentence naming files into a statement about what was
