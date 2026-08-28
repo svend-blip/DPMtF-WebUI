@@ -2244,6 +2244,53 @@ def harness_alive(flow_key, to_role, db_path=None, *,
         return False
 
 
+def _check_readme_impact_contract(flow_key, from_role, to_role,
+                                  deliverable_path, handoff_id,
+                                  event="send_failed"):
+    """README Impact deliverable contract (migration 086; governance
+    31_README_STANDARD.md).
+
+    Per-step opt-in via bridge_flow_steps.requires_readme_impact: a step that
+    has not been activated is untouched, so no historical flow changes
+    behaviour. A defect in the checker itself must never take down dispatch —
+    it warns visibly and lets the delivery proceed, because a chain blocked by
+    its own instrumentation is worse than a missing block the Reviewer can
+    still see.
+
+    Returns True when delivery may proceed, False when refused.
+    """
+    try:
+        import readme_impact
+        if not readme_impact.step_requires_readme_impact(
+            flow_key, from_role, to_role, db_path=_db_path()
+        ):
+            return True
+        target_project = get_flow_target_project(flow_key)
+        readme_path = (
+            os.path.join(target_project, "README.md") if target_project else None
+        )
+        with open(deliverable_path, "r", encoding="utf-8") as f:
+            text = f.read()
+        result = readme_impact.validate_readme_impact(text, readme_path=readme_path)
+    except Exception as exc:
+        print(f"  WARNING: README Impact check skipped ({exc})")
+        return True
+    if result["valid"]:
+        return True
+    codes = ", ".join(e["code"] for e in result["errors"])
+    print(f"  ERROR: README Impact contract failed: {codes}")
+    # The first message carries the minimal template — print it whole so the
+    # refusal teaches the fix instead of only naming it.
+    print(result["errors"][0]["message"])
+    log(
+        f"{from_role}->{to_role}",
+        handoff_id,
+        event,
+        f"README Impact contract failed: {codes}",
+    )
+    return False
+
+
 def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
     """Execute a single flow step using database-backed configuration.
 
@@ -2459,6 +2506,11 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
                 "failed",
                 f"Validation failed: missing {', '.join(vresult['missing'])}",
             )
+            return False
+        if not _check_readme_impact_contract(
+            flow_key, payload["from_role"], payload["to_role"],
+            full_deliverable_path, handoff_id, event="failed",
+        ):
             return False
 
     # Compose final injection text: use convention prompt_template or content_template from DB
@@ -2957,6 +3009,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
                 "signal_complete_failed",
                 f"Validation failed: missing {', '.join(vresult['missing'])}",
             )
+            return False
+        if not _check_readme_impact_contract(
+            flow_key, payload["from_role"], payload["to_role"],
+            full_deliverable_path, handoff_id, event="signal_complete_failed",
+        ):
             return False
 
     # Compose prompt: use content_template with placeholder replacement
@@ -3906,6 +3963,11 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 "send_failed",
                 f"Handoff file missing required XML sections: {', '.join(missing)}",
             )
+            return False
+        if not _check_readme_impact_contract(
+            flow_key, from_role_key, to_role_key,
+            handoff_path, handoff_id, event="send_failed",
+        ):
             return False
 
     handoff_abs = os.path.abspath(handoff_path)

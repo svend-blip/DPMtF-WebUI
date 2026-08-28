@@ -201,10 +201,17 @@ blocks (mirroring the Frontend Impact mechanism in `30_FRONTEND_GOVERNANCE.md`):
 ```markdown
 ## README Impact
 
-- README impact: yes
-- Affected sections: <canonical headings touched>
-- Reason: <which trigger surface changed and how>
-- Validator: <verbatim summary line or JSON from scripts/validate_readme.py>
+README impact: yes
+
+Affected sections:
+- <canonical section>
+- <canonical section>
+
+README updated: yes
+
+Verification:
+- `python3 scripts/validate_readme.py README.md --json`
+- PASS
 ```
 
 ### No README impact
@@ -212,7 +219,7 @@ blocks (mirroring the Frontend Impact mechanism in `30_FRONTEND_GOVERNANCE.md`):
 ```markdown
 ## README Impact
 
-No README impact.
+README impact: no
 
 Reason: <why no trigger surface is affected>
 ```
@@ -233,6 +240,44 @@ still exist; run the validator; include its evidence.
 Reviewer duties: check the declaration's truthfulness both ways (an incorrect
 `no` is a rejection); verify semantic accuracy of what changed; never approve
 past a validator error.
+
+### Deterministic enforcement of the block itself
+
+The block is not a convention — it is machine-checked BEFORE review by
+`scripts/bridgeV002/readme_impact.py`, invoked from dispatch's deliverable
+validation on every step where `bridge_flow_steps.requires_readme_impact = 1`
+(migration 086; the same per-step opt-in pattern as the pre-dispatch gate).
+A missing or structurally invalid block refuses the delivery, so a deliverable
+that never evaluated README impact cannot reach a Reviewer. Steps that have
+not opted in — and every deliverable from before activation — are untouched.
+
+The contract, exhaustively:
+
+- exactly ONE `## README Impact` section (fenced examples do not count);
+- the declaration is exactly `yes` or `no` (case/whitespace normalized);
+- `no` requires a non-empty `Reason:`;
+- `yes` requires `Affected sections:` with at least one item,
+  `README updated: yes`, and Verification evidence naming the
+  `validate_readme.py` command with its PASS result;
+- `yes` with `README updated: no` is a contradiction and fails;
+- when the gate knows the target repository, it re-runs the README validator
+  live — evidence claiming PASS over a failing README fails.
+
+Stable codes: `README_IMPACT_BLOCK_MISSING`, `README_IMPACT_BLOCK_DUPLICATE`,
+`README_IMPACT_VALUE_MISSING`, `README_IMPACT_VALUE_INVALID`,
+`README_IMPACT_NO_REASON_MISSING`, `README_IMPACT_AFFECTED_SECTIONS_MISSING`,
+`README_IMPACT_UPDATE_CONFIRMATION_MISSING`, `README_IMPACT_README_NOT_UPDATED`,
+`README_IMPACT_VALIDATION_EVIDENCE_MISSING`, `README_VALIDATION_FAILED`.
+
+The refusal message embeds the minimal valid template, so the refusal itself
+teaches the fix. Frontend Impact and README Impact are independent contracts:
+a deliverable may carry both, and neither is ever derived from the other.
+
+The deliverable check answers *"was README impact explicitly evaluated and the
+update proven?"*; `scripts/validate_readme.py` answers *"does the resulting
+README satisfy the mechanical standard?"*. They stay separate concepts even
+when one gate invokes both, and neither can be overridden by reviewer
+opinion.
 
 ---
 
