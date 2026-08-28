@@ -108,7 +108,7 @@ EVIDENCE_SCHEMA_VERSION = _evidence_mod.EVIDENCE_SCHEMA_VERSION
 # ================================================================
 
 
-def _gate_result_to_exit_code(result, mode="block"):
+def _gate_result_to_exit_code(result, mode="block", bridge_dir=""):
     """Simulate gate-test-impact.py main() exit logic on a result dict."""
     if mode == "block" and not result["success"]:
         return 1
@@ -152,56 +152,61 @@ class TestGateTestImpactCLI(unittest.TestCase):
     def test_warn_mode_exits_zero_on_a_failing_plan(self):
         """In warn mode the gate MUST exit 0 even when tests fail."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_failing_repo(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            exit_code = _gate_result_to_exit_code(result, mode="warn")
-            self.assertEqual(exit_code, 0,
-                             f"warn mode should exit 0 on FAIL, got {exit_code}")
-            self.assertEqual(result["status"], "FAIL")
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_failing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                exit_code = _gate_result_to_exit_code(result, mode="warn")
+                self.assertEqual(exit_code, 0,
+                                 f"warn mode should exit 0 on FAIL, got {exit_code}")
+                self.assertEqual(result["status"], "FAIL")
 
     def test_block_mode_exits_nonzero_when_the_engine_errors(self):
         """In block mode the gate MUST exit nonzero on engine errors."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _init_repo(repo_root)
-            dpmtf_dir = os.path.join(repo_root, ".dpmtf")
-            os.makedirs(dpmtf_dir, exist_ok=True)
-            with open(os.path.join(dpmtf_dir, "test-policy.json"), "w") as f:
-                f.write("not valid json {{{")
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            exit_code = _gate_result_to_exit_code(result, mode="block")
-            self.assertNotEqual(exit_code, 0,
-                                f"block mode should exit nonzero on ERROR, got {exit_code}")
-            self.assertEqual(result["status"], "ERROR")
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _init_repo(repo_root)
+                dpmtf_dir = os.path.join(repo_root, ".dpmtf")
+                os.makedirs(dpmtf_dir, exist_ok=True)
+                with open(os.path.join(dpmtf_dir, "test-policy.json"), "w") as f:
+                    f.write("not valid json {{{")
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                exit_code = _gate_result_to_exit_code(result, mode="block")
+                self.assertNotEqual(exit_code, 0,
+                                    f"block mode should exit nonzero on ERROR, got {exit_code}")
+                self.assertEqual(result["status"], "ERROR")
 
     def test_block_mode_passes_on_successful_plan(self):
         """In block mode the gate MUST exit 0 when tests pass."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_passing_repo(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            exit_code = _gate_result_to_exit_code(result, mode="block")
-            self.assertEqual(exit_code, 0,
-                             f"block mode should exit 0 on PASS, got {exit_code}")
-            self.assertEqual(result["status"], "PASS")
-            self.assertTrue(result["success"])
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_passing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                exit_code = _gate_result_to_exit_code(result, mode="block")
+                self.assertEqual(exit_code, 0,
+                                 f"block mode should exit 0 on PASS, got {exit_code}")
+                self.assertEqual(result["status"], "PASS")
+                self.assertTrue(result["success"])
 
     def test_block_mode_fails_on_a_failing_plan(self):
         """In block mode the gate MUST exit 1 when tests fail."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_failing_repo(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            exit_code = _gate_result_to_exit_code(result, mode="block")
-            self.assertNotEqual(exit_code, 0,
-                                f"block mode should exit nonzero on FAIL, got {exit_code}")
-            self.assertEqual(result["status"], "FAIL")
-            self.assertFalse(result["success"])
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_failing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                exit_code = _gate_result_to_exit_code(result, mode="block")
+                self.assertNotEqual(exit_code, 0,
+                                    f"block mode should exit nonzero on FAIL, got {exit_code}")
+                self.assertEqual(result["status"], "FAIL")
+                self.assertFalse(result["success"])
 
     def test_engine_chain_returns_expected_keys(self):
         """engine_chain() must return success/status/evidence/error/evidence_path."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_passing_repo(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            expected_keys = {"success", "status", "evidence", "error", "evidence_path"}
-            self.assertEqual(set(result.keys()), expected_keys)
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_passing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                expected_keys = {"success", "status", "evidence", "error", "evidence_path"}
+                self.assertEqual(set(result.keys()), expected_keys)
 
     def test_parse_args_minimal_required(self):
         """parse_args() must accept all ten required fields plus optional --mode."""
@@ -289,36 +294,39 @@ class TestEngineChain(unittest.TestCase):
     def test_engine_chain_passes_on_successful_plan(self):
         """engine_chain produces PASS and verify success=True."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_passing_repo(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            self.assertTrue(result["success"])
-            self.assertEqual(result["status"], "PASS")
-            self.assertIsNotNone(result["evidence"])
-            self.assertIsNotNone(result["evidence_path"])
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_passing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                self.assertTrue(result["success"])
+                self.assertEqual(result["status"], "PASS")
+                self.assertIsNotNone(result["evidence"])
+                self.assertIsNotNone(result["evidence_path"])
 
     def test_engine_chain_policy_error_in_block(self):
         """Trigger a policy load error and verify success=False, status=ERROR."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _init_repo(repo_root)
-            dpmtf_dir = os.path.join(repo_root, ".dpmtf")
-            os.makedirs(dpmtf_dir, exist_ok=True)
-            with open(os.path.join(dpmtf_dir, "test-policy.json"), "w") as f:
-                f.write("{malformed json")
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            self.assertFalse(result["success"])
-            self.assertEqual(result["status"], "ERROR")
-            self.assertIsNotNone(result["error"])
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _init_repo(repo_root)
+                dpmtf_dir = os.path.join(repo_root, ".dpmtf")
+                os.makedirs(dpmtf_dir, exist_ok=True)
+                with open(os.path.join(dpmtf_dir, "test-policy.json"), "w") as f:
+                    f.write("{malformed json")
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                self.assertFalse(result["success"])
+                self.assertEqual(result["status"], "ERROR")
+                self.assertIsNotNone(result["error"])
 
     def test_evidence_file_created_with_valid_json(self):
         """Run the full gate and verify evidence file is created and contains valid JSON."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_passing_repo(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            self.assertIsNotNone(result["evidence_path"])
-            self.assertTrue(os.path.isfile(result["evidence_path"]))
-            with open(result["evidence_path"], "r") as f:
-                content = f.read()
-            self.assertIn("status", content)
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_passing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                self.assertIsNotNone(result["evidence_path"])
+                self.assertTrue(os.path.isfile(result["evidence_path"]))
+                with open(result["evidence_path"], "r") as f:
+                    content = f.read()
+                self.assertIn("status", content)
 
 
 class TestEvidence(unittest.TestCase):
@@ -353,11 +361,12 @@ class TestEvidence(unittest.TestCase):
     def test_empty_changes_yields_nonempty_status(self):
         """When no files changed the engine should produce a status."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _init_repo(repo_root)
-            _write_policy(repo_root, _make_minimal_policy())
-            _create_source_tree(repo_root)
-            result = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            self.assertIsNotNone(result["status"])
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _init_repo(repo_root)
+                _write_policy(repo_root, _make_minimal_policy())
+                _create_source_tree(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                self.assertIsNotNone(result["status"])
 
 
 class TestGateKey(unittest.TestCase):
@@ -396,36 +405,37 @@ class TestFlowIndependence(unittest.TestCase):
     def test_the_same_engine_call_serves_both_flow_topologies(self):
         """Engine chain must produce functionally identical results for PLOOP and ELOOP."""
         with tempfile.TemporaryDirectory() as repo_root:
-            _setup_passing_repo(repo_root)
-            result_ploop = engine_chain(repo_root, "1000-01-PLOOP", "99")
-            result_eloop = engine_chain(repo_root, "1000-02-ELOOP", "99")
-            identity_keys = {"evidence_path", "evidence"}
-            functional_evidence_keys = {
-                "status", "success", "error",
-                "affected_components", "resolved_scope",
-                "selected_tests", "is_exhaustive",
-            }
-            for key in result_ploop:
-                if key in identity_keys:
-                    continue
-                expected = result_eloop[key]
-                self.assertEqual(
-                    result_ploop[key],
-                    expected,
-                    f"Field '{key}' differs between PLOOP and ELOOP:\n"
-                    f"  PLOOP: {result_ploop[key]!r}\n"
-                    f"  ELOOP: {result_eloop[key]!r}",
-                )
-            ploop_evidence = result_ploop.get("evidence") or {}
-            eloop_evidence = result_eloop.get("evidence") or {}
-            for key in functional_evidence_keys:
-                self.assertEqual(
-                    ploop_evidence.get(key),
-                    eloop_evidence.get(key),
-                    f"Evidence field '{key}' differs between PLOOP and ELOOP:\n"
-                    f"  PLOOP: {ploop_evidence.get(key)!r}\n"
-                    f"  ELOOP: {eloop_evidence.get(key)!r}",
-                )
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_passing_repo(repo_root)
+                result_ploop = engine_chain(repo_root, "1000-01-PLOOP", "99", bridge_dir)
+                result_eloop = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                identity_keys = {"evidence_path", "evidence"}
+                functional_evidence_keys = {
+                    "status", "success", "error",
+                    "affected_components", "resolved_scope",
+                    "selected_tests", "is_exhaustive",
+                }
+                for key in result_ploop:
+                    if key in identity_keys:
+                        continue
+                    expected = result_eloop[key]
+                    self.assertEqual(
+                        result_ploop[key],
+                        expected,
+                        f"Field '{key}' differs between PLOOP and ELOOP:\n"
+                        f"  PLOOP: {result_ploop[key]!r}\n"
+                        f"  ELOOP: {result_eloop[key]!r}",
+                    )
+                ploop_evidence = result_ploop.get("evidence") or {}
+                eloop_evidence = result_eloop.get("evidence") or {}
+                for key in functional_evidence_keys:
+                    self.assertEqual(
+                        ploop_evidence.get(key),
+                        eloop_evidence.get(key),
+                        f"Evidence field '{key}' differs between PLOOP and ELOOP:\n"
+                        f"  PLOOP: {ploop_evidence.get(key)!r}\n"
+                        f"  ELOOP: {eloop_evidence.get(key)!r}",
+                    )
 
     def test_both_flow_keys_resolve_to_same_target_project(self):
         """PLOOP and ELOOP must resolve to the same target project path."""
@@ -438,6 +448,46 @@ class TestFlowIndependence(unittest.TestCase):
         root_ploop = get_effective_artifact_root("1000-01-PLOOP")
         root_eloop = get_effective_artifact_root("1000-02-ELOOP")
         self.assertEqual(root_ploop, root_eloop)
+
+
+class TestEvidencePathDefect(unittest.TestCase):
+    """Regression tests for evidence path resolution under bridge_dir."""
+
+    def test_evidence_lands_under_bridge_dir_not_cwd(self):
+        """Evidence must be written under bridge_dir/artifact_root, not cwd/artifact_root.
+
+        This is the core regression for the evidence path defect (handoff #39):
+        engine_chain() must accept a bridge_dir argument and resolve evidence
+        paths relative to it (bridge_dir / artifact_root / ...) rather than
+        relative to the current working directory.
+        """
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as other_cwd:
+                    _setup_passing_repo(repo_root)
+                    # Change to a completely different directory
+                    old_cwd = os.getcwd()
+                    try:
+                        os.chdir(other_cwd)
+                        result = engine_chain(
+                            repo_root, "1000-02-ELOOP", "39", bridge_dir
+                        )
+                        self.assertTrue(result["success"])
+                        self.assertEqual(result["status"], "PASS")
+                        self.assertIsNotNone(result["evidence_path"])
+                        # Verify the evidence is under bridge_dir, not cwd
+                        self.assertTrue(
+                            result["evidence_path"].startswith(bridge_dir),
+                            f"Evidence path {result['evidence_path']} must "
+                            f"start with bridge_dir {bridge_dir}, not cwd {other_cwd}",
+                        )
+                        # Verify the file actually exists
+                        self.assertTrue(
+                            os.path.isfile(result["evidence_path"]),
+                            f"Evidence file not found at {result['evidence_path']}",
+                        )
+                    finally:
+                        os.chdir(old_cwd)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ def engine_chain(
     target_repo: str,
     flow_key: str,
     handoff_id: str,
+    bridge_dir: str = "",
 ) -> dict:
     """Run the full deterministic engine chain.
 
@@ -99,11 +100,11 @@ def engine_chain(
         result["error"] = f"Execution failed: {exc}"
         return result
 
-    # Step 5: Write evidence under flow's artifact root (NOT target tree)
+    # Step 5: Write evidence under bridge_dir / artifact_root (NOT cwd or target tree)
     try:
         artifact_root = bridge_lib.get_effective_artifact_root(flow_key)
         evidence_dir = os.path.join(
-            artifact_root, "artifacts", "test-impact", flow_key
+            bridge_dir, artifact_root, "artifacts", "test-impact", flow_key
         )
         os.makedirs(evidence_dir, exist_ok=True)
         evidence_path = os.path.join(
@@ -229,7 +230,7 @@ def main():
     print(f"Mode: {mode}")
 
     # Run the engine chain
-    result = engine_chain(project_path, flow_key, handoff_id)
+    result = engine_chain(project_path, flow_key, handoff_id, bridge_dir)
 
     # Report results
     print(f"Result: status={result['status']}, success={result['success']}")
