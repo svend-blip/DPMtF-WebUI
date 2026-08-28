@@ -306,3 +306,231 @@ The sentinel is defined and used at:
 
 Every call site returns `UNKNOWN` rather than `[]`, `None`, or any other value
 that could be mistaken for a successful zero-impact result.
+
+### Module vs. Symbol Granularity
+
+The test-impact system operates at two distinct granularity levels. The
+architecture distinguishes them explicitly because the scope decision depends
+on which level is available.
+
+**Symbol-level granularity** answers: "which symbols in which files changed?"
+Produced by `scripts/testing/symbol_analysis.py` — it uses LibCST to parse
+changed line ranges into qualified symbol names (e.g. `app.views.index`,
+`models.User.create`). The result is a set of symbols or the `UNKNOWN`
+sentinel when parsing fails.
+
+**Module-level granularity** answers: "which modules depend on which other
+modules (and which symbols)?" Produced by `scripts/testing/dependency_graph.py`
+— it builds a deterministic AST-based dependency graph from `.py` files,
+tracking both module-to-module edges and symbol-to-symbol edges within a
+module. The graph supports reverse-closure computation: given a set of seeds,
+it returns all nodes transitively affected.
+
+**When each level applies:**
+
+- The planner (`planner.py`) currently operates at **component** level or above
+  (component, broad, full). Symbol and file granularities exist in the scope
+  ladder but are not yet reached in Run 004+.
+- Symbol-level analysis feeds the `changed_symbols` field of the evidence
+  schema (19-key record, `scripts/testing/evidence.py`). It is recorded but
+  not yet used for scope resolution — `changed_symbols` starts empty and will
+  drive finer-grained plans in a future run.
+- Module-level analysis via the dependency graph feeds the symbol-level path:
+  when symbol analysis yields `UNKNOWN`, the dependency graph can still resolve
+  module-level edges. A module that changed triggers all reverse-closure nodes
+  (but the planner must not narrow scope below the file level for symbol-UNKNOWN
+  results — the scope ladder rule applies).
+
+**The boundary between levels:** symbol_analysis is file-local (it maps changed
+lines within a single file to symbols). dependency_graph is repository-wide
+(it builds a cross-module edge set). The dependency graph does NOT depend on
+symbol_analysis output — it is self-contained, built from AST analysis of all
+`.py` files.
+
+### Resolution Rules
+
+The system resolves scope using a deterministic hierarchy. Rules are ordered
+by priority and applied top-down; the first match wins. The hierarchy has
+two layers: file-level resolution (which policy rules apply) and granularity
+resolution (symbol vs. module vs. file vs. component vs. broad vs. full).
+
+**Layer 1 — File-level resolution** (from `planner.py:_resolve_scope_for_change`):
+
+For each changed path, the planner applies these rules in order:
+
+1. **Full regression trigger** — if the path matches any pattern in
+   `policy.full_regression_triggers`, scope is `full`. Reason:
+   `"path '{path}' matches full_regression_triggers pattern"`.
+
+2. **High fanout escalation** — if the path matches any entry in
+   `policy.high_fanout_files`, scope escalates to `broad` regardless of
+   component ownership. Reason: `"path '{path}' is a high_fanout_file"`.
+
+3. **Component ownership resolution** — resolve the path against
+   `policy.components` (glob matching). If no component claims the path,
+   scope is `broad`. Reason: `"path '{path}' has no owning component"`.
+
+4. **Test mapping check** — if a component owns the path:
+   - Has test mappings → scope is `component`. Reason:
+     `"path '{path}' belongs to component '{comp}' with test mappings"`.
+   - No test mappings → scope is `broad`. Reason:
+     `"path '{path}' belongs to component '{comp}' but has no test mappings"`.
+
+**Layer 2 — Granularity escalation** (when symbol analysis yields UNKNOWN):
+
+When `symbol_analysis.changed_symbols()` returns `UNKNOWN` for a changed file,
+the system must not narrow scope below the file level. The scope ladder
+enforces monotonic escalation (rightward only):
+
+```
+symbol < file < component < broad < full
+```
+
+If symbol-level impact cannot be determined, the planner uses the file-level
+or component-level resolution from Layer 1. The `UNKNOWN` sentinel from
+symbol_analysis triggers escalation within the granularity axis, while the
+Layer 1 rules govern the component axis.
+
+**Layer 3 — Transitive resolution** (dependency graph reverse closure):
+
+For component-level scope, the planner also resolves transitive dependencies:
+
+1. For each affected component, look up `policy.component_dependencies`.
+2. Compute reverse dependencies: for each component with changed paths,
+   find every component that transitively depends on it (BFS through the
+   reverse dependency map).
+3. Collect all test mappings from the expanded component set.
+4. The `selected_tests` field of the TestPlan includes tests for the
+   expanded component set.
+
+**Combining multiple changes:**
+
+When multiple paths change, the planner resolves each independently, then
+takes the union of their resolved scopes using `_scope_max()` (which picks
+the stronger scope — higher index in `SCOPES`). The final `escalation_reason`
+records all individual reasons joined.
+
+### Integration Chain: Complete Data Flow
+
+The five subsystems form a deterministic pipeline. Data flows through in
+this order:
+
+```
+git_changes.py → symbol_analysis.py ──┐
+                                       ├──→ planner.py → runner.py → evidence.py
+dependency_graph.py ───────────────────┘
+```
+
+**Step 1 — Facts (git_changes.py):**
+- `resolve_baseline(repo_root, baseline)` → resolved commit SHA or "HEAD"
+- `changed_files(repo_root, baseline)` → list of (status_letter, path) tuples
+- `changed_ranges(repo_root, baseline, path)` → list of (start, end) line ranges for each changed file
+
+Output: a dict mapping file paths to change labels (e.g. `{"src/app.py": "modified", "new/module.py": "added"}`).
+
+**Step 2 — Symbol analysis (symbol_analysis.py):**
+- `changed_symbols(file_path, source_code, ranges)` → set of qualified symbol names or UNKNOWN
+- Uses LibCST with PositionProvider metadata to map line ranges to definition paths
+- Handles decorators, nested classes, class methods, and module-level attribute assignments
+- One adapter registered for `.py` files; unknown extensions yield UNKNOWN
+
+Output: for each changed file, a set of changed symbols or the UNKNOWN sentinel.
+
+**Step 3 — Dependency graph (dependency_graph.py):**
+- `build_graph(root_dir)` → Graph containing all nodes, forward edges, reverse edges, unresolved set
+- Parses AST from all `.py` files, tracks imports (static and dynamic), and call targets
+- `reverse_closure(graph, seeds)` → Closure containing reachable nodes, unresolved nodes, and is_safe flag
+- Handles: star imports (marks importing module unresolved), parse failures (marks file unresolved),
+  import cycles (terminates via visited set), dynamic imports (importlib → unresolved)
+
+Output: a Graph that maps modules to their dependencies and a Closure computation that answers
+"which modules are transitively affected by these changed nodes?"
+
+**Step 4 — Policy and planning (planner.py):**
+- `Policy` loads from `.dpmtf/test-policy.json` — validates top-level keys, maps components to
+  source globs, test globs, and dependencies
+- `plan_tests(repo_root, policy, changes, requested_scope)` → TestPlan
+  - Resolves each changed path through the Layer 1 rules
+  - Expands components through transitive dependencies
+  - Takes scope union across all changes
+  - Computes plan_hash (SHA-256 over canonical JSON serialization)
+
+Output: a TestPlan with resolved_scope, selected_tests, affected_components, escalation_reason,
+policy_hash, plan_hash, and is_exhaustive flag.
+
+**Step 5 — Execution (runner.py):**
+- `run_plan(repo_root, plan, policy, timeout=None)` → evidence dict
+- If plan.is_exhaustive → runs the whole test suite (ignores selected_tests)
+- If plan.is_not_exhaustive → runs exactly selected_tests
+- Non-zero exit → status "FAIL"
+- Command cannot run → status "ERROR", never "PASS"
+- Uncollectable selected test → status "ERROR"
+
+Output: an evidence dict with all 19 required keys (schema_version, generated_at, repository,
+baseline, head_sha, worktree_fingerprint, changed_files, changed_symbols, affected_components,
+requested_scope, resolved_scope, escalation_reason, selected_tests, is_exhaustive, policy_hash,
+plan_hash, test_command, status, duration_seconds).
+
+**Step 6 — Staleness check (evidence.py):**
+- `is_stale(evidence, repo_root)` → bool
+- Compares evidence.head_sha and evidence.worktree_fingerprint against current repo state
+- Any error during measurement → True (unknown means stale)
+- Never answers False when measurement fails
+
+### Scope Ladder Reference
+
+| Level   | Scope in SCOPES index | When used                                    |
+|---------|----------------------|----------------------------------------------|
+| symbol  | 0                    | Symbol-level analysis available and safe     |
+| file    | 1                    | File-level impact without symbol granularity |
+| component | 2                  | Component ownership resolved with test maps  |
+| broad   | 3                    | No component, high fanout, or no test maps   |
+| full    | 4                    | Full regression trigger matched              |
+
+Monotonic escalation: the scope can only move rightward (higher index).
+Nothing moves leftward. `_scope_max(a, b)` returns the scope with the
+higher index.
+
+### Reference: dependency_graph.py
+
+The dependency graph builder is the second fact module (after symbol_analysis).
+Unlike symbol_analysis, it does NOT use LibCST — it uses Python stdlib `ast`.
+
+Key properties:
+
+| Property         | Detail                                                         |
+|------------------|----------------------------------------------------------------|
+| Parsing          | stdlib `ast.parse` — no external dependencies                  |
+| Edge types       | Module-to-module (imports) and symbol-to-symbol (calls)        |
+| Dynamic targets  | `importlib`, `eval`, `setattr`, `globals()` → UNRESOLVED mark  |
+| Star imports     | `from a import *` → importing module marked UNRESOLVED         |
+| Parse failures   | Syntax error → file node marked UNRESOLVED                     |
+| Cycles           | Terminates via visited set (finite closure guaranteed)         |
+| Serialization    | `serialize_nodes()` / `serialize_reverse()` — deterministic, sorted |
+| Node ID format   | `path` for modules, `path<TAB>symbol` for symbol nodes         |
+| Idempotency      | `_add_node()` is idempotent; `_add_edge()` creates both directions |
+
+The dependency graph is **self-contained** — it does not depend on symbol_analysis
+output. It is built by scanning all `.py` files in a directory tree. The graph
+can be used independently of the symbol analysis pipeline.
+
+### Reference: planner.py scope resolution
+
+The planner's `_resolve_scope_for_change` implements the five-layer rule set
+(first match wins):
+
+```
+1. full_regression_triggers   → full
+2. high_fanout_files          → broad
+3. no component               → broad
+4. component, no test maps    → broad
+5. component, has test maps   → component
+```
+
+In Run 004+, `_REACHABLE` is restricted to `("component", "broad", "full")`.
+The `symbol` and `file` levels exist in `SCOPES` but are not reachable until
+a future run extends the resolution rules.
+
+The planner also computes `is_exhaustive`: `True` when `resolved_scope` is
+`"broad"` or `"full"`, meaning the runner should ignore `selected_tests`
+and execute the full suite.
