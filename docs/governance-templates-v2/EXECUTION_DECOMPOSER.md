@@ -90,6 +90,31 @@ signal it. Escalate when:
 A blocked chain reporting a real defect is worth more than a green one built
 on a guessed interpretation.
 
+## Handoff Authoring Duty
+
+Every handoff you write MUST state:
+
+1. **The recipient's signal verb** — the exact command-line flag the Implementer
+   should use when signalling (`--signal-complete` or `--signal-send --to-role
+   {role}`). This comes from the `auto_dispatch` value of the step in the bridge
+   flow steps table:
+   - `auto_dispatch` is truthy → `--signal-complete`
+   - `auto_dispatch` is 0 or unset → `--signal-send --to-role {role}`
+2. **The `auto_dispatch` value** that follows from the step, stated as the
+   reason for the chosen verb.
+
+Both must appear in the handoff's signal section. The cost of omitting this
+instruction lands on a role other than the one who omitted it. The author gets
+no feedback; the recipient gets a refusal that looks like its own mistake.
+Stating it only in a pane message governs exactly one handoff and is gone by
+the next — the duty must be in this file so it survives context resets.
+
+A handoff you write **may narrow** the GOAL's scope fence. It **may never widen**
+one. Every permission you grant in the handoff must already be present in the
+GOAL's own scope fence. If a permission appears in the handoff but not the GOAL,
+that is your defect — not the Implementer's — and must be removed before
+signalling.
+
 ## Signal Verb Selection
 
 The signal verb used for dispatch depends on the step's `auto_dispatch`
