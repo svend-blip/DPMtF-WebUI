@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from typing import List
 
-__all__ = ["resolve_baseline", "changed_files"]
+__all__ = ["resolve_baseline", "changed_files", "changed_ranges"]
 
 
 def resolve_baseline(repo_root: str, baseline: str | None = None) -> str:
@@ -101,8 +101,6 @@ def _git_ls_untracked(repo_root: str) -> List[str]:
         p = line.strip()
         if not p:
             continue
-        # A file created inside an untracked directory must appear under
-        # its own path, never collapsed to the directory.
         paths.append(p)
     return paths
 
@@ -198,5 +196,151 @@ def changed_files(
         untracked = _git_ls_untracked(repo_root)
         for path in untracked:
             _set(path, "untracked")
+
+    return result
+
+
+def changed_ranges(
+    repo_root: str,
+    baseline: str | None = None,
+) -> dict[str, list[tuple[int, int]]]:
+    """Return changed line ranges per file from ``git diff -U0``.
+
+    Parameters
+    ----------
+    repo_root:
+        Path to the repository root.
+    baseline:
+        Optional commit-ish to diff against.  ``None`` means the working tree
+        is compared to the index / HEAD.  When supplied, both the diff against
+        the resolved baseline *and* the working tree vs index are combined.
+
+    Returns
+    -------
+    ``dict[str, list[tuple[int, int]]]``
+        Repository-relative paths → list of ``(start, end)`` tuples
+        (1-based inclusive line ranges in the NEW file).  A file with no
+        textual diff (added, deleted, renamed-only) maps to ``[]``.
+    """
+    result: dict[str, list[tuple[int, int]]] = {}
+
+    def _collect_status(
+        range_arg: List[str] | None = None,
+    ) -> List[tuple[str, str]]:
+        """Collect name-status rows for the given diff range."""
+        rows: list[tuple[str, str]] = []
+        if range_arg is None:
+            for cmd_suffix in [["--cached"], []]:
+                cmd = ["git", "diff", "--name-status"] + cmd_suffix
+                r = subprocess.run(
+                    cmd, check=True, capture_output=True, text=True,
+                    cwd=repo_root,
+                )
+                for line in r.stdout.splitlines():
+                    if not line:
+                        continue
+                    rows.append(_parse_name_status_line(line))
+        else:
+            cmd = ["git", "diff", "--name-status"] + range_arg
+            r = subprocess.run(
+                cmd, check=True, capture_output=True, text=True,
+                cwd=repo_root,
+            )
+            for line in r.stdout.splitlines():
+                if not line:
+                    continue
+                rows.append(_parse_name_status_line(line))
+        return rows
+
+    # Collect changed paths to know which files exist in result.
+    all_status: List[tuple[str, str]] = []
+    if baseline is not None:
+        resolved = resolve_baseline(repo_root, baseline)
+        all_status.extend(_collect_status([resolved]))
+    all_status.extend(_collect_status(None))
+
+    for letter, path in all_status:
+        label = _label_from_status(letter)
+        if label:
+            if label in ("added", "renamed", "deleted"):
+                result.setdefault(path, [])
+            else:
+                result.setdefault(path, [])  # will be filled by diff below
+
+    # Add untracked paths (no diff → empty ranges).
+    for path in _git_ls_untracked(repo_root):
+        if path not in result:
+            result.setdefault(path, [])
+
+    # Parse git diff -U0 hunks.
+    _hunks: dict[str, List[tuple[int, int]]] = {}
+
+    def _parse_diff_output(diff_output: str) -> None:
+        """Extract hunks from a ``git diff -U0`` output string.
+        
+        The hunk header gives us the exact range:
+        @@ -old_start,old_count +new_start,new_count @@
+        
+        We use new_start and new_count directly — no line counting.
+        """
+        current_file = ""
+
+        for line in diff_output.splitlines():
+            if line.startswith("+++ b/"):
+                current_file = line[6:]
+                continue
+            if line.startswith("@@ "):
+                parts = line.split()
+                for p in parts:
+                    if p.startswith("+") and not p.startswith("@@"):
+                        coords = p[1:]  # strip leading '+'
+                        if "," in coords:
+                            new_start, new_count = coords.split(",", 1)
+                        else:
+                            new_start = coords
+                            new_count = "1"
+                        hunk_start = int(new_start)
+                        hunk_end = int(new_start) + int(new_count) - 1
+                        _hunks.setdefault(current_file, [])
+                        _hunks[current_file].append((hunk_start, hunk_end))
+
+
+
+    # Collect diffs to parse.
+    if baseline is not None:
+        resolved = resolve_baseline(repo_root, baseline)
+        for suffix in [["--cached", resolved], [resolved]]:
+            try:
+                r = subprocess.run(
+                    ["git", "diff", "-U0"] + suffix,
+                    check=True, capture_output=True, text=True,
+                    cwd=repo_root,
+                )
+                _parse_diff_output(r.stdout)
+            except subprocess.CalledProcessError:
+                continue
+
+    for suffix in [["--cached"], []]:
+        try:
+            r = subprocess.run(
+                ["git", "diff", "-U0"] + suffix,
+                check=True, capture_output=True, text=True,
+                cwd=repo_root,
+            )
+            _parse_diff_output(r.stdout)
+        except subprocess.CalledProcessError:
+            continue
+
+    # Merge hunks per file.
+    for f, hunks in _hunks.items():
+        hunks.sort()
+        collapsed: list[tuple[int, int]] = [hunks[0]]
+        for s, e in hunks[1:]:
+            last_s, last_e = collapsed[-1]
+            if s <= last_e + 1:
+                collapsed[-1] = (last_s, max(last_e, e))
+            else:
+                collapsed.append((s, e))
+        result[f] = collapsed
 
     return result

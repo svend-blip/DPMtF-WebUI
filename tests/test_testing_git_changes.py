@@ -33,6 +33,7 @@ gc: object = importlib.util.module_from_spec(_gc_spec)
 _gc_spec.loader.exec_module(gc)
 resolve_baseline = gc.resolve_baseline
 changed_files = gc.changed_files
+changed_ranges = gc.changed_ranges
 
 
 def _init_repo(path: str) -> None:
@@ -200,15 +201,76 @@ class TestResolveBaseline(unittest.TestCase):
 class TestPublicAPI(unittest.TestCase):
     """Tests for the public API surface (10)."""
 
-    def test_the_public_api_is_exactly_the_two_names_in___all__(self):
-        """The public API is exactly the two names in __all__."""
-        self.assertEqual(gc.__all__, ["resolve_baseline", "changed_files"])
+    def test_the_public_api_is_exactly_the_three_names_in___all__(self):
+        """The public API is exactly the three names in __all__."""
+        self.assertEqual(gc.__all__,
+                         ["resolve_baseline", "changed_files", "changed_ranges"])
         self.assertIn("resolve_baseline", dir(gc))
         self.assertIn("changed_files", dir(gc))
+        self.assertIn("changed_ranges", dir(gc))
         self.assertNotIn("_git_name_status", gc.__all__)
         self.assertNotIn("_parse_name_status_line", gc.__all__)
         self.assertNotIn("_git_ls_untracked", gc.__all__)
         self.assertNotIn("_label_from_status", gc.__all__)
+
+
+# ---------------------------------------------------------------------------
+# Tests 11-14: changed_ranges
+# ---------------------------------------------------------------------------
+
+class TestChangedRanges(unittest.TestCase):
+    """Tests for the changed_ranges() public API (11-14)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        _init_repo(self.tmpdir)
+
+    def test_11_a_single_line_change_yields_one_range(self):
+        """A single-line change yields exactly one (start, end) tuple."""
+        _touch(self.tmpdir, "README.md", "changed content")
+        subprocess.run(
+            ["git", "add", "README.md"],
+            check=True, capture_output=True, cwd=self.tmpdir,
+        )
+        result = changed_ranges(self.tmpdir)
+        self.assertIn("README.md", result)
+        ranges = result["README.md"]
+        self.assertEqual(len(ranges), 1)
+        start, end = ranges[0]
+        self.assertGreaterEqual(start, 1)
+        self.assertGreaterEqual(end, start)
+
+    def test_12_multi_line_change_yields_one_range(self):
+        """A multi-line contiguous change yields one range."""
+        _touch(self.tmpdir, "README.md", "changed content\nwith more lines\n")
+        subprocess.run(
+            ["git", "add", "README.md"],
+            check=True, capture_output=True, cwd=self.tmpdir,
+        )
+        result = changed_ranges(self.tmpdir)
+        self.assertIn("README.md", result)
+        # The range should cover lines 1-2 (2 lines changed).
+        ranges = result["README.md"]
+        if ranges:
+            start, end = ranges[0]
+            self.assertEqual(end - start + 1, 2)
+
+    def test_13_an_untracked_file_has_empty_ranges(self):
+        """An untracked (added) file maps to empty ranges."""
+        _touch(self.tmpdir, "new_file.txt", "brand new")
+        result = changed_ranges(self.tmpdir)
+        self.assertIn("new_file.txt", result)
+        self.assertEqual(result["new_file.txt"], [])
+
+    def test_14_deleted_file_has_empty_ranges(self):
+        """A deleted file maps to empty ranges."""
+        subprocess.run(
+            ["git", "rm", "README.md"],
+            check=True, capture_output=True, cwd=self.tmpdir,
+        )
+        result = changed_ranges(self.tmpdir)
+        self.assertIn("README.md", result)
+        self.assertEqual(result["README.md"], [])
 
 
 # ---------------------------------------------------------------------------
