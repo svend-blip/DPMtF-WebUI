@@ -223,3 +223,86 @@ code path serves both `1000-01-PLOOP` (continuous) and `1000-02-ELOOP`
 (split PLOOP/ELOOP) because both flows share the same target project and
 the same policy file. No branching on flow topology is needed or present
 in the engine modules under `scripts/testing/`.
+
+## Sentinel contract (Run 007)
+
+### UNKNOWN is a distinct sentinel object
+
+The symbol analysis layer (`scripts/testing/symbol_analysis.py`) exports a
+single sentinel:
+
+```python
+UNKNOWN: object = object()
+```
+
+`UNKNOWN` is a bare `object()` instance — it is **not** an empty list (`[]`),
+not `None`, not an empty string (`""`), and not any other falsy or list-like
+value. This distinction is the safety property of the entire symbol analysis
+layer: any caller that receives `UNKNOWN` can unambiguously determine that
+symbol analysis failed rather than "found nothing changed."
+
+An empty list, by contrast, means "the analysis succeeded and no symbols were
+touched." Mixing these two outcomes — failure and zero-impact — is the precise
+bug this sentinel prevents. The `changed_symbols()` return type is annotated as
+`list[str] | object` so that static checkers (and human readers) can see the
+sentinel is a deliberate return value, not an oversight.
+
+### Why a language with no registered adapter yields UNKNOWN
+
+The symbol analysis layer implements **OD-2** — an adapter seam for language-
+specific parsers. Adapters are registered in `_ADAPTERS`, keyed by file
+extension. In Run 007, only the Python adapter (`.py`) is registered, backed
+by LibCST.
+
+When `changed_symbols()` receives a file whose extension maps to no registered
+adapter — `.js`, `.ts`, `.md`, `.yaml`, or any other extension — the dispatcher
+at line 325–328 looks up `_ADAPTERS.get(ext)`, finds `None`, and returns
+`UNKNOWN` immediately.
+
+This is the correct behaviour because answering an empty list for an unknown
+language would be a **guess**: the system has no parser for that language and
+therefore no basis to claim the file contains no changed symbols. An empty list
+on failure is a *silent narrow* — it tells the downstream consumer "nothing to
+test" when the truth is "we do not know." A silent narrow voids the mandatory
+test set, which is the core safety property the scope ladder enforces.
+
+JS and TS adapters are deferred (not delivered in this Run). The seam is built
+and tested with Python only; future Runs that add adapters register them against
+the same `_ADAPTERS` dict without changing the return contract.
+
+### Downstream propagation
+
+When `changed_symbols()` returns `UNKNOWN`, every downstream consumer must
+treat it as **whole-module impact** — not as "nothing changed." Specifically:
+
+- **The planner** must not filter the test set on the strength of a parse
+  failure. An `UNKNOWN` result for a changed file means the planner cannot
+  determine which symbols were touched, so it must not narrow scope to fewer
+  tests than it would for the entire module.
+- **The runner** receives the planner's scope decision (which may escalate to
+  `broad` or `full` based on `UNKNOWN` inputs) and executes accordingly. It
+  must never interpret `UNKNOWN` as a zero-impact signal.
+- **The gate** must not suppress the test run when any file in the diff yields
+  `UNKNOWN`. The gate's purpose is to widen scope on uncertainty, not narrow it.
+
+In practice, the planner resolves `UNKNOWN` by escalating the scope rung on the
+ladder — from `symbol` upward to `file`, `component`, `broad`, or `full`,
+depending on which other inputs are available. The escalation is monotonic
+(rightward) and conservative: uncertainty always widens, never narrows.
+
+### Reference: symbol_analysis.py
+
+The sentinel is defined and used at:
+
+| Location | Behaviour |
+|----------|-----------|
+| Line 36 | `UNKNOWN: object = object()` — the sentinel itself |
+| Line 214–217 | ParserSyntaxError or any parse exception → `return UNKNOWN` |
+| Line 221–222 | Definition collection exception → `return UNKNOWN` |
+| Line 236 | No definitions found in valid Python → `return UNKNOWN` |
+| Line 316 | File not found → `return UNKNOWN` |
+| Line 322 | OSError reading file → `return UNKNOWN` |
+| Line 327 | No registered adapter for extension → `return UNKNOWN` |
+
+Every call site returns `UNKNOWN` rather than `[]`, `None`, or any other value
+that could be mistaken for a successful zero-impact result.
