@@ -5,6 +5,8 @@ description: Reconstruct the Architect's full context after a cold start or olla
 
 # CLOUDLLM — Architect Cold-Start
 
+> **Governance resolution (2026-08-28):** the flow-specific 4xx originals were retired when their content was absorbed into the generic role files (DPMtF commit `0e9b141`, repointed in `d339028`). The authoritative per-role contract is `bridge_roles.governance_file` — verify with mcp-light `get_role(<role_key>)` or `sqlite3 databases/dpmtf.db "SELECT governance_file FROM bridge_roles WHERE role_key='<role>';"` — never a hardcoded filename.
+
 Invoke with `/cloud-llm` to reconstruct the Architect's full context after
 a cold start or `ollama stop` cycle in the `cloud_llm` flow.
 
@@ -58,7 +60,7 @@ Read `docs/StartUpNextSession.md`. Confirm:
 
 ### Step 4: Read Flow-Specific Role Definition
 
-Read `docs/governance-templates-v2/412_CLOUD_LLM_ARCHI01CLOUD.md`. Confirm:
+Read `docs/governance-templates-v2/ARCHITECT.md`. Confirm:
 - Handoff format (required XML sections)
 - Dispatch command (`signal_send`)
 - Post-handoff stop rule
@@ -140,7 +142,7 @@ how the flow is wired:
 | Question | Tool |
 |---|---|
 | Where does a deliverable go, and under what name? | `get_flow_steps("cloud_llm")` |
-| What does 412 say? | `get_governance_file("412_CLOUD_LLM_ARCHI01CLOUD.md")` |
+| What does 412 say? | `get_governance_file("ARCHITECT.md")` |
 | How is a role configured? | `get_role("archi01cloud")` |
 | What did an earlier verdict conclude? | `search_verdicts(query)` |
 

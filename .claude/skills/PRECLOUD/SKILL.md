@@ -5,9 +5,11 @@ description: Reconstruct the Pre-super-cl context after a cold start in the pref
 
 # Pre-Cloud — Supervisor Cold-Start
 
+> **Governance resolution (2026-08-28):** the flow-specific 4xx originals were retired when their content was absorbed into the generic role files (DPMtF commit `0e9b141`, repointed in `d339028`). The authoritative per-role contract is `bridge_roles.governance_file` — verify with mcp-light `get_role(<role_key>)` or `sqlite3 databases/dpmtf.db "SELECT governance_file FROM bridge_roles WHERE role_key='<role>';"` — never a hardcoded filename.
+
 Invoke with `/Pre-Cloud` to reconstruct the **Pre-super-cl** context after a
 cold start in the `preferred_cloud` flow. The supervisor is stateless per
-wake-up by design (471): this procedure is the same rebuild it performs on
+wake-up by design (the supervisor contract, SUPERVISOR_AUTONOMOUS.md): this procedure is the same rebuild it performs on
 every verdict delivery — run it manually whenever the session starts cold
 outside a dispatch.
 
@@ -28,8 +30,8 @@ Claude Opus 5    MiniMax M3       Claude Sonnet 5
 claude-code      opencode         claude-code
 ```
 
-Governance: `471_PREFERRED_CLOUD_SUPERVISOR.md`,
-`472_PREFERRED_CLOUD_IMPLE01.md`, `473_PREFERRED_CLOUD_REVIEW01.md`.
+Governance: `SUPERVISOR_AUTONOMOUS.md`,
+`IMPLEMENTOR.md`, `REVIEW.md`.
 
 Optional session switches, both Human decisions made in the database or the
 allocator: Pre-super-cl → Fable 5, Pre-review-cl → Fable.
@@ -58,7 +60,7 @@ already spent.
 | `RUN OPENED …, CHAIN NOT STARTED` | Author BACKLOG.md, then write and dispatch the first handoff per Standing Approvals. |
 | `HANDOFF nnn DISPATCHED (…)` / `RESULT DELIVERED (…)` | A role is working. Wait. Do not dispatch. Each carries how long since the chain last moved — read it. |
 | `STALLED — …` | No movement for longer than `--stale-after` (default 3 h). **Not slowness.** See below. |
-| `VERDICT READY for nnn (…)` | Validate the testgoals yourself, then act per 471. |
+| `VERDICT READY for nnn (…)` | Validate the testgoals yourself, then act per SUPERVISOR_AUTONOMOUS.md. |
 
 Every line about the current handoff now carries an age, and a
 `Last movement` line names the newest evidence behind it — a trace signal, the
@@ -82,10 +84,10 @@ not probe a local model server, because none of these three roles has one.
 
 ## Step 1: Read The Sections You Need
 
-`471_PREFERRED_CLOUD_SUPERVISOR.md` is the contract. Read by section, not by
+`SUPERVISOR_AUTONOMOUS.md` is the contract. Read by section, not by
 file, and let Step 0's assessment choose which:
 
-| Step 0 said | Read from 471 |
+| Step 0 said | Read from SUPERVISOR_AUTONOMOUS.md |
 |---|---|
 | `RUN OPENED, CHAIN NOT STARTED` | Wake-Up Protocol · Event Handling · **What Cloud Changes** · Decision Matrix · Ledger Entry Format · Stop Conditions |
 | `VERDICT READY` | Wake-Up Protocol · Event Handling · **Validating an APPROVED Verdict** · Decision Matrix · Ledger Entry Format · Stop Conditions |
@@ -124,7 +126,7 @@ is wired:
 | Question | Tool |
 |---|---|
 | Where does a deliverable go, and under what name? | `get_flow_steps("preferred_cloud")` |
-| What does 471 or 500 say? | `get_governance_file("471_PREFERRED_CLOUD_SUPERVISOR.md")` |
+| What does the supervisor contract or 500 say? | `get_governance_file("SUPERVISOR_AUTONOMOUS.md")` |
 | How is a role configured? | `get_role("Pre-super-cl")` |
 | What did an earlier verdict conclude? | `search_verdicts(query)` |
 

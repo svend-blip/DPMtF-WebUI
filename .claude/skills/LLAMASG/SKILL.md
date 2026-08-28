@@ -5,6 +5,8 @@ description: Reconstruct the supervisor01_llama context after a cold start in th
 
 # LLAMASG — Supervisor Cold-Start
 
+> **Governance resolution (2026-08-28):** the flow-specific 4xx originals were retired when their content was absorbed into the generic role files (DPMtF commit `0e9b141`, repointed in `d339028`). The authoritative per-role contract is `bridge_roles.governance_file` — verify with mcp-light `get_role(<role_key>)` or `sqlite3 databases/dpmtf.db "SELECT governance_file FROM bridge_roles WHERE role_key='<role>';"` — never a hardcoded filename.
+
 Invoke with `/llama_SG` to reconstruct the supervisor01_llama full context
 after a cold start in the `llama_SG` flow. The supervisor is stateless per
 wake-up BY DESIGN (461): this procedure is the same rebuild it performs on
@@ -120,7 +122,7 @@ Do not investigate gaps or compare against files on disk.
 
 ### Step 4: Read The Sections You Need
 
-`461_LLAMA_SG_SUPERVISOR.md` is 205 lines across thirteen sections, and
+`SUPERVISOR_AUTONOMOUS.md` is 205 lines across thirteen sections, and
 `500_SUPERVISOR.md` another 63. About half is relevant to any one wake-up, and
 which half depends on what Step 0 found. Read by section, not by file:
 
@@ -250,7 +252,7 @@ output:
 | Question | Tool |
 |---|---|
 | Where does a deliverable go, and under what filename? | `get_flow_steps("llama_SG")` |
-| What does 461 or 500 say? | `get_governance_file("461_LLAMA_SG_SUPERVISOR.md")` |
+| What does 461 or 500 say? | `get_governance_file("SUPERVISOR_AUTONOMOUS.md")` |
 | How is a role configured? | `get_role("supervisor01_llama")` |
 | What did an earlier verdict conclude? | `search_verdicts(query)` |
 

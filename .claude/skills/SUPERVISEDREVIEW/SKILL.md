@@ -5,6 +5,8 @@ description: Reconstruct the Supervisor's full context after a cold start in the
 
 # SUPERVISEDREVIEW — Supervisor Cold-Start
 
+> **Governance resolution (2026-08-28):** the flow-specific 4xx originals were retired when their content was absorbed into the generic role files (DPMtF commit `0e9b141`, repointed in `d339028`). The authoritative per-role contract is `bridge_roles.governance_file` — verify with mcp-light `get_role(<role_key>)` or `sqlite3 databases/dpmtf.db "SELECT governance_file FROM bridge_roles WHERE role_key='<role>';"` — never a hardcoded filename.
+
 Invoke with `/supervised_review` to reconstruct the Supervisor's full context
 after a cold start in the `supervised_review` flow. The supervisor is
 stateless per wake-up BY DESIGN (451): this procedure is the same rebuild it
@@ -80,7 +82,7 @@ Do not investigate gaps or compare against files on disk.
 
 ### Step 4: Read Role Definitions
 
-Read `docs/governance-templates-v2/451_SUPERVISED_REVIEW_SUPERVISOR.md` (extends
+Read `docs/governance-templates-v2/SUPERVISOR_AUTONOMOUS.md` (extends
 `500_SUPERVISOR.md`). Confirm:
 - Wake-up protocol (rebuild → stop-check → act → persist → stop)
 - Event handling table (verdict APPROVED/REJECTED, escalation, watchdog,

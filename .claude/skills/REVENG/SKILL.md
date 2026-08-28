@@ -5,6 +5,8 @@ description: Reconstruct the Rev_Supervisor context after a cold start in the re
 
 # Rev-Eng — Supervisor Cold-Start
 
+> **Governance resolution (2026-08-28):** the flow-specific 4xx originals were retired when their content was absorbed into the generic role files (DPMtF commit `0e9b141`, repointed in `d339028`). The authoritative per-role contract is `bridge_roles.governance_file` — verify with mcp-light `get_role(<role_key>)` or `sqlite3 databases/dpmtf.db "SELECT governance_file FROM bridge_roles WHERE role_key='<role>';"` — never a hardcoded filename.
+
 Invoke with `/Rev-Eng` to reconstruct the **Rev_Supervisor** context after a
 cold start in the `reveng` flow. The supervisor is stateless per
 wake-up by design (491): this procedure is the same rebuild it performs on
@@ -36,8 +38,8 @@ opencode (LOCAL)         opencode (LOCAL)         claude-code
 llama.cpp :8080          same server, same alias  hosted
 ```
 
-Governance: `491_REVENG_SUPERVISOR.md`,
-`492_REVENG_IMPLE.md`, `493_REVENG_REVIEW.md`.
+Governance: `SUPERVISOR_AUTONOMOUS.md`,
+`IMPLEMENTOR.md`, `REVERSE_ENGINEERING_REVIEW.md`.
 
 You and Rev_Imple share one alias and one llama.cpp slot
 (`glm-air-derestricted-local`, IQ4_XS, 65536-token window); Rev_Review is
@@ -86,7 +88,7 @@ See Step 2 for why it is not a precondition for you.
 
 ## Step 1: Read The Sections You Need
 
-`491_REVENG_SUPERVISOR.md` is the contract. Read by section, not by
+`SUPERVISOR_AUTONOMOUS.md` is the contract. Read by section, not by
 file, and let Step 0's assessment choose which:
 
 | Step 0 said | Read from 491 |
@@ -134,7 +136,7 @@ answers by hand. Use it for anything about how the flow is wired:
 | Question | Tool |
 |---|---|
 | Where does a deliverable go, and under what name? | `get_flow_steps("reveng")` |
-| What does 491 or 500 say? | `get_governance_file("491_REVENG_SUPERVISOR.md")` |
+| What does 491 or 500 say? | `get_governance_file("SUPERVISOR_AUTONOMOUS.md")` |
 | How is a role configured? | `get_role("Rev_Supervisor")` |
 | What did an earlier verdict conclude? | `search_verdicts(query)` |
 
