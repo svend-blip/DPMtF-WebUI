@@ -190,9 +190,17 @@ def parse_args(argv=None):
     parser.add_argument(
         "--mode",
         choices=["block", "warn"],
-        default="block",
+        # Default warn, not block: the pre-dispatch wiring (085) invokes this
+        # gate through step_to_cli_args, which passes only the ten standard
+        # fields and CANNOT pass --mode. GOAL 006 D2's rollout contract is
+        # "runs in WARN mode; the step configuration does not switch to
+        # block" — with a block default, the wiring silently ran block and a
+        # gate failure aborted delivery with no trace event. Measured live on
+        # run 017 handoff 43, 2026-08-28. Block mode remains available to any
+        # caller that passes --mode block explicitly.
+        default="warn",
         help="Gate mode: 'block' exits 1 on failure, 'warn' always exits 0. "
-             "Default: block.",
+             "Default: warn.",
     )
     return parser.parse_args(argv)
 
