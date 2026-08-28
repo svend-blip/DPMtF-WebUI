@@ -320,6 +320,12 @@ def build_graph(root_dir: str) -> Graph:
 
     for rel, info in file_data.items():
         mod_node = node_id(rel)
+        # For star imports from a known source module, create a proper edge
+        # so that reverse_closure of the source module includes the importer.
+        if info["star_imports"] and info["import_map"]:
+            source_mod = info["import_map"].get("*")
+            if source_mod and source_mod != node_id("*.py") and source_mod != mod_node:
+                g._add_edge(mod_node, source_mod)
         for imp_name in info["names"]:
             # Skip if the name is defined locally in this file.
             if imp_name in info["defs"]:
@@ -429,6 +435,12 @@ def _walk_file(
             if unresolved:
                 file_info["is_unresolved"] = True
                 g.unresolved.add(mod_node)
+                # Add the caller symbol when known (e.g. getattr with
+                # non-constant argument inside a function) so that
+                # reverse_closure([function_symbol]) also sees the
+                # caller as unresolved.
+                if caller:
+                    g.unresolved.add(caller)
                 continue
             name = _unqualified_name(func)
             if name:

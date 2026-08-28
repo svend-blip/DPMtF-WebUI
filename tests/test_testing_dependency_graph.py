@@ -680,3 +680,77 @@ def test_edge_direction_reverse_vs_forward():
     assert b in g.reverse[a], "reverse[a] should contain b (a depends on b)"
     assert b not in g.reverse[b], "b should not depend on itself"
     assert a not in g.forward[a], "a should not depend on itself"
+
+
+def test_getattr_dynamic_call_target_marks_function_unresolved():
+    """Regression: getattr(o, computed_name)() must leave the caller unresolved."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        (Path(tmpdir) / "mod.py").write_text(
+            "def f(o, n):\n"
+            "    return getattr(o, n)()\n"
+        )
+        g = build_graph(tmpdir)
+        closure = reverse_closure(g, [node_id("mod.py", "f")])
+        assert node_id("mod.py", "f") in closure.unresolved, (
+            f"Function containing dynamic getattr must be unresolved; "
+            f"unresolved={closure.unresolved}"
+        )
+        assert not closure.is_safe, (
+            f"Closure with dynamic getattr must not be safe; "
+            f"is_safe={closure.is_safe}"
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_star_import_creates_dependency_from_source_to_importer():
+    """Regression: reverse_closure of a star-import source module must include the importer."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        (Path(tmpdir) / "lib.py").write_text(
+            "def exported():\n    pass\n"
+            "CONST = 42\n"
+        )
+        (Path(tmpdir) / "client.py").write_text(
+            "from lib import *\n"
+            "exported()\n"
+        )
+        g = build_graph(tmpdir)
+        closure = reverse_closure(g, [node_id("lib.py")])
+        assert "client.py" in closure.nodes, (
+            f"client.py must be in closure of lib.py; "
+            f"nodes={closure.nodes}"
+        )
+        assert "client.py" in closure.unresolved, (
+            f"client.py (star import) must be in closure.unresolved; "
+            f"unresolved={closure.unresolved}"
+        )
+        assert not closure.is_safe, (
+            f"Closure with star-import dependent must not be safe"
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_getattr_module_level_dynamic_call():
+    """Regression: module-level getattr must mark the module unresolved."""
+    tmpdir = tempfile.mkdtemp()
+    try:
+        (Path(tmpdir) / "mod.py").write_text(
+            "x = 1\n"
+            "def get():\n"
+            "    return input()\n"
+            "obj = get()\n"
+            "getattr(obj, obj.attr)()\n"
+        )
+        g = build_graph(tmpdir)
+        closure = reverse_closure(g, [node_id("mod.py")])
+        assert node_id("mod.py") in closure.unresolved or any(
+            n in closure.unresolved for n in closure.nodes
+        ), (
+            f"getattr with non-constant attr must produce unresolved; "
+            f"unresolved={closure.unresolved}"
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
