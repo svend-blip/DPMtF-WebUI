@@ -226,8 +226,14 @@ class TestGateTestImpactCLI(unittest.TestCase):
         self.assertEqual(args.flow_key, "1000-02-ELOOP")
         self.assertEqual(args.mode, "warn")
 
-    def test_parse_args_block_default(self):
-        """--mode defaults to 'block' when omitted."""
+    def test_parse_args_warn_default(self):
+        """--mode defaults to 'warn' when omitted.
+
+        Changed from block 2026-08-28 (fb3d91c): the pre-dispatch wiring
+        cannot pass --mode, so the CLI default IS the wired behaviour, and
+        GOAL 006 D2's rollout contract requires warn. Block stays available
+        explicitly.
+        """
         args = parse_args([
             "--flow-key", "1000-02-ELOOP",
             "--step-key", "implementer-reviewer",
@@ -240,7 +246,7 @@ class TestGateTestImpactCLI(unittest.TestCase):
             "--bridge-dir", "/tmp/bridge",
             "--prompt-template", "default",
         ])
-        self.assertEqual(args.mode, "block")
+        self.assertEqual(args.mode, "warn")
 
     def test_parse_args_all_ten_fields(self):
         """All ten required + optional --mode must be parseable."""
