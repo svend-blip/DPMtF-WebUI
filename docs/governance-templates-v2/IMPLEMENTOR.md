@@ -347,12 +347,13 @@ role explicitly; this is "manual dispatch"). For the currently active
 step, `auto_dispatch=0`, so the command is `--signal-send --to-role
 {next_role}`.
 
-After writing your result, signal complete via the bridge dispatch tool,
-then **check that it worked**. If the command's output reports
-`signal_complete_failed`, your deliverable is not where dispatch looked —
-fix the path and signal again. Reporting "signal sent" for a call that
-failed leaves the chain blocked with nobody aware of it. Then stop. Do not
-wait for review.
+After writing your result, signal using the bridge dispatch tool with the
+correct verb for your step (determined above), then **check that it
+worked**. If the command's output reports `signal_complete_failed`, read the
+refusal text — it names the real reason, which may be a step-refusal
+(manual-dispatch only), a wrong verb used, or a genuine path mismatch.
+Reporting "signal sent" for a call that failed leaves the chain blocked
+with nobody aware of it. Then stop. Do not wait for review.
 
 ## Constraints
 
