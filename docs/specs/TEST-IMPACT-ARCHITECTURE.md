@@ -94,6 +94,79 @@ The following rules apply in Run 004, as stated in the GOAL:
 
 `is_exhaustive=True` means the runner must run the whole test suite rather than
 the individual list produced by the planner. It is always `true` at scope `full`.
-It is also `true` at scope `broad` when the degradation rule applies — that is,
+    It is also `true` at scope `broad` when the degradation rule applies — that is,
 when no component matched any changed path and the fallback is to run the
 entire suite.
+
+## Evidence subsystem
+
+The evidence subsystem (`scripts/testing/evidence.py`) is the last piece of the
+chain: facts → policy → plan → execution → evidence. Its public API is:
+
+```python
+__all__ = ["build_evidence", "write_evidence", "is_stale", "EVIDENCE_SCHEMA_VERSION", "EvidenceError"]
+```
+
+`build_evidence` constructs an evidence dict with exactly **nineteen** keys.
+Missing or wrong-typed keys raise `EvidenceError`:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `schema_version` | `str` | Evidence schema version |
+| `generated_at` | `str` | ISO-8601 UTC timestamp |
+| `repository` | `str` | Repository path |
+| `baseline` | `str` | Resolved baseline or "HEAD" |
+| `head_sha` | `str` | Current HEAD commit SHA |
+| `worktree_fingerprint` | `str` | 64-char SHA-256 over the sorted change set |
+| `changed_files` | `list[str]` | Files changed since baseline |
+| `changed_symbols` | `list[str]` | Empty until Run 007; key exists now |
+| `affected_components` | `list[str]` | Components impacted by changes |
+| `requested_scope` | `str or None` | Scope requested by the caller |
+| `resolved_scope` | `str` | Scope chosen by the planner |
+| `escalation_reason` | `str` | Reason for scope escalation (empty if none) |
+| `selected_tests` | `list[str]` | Individual test paths (empty when exhaustive) |
+| `is_exhaustive` | `bool` | Whether the full suite should run |
+| `policy_hash` | `str` | Hash of the policy file used |
+| `plan_hash` | `str` | Hash of the plan that produced this evidence |
+| `test_command` | `list[str]` | Command used to run tests |
+| `status` | `str` | One of "PASS", "FAIL", "ERROR" |
+| `duration_seconds` | `float` | Execution time, rounded to 2 decimal places |
+
+The `REQUIRED_KEYS` constant (not in `__all__` but part of the schema) lists all
+nineteen keys and is used by `_validate_evidence` to enforce completeness.
+`EVIDENCE_SCHEMA_VERSION` is a non-empty string.
+
+**The staleness rule:** `is_stale(evidence, repo_root)` returns `True` when
+`head_sha` or `worktree_fingerprint` no longer match the repository. Any error
+while measuring — missing repo, read failure, subprocess error — returns `True`.
+**Stale means stale, and unknown means stale.** A staleness check that cannot
+complete must never answer `False`.
+
+`write_evidence(evidence, path)` validates the evidence first (calls
+`build_evidence`'s validation), then writes it as JSON to the given path.
+
+**OD-5 status:** The GOAL posed whether evidence should additionally be recorded
+in the database so a run's history is queryable. Decision: **deferred**. Not
+needed for correctness, so it was not decided in this Run. A future Run may
+address it.
+
+**Execution engine** (`scripts/testing/runner.py`) runs a `TestPlan` and produces
+an evidence dict. Its public API is:
+
+```python
+__all__ = ["run_plan", "RunnerError"]
+```
+
+```text
+run_plan(repo_root, plan, policy, timeout=None) -> dict   # an evidence dict
+    plan.is_exhaustive True  -> run the whole suite, ignoring selected_tests
+    plan.is_exhaustive False -> run exactly selected_tests
+    test command: policy.test_command, else the repository default
+    non-zero exit            -> status "FAIL"
+    the command cannot run   -> status "ERROR", never "PASS"
+    a selected test that cannot be collected -> status "ERROR"
+```
+
+That last line is a measured hazard: five AGRA test files fail to import under
+this interpreter for want of `PIL`. A selector that quietly drops an
+uncollectable test would report PASS for a suite it never ran.

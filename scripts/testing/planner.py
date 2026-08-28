@@ -2,6 +2,8 @@
 
 The scope ladder: symbol < file < component < broad < full.
 In Run 004 only component, broad, and full are reachable.
+
+The planner sits between the fact modules (git_changes, policy) and the execution engine (runner). It resolves a scope and emits a TestPlan that run_plan executes, producing evidence. The complete chain: facts → policy → plan → execution → evidence.
 """
 
 from __future__ import annotations
