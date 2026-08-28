@@ -343,6 +343,23 @@ def _harness_terminal_command(role, harness_key, flow_key, cwd, project_root):
     )
 
 
+def _launch_decisions_for(harness_key):
+    """Native-branch fork decisions, read from the harness's LaunchSpec.
+
+    Returns (terminal_wrapped, send_initial_prompt, record_ownership)
+    derived SOLELY from the LaunchSpec dict (mode / needs_initial_prompt /
+    anchor) returned by harness.launch_spec. The harness NAME never appears
+    as a fork condition, so a newly registered harness takes the correct
+    path with no source edit.
+    """
+    spec = harness.launch_spec({"harness": harness_key})
+    return (
+        spec["mode"] == "terminal_wrapped",
+        bool(spec["needs_initial_prompt"]),
+        spec["anchor"] == "child",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Start coding frontends for all roles in a BridgeV002 flow."
@@ -608,21 +625,25 @@ def main():
                 continue
             cwd = project_root if role["workdir_mode"] == "father" else target_cwd
 
-            # dsh headless is a ONE-SHOT invocation, not a resident process:
-            # there is no dsh TUI in the installed release. The tmux session
-            # hosts the persistent shell that is the role's environment, and
-            # dsh is invoked fresh per wakeup (see the cold-start skill). Do
-            # NOT register the (absent) dsh process as a persistent
-            # harness_process — a completed one-shot requires no later Stop
-            # servers shutdown, and the tmux session stays Stop tmux's job.
-            if harness_key == "dsh":
+            # Native-harness fork, driven by the LaunchSpec (mode /
+            # needs_initial_prompt / anchor). The harness NAME never appears
+            # as a fork condition, so a newly registered harness takes the
+            # correct path with no source edit. For terminal_wrapped harnesses
+            # (today: dsh), the tmux session hosts a persistent shell; the
+            # harness itself is invoked fresh per wakeup inside that shell, so
+            # it stays non-persistent — a completed one-shot requires no later
+            # Stop servers shutdown, and the tmux session stays Stop tmux's
+            # job.
+            terminal_wrapped, send_initial_prompt, record_ownership = _launch_decisions_for(harness_key)
+
+            if terminal_wrapped:
                 print(f"  {role['role_key']:15s} → '{session_name}'"
-                      f"  (harness=dsh, Harness Terminal)")
+                      f"  (harness={harness_key}, Harness Terminal)")
                 # Launch the persistent Harness Terminal inside the role
                 # session. It prints the identity banner and waits for requests;
                 # each wakeup (manual or dispatched) is a fresh one-shot harness
-                # invocation, so dsh itself stays non-persistent while the
-                # terminal stays alive. Do NOT record it as a harness_process:
+                # invocation, so the harness itself stays non-persistent while
+                # the terminal stays alive. Do NOT record it as a harness_process:
                 # it is owned by the tmux session and dies with Stop tmux.
                 terminal_cmd = _harness_terminal_command(
                     role, harness_key, args.flow_key, cwd, project_root
@@ -637,23 +658,27 @@ def main():
                 started.append(session_name)
                 print(f"    Harness Terminal launched.")
                 # Initial supervisor wakeup: send the cold-start task to the
-                # terminal; the terminal wraps it into the one-shot dsh
-                # invocation itself. The terminal stays READY after dsh exits.
-                initial_task = _compose_initial_supervisor_prompt(
-                    role, args.flow_key, project_root
-                )
-                time.sleep(0.5)
-                if run_cmd_in_session(session_name, initial_task,
-                                      bridge_dir, project_root):
-                    print(f"    Initial supervisor wakeup sent to Harness Terminal.")
-                else:
-                    print(f"    ERROR sending initial supervisor wakeup.",
-                          file=sys.stderr)
-                    errors.append(role["role_key"])
+                # terminal; the terminal wraps it into the one-shot harness
+                # invocation itself. The terminal stays READY after the
+                # harness exits. The LaunchSpec's needs_initial_prompt decides
+                # whether to send one.
+                if send_initial_prompt:
+                    initial_task = _compose_initial_supervisor_prompt(
+                        role, args.flow_key, project_root
+                    )
+                    time.sleep(0.5)
+                    if run_cmd_in_session(session_name, initial_task,
+                                          bridge_dir, project_root):
+                        print(f"    Initial supervisor wakeup sent to Harness Terminal.")
+                    else:
+                        print(f"    ERROR sending initial supervisor wakeup.",
+                              file=sys.stderr)
+                        errors.append(role["role_key"])
                 continue
 
-            # codex is a resident TUI: launch it and record ownership, so Stop
-            # servers can tear down exactly what DPMtF started.
+            # Resident TUI harness: launch it and record ownership (when the
+            # LaunchSpec's anchor == child, so Stop servers can tear down
+            # exactly what DPMtF started).
             policy = harness.get_codex_fresh_context_policy()
             _apply_fresh_context_policy(args.flow_key, harness_key, policy)
             try:
@@ -669,7 +694,8 @@ def main():
             if ok:
                 started.append(session_name)
                 print(f"    Command sent to session.")
-                _record_harness_ownership(args.flow_key, session_name)
+                if record_ownership:
+                    _record_harness_ownership(args.flow_key, session_name)
             else:
                 print(f"    ERROR running command in '{session_name}'.", file=sys.stderr)
                 errors.append(role["role_key"])

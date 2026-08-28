@@ -33,6 +33,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 import config  # noqa: E402
+import bridge_lib  # noqa: E402 — for _harness_for_resource (stop-path resolves the harness by tmux_session)
 
 RESOURCE_TYPES = ("tmux_session", "harness_process")
 
@@ -42,6 +43,16 @@ RESOURCE_TYPES = ("tmux_session", "harness_process")
 # `work_unit` fresh-context stop relies on a verified kill.
 _KILL_VERIFY_BOUND_SECONDS = 3.0
 _KILL_VERIFY_POLL_INTERVAL = 0.1
+
+# Today's exact behaviour, written as a literal — the FALLBACK ONLY. The
+# consuming code never transcribes per-harness values; that transcription
+# already lives in the harness_allocator oracle and must stay independent
+# of the consuming code (GOAL.md §2 D4).
+_DEFAULT_STOP_SPEC = {
+    "signals": ["SIGTERM"],
+    "grace_seconds": 3.0,
+    "verify": "pid_gone",
+}
 
 _TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS flow_runtime_resources (
@@ -171,28 +182,138 @@ def _default_kill(pid):
     return False  # process survived SIGTERM past the bound
 
 
+def stop_spec_for(harness_key):
+    """The allocator's StopSpec dict for ``harness_key``, or today's fallback.
+
+    Thin delegate over ``harness_allocator.launchspec.get_stop_spec``.
+    Returns a dict with EXACTLY the three bound keys ``signals`` (list of
+    str), ``grace_seconds`` (int or float), ``verify`` (str).
+
+    On ImportError (allocator package unavailable) or UnknownHarnessError
+    (harness not registered — a ValueError subclass), returns a copy of
+    ``_DEFAULT_STOP_SPEC`` so DPMtF keeps today's behaviour when the
+    allocator is absent (GOAL.md §2).
+    """
+    try:
+        import harness  # noqa: F401 — LATE import; harness imports runtime_owner, so top-level import cycles
+        harness._standalone()  # ensure the allocator parent dir is on sys.path (cached, single resolver)
+        import harness_allocator.launchspec as halaunchspec  # noqa: E402
+        return halaunchspec.get_stop_spec(harness_key)
+    except (ImportError, ValueError):
+        return dict(_DEFAULT_STOP_SPEC)
+
+
+def _harness_for_resource(resource_id, db_path=None):
+    """The harness key for a harness_process ownership row, by session name.
+
+    PRIMARY read: the active role whose ``tmux_session == resource_id``, its
+    ``default_harness_source``. FALLBACK: ``allocator_client`` (the deprecated
+    mirror start_coding still reads), then ``"opencode"`` (the resolve_harness
+    default). Returns None when no active role maps to ``resource_id`` — the
+    caller then applies the fallback stop spec.
+    """
+    if not resource_id:
+        return None
+    try:
+        roles = bridge_lib.list_roles_from_db(db_path=db_path)
+    except Exception:
+        return None
+    for role in roles:
+        if (role.get("tmux_session") or "") == resource_id:
+            return (
+                role.get("default_harness_source")
+                or role.get("allocator_client")
+                or "opencode"
+            ).strip().lower()
+    return None
+
+
+def _kill_by_spec(pid, spec):
+    """Apply a StopSpec to ``pid``: send the signals ladder, wait the grace
+    bound, verify per ``verify``. Returns True iff the pid is verifiably gone.
+
+    For the codex/fallback spec (signals ["SIGTERM"], grace_seconds 3.0,
+    verify "pid_gone") this is byte-identical to today's _default_kill.
+
+    Short-circuit semantics (mirroring ``_default_kill``): once any signal
+    in the ladder raises ``ProcessLookupError`` (pid already gone), the
+    kill has succeeded — stop sending further signals and return True.
+    A missing or empty ``signals`` ladder degrades to ``["SIGTERM"]`` so
+    defensive callers cannot accidentally send no signals at all.
+    """
+    if pid is None:
+        return True  # already a non-claim; the row will keep its pid=None
+    signals = spec.get("signals") or ["SIGTERM"]
+    if not signals:
+        signals = ["SIGTERM"]
+    grace = float(spec.get("grace_seconds", 3.0))
+    # verify: today's only option is "pid_gone"; defensive default.
+    for sig_name in signals:
+        try:
+            os.kill(pid, getattr(signal, sig_name))
+        except ProcessLookupError:
+            return True  # already dead — kill succeeded; stop ladder
+        except (PermissionError, OSError):
+            return False  # cannot signal — kill failed
+    # All ladder signals sent; poll for the total grace bound.
+    deadline = time.monotonic() + grace
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)  # existence check, no real signal
+        except ProcessLookupError:
+            return True
+        except (PermissionError, OSError):
+            # Race: another process used the pid, OR an EPERM barrier.
+            # Treat as "no longer our process to verify" — honor the sends.
+            return True
+        time.sleep(_KILL_VERIFY_POLL_INTERVAL)
+    return False  # survived past the bound
+
+
 def stop_owned_harness_processes(flow_key, db_path=None, _kill=None):
     """Stop only flow-owned ``harness_process`` resources, by recorded pid.
 
     Anything not recorded by this flow is never touched — that is the whole
-    ownership rule. ``_kill`` is injectable for tests (default: SIGTERM
-    with verified-exit check). A resource is released only when the
-    injectable kill returns True (i.e. the process was verifiably gone,
+    ownership rule. ``_kill`` is injectable for tests (default: spec-driven
+    kill via the harness's declared StopSpec). A resource is released only
+    when the kill returns True (i.e. the process was verifiably gone,
     per the verified-kill contract). A surviving process keeps its
     ownership row and is NOT reported in the returned list.
+
+    Spec resolution: PRIMARY — the row's harness via ``_harness_for_resource``
+    (which walks bridge_roles by tmux_session). If the row's harness
+    resolves, the spec is read through ``stop_spec_for``. If it does not
+    resolve (no active role maps to the row's resource_id), the
+    ``_DEFAULT_STOP_SPEC`` is applied directly — the same behaviour the
+    pre-D2 code had, and the same behaviour the fallback path inside
+    ``stop_spec_for`` returns. ZERO observable change for codex
+    (signals=["SIGTERM"], grace_seconds=3.0, verify="pid_gone").
+
     Returns the list of resource_ids whose processes were verifiably
     stopped (and whose ownership rows were released).
     """
-    kill = _kill or _default_kill
     stopped = []
     for row in list_for_flow(flow_key, resource_type="harness_process", db_path=db_path):
         pid = row.get("pid")
         if not pid:
-            continue
-        if kill(pid):
+            continue  # pid=None → no kill attempt; leave the row in place
+        if _kill is not None:
+            # Test seam: an injected _kill OVERRIDES the spec-driven path
+            # (the contract test_stop_owned_releases_pid_none_rows_with_no_kill_attempt
+            #  exercises this).
+            killed = _kill(pid)
+        else:
+            harness_key = _harness_for_resource(row["resource_id"], db_path=db_path)
+            if harness_key is not None:
+                spec = stop_spec_for(harness_key)
+            else:
+                spec = _DEFAULT_STOP_SPEC
+            killed = _kill_by_spec(pid, spec)
+        if killed:
             release(flow_key, row["resource_id"], db_path=db_path)
             stopped.append(row["resource_id"])
     return stopped
+
 
 
 def release_for_flow(flow_key, db_path=None):

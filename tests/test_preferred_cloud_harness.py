@@ -557,21 +557,21 @@ def test_stop_owned_harness_processes_is_not_name_based(tmp_path):
 
 # ── 5: a completed headless dsh invocation is not a persistent service ──
 
-def _dsh_branch_lines(source):
+def _terminal_branch_lines(source):
     lines = source.splitlines()
     start = next(i for i, line in enumerate(lines)
-                 if 'if harness_key == "dsh":' in line)
+                 if line.strip() == "if terminal_wrapped:")
     end = next(i for i in range(start + 1, len(lines))
                if lines[i].strip() == "continue")
     return lines[start:end + 1]
 
 
-def test_headless_dsh_is_not_recorded_as_persistent_harness():
+def test_terminal_wrapped_path_does_not_record_ownership():
     source = (PROJECT_ROOT / "scripts" / "bridgeV002" / "start_coding.py").read_text(encoding="utf-8")
-    dsh_branch = "\n".join(_dsh_branch_lines(source))
-    # The one-shot dsh branch must not register ownership of a completed process.
-    assert "_record_harness_ownership" not in dsh_branch
-    # The resident codex branch still records ownership.
+    terminal_branch = "\n".join(_terminal_branch_lines(source))
+    # The terminal-wrapped (one-shot dsh) path must not register ownership of a completed process.
+    assert "_record_harness_ownership" not in terminal_branch
+    # The resident path still records ownership (guarded by the spec's anchor).
     assert "_record_harness_ownership" in source
 
 

@@ -471,18 +471,44 @@ def launchspec_disagreements():
     ``SUPPORTED_HARNESSES + EXPERIMENTAL_HARNESSES`` (imported from
     :mod:`harness_allocator.capabilities`) — never hand-listed.
 
-    The "today" side is derived INDEPENDENTLY of the spec: where a
-    value is an importable constant (``chain_watchdog.ACTIVITY_MARKERS``,
-    ``runtime_owner._KILL_VERIFY_BOUND_SECONDS``,
-    ``harness_allocator.invoke.CANCEL_GRACE_SECONDS``,
-    ``harness_allocator.definition.REQUIRED_ENV``), the constant is imported
-    — not copied as a literal. Where the value is a branch (mode /
-    anchor / needs_initial_prompt), the branch is transcribed in
-    :func:`_today_behavior` with a line-range citation to the DPMtF
-    source (``start_coding.py``). The spec's own
-    ``get_launch_spec`` / ``get_stop_spec`` output is NEVER read while
-    building the "today" side — that would make the oracle unable to
-    disagree with itself.
+    The compared field set is the SET DPMtF STILL derives independently.
+    After Run 041 D1–D3, several LaunchSpec / StopSpec fields are CONSUMED
+    by DPMtF (not transcribed): start_coding reads mode / needs_initial_prompt
+    / anchor from the spec (D1); runtime_owner reads the resident-StopSpec
+    signals / grace_seconds / verify from the spec (D2); chain_watchdog
+    derives ACTIVITY_MARKERS from every harness's declared activity_markers
+    (D3). For an honest oracle, those fields' "today" side MUST NOT be
+    rebuilt from ``get_launch_spec`` / ``get_stop_spec`` output — the
+    oracle would then agree with itself vacuously and could never
+    disagree. GOAL.md §2's honesty rule binds this: every consumed
+    field is RETIRED from the compared set, and its frozen literal of
+    TODAY's value lives in ``tests/test_launchspec_literals.py`` (D4).
+    A future spec edit that changes a retired field turns the frozen
+    literal test RED — the regression guard replaces the disagreement
+    path the oracle used to provide.
+
+    Fields STILL compared (every compared field's "today" side is
+    built from a non-spec source, satisfying GOAL.md §2's honesty rule):
+
+      - LaunchSpec:
+          * ``required_env`` (set of names) — from
+            ``hdef.REQUIRED_ENV.get(harness, {}).keys()`` plus
+            ``adapter.build_sweagent_env()`` for sweagent.
+          * ``launch_owner`` — ``"harness_allocator"`` iff
+            ``hdef.is_native(harness)`` else ``"model_allocator"``.
+      - StopSpec (terminal_wrapped + one_shot harnesses only —
+        the resident stop fields are RETIRED, since runtime_owner's
+        D2 spec-driven ``_kill_by_spec`` reads them from the spec):
+          * ``signals`` — ``["SIGINT","SIGTERM","SIGKILL"]``.
+          * ``grace_seconds`` — ``int(hinvoke.CANCEL_GRACE_SECONDS)``.
+          * ``verify`` — ``"pid_gone"``.
+
+    The resident-vs-terminal/one-shot classification is a TRANSCRIBED
+    branch on harness names (the pre-D1 start_coding form); it is used
+    to decide which stop fields are independently derivable today,
+    NOT to derive any consumed LaunchSpec/StopSpec value. Resident
+    harnesses simply carry no "stop" key on the today dict, and the
+    stop-field loop is guarded so retired fields are not compared.
 
     Each disagreement is a string of the form
     ``"<harness>.<field>: spec=<repr(spec_value)> dpmf=<repr(today_value)>"``.
@@ -530,15 +556,15 @@ def launchspec_disagreements():
     disagreements = []
 
     # Fixed field order for deterministic output (handoff §STEP 2):
-    #   LaunchSpec:  mode, needs_initial_prompt, anchor, required_env,
-    #                activity_markers, launch_owner
-    #   StopSpec:    signals, grace_seconds, verify
+    #   LaunchSpec (compared): required_env, launch_owner
+    #     [RETIRED: mode, needs_initial_prompt, anchor — consumed by start_coding (D1);
+    #                activity_markers — consumed by chain_watchdog (D3).]
+    #   StopSpec (compared for terminal_wrapped + one_shot harnesses):
+    #     signals, grace_seconds, verify.
+    #     [RETIRED for resident_tui harnesses (codex, claude-code, opencode):
+    #                consumed by runtime_owner._kill_by_spec (D2).]
     launch_field_order = (
-        "mode",
-        "needs_initial_prompt",
-        "anchor",
         "required_env",
-        "activity_markers",
         "launch_owner",
     )
     stop_field_order = (
@@ -561,128 +587,87 @@ def launchspec_disagreements():
                     disagreements.append(
                         f"{harness}.{field}: spec={sorted(spec_value)!r} dpmf={sorted(today_value)!r}"
                     )
-            elif field == "activity_markers":
-                if set(spec_value) != set(today_value):
-                    disagreements.append(
-                        f"{harness}.{field}: spec={sorted(spec_value)!r} dpmf={sorted(today_value)!r}"
-                    )
             else:
                 if spec_value != today_value:
                     disagreements.append(
                         f"{harness}.{field}: spec={spec_value!r} dpmf={today_value!r}"
                     )
 
-        for field in stop_field_order:
-            spec_value = spec_stop[field]
-            today_value = today["stop"][field]
-            if spec_value != today_value:
-                disagreements.append(
-                    f"{harness}.{field}: spec={spec_value!r} dpmf={today_value!r}"
-                )
+        # Resident harnesses carry no "stop" key (retired; frozen literal
+        # in tests/test_launchspec_literals.py). The loop below compares
+        # stop fields ONLY when the today dict still derives them
+        # independently (terminal_wrapped + one_shot — invoke.py's cancel
+        # ladder, OUT of scope).
+        if "stop" in today:
+            for field in stop_field_order:
+                spec_value = spec_stop[field]
+                today_value = today["stop"][field]
+                if spec_value != today_value:
+                    disagreements.append(
+                        f"{harness}.{field}: spec={spec_value!r} dpmf={today_value!r}"
+                    )
 
     return disagreements
 
 
 def _today_behavior(harness, hdef, hadapter, hinvoke, chain_watchdog, runtime_owner):
-    """DPMtF + allocator "today's behaviour" for ``harness`` — independent of spec.
+    """DPMtF + allocator "today's behaviour" for ``harness`` -- independent of spec.
 
     The "today" side is built from constants IMPORTED from DPMtF/allocator
-    source (no literals) and from BRANCHES transcribed below with line-range
-    citations. NEVER read from ``get_launch_spec`` / ``get_stop_spec``.
+    source (no literals) and from a single TRANSCRIBED BRANCH on harness
+    names. NEVER read from ``get_launch_spec`` / ``get_stop_spec`` --
+    any field whose today-side was the spec would make the oracle
+    vacuously agree with itself (GOAL.md §2).
 
-    Branches transcribed (with citations):
+    Compared today-derivable fields (this run still derives):
 
-      - ``mode``:
-          dsh          -> "terminal_wrapped"   (start_coding.py lines 522–546:
-                                                persistent Harness Terminal wraps
-                                                the one-shot dsh)
-          codex        -> "resident_tui"       (start_coding.py line 559:
-                                                "codex is a resident TUI")
-          claude-code  -> "resident_tui"       (model-allocator resident
-                                                interactive TUI client; no DPMtF
-                                                native branch in start_coding.py)
-          opencode     -> "resident_tui"       (model-allocator resident
-                                                interactive TUI client; no DPMtF
-                                                native branch in start_coding.py)
-          qwen / goose -> "one_shot"           (adapter.build_<h>_argv, headless)
-          crush        -> "one_shot"           (adapter.build_crush_argv)
-          sweagent     -> "one_shot"           (adapter.build_sweagent_argv)
-          aider        -> "one_shot"           (adapter.build_aider_argv)
+      - LaunchSpec:
+          * ``required_env`` (set of names) -- from
+            ``hdef.REQUIRED_ENV.get(harness, {}).keys()`` plus
+            ``adapter.build_sweagent_env()`` for sweagent.
+          * ``launch_owner`` -- ``"harness_allocator"`` iff
+            ``hdef.is_native(harness)`` else ``"model_allocator"``.
+      - StopSpec (terminal_wrapped + one_shot harnesses only):
+          * ``signals`` -- ``["SIGINT","SIGTERM","SIGKILL"]``.
+          * ``grace_seconds`` -- ``int(hinvoke.CANCEL_GRACE_SECONDS)``.
+          * ``verify`` -- ``"pid_gone"``.
 
-      - ``needs_initial_prompt``:
-          dsh          -> True                 (start_coding.py lines 546–555
-                                                send the cold-start supervisor
-                                                prompt to the terminal after
-                                                launching it)
-          all others   -> False                (resident TUIs receive the wakeup
-                                                by the Human typing into the TUI;
-                                                one-shots are per-wakeup argv
-                                                invocations)
+    Resident-vs-terminal/one-shot classification (transcribed branch):
 
-      - ``anchor``:
-          codex        -> "child"              (start_coding.py
-                                                _record_harness_ownership records
-                                                the harness CHILD pid via
-                                                _harness_child_pid; the pane-shell
-                                                pid is deliberately NOT recorded
-                                                — Run 031 incident 2026-08-21)
-          dsh          -> "none"               (start_coding.py lines 515–521:
-                                                "Do NOT register the (absent)
-                                                dsh process as a persistent
-                                                harness_process")
-          all others   -> "none"               (one-shots have no persistent
-                                                process; claude-code / opencode
-                                                are model-allocator launched
-                                                with no ownership record)
+      codex, claude-code, opencode -> resident_tui (the pre-D1
+          start_coding form); dsh, qwen, goose, crush, sweagent, aider
+          -> terminal_wrapped or one_shot. The branch is used ONLY to
+          decide whether the today dict carries a "stop" key (resident
+          stop fields are retired -- their frozen literal lives in
+          ``tests/test_launchspec_literals.py``).
 
-    Constants imported:
+    RETIRED compared fields (no longer carried on the today dict):
 
-      - ``required_env`` keys: ``hdef.REQUIRED_ENV.get(harness, {}).keys()`` —
-        allocator definition.py is the canonical source. sweagent's three
-        ``SWE_AGENT_*_DIR`` names are derived from
-        ``adapter.build_sweagent_env().keys()`` (per ``adapter.py``
-        lines 466–507, the builder ALWAYS returns those three keys).
-      - ``activity_markers``: ``chain_watchdog.ACTIVITY_MARKERS`` (line 120) —
-        ONE hardcoded tuple applied to every harness today.
-      - ``signals`` for resident_tui: ``["SIGTERM"]`` — runtime_owner._default_kill
-        sends SIGTERM only (lines 133–171), NO SIGKILL escalation.
-      - ``signals`` for terminal_wrapped + one_shot: ``["SIGINT", "SIGTERM",
-        "SIGKILL"]`` — invoke.py cancel ladder (lines 298–307); a timeout also
-        sends SIGKILL directly at line 295.
-      - ``grace_seconds`` for resident_tui: ``int(runtime_owner._KILL_VERIFY_BOUND_SECONDS)``
-        (line 43: 3.0).
-      - ``grace_seconds`` for terminal_wrapped + one_shot:
-        ``int(hinvoke.CANCEL_GRACE_SECONDS)`` (line 57: 1.0).
-      - ``verify``: ``"pid_gone"`` for every harness — runtime_owner verifies
-        via polling ``os.kill(pid, 0)`` until ``ProcessLookupError``; invoke
-        verifies via ``proc.poll()`` / ``proc.wait()``.
-      - ``launch_owner``: ``"harness_allocator"`` iff ``hdef.is_native(harness)``
-        else ``"model_allocator"`` — DPMtF's own ``is_native`` path
-        (``harness.is_native()`` delegates to the standalone's
-        ``definition.is_native``, i.e. ``harness in NATIVE_HARNESSES`` for the
-        allocator's SEVEN native harnesses). NOT the stale module-level
-        ``NATIVE_HARNESSES`` constant in ``harness.py`` (which is a
-        two-element re-export equal to ``("dsh", "codex")``, kept for
-        historical test compatibility only — using it would wrongly mark
-        qwen/goose/sweagent/aider/crush as ``"model_allocator"`` and
-        produce 5 spurious disagreements, breaking TG8).
+      - Launch ``mode``, ``needs_initial_prompt``, ``anchor`` -- read by
+        ``start_coding._launch_decisions_for`` (Run 041 D1).
+      - Launch ``activity_markers`` -- derived by
+        ``chain_watchdog._derive_activity_markers`` (Run 041 D3).
+      - Stop resident-TUI fields (``signals``, ``grace_seconds``,
+        ``verify`` for codex / claude-code / opencode) -- read by
+        ``runtime_owner.stop_spec_for`` via ``harness_allocator.launchspec.
+        get_stop_spec`` then applied by ``runtime_owner._kill_by_spec``
+        (Run 041 D2). ``_default_kill`` is the pre-D2 path; the spec-driven
+        ``_kill_by_spec`` is the post-D2 path, so a "today" value
+        transcribed from ``_default_kill`` would describe DEAD behaviour.
 
-    Returns a dict with ``"launch"`` (6 keys: mode, needs_initial_prompt,
-    anchor, required_env, activity_markers, launch_owner) and ``"stop"``
-    (3 keys: signals, grace_seconds, verify).
+    Returns a dict with ``"launch"`` (2 keys: required_env, launch_owner)
+    and OPTIONALLY ``"stop"`` (3 keys: signals, grace_seconds, verify) for
+    terminal_wrapped + one_shot harnesses only. Resident harnesses return
+    only ``"launch"``; the disagreement loop above guards on
+    ``"stop" in today`` to skip retired stop fields.
     """
-    # Mode — see citations above.
-    if harness == "dsh":
-        mode = "terminal_wrapped"
-    elif harness in ("codex", "claude-code", "opencode"):
-        mode = "resident_tui"
-    else:
-        mode = "one_shot"
+    # Resident vs terminal/one-shot -- a TRANSCRIBED branch on harness
+    # names (the pre-D1 start_coding form), NOT read from the spec.
+    # mode itself is RETIRED, but the split is still needed to decide
+    # which STOP fields are independently derivable.
+    is_resident = harness in ("codex", "claude-code", "opencode")
 
-    needs_initial_prompt = (harness == "dsh")
-    anchor = "child" if harness == "codex" else "none"
-
-    # required_env — derive NAMES from canonical source.
+    # required_env -- STAYS (independent: definition.REQUIRED_ENV + sweagent builder).
     env_names = set(hdef.REQUIRED_ENV.get(harness, {}).keys())
     if harness == "sweagent":
         # The three SWE_AGENT_*_DIR names are LOAD-BEARING for the bare CLI
@@ -691,38 +676,27 @@ def _today_behavior(harness, hdef, hadapter, hinvoke, chain_watchdog, runtime_ow
         sweagent_env = hadapter.build_sweagent_env()
         env_names.update(sweagent_env.keys())
 
-    # activity_markers — chain_watchdog's ONE hardcoded tuple.
-    activity_markers = list(chain_watchdog.ACTIVITY_MARKERS)
-
-    # StopSpec — keyed on mode (resident_tui vs terminal_wrapped + one_shot).
-    if mode == "resident_tui":
-        signals = ["SIGTERM"]
-        grace_seconds = int(runtime_owner._KILL_VERIFY_BOUND_SECONDS)
-    else:
-        signals = ["SIGINT", "SIGTERM", "SIGKILL"]
-        grace_seconds = int(hinvoke.CANCEL_GRACE_SECONDS)
-    verify = "pid_gone"
-
-    # launch_owner — derive via hdef.is_native(harness) (NOT the stale
-    # module-level NATIVE_HARNESSES constant in harness.py — see the
-    # docstring "Constants imported" note above).
     launch_owner = "harness_allocator" if hdef.is_native(harness) else "model_allocator"
 
-    return {
+    result = {
         "launch": {
-            "mode": mode,
-            "needs_initial_prompt": needs_initial_prompt,
-            "anchor": anchor,
             "required_env": sorted(env_names),
-            "activity_markers": activity_markers,
             "launch_owner": launch_owner,
         },
-        "stop": {
-            "signals": signals,
-            "grace_seconds": grace_seconds,
-            "verify": verify,
-        },
     }
+
+    if not is_resident:
+        # terminal_wrapped + one_shot: invoke.py's cancel ladder is the
+        # still-independent source (out of scope, unchanged).
+        result["stop"] = {
+            "signals": ["SIGINT", "SIGTERM", "SIGKILL"],
+            "grace_seconds": int(hinvoke.CANCEL_GRACE_SECONDS),
+            "verify": "pid_gone",
+        }
+    # resident: NO "stop" key -> the disagreement loop below skips it
+    # (retired; guarded by tests/test_launchspec_literals.py).
+
+    return result
 
 
 if __name__ == "__main__":

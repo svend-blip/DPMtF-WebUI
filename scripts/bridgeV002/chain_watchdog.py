@@ -117,7 +117,34 @@ STALL_MINUTES_DEFAULT = int(_WD.get("stall_minutes", 12))
 MAX_NUDGES_PER_STEP = int(_WD.get("max_nudges_per_step", 2))
 LOOP_SECONDS_DEFAULT = int(_WD.get("loop_seconds", 60))
 MAX_MINUTES_DEFAULT = int(_WD.get("max_minutes", 90))
-ACTIVITY_MARKERS = ("esc interrupt", "esc to interrupt", "↓")
+def _derive_activity_markers():
+    """The union of every registered harness's declared activity_markers.
+
+    DPMtF consumes the LaunchSpec's ``activity_markers`` instead of a
+    hardcoded tuple (GOAL.md §1 D3). The roster is DERIVED from
+    ``harness_allocator.capabilities`` (SUPPORTED + EXPERIMENTAL), never
+    hand-listed. The union is sorted for a deterministic result -- every
+    harness today declares the same three markers, so the sorted union is
+    byte-identical to the pre-D3 literal tuple.
+
+    On ImportError (allocator package unavailable) the pre-D3 literal
+    tuple is the fallback, so DPMtF keeps today's behaviour when the
+    allocator is absent (GOAL.md §2).
+    """
+    try:
+        import harness  # noqa: F401 -- LATE import; mirror runtime_owner.stop_spec_for
+        harness._standalone()  # ensure the allocator parent dir is on sys.path
+        import harness_allocator.capabilities as hcaps  # noqa: E402
+        import harness_allocator.launchspec as halaunchspec  # noqa: E402
+        markers = set()
+        for h in tuple(hcaps.SUPPORTED_HARNESSES) + tuple(hcaps.EXPERIMENTAL_HARNESSES):
+            markers.update(halaunchspec.get_launch_spec(h)["activity_markers"])
+        return tuple(sorted(markers))
+    except ImportError:
+        return ("esc interrupt", "esc to interrupt", "↓")
+
+
+ACTIVITY_MARKERS = _derive_activity_markers()
 # Fast path for the produced-nothing state: a receiver whose pane reads idle
 # on this many CONSECUTIVE passes gets nudged without waiting out
 # stall_minutes. Three passes at loop_seconds=60 is ~3 minutes of observed

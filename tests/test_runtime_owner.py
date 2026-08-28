@@ -302,8 +302,16 @@ class TestVerifiedKill:
         child.wait()
         assert runtime_owner._default_kill(child.pid) is True
 
-    def test_stop_owned_harness_processes_returns_only_verified_gone(self, tmp_db):
-        """A process that survives SIGTERM must NOT appear in the stopped list."""
+    def test_stop_owned_harness_processes_returns_only_verified_gone(self, tmp_db, monkeypatch):
+        """A process that survives the spec grace bound must NOT appear in the stopped list.
+
+        D2 - the stop path consumes the StopSpec grace_seconds (not the
+        module-level _KILL_VERIFY_BOUND_SECONDS, which D2 retires for this
+        path). This test monkeypatches stop_spec_for with a 0.5s grace so
+        the assertion stays fast and still proves the verified-kill
+        contract: a process that survives past the grace bound is NOT
+        reported stopped and keeps its ownership row.
+        """
         # Spawn the SIGTERM-ignoring child.
         child = subprocess.Popen(
             ["python3", "-c",
@@ -316,12 +324,20 @@ class TestVerifiedKill:
             time.sleep(0.3)
             runtime_owner.record("f", "harness_process", "stubborn", pid=child.pid,
                                  db_path=tmp_db)
-            original = runtime_owner._KILL_VERIFY_BOUND_SECONDS
-            runtime_owner._KILL_VERIFY_BOUND_SECONDS = 0.5
-            try:
-                stopped = runtime_owner.stop_owned_harness_processes("f", db_path=tmp_db)
-            finally:
-                runtime_owner._KILL_VERIFY_BOUND_SECONDS = original
+            # D2 - the stop path consumes the StopSpec. Monkeypatch
+            # stop_spec_for to a short-grace spec (signals=["SIGTERM"],
+            # grace_seconds=0.5) so the test stays fast AND still proves
+            # that a process that survives past the grace bound is NOT
+            # reported stopped. _harness_for_resource is also monkeypatched
+            # so the spec-driven path is reached (no role maps to "stubborn"
+            # in an empty tmp_db).
+            def short_spec(harness):
+                return {"signals": ["SIGTERM"], "grace_seconds": 0.5,
+                        "verify": "pid_gone"}
+            monkeypatch.setattr(runtime_owner, "stop_spec_for", short_spec)
+            monkeypatch.setattr(runtime_owner, "_harness_for_resource",
+                                lambda resource_id, db_path=None: "stubborn")
+            stopped = runtime_owner.stop_owned_harness_processes("f", db_path=tmp_db)
 
             assert stopped == [], (
                 "surviving process must NOT be reported stopped"
