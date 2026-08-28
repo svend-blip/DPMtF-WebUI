@@ -170,3 +170,56 @@ run_plan(repo_root, plan, policy, timeout=None) -> dict   # an evidence dict
 That last line is a measured hazard: five AGRA test files fail to import under
 this interpreter for want of `PIL`. A selector that quietly drops an
 uncollectable test would report PASS for a suite it never ran.
+
+## Gate integration (Run 006)
+
+### Integration point
+
+`gate-test-impact.py` is registered as a pre-dispatch script via the
+`bridge_scripts` table and wired to a single step: `implementer-reviewer`
+in the `1000-02-ELOOP` flow. The `dispatch.py` `_run_pre_dispatch_scripts()`
+function invokes it automatically before every handoff dispatch on that step,
+passing the standard ten CLI fields plus `--mode block`.
+
+The gate resolves the target repository from `--flow-key` via
+`bridge_flows.target_project_path`, loads the policy from that repository,
+and runs the full test-impact chain (changes → policy → planner → runner →
+evidence). Evidence is written under the flow's artifact root
+(`/home/svend/flows/1000/artifacts/test-impact/{flow_key}/`), never into the
+target working tree.
+
+### Warn-mode rollout
+
+The migration (`scripts/db/085_gate_test_impact.sql`) registers the script
+key and appends it to the `implementer-reviewer` step, but does **not**
+set `block` mode. The gate runs in warn mode (the default in the
+migration), which reports issues and exits 0 — allowing the workspace to
+observe the gate's behaviour on real handoffs before trusting it to stop
+the chain.
+
+Turning the gate to `block` mode is a separate, explicit Human decision —
+not part of this Run's scope.
+
+### What OD-3 would unblock
+
+OD-3 (not delivered in this Run) would address:
+
+- **Accumulated Run-level baselines.** This Run uses `baseline=None`, which
+  measures against the working tree / HEAD/index. A future Run could pass
+  an explicit baseline SHA so the gate evaluates a stable diff rather than
+  the live working tree.
+- **Scope ladder expansion.** The `symbol` and `file` rungs of the scope
+  ladder are unreachable in this Run. OD-3 (or a successor Run) would supply
+  changed-symbol detection and dependency closure, enabling those rungs.
+- **Block mode activation.** A future Run could evaluate the warn-mode logs
+  and, upon Human approval, flip the gate to `block` mode.
+
+### Flow independence
+
+The engine call in `gate-test-impact.py` uses `get_effective_artifact_root()`
+and `get_flow_target_project()` from `bridge_lib.py`, which resolve paths
+from the `bridge_flows` table. These lookups are topology-agnostic: the same
+code path serves both `1000-01-PLOOP` (continuous) and `1000-02-ELOOP`
+(split PLOOP/ELOOP) because both flows share the same target project and
+the same policy file. No branching on flow topology is needed or present
+in the engine modules under `scripts/testing/`.
