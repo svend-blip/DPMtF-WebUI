@@ -3106,15 +3106,34 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
                 next_output_path = os.path.join(next_dir, next_file)
             else:
                 next_output_path = os.path.join(bridge_dir, next_dir, next_file)
-            next_signal_cmd = (
-                # 009: routed through the broker (see Site 1 above).
-                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
-                f"enqueue "
-                f"--flow {flow_key} --from-role {payload['to_role']} "
-                f"--to-role {payload['to_role']} "
-                f"--id {handoff_id} --action signal-complete "
-                f"> /tmp/bridge-enqueue-{flow_key}-{handoff_id}.log 2>&1 &"
-            )
+            # The instructed action MUST match what the machinery will
+            # accept for the NEXT step. auto_dispatch=0 steps refuse
+            # signal-complete by design, yet this block told every role to
+            # send exactly that — measured 2026-08-29: every first delivery
+            # attempt on 1000-02-ELOOP's two manual steps was refused, per
+            # instruction. The id is instructed BARE for the same reason:
+            # deliverable filenames are unpadded, and a padded id here was
+            # copied verbatim into every retry.
+            _bare_id = str(int(handoff_id)) if str(handoff_id).isdigit() else handoff_id
+            if s.get("auto_dispatch") == 0:
+                next_signal_cmd = (
+                    f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
+                    f"enqueue "
+                    f"--flow {flow_key} --from-role {payload['to_role']} "
+                    f"--to-role {s.get('to_role')} "
+                    f"--id {_bare_id} --action signal-send "
+                    f"> /tmp/bridge-enqueue-{flow_key}-{_bare_id}.log 2>&1 &"
+                )
+            else:
+                next_signal_cmd = (
+                    # 009: routed through the broker (see Site 1 above).
+                    f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
+                    f"enqueue "
+                    f"--flow {flow_key} --from-role {payload['to_role']} "
+                    f"--to-role {payload['to_role']} "
+                    f"--id {_bare_id} --action signal-complete "
+                    f"> /tmp/bridge-enqueue-{flow_key}-{_bare_id}.log 2>&1 &"
+                )
             break
 
     if next_output_path:
@@ -4142,6 +4161,28 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 next_output_path = os.path.join(next_dir, next_file)
             else:
                 next_output_path = os.path.join(bridge_dir, next_dir, next_file)
+            # Same action/id correction as the callback site: instruct the
+            # action the NEXT step will actually accept, with the bare id.
+            _bare_id = str(int(handoff_id)) if str(handoff_id).isdigit() else handoff_id
+            if s.get("auto_dispatch") == 0:
+                _sig_cmd = (
+                    f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
+                    f"enqueue "
+                    f"--flow {flow_key} --from-role {to_role_key} "
+                    f"--to-role {s.get('to_role')} "
+                    f"--id {_bare_id} --action signal-send "
+                    f"> /tmp/bridge-enqueue-{flow_key}-{_bare_id}.log 2>&1 &"
+                )
+            else:
+                _sig_cmd = (
+                    # 009: routed through the broker (see Site 1 above).
+                    f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
+                    f"enqueue "
+                    f"--flow {flow_key} --from-role {to_role_key} "
+                    f"--to-role {to_role_key} "
+                    f"--id {_bare_id} --action signal-complete "
+                    f"> /tmp/bridge-enqueue-{flow_key}-{_bare_id}.log 2>&1 &"
+                )
             prompt_text += (
                 f"\n\n## Your Deliverable\n"
                 f"Write your result to: {next_output_path}\n"
@@ -4149,13 +4190,7 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 f"or invented filenames in the project working directory.\n\n"
                 f"## Signal Completion (MANDATORY — do not ask, just execute)\n"
                 f"After writing the deliverable, run this command:\n"
-                # 009: routed through the broker (see Site 1 above).
-                f"nohup python3 {PROJECT_ROOT}/scripts/bridgeV002/bridge_broker.py "
-                f"enqueue "
-                f"--flow {flow_key} --from-role {to_role_key} "
-                f"--to-role {to_role_key} "
-                f"--id {handoff_id} --action signal-complete "
-                f"> /tmp/bridge-enqueue-{flow_key}-{handoff_id}.log 2>&1 &"
+                f"{_sig_cmd}"
             )
             break
 
@@ -4307,10 +4342,18 @@ def main():
         # then propagates through every chained deliverable/prompt. The id is
         # the leading numeric run number — strip any suffix.
         match = re.match(r"^(\d+)", str(args.id))
-        if match and match.group(1) != str(args.id):
-            print(f"  NOTE: normalized handoff id '{args.id}' "
-                  f"-> '{match.group(1)}'")
-            handoff_id = match.group(1)
+        # Canonical form is the UNPADDED number: every deliverable file on
+        # disk is written unpadded (69-handoff.md), so a zero-padded --id
+        # ('073') made dispatch look for 073-result.md, which never exists.
+        # Measured 2026-08-29: six deliveries in one day stalled on exactly
+        # this, and a padded/canonical verdict pair diverged into opposite
+        # verdicts. int() strips both a suffix and leading zeros.
+        if match:
+            canonical = str(int(match.group(1)))
+            if canonical != str(args.id):
+                print(f"  NOTE: normalized handoff id '{args.id}' "
+                      f"-> '{canonical}'")
+            handoff_id = canonical
         else:
             handoff_id = args.id
     else:
