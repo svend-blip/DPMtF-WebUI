@@ -12,7 +12,9 @@ authoritative governance templates under
 for AI role-to-role communication, and acts as the **Prompt Compiler**
 for every project — including itself.
 
-## Place in the DPMtF Ecosystem
+## Overview
+
+### Place in the DPMtF Ecosystem
 
 Five components, one machine boundary:
 
@@ -29,7 +31,9 @@ Five components, one machine boundary:
 allocation service, and once as the integration surface the bridge talks
 to (TG5 ≥ 2 lines).
 
-## The Three-Layer Bridge
+## Architecture
+
+### The Three-Layer Bridge
 
 BridgeV002 is the dispatch protocol every flow uses. A flow type may
 leave a layer thinner, never different.
@@ -49,7 +53,7 @@ Full three-layer model — including the Harness Source column, the
 `callback` convention rule, the lease sweep, and the generalized stall
 wake-up: `docs/governance-templates-v2/100_BRIDGE.md`.
 
-## Flow Types
+### Flow Types
 
 A new BridgeV002 flow is wired by copying its type's row. The columns
 are non-overlapping — a flow belongs to exactly one type, classified
@@ -76,6 +80,72 @@ systemctl --user is-active bridge-broker.service   # MUST print 'active'
 
 Full binding contract (cold-start, supervisor wake-up, broker daemon
 precondition, the seven Binding Rules): `docs/governance-templates-v2/103_FLOW_STARTUP.md`.
+
+## Requirements
+
+- Python 3.10+ with the pinned dependencies in `requirements.txt`
+  (FastAPI, uvicorn, pytest — no new dependency without Human approval).
+- SQLite (bundled with Python), tmux, git.
+- Companion services as configured: model-allocator (CLI), mcp-light
+  (`:9135`), harness-allocator (imported package), and their web UIs on
+  `:9141`/`:9142` (see `[integration]` in `dpmtf.ini`).
+
+## Installation
+
+### Install manually
+
+```bash
+git clone https://github.com/svend-blip/DPMtF-WebUI.git
+cd DPMtF-WebUI
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+cp .env.example .env            # secrets and machine paths — never committed
+venv/bin/python scripts/init_db.py    # runs migrations, seeds, idempotent
+```
+
+### Install using an Agent
+
+Point your coding agent at this repository; `CLAUDE.md` and
+`docs/governance-templates-v2/` are the binding instructions it must read
+first. The manual steps above are the whole install; the judgement calls
+live in `.env` and `dpmtf.ini`.
+
+### Verify installation
+
+```bash
+venv/bin/python -m pytest tests/ -q
+venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130 &
+curl -s http://localhost:9130/api/health    # {"status": "healthy", ...}
+```
+
+## Configuration
+
+`config.py` is the single source of truth for every configurable value —
+hardcoded `/home/svend/...`-style paths are an auto-fail:
+
+- `.env` — secrets and infrastructure variables (never committed).
+- `dpmtf.ini` — committed app-config defaults: `[app]` port/host/locale,
+  `[paths]`, `[projects]`, `[integration]` (companion web-UI URLs).
+- `databases/dpmtf.db` — the production DB; schema changes are numbered
+  migrations under `scripts/db/` applied by `scripts/migrate.py`.
+
+## Running
+
+```bash
+venv/bin/uvicorn app:app --host 0.0.0.0 --port 9130   # the web UI (no --reload)
+```
+
+Two always-on systemd user units accompany it (broker + watchdog, below),
+and flows are started from the web UI (Flows panel → Start tmux / Start
+code interface) or the equivalent scripts.
+
+## Testing
+
+```bash
+venv/bin/python -m pytest tests/ -q
+```
+
+The mechanical validation checklist every change must pass is summarized
+in the Validation section below; `13_VALIDATION.md` is authoritative.
 
 ## Runtime Services
 
