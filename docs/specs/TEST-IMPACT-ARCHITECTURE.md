@@ -583,3 +583,115 @@ An unresolved test module is always selected (appears in every selection)
 rather than excluded. An unresolved source widens the closure (not narrows).
 Neither reduces the set of selected tests. This is an asymmetry: unknowns
 widen, they never narrow.
+
+## Lifecycle Baselines (Run 010)
+
+### OD-3: Baseline at Promotion
+
+When a GOAL-DRAFT is promoted to GOAL.md, the target repository's HEAD at that
+moment becomes the Run baseline, recorded durably in the RUN-LEDGER.md entry
+`promote-goal`. This commit is discovered by parsing the ledger line:
+
+```
+- baseline: `<sha>` in `<repo_path>` (working tree: <N> uncommitted path(s) at promotion)
+```
+
+The baseline is the honest answer to _what did the Human approve this Run
+against_. It cannot drift because promotion happens once per Run.
+
+### What the engine knows (and does not)
+
+The engine (`scripts/testing/`) knows **nothing** about runs, flows, promotion,
+or the RUN-LEDGER. It receives a baseline as a parameter — handed to it. The
+gate (`scripts/bridgeV002/gate-test-impact.py`) learns to read the baseline
+out of the run's RUN-LEDGER.md and pass it to the engine.
+
+This separation is critical:
+- One engine serves both work-unit diffs (`baseline=None` → HEAD/index) and
+  accumulated Run diffs (`baseline=<sha>` → stable diff).
+- The RUN-LEDGER reader lives in `gate-test-impact.py`, NOT in `scripts/testing/`.
+  TG8 mechanically enforces this.
+
+### Three lifecycle points
+
+The engine is invoked at three distinct lifecycle points, distinguished by the
+`lifecycle_point` evidence field:
+
+| Lifecycle point | Baseline | Scope | Purpose |
+|-----------------|----------|-------|---------|
+| `work_unit` | `None` (HEAD/index) | Narrow | Per-handoff impact analysis |
+| `run_baseline` | SHA from RUN-LEDGER | At least `broad` | Accumulated Run diff |
+| `explicit_gate` | `None` (or explicit) | `full` | Explicit release/high-risk gate |
+
+The gate determines the lifecycle point and sets the scope accordingly.
+`explicit_gate` scope is **never downgradable** — a role cannot lower it.
+
+### The dirty-tree condition
+
+A baseline is only meaningful against a clean tree. If the target carried
+uncommitted work at promotion, the recorded commit describes something other
+than what was on disk. The gate must:
+
+```
+read whether the tree was clean at promotion, if the ledger states it
+if the ledger does not state it            → treat cleanliness as UNKNOWN (dirty)
+if it was dirty, or is unknown            → record in evidence AND escalate scope
+never                                       → silently measure past it
+```
+
+The `baseline_tree_state` evidence field records: `"clean"`, `"dirty"`, or
+`None` (unknown). None is treated as dirty for escalation — absent information
+is the dirty answer, never the clean one.
+
+### Fail-closed: unresolvable baseline
+
+The recorded commit can be missing, unreadable, or no longer present in the
+repository (rebase, force-push, ledger never written). The behaviour is fixed:
+
+```
+the required baseline resolves
+    → use the accumulated diff and plan impact normally
+
+the required baseline does NOT resolve
+    → narrow impact analysis is UNAVAILABLE, not approximate
+    → escalate to full regression, IF a full regression can be executed
+    → record the baseline-resolution failure in the evidence, naming the commit
+
+no safe regression can be performed at all
+    → BLOCK. Do not pass, do not warn, do not run a partial suite.
+```
+
+**Never substitute `HEAD`, the previous commit, or any other baseline.** A
+substituted baseline silently erases whatever part of the accumulated change
+happened before it.
+
+`baseline_resolution` evidence field records: `"resolved"` or `"unresolved"`.
+
+### Failure modes under rebase and revert
+
+- **Rebase:** The baseline commit may still exist as an orphaned commit.
+  `git rev-parse --verify <sha>` will succeed and return the SHA, so the
+  baseline resolves. However, the diff against it includes the rebase's
+  changes, which is correct — the baseline is the exact point of approval.
+
+- **Revert:** A revert commit is a new commit at the current HEAD. The
+  baseline SHA still exists; the diff against it is correct. No special
+  handling needed.
+
+- **Force-push:** If the baseline SHA no longer exists in the repository
+  (true deletion, not a rebase), `resolve_baseline()` raises `ValueError`.
+  The gate interprets this as `unresolved` and escalates to full regression.
+
+- **Ledger never written:** The baseline reader returns `None`. The gate
+  treats this identically to an unresolvable SHA — escalates to full
+  regression.
+
+### Evidence fields
+
+Three new fields enrich the 22-key evidence schema:
+
+| Field | Type | Values | Description |
+|-------|------|--------|-------------|
+| `lifecycle_point` | `str` | `"work_unit"`, `"run_baseline"`, `"explicit_gate"` | Which lifecycle point produced this record |
+| `baseline_tree_state` | `str or None` | `"clean"`, `"dirty"`, `None` | Was the tree clean at promotion? None = unknown (treated as dirty) |
+| `baseline_resolution` | `str or None` | `"resolved"`, `"unresolved"`, `None` | Did the baseline resolve? None = not applicable (work_unit) |

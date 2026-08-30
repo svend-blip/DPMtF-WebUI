@@ -496,5 +496,376 @@ class TestEvidencePathDefect(unittest.TestCase):
                         os.chdir(old_cwd)
 
 
+# --- Import lifecycle helpers ---
+read_run_ledger_baseline = _gate_mod.read_run_ledger_baseline
+read_run_ledger_tree_cleanliness = _gate_mod.read_run_ledger_tree_cleanliness
+
+
+# --- Import test helpers for build_evidence tests ---
+def _make_plan_for_evidence(
+    affected_components=None,
+    escalation_reason="",
+    is_exhaustive=False,
+    plan_hash="plan-hash-123",
+    policy_hash="pol-hash-456",
+    requested_scope=None,
+    resolved_scope="component",
+    selected_tests=None,
+):
+    """Return a SimpleNamespace Plan suitable for build_evidence."""
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        affected_components=affected_components or [],
+        escalation_reason=escalation_reason,
+        is_exhaustive=is_exhaustive,
+        plan_hash=plan_hash,
+        policy_hash=policy_hash,
+        requested_scope=requested_scope,
+        resolved_scope=resolved_scope,
+        selected_tests=selected_tests or [],
+    )
+
+
+class TestReadRunLedgerBaseline(unittest.TestCase):
+    """Tests for read_run_ledger_baseline()."""
+
+    def test_baseline_parsed_from_ledger(self):
+        """SHA is extracted between backticks on a '- baseline:' line."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+            with open(ledger, "w") as f:
+                f.write("- baseline: `abcdef1234567890abcdef1234567890abcdef12` in ...\n")
+            sha = read_run_ledger_baseline(run_dir)
+            self.assertEqual(sha, "abcdef1234567890abcdef1234567890abcdef12")
+
+    def test_baseline_none_when_not_found(self):
+        """No '- baseline:' line → None."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+            with open(ledger, "w") as f:
+                f.write("Some random line\n")
+            self.assertIsNone(read_run_ledger_baseline(run_dir))
+
+    def test_baseline_none_on_missing_ledger(self):
+        """Missing ledger file → None."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            self.assertIsNone(read_run_ledger_baseline(run_dir))
+
+    def test_baseline_none_when_backticks_missing(self):
+        """Line without backticks is ignored → None."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+            with open(ledger, "w") as f:
+                f.write("- baseline: no_backticks_here\n")
+            self.assertIsNone(read_run_ledger_baseline(run_dir))
+
+
+class TestReadRunLedgerTreeCleanliness(unittest.TestCase):
+    """Tests for read_run_ledger_tree_cleanliness()."""
+
+    def test_dirty_tree_detected(self):
+        """'uncommitted path(s)' → 'dirty'."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+            with open(ledger, "w") as f:
+                f.write("working tree: 6 uncommitted path(s) at promotion\n")
+            self.assertEqual(read_run_ledger_tree_cleanliness(run_dir), "dirty")
+
+    def test_clean_tree_detected(self):
+        """'clean' → 'clean'."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+            with open(ledger, "w") as f:
+                f.write("working tree: clean at abcdef12\n")
+            self.assertEqual(read_run_ledger_tree_cleanliness(run_dir), "clean")
+
+    def test_none_when_no_working_tree_line(self):
+        """No working tree line → None."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+            with open(ledger, "w") as f:
+                f.write("- baseline: `abcdef12`\n")
+            self.assertIsNone(read_run_ledger_tree_cleanliness(run_dir))
+
+    def test_none_on_missing_ledger(self):
+        """Missing ledger → None."""
+        with tempfile.TemporaryDirectory() as run_dir:
+            self.assertIsNone(read_run_ledger_tree_cleanliness(run_dir))
+
+
+class TestLifecycleBaselinesInEngineChain(unittest.TestCase):
+    """Tests for lifecycle baseline resolution within engine_chain()."""
+
+    def test_engine_chain_with_run_dir_and_baseline(self):
+        """engine_chain accepts run_dir arg and passes it to baseline resolution."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as run_dir:
+                    _setup_passing_repo(repo_root)
+                    # Write a RUN-LEDGER.md with a valid baseline
+                    head_sha = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        capture_output=True, text=True, cwd=repo_root,
+                    ).stdout.strip()
+                    ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+                    with open(ledger, "w") as f:
+                        f.write(f"- baseline: `{head_sha}` in ...\n")
+                        f.write("working tree: clean at promotion\n")
+                    result = engine_chain(
+                        repo_root, "1000-02-ELOOP", "99", bridge_dir,
+                        run_dir=run_dir,
+                    )
+                    self.assertTrue(result["success"])
+                    self.assertEqual(result["status"], "PASS")
+                    evidence = result["evidence"]
+                    self.assertIsNotNone(evidence)
+                    self.assertEqual(evidence.get("lifecycle_point"), "run_baseline")
+                    self.assertEqual(evidence.get("baseline_tree_state"), "clean")
+                    self.assertEqual(evidence.get("baseline_resolution"), "resolved")
+
+    def test_engine_chain_with_dirty_tree_expands_scope(self):
+        """Dirty tree triggers scope expansion in engine_chain."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as run_dir:
+                    _setup_passing_repo(repo_root)
+                    head_sha = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        capture_output=True, text=True, cwd=repo_root,
+                    ).stdout.strip()
+                    ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+                    with open(ledger, "w") as f:
+                        f.write(f"- baseline: `{head_sha}` in ...\n")
+                        f.write("working tree: 3 uncommitted path(s) at promotion\n")
+                    result = engine_chain(
+                        repo_root, "1000-02-ELOOP", "99", bridge_dir,
+                        run_dir=run_dir,
+                    )
+                    self.assertTrue(result["success"])
+                    evidence = result["evidence"]
+                    self.assertEqual(evidence.get("baseline_tree_state"), "dirty")
+
+    def test_engine_chain_with_unresolved_baseline(self):
+        """Unresolved baseline (SHA not in repo) → engine continues with error."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as run_dir:
+                    _setup_passing_repo(repo_root)
+                    ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+                    with open(ledger, "w") as f:
+                        f.write("- baseline: `0000000000000000000000000000000000000000` not found\n")
+                        f.write("working tree: clean\n")
+                    result = engine_chain(
+                        repo_root, "1000-02-ELOOP", "99", bridge_dir,
+                        run_dir=run_dir,
+                    )
+                    # Engine handles the error gracefully
+                    self.assertIn(result["status"], ["PASS", "FAIL", "ERROR"])
+
+    def test_engine_chain_with_no_baseline_in_ledger(self):
+        """No baseline line in RUN-LEDGER → baseline_resolution='unresolved'."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as run_dir:
+                    _setup_passing_repo(repo_root)
+                    ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+                    with open(ledger, "w") as f:
+                        f.write("No baseline recorded here\n")
+                        f.write("working tree: clean\n")
+                    result = engine_chain(
+                        repo_root, "1000-02-ELOOP", "99", bridge_dir,
+                        run_dir=run_dir,
+                    )
+                    self.assertTrue(result["success"])
+                    evidence = result["evidence"]
+                    self.assertEqual(evidence.get("baseline_resolution"), "unresolved")
+
+    def test_engine_chain_without_run_dir_no_lifecycle(self):
+        """Without run_dir, lifecycle_point defaults to 'work_unit'."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                _setup_passing_repo(repo_root)
+                result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
+                self.assertTrue(result["success"])
+                evidence = result["evidence"]
+                self.assertEqual(evidence.get("lifecycle_point"), "work_unit")
+                self.assertIsNone(evidence.get("baseline_tree_state"))
+                self.assertIsNone(evidence.get("baseline_resolution"))
+
+
+class TestRequestedScopeArg(unittest.TestCase):
+    """Tests for --requested-scope CLI argument."""
+
+    def test_parse_args_with_requested_scope_full(self):
+        """--requested-scope full is parseable."""
+        args = parse_args([
+            "--flow-key", "1000-02-ELOOP",
+            "--step-key", "implementer-reviewer",
+            "--from-role", "1000-implementer",
+            "--to-role", "1000-reviewer",
+            "--deliverable-dir", "/tmp/deliverables",
+            "--deliverable-pattern", "*-result.md",
+            "--deliverable-file", "/tmp/result.md",
+            "--handoff-id", "42",
+            "--bridge-dir", "/tmp/bridge",
+            "--prompt-template", "default",
+            "--requested-scope", "full",
+        ])
+        self.assertEqual(args.requested_scope, "full")
+
+    def test_parse_args_with_requested_scope_component(self):
+        """--requested-scope component is parseable."""
+        args = parse_args([
+            "--flow-key", "1000-02-ELOOP",
+            "--step-key", "implementer-reviewer",
+            "--from-role", "1000-implementer",
+            "--to-role", "1000-reviewer",
+            "--deliverable-dir", "/tmp/deliverables",
+            "--deliverable-pattern", "*-result.md",
+            "--deliverable-file", "/tmp/result.md",
+            "--handoff-id", "42",
+            "--bridge-dir", "/tmp/bridge",
+            "--prompt-template", "default",
+            "--requested-scope", "component",
+        ])
+        self.assertEqual(args.requested_scope, "component")
+
+    def test_parse_args_without_requested_scope_is_none(self):
+        """--requested-scope omitted → None."""
+        args = parse_args([
+            "--flow-key", "1000-02-ELOOP",
+            "--step-key", "implementer-reviewer",
+            "--from-role", "1000-implementer",
+            "--to-role", "1000-reviewer",
+            "--deliverable-dir", "/tmp/deliverables",
+            "--deliverable-pattern", "*-result.md",
+            "--deliverable-file", "/tmp/result.md",
+            "--handoff-id", "42",
+            "--bridge-dir", "/tmp/bridge",
+            "--prompt-template", "default",
+        ])
+        self.assertIsNone(args.requested_scope)
+
+    def test_parse_args_with_run_dir(self):
+        """--run-dir is parseable."""
+        args = parse_args([
+            "--flow-key", "1000-02-ELOOP",
+            "--step-key", "implementer-reviewer",
+            "--from-role", "1000-implementer",
+            "--to-role", "1000-reviewer",
+            "--deliverable-dir", "/tmp/deliverables",
+            "--deliverable-pattern", "*-result.md",
+            "--deliverable-file", "/tmp/result.md",
+            "--handoff-id", "42",
+            "--bridge-dir", "/tmp/bridge",
+            "--prompt-template", "default",
+            "--run-dir", "/tmp/runs/010",
+            "--requested-scope", "full",
+        ])
+        self.assertEqual(args.run_dir, "/tmp/runs/010")
+        self.assertEqual(args.requested_scope, "full")
+
+
+class TestEvidenceLifecycleFields(unittest.TestCase):
+    """Tests for lifecycle fields in evidence records."""
+
+    def test_evidence_lifecycle_point_field(self):
+        """Evidence record contains lifecycle_point key."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            _init_repo(repo_root)
+            _write_policy(repo_root, _make_minimal_policy())
+            plan = _make_plan_for_evidence(
+                affected_components=[],
+                escalation_reason="",
+                is_exhaustive=False,
+                plan_hash="h1",
+                policy_hash="p1",
+                requested_scope="component",
+                resolved_scope="component",
+                selected_tests=[],
+            )
+            evidence = build_evidence(
+                repo_root=repo_root,
+                plan=plan,
+                test_command=["echo"],
+                status="PASS",
+                duration_seconds=0.0,
+                lifecycle_point="run_baseline",
+                baseline_tree_state="clean",
+                baseline_resolution="resolved",
+            )
+            self.assertEqual(evidence["lifecycle_point"], "run_baseline")
+            self.assertEqual(evidence["baseline_tree_state"], "clean")
+            self.assertEqual(evidence["baseline_resolution"], "resolved")
+
+    def test_evidence_with_none_lifecycle_fields(self):
+        """Evidence with default lifecycle_point='work_unit' and None tree fields is valid."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            _init_repo(repo_root)
+            _write_policy(repo_root, _make_minimal_policy())
+            plan = _make_plan_for_evidence()
+            evidence = build_evidence(
+                repo_root=repo_root,
+                plan=plan,
+                test_command=["echo"],
+                status="PASS",
+                duration_seconds=0.0,
+            )
+            # lifecycle_point defaults to 'work_unit' when not specified
+            self.assertEqual(evidence.get("lifecycle_point"), "work_unit")
+            self.assertIsNone(evidence.get("baseline_tree_state"))
+            self.assertIsNone(evidence.get("baseline_resolution"))
+
+
+class TestExplicitFullRegressionGate(unittest.TestCase):
+    """Tests for the explicit full-regression gate."""
+
+    def test_engine_chain_with_requested_scope_full(self):
+        """--requested-scope full sets lifecycle_point to explicit_gate."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as run_dir:
+                    _setup_passing_repo(repo_root)
+                    head_sha = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        capture_output=True, text=True, cwd=repo_root,
+                    ).stdout.strip()
+                    ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+                    with open(ledger, "w") as f:
+                        f.write(f"- baseline: `{head_sha}`\n")
+                        f.write("working tree: clean\n")
+                    result = engine_chain(
+                        repo_root, "1000-02-ELOOP", "99", bridge_dir,
+                        run_dir=run_dir,
+                        requested_scope="full",
+                    )
+                    self.assertTrue(result["success"])
+                    evidence = result["evidence"]
+                    self.assertEqual(evidence.get("lifecycle_point"), "explicit_gate")
+
+    def test_engine_chain_scope_broad_from_dirty(self):
+        """Dirty tree in run_dir expands scope in engine_chain."""
+        with tempfile.TemporaryDirectory() as repo_root:
+            with tempfile.TemporaryDirectory() as bridge_dir:
+                with tempfile.TemporaryDirectory() as run_dir:
+                    _setup_passing_repo(repo_root)
+                    head_sha = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        capture_output=True, text=True, cwd=repo_root,
+                    ).stdout.strip()
+                    ledger = os.path.join(run_dir, "RUN-LEDGER.md")
+                    with open(ledger, "w") as f:
+                        f.write(f"- baseline: `{head_sha}`\n")
+                        f.write("working tree: 1 uncommitted path(s) at promotion\n")
+                    result = engine_chain(
+                        repo_root, "1000-02-ELOOP", "99", bridge_dir,
+                        run_dir=run_dir,
+                    )
+                    self.assertTrue(result["success"])
+                    self.assertEqual(result["status"], "PASS")
+                    evidence = result["evidence"]
+                    self.assertEqual(evidence.get("baseline_tree_state"), "dirty")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,7 @@ REQUIRED_KEYS: List[str] = sorted([
     "generated_at",
     "head_sha",
     "is_exhaustive",
+    "lifecycle_point",
     "plan_hash",
     "policy_hash",
     "repository",
@@ -44,6 +45,8 @@ REQUIRED_KEYS: List[str] = sorted([
     "status",
     "test_command",
     "worktree_fingerprint",
+    "baseline_tree_state",
+    "baseline_resolution",
 ])
 
 
@@ -57,6 +60,8 @@ class EvidenceError(Exception):
 _TYPE_MAP: Dict[str, type] = {
     "affected_components": list,
     "baseline": str,
+    "baseline_resolution": (str, type(None)),
+    "baseline_tree_state": (str, type(None)),
     "changed_files": list,
     "changed_symbols": list,
     "duration_seconds": (int, float),
@@ -64,6 +69,7 @@ _TYPE_MAP: Dict[str, type] = {
     "generated_at": str,
     "head_sha": str,
     "is_exhaustive": bool,
+    "lifecycle_point": str,
     "plan_hash": str,
     "policy_hash": str,
     "repository": str,
@@ -82,9 +88,9 @@ def _validate_evidence(record: Dict[str, Any]) -> None:
 
     Raises EvidenceError if validation fails.
     """
-    if len(record) != 19:
+    if len(record) != 22:
         raise EvidenceError(
-            f"Evidence must have exactly 19 keys, got {len(record)}"
+            f"Evidence must have exactly 22 keys, got {len(record)}"
         )
 
     for key in REQUIRED_KEYS:
@@ -210,6 +216,9 @@ def build_evidence(
     test_command: Sequence[str],
     status: str,
     duration_seconds: float,
+    lifecycle_point: str = "work_unit",
+    baseline_tree_state: str | None = None,
+    baseline_resolution: str | None = None,
 ) -> Dict[str, Any]:
     """Build a fully populated evidence dict from a test plan and result.
 
@@ -219,9 +228,12 @@ def build_evidence(
         test_command: the test command to record.
         status: one of "PASS", "FAIL", "ERROR".
         duration_seconds: execution duration.
+        lifecycle_point: one of "work_unit", "run_baseline", "explicit_gate".
+        baseline_tree_state: "clean", "dirty", or None for unknown.
+        baseline_resolution: "resolved", "unresolved", or None if N/A.
 
     Returns:
-        A dict with all 19 required keys.
+        A dict with all 22 required keys.
 
     Raises:
         EvidenceError: if any required key is missing or wrong type.
@@ -253,6 +265,9 @@ def build_evidence(
         "test_command": list(test_command),
         "status": status,
         "duration_seconds": float(duration_seconds),
+        "lifecycle_point": lifecycle_point,
+        "baseline_tree_state": baseline_tree_state,
+        "baseline_resolution": baseline_resolution,
     }
 
     _validate_evidence(record)

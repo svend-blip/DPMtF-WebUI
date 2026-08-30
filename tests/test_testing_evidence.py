@@ -88,8 +88,8 @@ class TestEvidenceConstants(unittest.TestCase):
         self.assertTrue(len(EVIDENCE_SCHEMA_VERSION) > 0)
 
     def test_evidence_required_keys_count(self):
-        """REQUIRED_KEYS has exactly 19 entries."""
-        self.assertEqual(len(REQUIRED_KEYS), 19)
+        """REQUIRED_KEYS has exactly 22 entries."""
+        self.assertEqual(len(REQUIRED_KEYS), 22)
 
     def test_evidence_required_keys_are_strings(self):
         """Every entry in REQUIRED_KEYS is a string."""
@@ -117,7 +117,7 @@ class TestBuildEvidence(unittest.TestCase):
         )
 
     def test_evidence_all_required_keys_present(self):
-        """build_evidence returns a dict with exactly 19 keys when given valid inputs."""
+        """build_evidence returns a dict with exactly 22 keys when given valid inputs."""
         evidence = build_evidence(
             repo_root=self.tmpdir,
             plan=self._valid_plan(),
@@ -125,7 +125,7 @@ class TestBuildEvidence(unittest.TestCase):
             status="PASS",
             duration_seconds=1.23,
         )
-        self.assertEqual(len(evidence), 19)
+        self.assertEqual(len(evidence), 22)
         for key in REQUIRED_KEYS:
             self.assertIn(key, evidence, f"Missing key: {key}")
 
@@ -133,7 +133,7 @@ class TestBuildEvidence(unittest.TestCase):
         """Pass {} to _validate_evidence and assert EvidenceError for wrong key count."""
         with self.assertRaises(EvidenceError) as ctx:
             _validate_evidence({})
-        self.assertIn("19 keys", str(ctx.exception))
+        self.assertIn("22 keys", str(ctx.exception))
 
     def test_evidence_missing_a_required_key_raises(self):
         """Pass a dict missing a required key to _validate_evidence and assert EvidenceError."""
@@ -147,7 +147,8 @@ class TestBuildEvidence(unittest.TestCase):
             "generated_at": "2025-01-01T00:00:00Z",
             "head_sha": "abcd1234",
             "is_exhaustive": True,
-            # missing "plan_hash" — only 18 keys
+            "lifecycle_point": "work_unit",
+            # missing "plan_hash" — only 19 keys
             "policy_hash": "p2",
             "repository": "/tmp/repo",
             "requested_scope": None,
@@ -157,17 +158,21 @@ class TestBuildEvidence(unittest.TestCase):
             "status": "PASS",
             "test_command": ["pytest"],
             "worktree_fingerprint": "f1",
+            "baseline_tree_state": None,
+            "baseline_resolution": None,
         }
         with self.assertRaises(EvidenceError) as ctx:
             _validate_evidence(record)
-        # 18 keys → error says "got 18"
-        self.assertIn("18", str(ctx.exception))
+        # 21 keys (22 - 1 missing) → error says "got 21"
+        self.assertIn("21", str(ctx.exception))
 
     def test_evidence_wrong_type_raises(self):
         """Pass a value of wrong type for a required key and assert EvidenceError."""
         record = {
             "affected_components": "not_a_list",  # should be list
             "baseline": "HEAD",
+            "baseline_resolution": None,
+            "baseline_tree_state": None,
             "changed_files": [],
             "changed_symbols": [],
             "duration_seconds": 1.0,
@@ -175,6 +180,7 @@ class TestBuildEvidence(unittest.TestCase):
             "generated_at": "2025-01-01T00:00:00Z",
             "head_sha": "abcd1234",
             "is_exhaustive": True,
+            "lifecycle_point": "work_unit",
             "plan_hash": "p1",
             "policy_hash": "p2",
             "repository": "/tmp/repo",
@@ -200,6 +206,8 @@ class TestBuildEvidence(unittest.TestCase):
         record = {
             "affected_components": [],
             "baseline": "HEAD",
+            "baseline_resolution": None,
+            "baseline_tree_state": None,
             "changed_files": [],
             "changed_symbols": [],
             "duration_seconds": True,  # bool passes because isinstance(True, int) == True
@@ -207,6 +215,7 @@ class TestBuildEvidence(unittest.TestCase):
             "generated_at": "2025-01-01T00:00:00Z",
             "head_sha": "abcd1234",
             "is_exhaustive": True,
+            "lifecycle_point": "work_unit",
             "plan_hash": "p1",
             "policy_hash": "p2",
             "repository": "/tmp/repo",
@@ -228,6 +237,8 @@ class TestBuildEvidence(unittest.TestCase):
         record = {
             "affected_components": [],
             "baseline": "HEAD",
+            "baseline_resolution": None,
+            "baseline_tree_state": None,
             "changed_files": [],
             "changed_symbols": [],
             "duration_seconds": 1.0,
@@ -235,6 +246,7 @@ class TestBuildEvidence(unittest.TestCase):
             "generated_at": "2025-01-01T00:00:00Z",
             "head_sha": "abcd1234",
             "is_exhaustive": True,
+            "lifecycle_point": "work_unit",
             "plan_hash": "p1",
             "policy_hash": "p2",
             "repository": "/tmp/repo",
@@ -272,7 +284,7 @@ class TestWriteEvidence(unittest.TestCase):
         self.assertTrue(os.path.isfile(out_path))
         with open(out_path, "r", encoding="utf-8") as f:
             loaded = json.load(f)
-        self.assertEqual(len(loaded), 19)
+        self.assertEqual(len(loaded), 22)
         for key in REQUIRED_KEYS:
             self.assertIn(key, loaded)
 

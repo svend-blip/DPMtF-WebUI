@@ -19,7 +19,9 @@ Usage:
         --handoff-id 32 \\
         --bridge-dir /home/svend/flows \\
         --prompt-template default \\
-        --mode block
+        --mode block \\
+        --run-dir /home/svend/flows/1000/runs/010 \\
+        --requested-scope full
 """
 from __future__ import annotations
 
@@ -40,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bridge_lib  # noqa: E402
 from scripts.testing.evidence import build_evidence, write_evidence  # noqa: E402
 from scripts.testing.git_changes import changed_files  # noqa: E402
-from scripts.testing.planner import PlanError, plan_tests  # noqa: E402
+from scripts.testing.planner import PlanError, plan_tests, _scope_max  # noqa: E402
 from scripts.testing.policy import PolicyError, load_policy  # noqa: E402
 from scripts.testing.runner import RunnerError, run_plan  # noqa: E402
 
@@ -54,6 +56,8 @@ def engine_chain(
     flow_key: str,
     handoff_id: str,
     bridge_dir: str = "",
+    run_dir: str | None = None,        # NEW — run directory for baseline resolution
+    requested_scope: str | None = None, # NEW — "full" triggers explicit regression gate
 ) -> dict:
     """Run the full deterministic engine chain.
 
@@ -79,16 +83,54 @@ def engine_chain(
         result["error"] = f"Policy load failed: {exc}"
         return result
 
-    # Step 2: Read changed files (baseline=None = working tree vs HEAD/index)
+    # --- Lifecycle-aware baseline resolution ---
+    resolved_baseline = None
+    baseline_resolution = None
+    lifecycle_point = "work_unit"
+    baseline_tree_state = None
+
+    if run_dir is not None:
+        # Read baseline from RUN-LEDGER
+        baseline_sha = read_run_ledger_baseline(run_dir)
+        tree_cleanliness = read_run_ledger_tree_cleanliness(run_dir)
+
+        if baseline_sha is None:
+            # Baseline not recorded -> escalate to full regression
+            baseline_resolution = "unresolved"
+            resolved_baseline = None
+        else:
+            # Verify the baseline resolves
+            try:
+                from scripts.testing.git_changes import resolve_baseline as resolve_baseline_sha
+                resolved = resolve_baseline_sha(target_repo, baseline_sha)
+                resolved_baseline = resolved
+                baseline_resolution = "resolved"
+            except ValueError:
+                # Baseline SHA no longer in repository -> escalate to full regression
+                resolved_baseline = None
+                baseline_resolution = "unresolved"
+
+        # Dirty-tree condition: escalate scope
+        if tree_cleanliness == "dirty" or tree_cleanliness is None:
+            requested_scope = _scope_max(requested_scope or "component", "broad")
+
+        baseline_tree_state = tree_cleanliness
+        lifecycle_point = "run_baseline"
+
+    # Explicit full-regression gate
+    if requested_scope == "full" and run_dir is not None:
+        lifecycle_point = "explicit_gate"
+
+    # Step 2: Read changed files (baseline=resolved_baseline or None)
     try:
-        changes = changed_files(target_repo, baseline=None)
+        changes = changed_files(target_repo, baseline=resolved_baseline)
     except subprocess.CalledProcessError as exc:
         result["error"] = f"Change detection failed: {exc}"
         return result
 
     # Step 3: Plan tests
     try:
-        plan = plan_tests(target_repo, policy, changes)
+        plan = plan_tests(target_repo, policy, changes, requested_scope=requested_scope)
     except PlanError as exc:
         result["error"] = f"Planning failed: {exc}"
         return result
@@ -104,11 +146,18 @@ def engine_chain(
             test_command=["skip-empty-policy"],
             status="PASS",
             duration_seconds=0.0,
+            lifecycle_point=lifecycle_point,
+            baseline_tree_state=baseline_tree_state,
+            baseline_resolution=baseline_resolution,
         )
     else:
         try:
             evidence = run_plan(target_repo, plan, policy, timeout=120)
             status = evidence.get("status", "ERROR")
+            # Post-process: add lifecycle fields to evidence from run_plan
+            evidence["lifecycle_point"] = lifecycle_point
+            evidence["baseline_tree_state"] = baseline_tree_state
+            evidence["baseline_resolution"] = baseline_resolution
         except (RunnerError, OSError) as exc:
             result["error"] = f"Execution failed: {exc}"
             return result
@@ -212,6 +261,18 @@ def parse_args(argv=None):
         help="Gate mode: 'block' exits 1 on failure, 'warn' always exits 0. "
              "Default: warn.",
     )
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help="Path to the run directory (e.g. /home/svend/flows/1000/runs/010). "
+             "When provided, the gate resolves the Run baseline from RUN-LEDGER.md.",
+    )
+    parser.add_argument(
+        "--requested-scope",
+        default=None,
+        choices=["symbol", "file", "component", "broad", "full"],
+        help="Request a minimum scope level. 'full' triggers the explicit full-regression gate.",
+    )
     return parser.parse_args(argv)
 
 
@@ -248,7 +309,11 @@ def main():
     print(f"Mode: {mode}")
 
     # Run the engine chain
-    result = engine_chain(project_path, flow_key, handoff_id, bridge_dir)
+    result = engine_chain(
+        project_path, flow_key, handoff_id, bridge_dir,
+        run_dir=args.run_dir,
+        requested_scope=args.requested_scope,
+    )
 
     # Report results
     print(f"Result: status={result['status']}, success={result['success']}")
@@ -267,6 +332,85 @@ def main():
 
     # In warn mode, always exit 0
     print("Gate complete.")
+
+
+# ---------------------------------------------------------------------------
+# RUN-LEDGER baseline reader (gate-only; engine stays flow-blind)
+# ---------------------------------------------------------------------------
+
+
+def read_run_ledger_baseline(run_dir: str) -> str | None:
+    """Read the baseline commit from a run's RUN-LEDGER.md.
+
+    Looks for a line matching:
+        - baseline: `<sha>` in <path> (working tree: ... at promotion)
+
+    Returns the 40-char SHA as str, or None if not found.
+
+    Parameters
+    ----------
+    run_dir:
+        Path to the run directory (e.g. /home/svend/flows/1000/runs/010).
+
+    Returns
+    -------
+    str | None
+        The baseline commit SHA, or None if the entry is not found.
+    """
+    ledger_path = os.path.join(run_dir, "RUN-LEDGER.md")
+    try:
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("- baseline:"):
+                    # Extract the SHA between backticks
+                    start = line.find("`")
+                    end = line.find("`", start + 1)
+                    if start != -1 and end != -1:
+                        sha = line[start + 1:end]
+                        return sha
+    except (OSError, FileNotFoundError):
+        pass
+    return None
+
+
+def read_run_ledger_tree_cleanliness(run_dir: str) -> str | None:
+    """Read whether the tree was clean at promotion from a run's RUN-LEDGER.md.
+
+    Looks for a line matching:
+        working tree: 6 uncommitted path(s) at promotion
+        working tree: clean at <sha>
+        working tree: clean
+
+    Returns:
+        "clean" if tree was clean
+        "dirty" if uncommitted paths were present
+        None if the information is not stated in the ledger
+
+    Parameters
+    ----------
+    run_dir:
+        Path to the run directory.
+
+    Returns
+    -------
+    str | None
+    """
+    ledger_path = os.path.join(run_dir, "RUN-LEDGER.md")
+    try:
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if "working tree:" in line or "working tree :" in line:
+                    # Check for uncommitted paths (dirty)
+                    if "uncommitted" in line:
+                        return "dirty"
+                    # Check for clean
+                    if "clean" in line:
+                        return "clean"
+    except (OSError, FileNotFoundError):
+        pass
+    return None
 
 
 if __name__ == "__main__":
