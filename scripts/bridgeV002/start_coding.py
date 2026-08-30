@@ -18,6 +18,7 @@ Example:
 import argparse
 import json
 import os
+import re
 import shlex
 import sqlite3
 import subprocess
@@ -149,6 +150,25 @@ def ensure_session_exists(session_name):
         return False
 
 
+#: Env assignments whose VALUE must never reach a log line or an API
+#: response. The value may be shlex-quoted (single quotes, possibly with
+#: embedded '\'' escapes) or a bare token; both forms are swallowed whole.
+#: Only the PRINTED line is redacted — the command sent to tmux keeps the
+#: real value, because the child process needs it (measured 2026-08-30:
+#: the 9000 smoke test echoed the MiniMax key back through the
+#: start-coding endpoint's captured stdout).
+_SECRET_ENV_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*"
+    r"(?:API_?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Za-z0-9_]*)="
+    r"('(?:[^']|'\\'')*'|\S+)"
+)
+
+
+def _redact_secrets(text):
+    """The text with every secret-named env assignment's value masked."""
+    return _SECRET_ENV_RE.sub(r"\1=***", text)
+
+
 def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
     """Send the start command string to an existing tmux session via send-keys.
 
@@ -162,7 +182,7 @@ def run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
     resolved = resolve_placeholders(
         cmd_str, bridge_dir=bridge_dir, project_root=project_root
     )
-    print(f"  Command: {resolved}")
+    print(f"  Command: {_redact_secrets(resolved)}")
     # Literal text and the Enter KEY as two calls. Without -l, send-keys
     # parses the string as key names, and a long allocator command with
     # quotes can land mangled -- observed 2026-08-07: review01LW's launch
