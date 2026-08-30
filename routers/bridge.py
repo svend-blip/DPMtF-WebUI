@@ -1809,6 +1809,10 @@ async def bridge_v2_harnesses():
                 spec = launchspec.get_launch_spec(key) or {}
             except Exception:
                 spec = {}
+            try:
+                reset = launchspec.get_reset_spec(key)
+            except Exception:
+                reset = None
             return {
                 "harness": key,
                 "tier": tier,
@@ -1816,6 +1820,10 @@ async def bridge_v2_harnesses():
                 "launch_owner": ("harness_allocator" if definition.is_native(key)
                                  else "model_allocator"),
                 "required_env": list(spec.get("required_env") or []),
+                # How a live session's context is reset (item 15): the
+                # declared harness fact behind the per-role
+                # fresh_session_command / codex_fresh_context_policy knobs.
+                "reset": reset,
             }
 
         return {"harnesses": (
