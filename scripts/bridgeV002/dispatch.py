@@ -1279,7 +1279,18 @@ def inject_prompt(session_name, text, enter_command="default",
         # needs; wait_for_pane_idle then keeps the paste out of a redraw.
         verify_injection_submitted(session_name, attempts=2, settle_seconds=3,
                         flow_key=flow_key, to_role=to_role)
-        wait_for_pane_idle(session_name)
+        if not wait_for_pane_idle(session_name):
+            # 2026-08-30 (run 009): "proceed anyway" pasted the task into a
+            # client still mid-turn, and the measured cost was not a slow
+            # dispatch but a DEAD one — the reviewer's OpenCode exited under
+            # the paste, the pane fell back to bash, and the prompt executed
+            # line by line as shell commands. A late dispatch beats a killed
+            # client, so a pane that never settles is a refusal, requeued
+            # with backoff by the broker exactly like the pre-paste check.
+            raise PaneBusyRefused(
+                f"pane '{session_name}' never settled after the fresh-session "
+                f"command — refusing to paste into a busy client"
+            )
         print(f"  Fresh session: {fresh_session_command} sent to "
               f"'{session_name}' (context reset submitted before task)")
     if tool in ("opencode", "pi"):
@@ -2150,8 +2161,16 @@ def _default_list_harness_anchors(flow_key, db_path=None):
         return []
     try:
         conn.row_factory = sqlite3.Row
+        # resource_type filter (2026-08-30): the table also carries
+        # 'tmux_session' teardown rows written by start_tmuxflow, whose pid
+        # is the tmux SERVER — always alive. The untyped SELECT matched
+        # those first, so harness_alive answered True for panes whose
+        # harness was long gone, and dispatch injected prompts into a bare
+        # bash that executed them line by line (measured on 1000-reviewer,
+        # run 009). Only harness_process rows are anchors.
         cur = conn.execute(
-            "SELECT * FROM flow_runtime_resources WHERE flow_key = ?",
+            "SELECT * FROM flow_runtime_resources "
+            "WHERE flow_key = ? AND resource_type = 'harness_process'",
             (flow_key,),
         )
         return [dict(r) for r in cur.fetchall()]

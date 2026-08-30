@@ -287,6 +287,16 @@ rejects files without them):**
 </deliverable_output>
 ```
 
+**The file MUST also END with a README Impact block** (steps with
+`requires_readme_impact` refuse delivery without it — measured on every
+first delivery attempt in 1000 run 009):
+
+```
+## README Impact
+README impact: yes|no
+Reason: <one honest sentence>
+```
+
 Then the result body. The body MUST list `git status --short` (verbatim)
 and the verbatim test-summary line — a result without these is rejected by
 the supervisor:
@@ -328,6 +338,16 @@ Next Action: {next role per chain position} validates
 
 - No Monitor, no Bash, no background tasks, no file writes.
 - No suggesting or starting follow-up work.
+- **Signal ONCE, with the explicit id, then verify — never loop.** Every
+  signal command carries `--id {ID}` (the bare, unpadded id from your
+  handoff — NEVER a fresh allocation, NEVER padded). Verify delivery with
+  ONE check: `grep -F " {ID} | dispatched" {bridge_dir}/trace.log`. If the
+  signal FAILED, fix the named cause and send once more. If you cannot see
+  a dispatched line after TWO total attempts, STOP and go idle — the
+  supervising session owns recovery. A retry loop without `--id` allocates
+  a new counter id per attempt, and re-sending an already-dispatched
+  handoff bombs the busy receiving client (measured 2026-08-30, run 009:
+  five burned ids and a crashed reviewer from exactly this loop).
 - No running reviewer agents or self-review passes.
 - No polling for results or pre-writing files for future steps.
 - No chat/TUI commentary after `signal_complete` unless the bridge
