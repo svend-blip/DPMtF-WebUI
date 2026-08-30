@@ -197,19 +197,40 @@ class _ResolvedEndpoint:
     def get_qwen_base_url(self):
         return self._base_url
 
+    def get_simple_harness_base_url(self):
+        return self._base_url
 
-def build_native_child_env(harness, model_target, base_url):
+
+#: Which env var carries the API key for a native harness's client. Most
+#: OpenAI-compatible CLIs read OPENAI_API_KEY; simple-harness namespaces its
+#: own (internal/config/config.go applyEnv reads SIMPLE_HARNESS_API_KEY only).
+_NATIVE_KEY_VARS = {"simple-harness": "SIMPLE_HARNESS_API_KEY"}
+
+
+def build_native_child_env(harness, model_target, base_url, api_key=None):
     """Endpoint environment overrides for a native harness, or ``{}``.
 
     ``base_url`` is the resolved endpoint from the model allocator (scheme,
     host and port); the standalone appends ``/v1`` when it is missing. A
     harness the standalone has no env builder for returns an empty dict,
     which means "inherit the parent environment" — never a guess.
+
+    ``api_key`` is a REAL credential the caller resolved (via the alias's
+    ``api_key_env`` name) for a remote endpoint — a cloud model behind a
+    native harness needs it, and the harness's own config only stores the
+    NAME of a key variable, which for a per-role cloud alias it cannot
+    know. Threaded into the harness's key variable only when the builder
+    did not already set one.
     """
     ha = _standalone()
     from harness_allocator import adapter as ha_adapter  # noqa: E402
 
-    builder = getattr(ha_adapter, f"build_{harness}_env", None)
+    # Builder functions are Python identifiers: a hyphenated harness key
+    # ("simple-harness") must map to its underscored builder
+    # (build_simple_harness_env) — the raw f-string produced an attribute
+    # name that can never exist, so the lookup silently returned {} and the
+    # role inherited the parent env with no endpoint at all.
+    builder = getattr(ha_adapter, f"build_{harness.replace('-', '_')}_env", None)
     if builder is None:
         return {}
     cfg = _ResolvedEndpoint(ha.config, base_url) if base_url else ha.config
@@ -233,6 +254,8 @@ def build_native_child_env(harness, model_target, base_url):
     # so this can never mask a genuine missing credential.
     if _is_loopback(base_url) and "OPENAI_API_KEY" not in env:
         env["OPENAI_API_KEY"] = "local-no-auth-required"
+    if api_key and not _is_loopback(base_url):
+        env.setdefault(_NATIVE_KEY_VARS.get(harness, "OPENAI_API_KEY"), api_key)
     return env
 
 

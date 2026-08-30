@@ -81,16 +81,21 @@ _FROZEN_MODE = {
     "codex": "resident_tui", "claude-code": "resident_tui", "opencode": "resident_tui",
     "qwen": "one_shot", "goose": "one_shot", "crush": "one_shot",
     "sweagent": "one_shot", "aider": "one_shot",
+    # Roster growth after the freeze: whip (run 020/023) and simple-harness
+    # (the eleventh harness) — frozen 2026-08-30 from the live spec.
+    "whip": "one_shot", "simple-harness": "one_shot",
 }
 _FROZEN_NEEDS_INITIAL_PROMPT = {
     "dsh": True,
     "codex": False, "claude-code": False, "opencode": False,
     "qwen": False, "goose": False, "crush": False, "sweagent": False, "aider": False,
+    "whip": False, "simple-harness": False,
 }
 _FROZEN_ANCHOR = {
     "codex": "child",
     "dsh": "none", "claude-code": "none", "opencode": "none",
     "qwen": "none", "goose": "none", "crush": "none", "sweagent": "none", "aider": "none",
+    "whip": "none", "simple-harness": "none",
 }
 # Every harness today declares the same three markers -- the SORTED union
 # is what chain_watchdog._derive_activity_markers() returns.

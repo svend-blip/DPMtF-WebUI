@@ -499,12 +499,27 @@ def main():
                 continue
 
             port = resolved.get("port")
-            base_url = f"http://127.0.0.1:{port}" if port else ""
+            if port:
+                base_url = f"http://127.0.0.1:{port}"
+            else:
+                # No local port means the alias is not a local runtime — a
+                # cloud endpoint (cloud_minimax, kimi, ...). The allocator
+                # still knows where it lives: an env-var NAME first, then the
+                # profile's default. Empty stays empty (the harness's own
+                # config answers, per build_native_child_env's contract).
+                api_base_env = resolved.get("api_base_env") or ""
+                base_url = (os.environ.get(api_base_env, "") if api_base_env else "") \
+                    or resolved.get("default_api_base") or ""
+            # A remote endpoint needs the real credential; the alias names
+            # the variable holding it. Loopback endpoints ignore this.
+            key_env = resolved.get("api_key_env") or ""
+            api_key = os.environ.get(key_env) if key_env else None
             try:
                 child_env = harness.build_native_child_env(
                     harness_source,
                     resolved.get("real_model") or "",
                     base_url,
+                    api_key=api_key,
                 )
                 shell_str = harness.build_launch_command(harness_source, role)
             except (ValueError, ImportError, AttributeError) as exc:
