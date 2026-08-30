@@ -106,8 +106,11 @@ def _get_db_path() -> str:
 def _get_bridge_dir() -> str:
     """Resolve the bridge root (where canonical artifacts live).
 
-    Defaults to /home/svend/flows, but is read from DPMTF_BRIDGE_DIR
-    env var via config.get_bridge_dir() if available.
+    config.get_bridge_dir() first, DPMTF_BRIDGE_DIR second, then a LOUD
+    failure. The old fallback returned a hardcoded home path — the one
+    auto-fail pattern this repo's own standard names — and a broker that
+    guesses its artifact root writes canonical files somewhere silently
+    wrong, which is strictly worse than stopping.
     """
     try:
         import config as _cfg  # noqa: WPS433
@@ -116,8 +119,13 @@ def _get_bridge_dir() -> str:
             return str(bdir)
     except Exception:
         pass
-    # Fallback: hardcoded canonical path.
-    return "/home/svend/flows"
+    env_dir = os.environ.get("DPMTF_BRIDGE_DIR")
+    if env_dir:
+        return env_dir
+    raise RuntimeError(
+        "bridge dir unresolved: config.get_bridge_dir() unavailable "
+        "and DPMTF_BRIDGE_DIR unset"
+    )
 
 
 # ── enums / constants ───────────────────────────────────
