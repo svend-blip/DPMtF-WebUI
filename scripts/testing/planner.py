@@ -14,6 +14,9 @@ import re
 from collections import deque
 from typing import Any
 
+from scripts.testing.test_index import build_index as _build_test_index
+from scripts.testing.test_index import tests_for as _tests_for_index
+
 __all__ = ["plan_tests", "SCOPES", "PlanError", "TestPlan"]
 
 SCOPES: tuple[str, ...] = ("symbol", "file", "component", "broad", "full")
@@ -450,16 +453,22 @@ def plan_tests(
     policy: Any,
     changes: dict[str, str],
     requested_scope: str | None = None,
+    symbols: dict[str, Any] | object | None = None,
+    closure: Any | None = None,
 ) -> TestPlan:
     """Deterministic test-plan engine with monotonic scope ladder.
 
     The scope ladder: symbol < file < component < broad < full.
-    In this Run only component, broad, and full are reachable.
+    In this Run only symbol, file, component, broad, and full are reachable.
     A deterministic rule may move rightward when uncertainty or impact grows.
     Nothing moves leftward.
 
     ``requested_scope`` is a HINT. If deterministic resolution is stronger,
     the resolution wins. The difference is recorded in ``escalation_reason``.
+
+    When *symbols* and *closure* are provided, the planner attempts to narrow
+    to symbol or file scope using the test-index before falling back to
+    component/broad/full.
 
     Parameters
     ----------
@@ -475,6 +484,14 @@ def plan_tests(
     requested_scope:
         Optional caller hint for minimum scope strength. May be
         overridden upward by deterministic rules.
+    symbols:
+        Optional dict of ``{path: set_of_symbol_strings}`` or the UNKNOWN
+        sentinel — symbol-level analysis result per file. When ``None``,
+        behaviour is byte-identical to prior Runs (symbol/file rungs are
+        skipped).
+    closure:
+        Optional ``Closure`` from ``dependency_graph.reverse_closure``.
+        Only meaningful when *symbols* is also provided.
 
     Returns
     -------
@@ -549,18 +566,89 @@ def plan_tests(
             f"strongest per-path scope is {current_scope}"
         )
 
-    # Collect tests based on resolved scope
-    if current_scope == "component" and all_affected_components:
-        test_globs = _collect_tests_for_components(
-            all_affected_components, policy
-        )
-        # test_globs are glob patterns; for component scope we collect the patterns
-        all_tests.update(test_globs)
-    elif current_scope in ("broad", "full"):
-        # For broad/full, collect all test mappings across all components
-        all_tests.update(_collect_tests_for_components(
-            set(policy.test_mappings.keys()), policy
-        ))
+    # -- Symbol/file narrowing (when symbols and closure are provided) --
+    if symbols is not None and closure is not None:
+        selection = None
+        try:
+            idx = _build_test_index(repo_root, policy, None)
+            selection = _tests_for_index(
+                index=idx,
+                changed=changes,
+                symbols=symbols,
+                closure=closure,
+                policy=policy,
+            )
+        except PlanError:
+            # Index error wrapped at source
+            selection = None
+        except (IndexError, Exception):
+            # IndexError_ or any other failure — do NOT propagate
+            # upstream; continue with existing component/broad/full
+            selection = None
+
+        if selection is not None:
+            # Determine whether to use the index-provided resolution
+            # or fall through to the existing component/broad/full logic
+            selection_scope_idx = _scope_index(selection.resolved_scope)
+            existing_scope_idx = _scope_index(current_scope)
+
+            if selection_scope_idx < existing_scope_idx:
+                # Selection narrowed further — use it
+                current_scope = selection.resolved_scope
+                all_tests = set(selection.tests)
+                if current_scope == "component" and all_affected_components:
+                    # Component scope: also apply component fallback
+                    test_globs = _collect_tests_for_components(
+                        all_affected_components, policy
+                    )
+                    all_tests.update(test_globs)
+                elif current_scope in ("broad", "full"):
+                    all_tests.update(_collect_tests_for_components(
+                        set(policy.test_mappings.keys()), policy
+                    ))
+                all_tests.update(policy.mandatory_smoke_tests)
+
+                if selection.narrowing_blockers:
+                    escalation_reason = (
+                        f"escalated from {requested_scope or 'symbol'} to "
+                        f"{current_scope}; blockers: "
+                        + "; ".join(selection.narrowing_blockers)
+                    )
+                else:
+                    escalation_reason = selection.rationale
+            elif selection_scope_idx == existing_scope_idx:
+                # Same scope — merge test sets
+                all_tests = set(selection.tests)
+                if current_scope == "component" and all_affected_components:
+                    test_globs = _collect_tests_for_components(
+                        all_affected_components, policy
+                    )
+                    all_tests.update(test_globs)
+                elif current_scope in ("broad", "full"):
+                    all_tests.update(_collect_tests_for_components(
+                        set(policy.test_mappings.keys()), policy
+                    ))
+                all_tests.update(policy.mandatory_smoke_tests)
+                if selection.narrowing_blockers:
+                    escalation_reason = (
+                        f"escalated from {requested_scope or 'symbol'} to "
+                        f"{current_scope}; blockers: "
+                        + "; ".join(selection.narrowing_blockers)
+                    )
+            # If selection is weaker (higher scope), keep existing resolution
+            else:
+                all_tests.update(policy.mandatory_smoke_tests)
+    else:
+        # No symbols/closure — use existing component/broad/full logic
+        if current_scope == "component" and all_affected_components:
+            test_globs = _collect_tests_for_components(
+                all_affected_components, policy
+            )
+            all_tests.update(test_globs)
+        elif current_scope in ("broad", "full"):
+            all_tests.update(_collect_tests_for_components(
+                set(policy.test_mappings.keys()), policy
+            ))
 
     # Mandatory smoke tests are included at every scope level
     all_tests.update(policy.mandatory_smoke_tests)

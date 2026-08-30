@@ -534,3 +534,52 @@ a future run extends the resolution rules.
 The planner also computes `is_exhaustive`: `True` when `resolved_scope` is
 `"broad"` or `"full"`, meaning the runner should ignore `selected_tests`
 and execute the full suite.
+
+## Fallback-Not-Floor Rule and Narrowing Gate
+
+### Part 1: The fallback-not-floor rule
+
+A component's test mapping is a **fallback**, not a **floor**. It becomes
+mandatory when the effective scope IS component or broader, or when symbol
+and file analysis cannot safely narrow. It is NOT added on top of a safely
+resolved symbol answer. In other words: if the five narrowing conditions are
+met and the result is symbol scope, the component test mapping is irrelevant —
+you do not union the symbol tests with the component tests. The component
+mapping only kicks in when narrowing cannot proceed (no symbol info, no file
+info, empty mapping) and the result is component scope or broader.
+
+### Part 2: The five narrowing conditions (§3 formulation)
+
+The five conditions that must ALL be true for the planner to safely narrow
+below component scope:
+
+(a) Every changed file's symbol result is a real answer, not UNKNOWN.
+
+(b) The reverse closure is safe — `Closure.is_safe` is True.
+
+(c) Every affected symbol maps to at least one indexed test.
+
+(d) The policy is not empty.
+
+(e) No changed path matches `high_fanout` or `full_regression` triggers.
+
+### Part 3: The five conditions as they appear in code (§4 narrowing gate)
+
+Each condition is independently checked in the narrowing gate, and each
+produces a `narrowing_blocker` entry when false:
+
+- `_UNKNOWN` symbols → `narrowing_blocker`: "symbol resolution unknown"
+- `not closure.is_safe()` → `narrowing_blocker`: "unsafe reverse closure"
+- No tests mapped for a symbol → `narrowing_blocker`: "symbol has no indexed tests"
+- Empty policy → `narrowing_blocker`: "policy is empty"
+- `high_fanout` or `full_regression` trigger → `narrowing_blocker`: "high fanout / full regression trigger"
+
+If any condition fails, narrowing is refused and the scope falls back to
+component or broader.
+
+### Part 4: The asymmetry for unresolved tests
+
+An unresolved test module is always selected (appears in every selection)
+rather than excluded. An unresolved source widens the closure (not narrows).
+Neither reduces the set of selected tests. This is an asymmetry: unknowns
+widen, they never narrow.

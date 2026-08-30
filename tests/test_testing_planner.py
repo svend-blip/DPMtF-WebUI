@@ -16,6 +16,7 @@ class MockPolicy:
         high_fanout_files=None,
         full_regression_triggers=None,
         policy_hash="test-hash",
+        is_empty_val=False,
     ):
         self.components = components or {}
         self.test_mappings = test_mappings or {}
@@ -24,6 +25,7 @@ class MockPolicy:
         self.high_fanout_files = high_fanout_files or []
         self.full_regression_triggers = full_regression_triggers or []
         self.policy_hash = policy_hash
+        self.is_empty = is_empty_val
 
     def component_for(self, path):
         """Return the component name whose source globs match path, or None."""
@@ -35,11 +37,16 @@ class MockPolicy:
         return None
 
 
+class MockClosure:
+    def __init__(self, is_safe=True):
+        self.is_safe = is_safe
+
+
 class TestPlanner(unittest.TestCase):
     """Test cases for the planner test-plan engine."""
 
-    def plan(self, repo_root, policy, changes, requested_scope=None):
-        return plan_tests(repo_root, policy, changes, requested_scope)
+    def plan(self, repo_root, policy, changes, requested_scope=None, symbols=None, closure=None):
+        return plan_tests(repo_root, policy, changes, requested_scope, symbols, closure)
 
     # ---- Contract-bound test names (TG7) ----
 
@@ -373,7 +380,256 @@ class TestPlanner(unittest.TestCase):
         r1 = self.plan('/repo', mp, {'x/a.py': 'modified'})
         r2 = self.plan('/repo', mp, {'x/a.py': 'modified'})
         self.assertEqual(r1.plan_hash, r2.plan_hash,
-                         f"Non-deterministic: {r1.plan_hash} != {r2.plan_hash}")
+                          f"Non-deterministic: {r1.plan_hash} != {r2.plan_hash}")
+
+    # ---- Additional tests for symbol/file narrowing (symbols+closure args) ----
+
+    def test_symbol_scope_with_safe_closure_and_mapped_symbols(self):
+        """Symbol-level scope: safe closure + mapped symbols + no triggers -> symbol."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("from x import foo\n")
+            (tests_dir / "test_b.py").write_text("from x import bar\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\ndef bar(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py', 'tests/test_b.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=[],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            r = self.plan(
+                tmpdir, mp,
+                {'x/a.py': 'modified'},
+                symbols={'x/a.py': {'foo'}},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertEqual(r.resolved_scope, 'symbol',
+                              f"Expected 'symbol', got '{r.resolved_scope}'")
+
+    def test_file_scope_when_condition_c_fails(self):
+        """Symbol unmapped but closure safe + classified file -> file scope, not symbol."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("import x\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=[],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            # 'nonexistent' not in symbol_to_tests -> condition (c) fails -> file scope
+            r = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': {'nonexistent_symbol'}},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertEqual(r.resolved_scope, 'file',
+                              f"Expected 'file', got '{r.resolved_scope}'")
+
+    def test_symbol_resolution_with_safe_closure_unmapped_symbol_escalates(self):
+        """Symbol resolution with safe closure and unmapped symbol -> scope escalates above symbol."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("import x\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=['tests/smoke.py'],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            r = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': {'nonexistent'}},
+                closure=MockClosure(is_safe=True),
+            )
+            # Should NOT be symbol scope since 'nonexistent' is unmapped
+            self.assertNotEqual(r.resolved_scope, 'symbol')
+            # Should have smoke tests
+            self.assertIn('tests/smoke.py', r.selected_tests)
+
+    def test_file_resolution_with_no_symbol_data_but_classified_file(self):
+        """File resolution with no symbol data but classified file -> file scope."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("import x\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=[],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            # Empty symbols set for the path -> condition (a) fails -> file scope
+            r = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': set()},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertEqual(r.resolved_scope, 'file',
+                              f"Expected 'file', got '{r.resolved_scope}'")
+
+    def test_smoke_tests_present_at_symbol_scope(self):
+        """Smoke tests are included even at symbol scope."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("from x import foo\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=['tests/smoke.py'],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            r = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': {'foo'}},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertEqual(r.resolved_scope, 'symbol')
+            self.assertIn('tests/smoke.py', r.selected_tests,
+                           f"Smoke test missing at symbol scope: {r.selected_tests}")
+
+    def test_monotonicity_adding_more_classified_files_doesnt_narrow(self):
+        """Monotonicity: adding more classified files doesn't narrow scope."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("from x import foo\nfrom y import bar\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\n")
+            Path(tmpdir, "y.py").write_text("def bar(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py'], 'y': ['y/*.py']},
+                test_mappings={'x': ['tests/test_a.py'], 'y': ['tests/test_a.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=[],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            r_single = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': {'foo'}},
+                closure=MockClosure(is_safe=True),
+            )
+            r_dual = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified', 'y.py': 'modified'},
+                symbols={'x.py': {'foo'}, 'y.py': {'bar'}},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertGreaterEqual(
+                _scope_index(r_dual.resolved_scope),
+                _scope_index(r_single.resolved_scope),
+            )
+
+    def test_escalation_reason_names_blocker_when_narrowing_refused(self):
+        """The escalation_reason names the blocker when narrowing is refused."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("from x import foo\n")
+            Path(tmpdir, "x.py").write_text("def foo(): pass\n")
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=[],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            r = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': {'nonexistent'}},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertIn('nonexistent', r.escalation_reason,
+                           f"escalation_reason should mention blocker: {r.escalation_reason}")
+
+    def test_symbol_scope_with_coverage_data_included(self):
+        """Symbol-level scope with coverage data included should work correctly."""
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tests_dir = Path(tmpdir, "tests")
+            tests_dir.mkdir()
+            (tests_dir / "test_a.py").write_text("from x import foo\n")
+            (tests_dir / "test_b.py").write_text("from x import bar\n")
+            (tests_dir / "test_c.py").write_text("from x import baz\n")
+            Path(tmpdir, "x.py").write_text(
+                "def foo(): pass\ndef bar(): pass\ndef baz(): pass\n"
+            )
+            mp = MockPolicy(
+                components={'x': ['x/*.py']},
+                test_mappings={'x': ['tests/test_a.py', 'tests/test_b.py', 'tests/test_c.py']},
+                component_dependencies={},
+                mandatory_smoke_tests=[],
+                high_fanout_files=[],
+                full_regression_triggers=[],
+                policy_hash='',
+            )
+            # Only 'foo' and 'bar' are changed
+            r = self.plan(
+                tmpdir, mp,
+                {'x.py': 'modified'},
+                symbols={'x.py': {'foo', 'bar'}},
+                closure=MockClosure(is_safe=True),
+            )
+            self.assertEqual(r.resolved_scope, 'symbol',
+                              f"Expected 'symbol', got '{r.resolved_scope}'")
+            # Should include tests for foo and bar but not baz
+            self.assertIn('tests/test_a.py', r.selected_tests)
+            self.assertIn('tests/test_b.py', r.selected_tests)
 
 
 if __name__ == '__main__':
