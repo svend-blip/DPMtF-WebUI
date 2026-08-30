@@ -44,173 +44,21 @@ router = APIRouter(tags=["panels"])
 
 # ── Panel data constants (moved verbatim from app.py) ────────────────
 
-# Allowed classifications (panel classification endpoint)
-ALLOWED_CLASSIFICATIONS = ["unknown", "starter", "advanced",
-                            "project_specific", "debug", "skip"]
-
 # Valid user panel groups + states (user-panel-groups endpoints)
-VALID_PANEL_GROUPS = {"daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator"}
+VALID_PANEL_GROUPS = {"daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator", "experimental"}
 VALID_PANEL_STATES = {"expanded", "collapsed"}
 
 
 # ── Endpoints ────────────────
-
-
-@router.get("/api/panels")
-async def get_panels():
-    conn = sqlite3.connect(get_db_path())
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT fp.id, fp.source_file, fp.panel_key, fp.panel_title, fp.html_id, fp.sort_order, fp.raw_opening_tag,
-               pc.classification
-        FROM frontend_panels fp
-        LEFT JOIN panel_classifications pc ON fp.id = pc.panel_id
-        ORDER BY fp.sort_order
-    """)
-
-    panels = []
-    for row in cursor.fetchall():
-        panels.append({
-            "id": row[0],
-            "source_file": row[1],
-            "panel_key": row[2],
-            "panel_title": row[3],
-            "html_id": row[4],
-            "sort_order": row[5],
-            "raw_opening_tag": row[6],
-            "classification": row[7]
-        })
-
-    conn.close()
-    return {"panels": panels}
-
-
-@router.post("/api/panels/{panel_id}/classification")
-async def update_panel_classification(panel_id: int, classification_data: dict):
-    # Validate classification
-    classification = classification_data.get("classification")
-    if classification not in ALLOWED_CLASSIFICATIONS:
-        raise HTTPException(status_code=400, detail="Invalid classification value")
-
-    # Connect to database
-    conn = sqlite3.connect(get_db_path())
-    cursor = conn.cursor()
-
-    # Check if panel exists
-    cursor.execute("SELECT id FROM frontend_panels WHERE id = ?", (panel_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Panel not found")
-
-    # Update or insert classification
-    cursor.execute("SELECT id FROM panel_classifications WHERE panel_id = ?", (panel_id,))
-    existing = cursor.fetchone()
-
-    if existing:
-        # Update existing classification
-        cursor.execute("""
-            UPDATE panel_classifications
-            SET classification = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE panel_id = ?
-        """, (classification, panel_id))
-    else:
-        # Insert new classification
-        cursor.execute("""
-            INSERT INTO panel_classifications (panel_id, classification)
-            VALUES (?, ?)
-        """, (panel_id, classification))
-
-    conn.commit()
-    conn.close()
-
-    return {
-        "status": "success",
-        "panel_id": panel_id,
-        "classification": classification
-    }
-
-
-@router.get("/api/app-profiles/{profile_id}/panels")
-async def get_profile_panels(profile_id: int):
-    conn = sqlite3.connect(get_db_path())
-    cursor = conn.cursor()
-
-    # Check if profile exists
-    cursor.execute("SELECT id FROM app_profiles WHERE id = ?", (profile_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Profile not found")
-
-    cursor.execute("""
-        SELECT fp.id, fp.panel_key, fp.panel_title, fp.html_id,
-               app_profile_panels.id IS NOT NULL as included
-        FROM frontend_panels fp
-        LEFT JOIN app_profile_panels ON fp.id = app_profile_panels.panel_id AND app_profile_panels.profile_id = ?
-        ORDER BY fp.sort_order
-    """, (profile_id,))
-
-    panels = []
-    for row in cursor.fetchall():
-        panels.append({
-            "id": row[0],
-            "panel_key": row[1],
-            "panel_title": row[2],
-            "html_id": row[3],
-            "included": bool(row[4])
-        })
-
-    conn.close()
-    return {"panels": panels}
-
-
-@router.post("/api/app-profiles/{profile_id}/panels/{panel_id}")
-async def update_profile_panel_membership(profile_id: int, panel_id: int, membership_data: dict):
-    # Validate membership_data
-    include = membership_data.get("include")
-    if include is None:
-        raise HTTPException(status_code=400, detail="Include parameter is required")
-
-    conn = sqlite3.connect(get_db_path())
-    cursor = conn.cursor()
-
-    # Check if profile exists
-    cursor.execute("SELECT id FROM app_profiles WHERE id = ?", (profile_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Profile not found")
-
-    # Check if panel exists
-    cursor.execute("SELECT id FROM frontend_panels WHERE id = ?", (panel_id,))
-    if not cursor.fetchone():
-        conn.close()
-        raise HTTPException(status_code=404, detail="Panel not found")
-
-    # Update or insert membership
-    cursor.execute("SELECT id FROM app_profile_panels WHERE profile_id = ? AND panel_id = ?", (profile_id, panel_id))
-    existing = cursor.fetchone()
-
-    if include:
-        if not existing:
-            # Insert new membership
-            cursor.execute("""
-                INSERT INTO app_profile_panels (profile_id, panel_id)
-                VALUES (?, ?)
-            """, (profile_id, panel_id))
-    else:
-        if existing:
-            # Delete existing membership
-            cursor.execute("DELETE FROM app_profile_panels WHERE profile_id = ? AND panel_id = ?", (profile_id, panel_id))
-
-    conn.commit()
-    conn.close()
-
-    return {
-        "status": "success",
-        "profile_id": profile_id,
-        "panel_id": panel_id,
-        "included": include
-    }
+#
+# The panel-classification subsystem (GET /api/panels, POST
+# /api/panels/{id}/classification, GET/POST /api/app-profiles/{id}/panels)
+# was removed 2026-08-30: frontend_panels and panel_classifications have
+# been empty since the subsystem was scaffolded, and nothing in static/,
+# templates/, or mcp-light ever called the endpoints. The tables stay
+# (DB-safety rule — no destructive schema changes for dead code); the
+# reusable-panel-selections and v2-panel-requirements registries below hold
+# real rows and remain served.
 
 
 @router.get("/api/user-panel-groups")
@@ -405,7 +253,7 @@ async def get_panel_structure(locale: str = "en-US"):
     )
     subgroup_states = {r["group_name"]: r["state"] for r in cursor.fetchall()}
 
-    group_names = ["daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator"]
+    group_names = ["daily", "journals", "reports", "periodic", "setup", "job-queue", "allocator", "experimental"]
     result = {}
     title_field = "title_da" if locale == "da-DK" else "title_en"
 

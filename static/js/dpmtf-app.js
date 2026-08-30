@@ -71,7 +71,6 @@ function switchLanguage(newLocale) {
       });
       // Genindlæs alle panels med nye labels
       if (typeof loadDbStatus === "function") loadDbStatus();
-      if (typeof loadProjectPlans === "function") loadProjectPlans();
       if (typeof loadBridgeSetup === "function") loadBridgeSetup();
     })
     .catch(function (err) {
@@ -129,7 +128,7 @@ function loadPanelStructure() {
 }
 
 function buildPanelStructure() {
-  var groupNames = ["daily", "journals", "reports", "periodic", "setup", "job-queue"];
+  var groupNames = ["daily", "journals", "reports", "periodic", "setup", "job-queue", "experimental"];
   for (var i = 0; i < groupNames.length; i++) {
     var gn = groupNames[i];
     var pg = document.getElementById("pg-" + gn);
@@ -2110,13 +2109,13 @@ function renderRoleCard(role, refresh, container) {
   header.appendChild(badge);
   card.appendChild(header);
 
-  // Fields in aggregated order (top-down = how the command is built)
-  var targetProject = getTargetProject();
+  // Fields in aggregated order (top-down = how the command is built).
+  // Target project is deliberately NOT here: it is a flow field
+  // (bridge_flows.target_project_path), shown on each flow card — showing
+  // the Prompt Compiler preference on a role card misread as role state.
   var fields = [
     // 1. tmux_session — first part of aggregated command
     [lbl("lbl_bridge_tmux_session", "Tmux Session"), role.tmux_session],
-    // 2. target_project — read-only, from Prompt Compiler
-    [lbl("lbl_compiler_target_project", "Target Project"), targetProject || "(not set)"],
     // Model Allocator info
     [lbl("lbl_bridge_default_model_source", "Model Source"), role.default_model_source],
     [lbl("lbl_bridge_default_model_alias", "Model Alias"), role.default_model_alias],
@@ -2214,22 +2213,34 @@ function loadBridgeFlows() {
   if (!container) return;
   clear(container);
 
+  // Experimental flows (ui_category, migration 088) render in their own
+  // panel under the Experimental group; everything else stays in Flows.
+  var expContainer = document.getElementById("bridge-expflows-list-container");
+  if (expContainer) clear(expContainer);
+
   fetch("/api/bridge-v2/flows")
     .then(function (res) { return res.json(); })
     .then(function (data) {
       var flows = data.flows || [];
-      if (!flows.length) {
+      var standard = flows.filter(function (f) { return f.ui_category !== "experimental"; });
+      var experimental = flows.filter(function (f) { return f.ui_category === "experimental"; });
+
+      if (!standard.length) {
         container.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_flows", "No flows configured")));
-        return;
       }
+      if (expContainer && !experimental.length) {
+        expContainer.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_no_expflows", "No experimental flows")));
+      }
+
       flows.forEach(function (flow) {
+        var target = (flow.ui_category === "experimental" && expContainer) ? expContainer : container;
         fetch("/api/bridge-v2/flows/" + encodeURIComponent(flow.flow_key))
           .then(function (res) { return res.json(); })
           .then(function (fd) {
-            container.appendChild(renderFlowCard(fd.flow, fd.steps || []));
+            target.appendChild(renderFlowCard(fd.flow, fd.steps || []));
           })
           .catch(function () {
-            container.appendChild(renderFlowCard(flow, []));
+            target.appendChild(renderFlowCard(flow, []));
           });
       });
     })
@@ -3122,17 +3133,17 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
       );
       form.appendChild(editHarnessControl.container);
 
-      // H160: Target Project (read-only, from Prompt Compiler)
+      // Target project is a FLOW field (bridge_flows.target_project_path),
+      // not a role field — a role can run in several flows, each with its
+      // own target. This block used to show the Prompt Compiler's user
+      // preference here, which read as an uneditable role setting and had
+      // no effect on dispatch.
       var tpDiv = el("div", "dpmtf-form-group");
-      tpDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_compiler_target_project", "Target Project")));
-      var tpDisplay = el("div", null);
-      tpDisplay.style.padding = "8px";
-      tpDisplay.style.background = "#161b22";
-      tpDisplay.style.borderRadius = "4px";
-      tpDisplay.style.fontFamily = "monospace";
-      tpDisplay.style.fontSize = "12px";
-      tpDisplay.textContent = getTargetProject() || "(not set)";
-      tpDiv.appendChild(tpDisplay);
+      tpDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_role_flow_target", "Target Project (set on the flow)")));
+      tpDiv.appendChild(el("p", "dpmtf-muted",
+        lbl("lbl_bridge_role_flow_target_help",
+          "Each flow decides the repository its roles work in — edit Target Project Path on the flow. This role's workdir_mode decides whether it works there or in this project.")));
       form.appendChild(tpDiv);
 
       var host = formContainer || document.getElementById("bridge-roles-list-container");
@@ -3214,6 +3225,9 @@ function editBridgeFlowFull(flowKey) {
 
         var imSelect = document.getElementById("bridge-edit-input-implementation_mode");
         if (imSelect) body.implementation_mode = imSelect.value;
+
+        var ucSelect = document.getElementById("bridge-edit-input-ui_category");
+        if (ucSelect) body.ui_category = ucSelect.value;
 
         fetch("/api/bridge-v2/flows/" + encodeURIComponent(flowKey), {
           method: "PUT",
@@ -3304,6 +3318,23 @@ function editBridgeFlowFull(flowKey) {
         "Empty = flow key is the root");
       arDiv.appendChild(arInput);
       form.appendChild(arDiv);
+
+      // ui_category — which flows panel the card renders in (migration 088).
+      var ucDiv = el("div", "dpmtf-form-group");
+      ucDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_ui_category", "UI category")));
+      var ucSelect = el("select", null);
+      ucSelect.id = "bridge-edit-input-ui_category";
+      [["standard", lbl("lbl_bridge_ui_category_standard", "Standard")],
+       ["experimental", lbl("lbl_bridge_ui_category_experimental", "Experimental")]
+      ].forEach(function (pair) {
+        var opt = el("option", null, pair[1]);
+        opt.value = pair[0];
+        if ((flow.ui_category || "standard") === pair[0]) opt.selected = true;
+        ucSelect.appendChild(opt);
+      });
+      ucDiv.appendChild(ucSelect);
+      form.appendChild(ucDiv);
 
       // implementation_mode — Deterministic Patcher opt-in at flow level.
       // Inherit (NULL) falls through to the global default 'direct'; the

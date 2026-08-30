@@ -51,10 +51,14 @@ Reason: <why frontend is not affected>
 ### Panel Groups (Fixed)
 
 ```
-Daily → Journals → Reports → Periodic → Setup
+Daily → Journals → Reports → Periodic → Setup → Job Queue → Experimental
 ```
 
 Panel groups are fixed. Never add new groups without Human approval.
+Experimental was added by Human decision 2026-08-30 (see 25_DECISIONS.md):
+it is always the LAST group and holds panels whose everyday value is
+unproven. Empty groups (Journals, Reports, Periodic) are hidden via
+`user_panel_groups.is_visible = 0` until they gain content.
 
 ### Subgroups (Database-Driven)
 

@@ -82,3 +82,30 @@ forbidden, and remains open.
 
 **References:** [[04_REVIEW]], [[03_IMPLEMENTOR]], [[500_SUPERVISOR]],
 llama_SG run 002 END-REPORT.
+
+### [2026-08-30] — Experimental panel group + flow UI categories (Father UI)
+
+**Decision:** A sixth top-level panel group, **Experimental**, is added as the
+LAST section of the Father UI. Prompt Templates moves Daily → Experimental;
+Flows moves Periodic → Daily; a new Experimental Flows panel under
+Experimental shows flows with `bridge_flows.ui_category = 'experimental'`
+(the trade cockpit flows), and the category is editable per flow in the flow
+edit form. Empty groups (Journals, Reports, and Periodic once Flows left it)
+are hidden via `user_panel_groups.is_visible = 0` until they gain content.
+
+**Rationale:** After a long development run the UI mixed proven daily panels
+with half-built and atypical ones. Human directed (2026-08-30 alignment
+task): everyday overviews belong in Daily; anything of unproven everyday
+value belongs in an explicit Experimental group; trade flows are atypical
+and must not mix with the ordinary flows list; empty shells must not render.
+
+**Consequences:** 30_FRONTEND_GOVERNANCE.md's fixed group list now ends with
+Experimental. New panels of unproven value go to Experimental first and are
+promoted out of it by Human decision. Flow panel membership is data
+(`ui_category`), not code. Migrations 087 + 088 carry the change; the seeds
+in scripts/init_db.py mirror it.
+
+**Made by:** Human (2026-08-30), applied by the assisting session.
+
+**References:** [[30_FRONTEND_GOVERNANCE]], scripts/db/087_experimental_group.sql,
+scripts/db/088_flow_ui_category.sql.

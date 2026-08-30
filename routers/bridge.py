@@ -943,11 +943,26 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
         root = (data["artifact_root"] or "").strip()
         data["artifact_root"] = root or None
 
+    # ui_category (migration 088): which flows panel the card renders in.
+    if "ui_category" in data:
+        category = (data["ui_category"] or "").strip()
+        if category not in ("standard", "experimental"):
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid ui_category '{category}'. "
+                    f"Allowed: 'standard', 'experimental'."
+                ),
+            )
+        data["ui_category"] = category
+
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
         "auto_complete_enabled", "use_machine_profile", "target_project_path",
         "artifact_root",
         "implementation_mode",
+        "ui_category",
     ]
     sets = []
     params = []

@@ -2595,10 +2595,14 @@ panel_subgroups_seed = [
     ("sg_periodic_phase", "periodic", "Fase", "Phase", 1, 1),
     ("sg_periodic_planning", "periodic", "Planlægning", "Planning", 2, 1),
     ("sg_periodic_existing", "periodic", "Eksisterende Projekter", "Existing Projects", 3, 1),
-    # Flows lives under Periodic (Human decision 2026-08-14); the key keeps
-    # its historical sg_setup_ prefix because user_panel_groups state rows
-    # and mappings reference it — renaming would orphan them.
-    ("sg_setup_flows", "periodic", "Flows", "Flows", 4, 1),
+    # Flows lives under Daily (Human decision 2026-08-30, migration 087) —
+    # it is the everyday overview. The key keeps its historical sg_setup_
+    # prefix because user_panel_groups state rows and mappings reference
+    # it — renaming would orphan them.
+    ("sg_setup_flows", "daily", "Flows", "Flows", 1, 1),
+    # Experimental subgroups (migration 087): unproven everyday value.
+    ("sg_experimental_templates", "experimental", "Prompt-skabeloner", "Prompt Templates", 1, 1),
+    ("sg_experimental_flows", "experimental", "Eksperimentelle flows", "Experimental Flows", 2, 1),
     # Setup subgroups
     ("sg_setup_steps", "setup", "Trin", "Steps", 2, 1),
     ("sg_setup_roles", "setup", "Roller", "Roles", 3, 1),
@@ -2618,6 +2622,9 @@ for sg in panel_subgroups_seed:
 panel_subgroup_mappings_seed = [
     ("lbl_panel_phase_status", "sg_periodic_phase"),
     ("lbl_panel_project_planning", "sg_periodic_planning"),
+    # Experimental mappings (migration 087)
+    ("lbl_panel_templates", "sg_experimental_templates"),
+    ("lbl_bridge_expflows_title", "sg_experimental_flows"),
     # Setup mappings
     ("lbl_bridge_flows_title", "sg_setup_flows"),
     ("lbl_bridge_steps_title", "sg_setup_steps"),
@@ -2633,10 +2640,24 @@ for slot, sg in panel_subgroup_mappings_seed:
         VALUES (?, ?)
     """, (slot, sg))
 
-# Sæt Journals is_visible = 0 (skjul Journals panel-group)
+# Empty panel groups stay hidden until they gain content (migration 087,
+# Human decision 2026-08-30): Journals and Reports are empty shells, and
+# Periodic emptied when Flows moved to Daily. Experimental is visible.
 cursor.execute("""
     INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
     VALUES ('default', 'journals', 'expanded', 0, datetime('now'))
+""")
+cursor.execute("""
+    INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
+    VALUES ('default', 'reports', 'collapsed', 0, datetime('now'))
+""")
+cursor.execute("""
+    INSERT OR REPLACE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
+    VALUES ('default', 'periodic', 'collapsed', 0, datetime('now'))
+""")
+cursor.execute("""
+    INSERT OR IGNORE INTO user_panel_groups (user_id, group_name, state, is_visible, updated_at)
+    VALUES ('default', 'experimental', 'expanded', 1, datetime('now'))
 """)
 
 # ── i18n labels — subgroup titles (tilføjes til de eksisterende lists) ──

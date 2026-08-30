@@ -26,9 +26,13 @@
                 <span class="panel-group-toggle">▼</span>
             </div>
             <div class="panel-group-body">
-                <section id="template-manager-section">
-                    <h2 data-slot="lbl_panel_templates">Prompt Templates</h2>
-                    <div id="template-manager-content"></div>
+                <section id="bridge-flows-section">
+                  <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
+                  <div class="bridge-btn-row">
+                    <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
+                    <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">View Flows</button>
+                  </div>
+                  <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
                 </section>
             </div>
         </section>
@@ -60,14 +64,6 @@
                 <span class="panel-group-toggle">▼</span>
             </div>
             <div class="panel-group-body">
-                <section id="bridge-flows-section">
-                  <h3 data-slot="lbl_bridge_flows_title">Flows</h3>
-                  <div class="bridge-btn-row">
-                    <button id="bridge-add-flow-btn" type="button" data-slot="lbl_bridge_flow_add">Add Flow</button>
-                    <button id="bridge-export-flows-btn" type="button" data-slot="lbl_bridge_export_flows">View Flows</button>
-                  </div>
-                  <div id="bridge-flows-list-container" class="dpmtf-card-grid"></div>
-                </section>
             </div>
         </section>
 
@@ -188,6 +184,26 @@
             </div>
             <div class="panel-group-body">
                 <div id="job-queue-dashboard"></div>
+            </div>
+        </section>
+
+        <!-- Experimental — panels whose everyday value is unproven live here
+             (Human decision 2026-08-30). Deliberately the LAST group. -->
+        <section class="panel-group" id="pg-experimental">
+            <div class="panel-group-header" data-group="experimental">
+                <h2 data-slot="pg_experimental">🧪 Experimental</h2>
+                <span class="panel-group-toggle">▼</span>
+            </div>
+            <div class="panel-group-body">
+                <section id="template-manager-section">
+                    <h2 data-slot="lbl_panel_templates">Prompt Templates</h2>
+                    <div id="template-manager-content"></div>
+                </section>
+
+                <section id="bridge-expflows-section">
+                  <h3 data-slot="lbl_bridge_expflows_title">Experimental Flows</h3>
+                  <div id="bridge-expflows-list-container" class="dpmtf-card-grid"></div>
+                </section>
             </div>
         </section>
     </main>
