@@ -669,6 +669,12 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "default_harness_source", "default_harness_profile",  # Run 038 D1: harness fields
         "trade_mcp_push_mode", "max_output_tokens",  # Migration 004: runtime config
         "workdir_mode",  # Migration 023: coding-session working directory
+        # 2026-08-30 alignment: previously DB-only fields, now frontend-editable
+        # so allocator wiring is a UI action, not direct SQL.
+        "allocator_client",           # Migration 008: model-allocator client adapter
+        "execution_target",           # Migration 029: which machine runs the role
+        "fresh_session_command",      # Migration 009: session reset before injection
+        "codex_fresh_context_policy", # Migration 069: codex restart-based context release
     ]
     if "workdir_mode" in data and data["workdir_mode"] not in ("target_project", "father"):
         conn.close()
@@ -676,6 +682,18 @@ async def bridge_v2_update_role(role_key: str, request: Request):
             status_code=400,
             detail=f"workdir_mode must be 'target_project' or 'father', got {data['workdir_mode']!r}",
         )
+    if "codex_fresh_context_policy" in data:
+        policy = (data["codex_fresh_context_policy"] or "").strip()
+        if policy and policy not in ("off", "work_unit"):
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"codex_fresh_context_policy must be 'off', 'work_unit' "
+                    f"or empty for inherit, got {policy!r}"
+                ),
+            )
+        data["codex_fresh_context_policy"] = policy or None
     sets = []
     params = []
     for field in updatable:
@@ -1731,6 +1749,90 @@ async def bridge_v2_allocator_test(alias: str, client: str = "opencode"):
     except Exception as exc:
         return {"validation_status": "ERROR",
                 "errors": [str(exc)]}
+
+
+@router.get("/allocator-aliases")
+async def bridge_v2_allocator_aliases():
+    """Alias vocabulary for the model-alias pickers.
+
+    Thin proxy over `model-allocator list` (JSON), so the role and step
+    editors can offer the aliases that actually exist instead of a blank
+    text field. Free text stays possible in the UI — this is a datalist,
+    not a gate.
+    """
+    import json as _json
+    allocator_script = os.path.join(
+        config.get_project_path("model-allocator"),
+        "scripts", "model-allocator",
+    )
+    try:
+        result = subprocess.run(
+            [allocator_script, "list"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            raise HTTPException(
+                status_code=502,
+                detail=result.stderr.strip() or "model-allocator list failed",
+            )
+        rows = _json.loads(result.stdout)
+        return {"aliases": [
+            {"alias": r.get("alias"), "status": r.get("status"),
+             "backend": r.get("backend"), "real_model": r.get("real_model")}
+            for r in rows if r.get("alias")
+        ]}
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="model-allocator list timed out")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/harnesses")
+async def bridge_v2_harnesses():
+    """The harness roster, straight from the harness-allocator package.
+
+    Serves the vocabulary for the harness-source pickers: supported and
+    experimental harnesses with their LaunchSpec mode and launch owner
+    (native = harness-allocator builds the command, otherwise the
+    model-allocator client adapter launches). The roster is derived, never
+    duplicated here — harness-allocator is the single source of truth.
+    """
+    try:
+        import harness as harness_mod  # scripts/bridgeV002/harness.py (sys.path above)
+        ha = harness_mod._standalone()
+        from harness_allocator import capabilities, launchspec, definition
+
+        def _entry(key, tier):
+            try:
+                spec = launchspec.get_launch_spec(key) or {}
+            except Exception:
+                spec = {}
+            return {
+                "harness": key,
+                "tier": tier,
+                "mode": spec.get("mode"),
+                "launch_owner": ("harness_allocator" if definition.is_native(key)
+                                 else "model_allocator"),
+                "required_env": list(spec.get("required_env") or []),
+            }
+
+        return {"harnesses": (
+            [_entry(k, "supported") for k in capabilities.SUPPORTED_HARNESSES]
+            + [_entry(k, "experimental") for k in capabilities.EXPERIMENTAL_HARNESSES]
+        )}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"harness roster unavailable: {exc}")
+
+
+@router.get("/ui-links")
+async def bridge_v2_ui_links():
+    """Companion web UI URLs from config — ports are data, never hardcoded JS."""
+    return {
+        "allocator_web_url": config.get_allocator_web_url(),
+        "harness_web_url": config.get_harness_web_url(),
+    }
 
 
 @router.post("/export")

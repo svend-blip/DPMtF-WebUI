@@ -350,6 +350,61 @@ function legacyCopy(text) {
   return ok;
 }
 
+/* ── Allocator vocabularies (lazy, cached) ────────────
+   The pickers offer what actually exists — harnesses from the
+   harness-allocator roster, aliases from model-allocator — while the
+   inputs stay free text (datalist, not select): the vocabulary guides,
+   it does not gate. URLs come from config via /ui-links, never hardcoded. */
+var _uiLinksPromise = null;
+function fetchUiLinks() {
+  if (!_uiLinksPromise) {
+    _uiLinksPromise = fetch("/api/bridge-v2/ui-links")
+      .then(function (res) { return res.json(); })
+      .catch(function () { return {}; });
+  }
+  return _uiLinksPromise;
+}
+
+var _harnessRosterPromise = null;
+function fetchHarnessRoster() {
+  if (!_harnessRosterPromise) {
+    _harnessRosterPromise = fetch("/api/bridge-v2/harnesses")
+      .then(function (res) { return res.json(); })
+      .then(function (data) { return data.harnesses || []; })
+      .catch(function () { return []; });
+  }
+  return _harnessRosterPromise;
+}
+
+var _allocAliasesPromise = null;
+function fetchAllocatorAliases() {
+  if (!_allocAliasesPromise) {
+    _allocAliasesPromise = fetch("/api/bridge-v2/allocator-aliases")
+      .then(function (res) { return res.json(); })
+      .then(function (data) { return data.aliases || []; })
+      .catch(function () { return []; });
+  }
+  return _allocAliasesPromise;
+}
+
+/** Attach a shared <datalist> to an input. options = [{value, label}]. */
+function attachDatalist(input, listId, options) {
+  var list = document.getElementById(listId);
+  if (!list) {
+    list = document.createElement("datalist");
+    list.id = listId;
+    document.body.appendChild(list);
+  }
+  clear(list);
+  options.forEach(function (o) {
+    var opt = document.createElement("option");
+    opt.value = o.value;
+    if (o.label) opt.label = o.label;
+    list.appendChild(opt);
+  });
+  input.setAttribute("list", listId);
+}
+
 /**
  * Factory for a model_source + model_alias control pair.
  * Simplified: model_source is fixed (model_allocator or python_runtime),
@@ -376,7 +431,8 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   srcDiv.appendChild(srcSelect);
   container.appendChild(srcDiv);
 
-  // model_alias text input (no datalist — just type the alias name)
+  // model_alias input — datalist over the aliases model-allocator serves;
+  // free text stays possible (the vocabulary guides, it does not gate).
   var aliasDiv = el("div", "dpmtf-form-group");
   var aliasLabel = el("label", "dpmtf-label", lbl(labels.alias, "Model Alias"));
   aliasLabel.htmlFor = prefix + "-model-alias";
@@ -389,6 +445,11 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   aliasDiv.appendChild(aliasLabel);
   aliasDiv.appendChild(aliasInput);
   container.appendChild(aliasDiv);
+  fetchAllocatorAliases().then(function (aliases) {
+    attachDatalist(aliasInput, "dl-allocator-aliases", aliases.map(function (a) {
+      return { value: a.alias, label: (a.backend || "") + "/" + (a.real_model || "") };
+    }));
+  });
 
   // "Test OK" button — calls allocator CLI validate via a thin DPMtF proxy endpoint
   var testBtn = el("button", "dpmtf-btn");
@@ -397,14 +458,17 @@ function createModelSourceControl(prefix, sourceValue, aliasValue, clientValue, 
   testBtn.disabled = srcSelect.value !== "model_allocator";
   container.appendChild(testBtn);
 
-  // Link to allocator UI
+  // Link to allocator UI — URL comes from config via /ui-links (the old
+  // hardcoded value pointed at 9140, a port the UI left weeks ago).
   var linkDiv = el("div", "dpmtf-form-group");
   var link = document.createElement("a");
-  link.href = "http://localhost:9140";
   link.target = "_blank";
   link.rel = "noopener";
   link.textContent = lbl("lbl_model_manage_link", "Manage allocation models") + " →";
   link.style.fontSize = "0.8rem";
+  fetchUiLinks().then(function (links) {
+    if (links.allocator_web_url) link.href = links.allocator_web_url;
+  });
   linkDiv.appendChild(link);
   container.appendChild(linkDiv);
 
@@ -493,6 +557,21 @@ function createHarnessControl(prefix, sourceValue, profileValue, labels, stepLev
   srcInput.placeholder = "e.g. dsh";
   srcDiv.appendChild(srcLabel);
   srcDiv.appendChild(srcInput);
+  // Datalist over the harness-allocator roster (2026-08-30 alignment):
+  // the input stays free text, but the vocabulary is offered instead of
+  // remembered. Labels show LaunchSpec mode + who builds the launch.
+  fetchHarnessRoster().then(function (roster) {
+    attachDatalist(srcInput, "dl-harness-roster", roster.map(function (h) {
+      return {
+        value: h.harness,
+        label: (h.mode || "") + ", " + h.launch_owner +
+               (h.tier === "experimental" ? " (experimental)" : "")
+      };
+    }));
+  });
+  srcDiv.appendChild(el("p", "dpmtf-muted",
+    lbl("lbl_bridge_harness_source_help",
+      "Pick from the harness-allocator roster, or type another key.")));
   container.appendChild(srcDiv);
 
   // STEP-LEVEL ONLY — inherit checkbox
@@ -2945,6 +3024,18 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
         if (hsEl) body.default_harness_source = hsEl.value.trim() || null;
         if (hpEl) body.default_harness_profile = hpEl.value.trim() || null;
 
+        // 2026-08-30 alignment: allocator wiring fields
+        var acEl = document.getElementById("bridge-edit-input-allocator_client");
+        var etEl = document.getElementById("bridge-edit-input-execution_target");
+        var fsEl = document.getElementById("bridge-edit-input-fresh_session_command");
+        var cdEl = document.getElementById("bridge-edit-input-config_dir");
+        var cfpEl = document.getElementById("bridge-edit-input-codex_fresh_context_policy");
+        if (acEl) body.allocator_client = acEl.value.trim() || null;
+        if (etEl) body.execution_target = etEl.value.trim() || null;
+        if (fsEl) body.fresh_session_command = fsEl.value.trim() || null;
+        if (cdEl) body.config_dir = cdEl.value.trim() || null;
+        if (cfpEl) body.codex_fresh_context_policy = cfpEl.value || null;
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -3132,6 +3223,77 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
         false
       );
       form.appendChild(editHarnessControl.container);
+
+      // 2026-08-30 alignment: previously DB-only fields, now editable so
+      // allocator wiring is a UI action. Fields the UI still locks say why.
+      function addRoleTextField(id, labelKey, labelFallback, helpKey, helpFallback, value, placeholder) {
+        var div = el("div", "dpmtf-form-group");
+        div.appendChild(el("label", "dpmtf-label", lbl(labelKey, labelFallback)));
+        var input = el("input", null);
+        input.type = "text";
+        input.id = id;
+        input.value = value || "";
+        if (placeholder) input.placeholder = placeholder;
+        div.appendChild(input);
+        div.appendChild(el("p", "dpmtf-muted", lbl(helpKey, helpFallback)));
+        form.appendChild(div);
+        return input;
+      }
+
+      addRoleTextField("bridge-edit-input-allocator_client",
+        "lbl_bridge_allocator_client", "Allocator Client",
+        "lbl_bridge_allocator_client_help",
+        "Which client adapter model-allocator renders config for (e.g. opencode, claude-code). Must be allowed on the alias's Harness list in model-allocator.",
+        role.allocator_client, "e.g. opencode");
+
+      addRoleTextField("bridge-edit-input-execution_target",
+        "lbl_bridge_execution_target", "Execution Target",
+        "lbl_bridge_execution_target_help",
+        "Machine that runs this role. Empty = this machine (Father); a worker key routes execution to that LightWorker.",
+        role.execution_target, "e.g. svend3060");
+
+      addRoleTextField("bridge-edit-input-fresh_session_command",
+        "lbl_bridge_fresh_session_command", "Fresh Session Command",
+        "lbl_bridge_fresh_session_command_help",
+        "Command dispatch sends to reset the session before injecting a prompt (e.g. /new for OpenCode). Empty = the harness's default behavior.",
+        role.fresh_session_command, "e.g. /new");
+
+      addRoleTextField("bridge-edit-input-config_dir",
+        "lbl_bridge_config_dir", "Config Dir",
+        "lbl_bridge_config_dir_help",
+        "OpenCode config directory override (~/.config/opencode-roles/<dir>). Contract-bound: must match the role's entry in model-allocator roles.yaml, so it is edited together with that file — not casually.",
+        role.config_dir, "e.g. 1010-implementer");
+
+      // codex_fresh_context_policy — shown only while the harness source is
+      // codex (field-combination-driven visibility): codex is the only
+      // harness whose context release is restart-based.
+      var cfpDiv = el("div", "dpmtf-form-group");
+      cfpDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_codex_fresh_policy", "Codex Fresh-Context Policy")));
+      var cfpSelect = el("select", null);
+      cfpSelect.id = "bridge-edit-input-codex_fresh_context_policy";
+      [["", lbl("lbl_bridge_model_source_default", "Default / inherit")],
+       ["off", "off"], ["work_unit", "work_unit"]].forEach(function (pair) {
+        var opt = el("option", null, pair[1]);
+        opt.value = pair[0];
+        if ((role.codex_fresh_context_policy || "") === pair[0]) opt.selected = true;
+        cfpSelect.appendChild(opt);
+      });
+      cfpDiv.appendChild(cfpSelect);
+      cfpDiv.appendChild(el("p", "dpmtf-muted",
+        lbl("lbl_bridge_codex_fresh_policy_help",
+          "codex only: work_unit restarts the harness between work units to release context (codex has no in-session reset); off keeps the session. Empty = inherit the global setting.")));
+      form.appendChild(cfpDiv);
+      // The form is still detached here, so resolve the harness input
+      // inside the control's own container — not via document.
+      var hsInputForSync = editHarnessControl.container.querySelector(
+        "#bridge-edit-role-harness-source");
+      function syncCodexPolicyVisibility() {
+        var isCodex = hsInputForSync && hsInputForSync.value.trim() === "codex";
+        cfpDiv.hidden = !isCodex && !(role.codex_fresh_context_policy);
+      }
+      if (hsInputForSync) hsInputForSync.addEventListener("input", syncCodexPolicyVisibility);
+      syncCodexPolicyVisibility();
 
       // Target project is a FLOW field (bridge_flows.target_project_path),
       // not a role field — a role can run in several flows, each with its

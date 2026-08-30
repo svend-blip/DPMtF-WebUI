@@ -252,6 +252,16 @@ def get_default_locale() -> str:
     """Default locale for i18n."""
     return _config.get("app", "default_locale", fallback="en-US")
 
+def get_allocator_web_url() -> str:
+    """Model Allocator web UI base URL (companion app, port 9141)."""
+    return _config.get("integration", "allocator_web_url",
+                       fallback="http://localhost:9141")
+
+def get_harness_web_url() -> str:
+    """Harness Allocator web UI base URL (companion app, port 9142)."""
+    return _config.get("integration", "harness_web_url",
+                       fallback="http://localhost:9142")
+
 def get_log_dir() -> str:
     """Log directory (relative to project root)."""
     return _config.get("paths", "log_dir", fallback="logs")
