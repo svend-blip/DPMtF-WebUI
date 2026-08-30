@@ -39,3 +39,9 @@ databases/*.db-wal
 # before this line existed.
 father-uvicorn.log
 *.log
+
+# Stray SQLite files from misresolved bridge paths (all observed empty, 2026-08-29)
+/bridge.db
+/flows.db
+scripts/bridgeV002/bridge.db
+databases/bridge/
