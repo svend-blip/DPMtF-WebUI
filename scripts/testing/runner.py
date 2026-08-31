@@ -88,15 +88,13 @@ def _collect_tests(
     ]
     rc, stdout, stderr = _run_command(cmd, repo_root)
     combined = stdout + stderr
-    if rc != 5 and "error" in combined.lower():
-        return False, combined
-    if rc == 5:
-        # pytest --collect-only returns 5 when no tests collected
-        # Check if tests were actually found
-        if "no tests" in combined.lower() or "no tests collected" in combined.lower():
-            return False, combined
-    # rc == 0 or rc == 4 (some tests collected but nothing to run) with no error text
-    return True, ""
+    # The exit code is the measurement. A substring scan of the output is
+    # not: a test NAMED test_..._error is a legitimate collected item, not
+    # a collection failure. pytest returns 0 on successful collection, 5
+    # when nothing was collected, 2 on collection errors.
+    if rc == 0:
+        return True, ""
+    return False, combined
 
 
 # ---------------------------------------------------------------------------

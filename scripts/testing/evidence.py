@@ -83,15 +83,33 @@ _TYPE_MAP: Dict[str, type] = {
 }
 
 
+# Documented additive fields (Run 014): present only when the runner adds
+# them, never part of the 22-key core schema, and nothing downstream may
+# require them.
+_ADDITIVE_KEYS: Dict[str, type] = {
+    "parallel_executed": bool,
+    "parallel_workers": int,
+}
+
+
 def _validate_evidence(record: Dict[str, Any]) -> None:
     """Validate that a record contains all required keys with correct types.
 
+    The 22-key core schema is exact; Run 014's documented additive keys
+    are permitted on top, and any other extra key is still an error.
+
     Raises EvidenceError if validation fails.
     """
-    if len(record) != 22:
+    core_count = sum(1 for k in record if k not in _ADDITIVE_KEYS)
+    if core_count != 22:
         raise EvidenceError(
-            f"Evidence must have exactly 22 keys, got {len(record)}"
+            f"Evidence must have exactly 22 keys (excluding additive), got {core_count}"
         )
+    for key, expected_type in _ADDITIVE_KEYS.items():
+        if key in record and not isinstance(record[key], expected_type):
+            raise EvidenceError(
+                f"Additive key '{key}' must be {expected_type.__name__}"
+            )
 
     for key in REQUIRED_KEYS:
         if key not in record:

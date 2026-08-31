@@ -7,6 +7,7 @@ Never touches the DPMtF-WebUI working tree.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -277,3 +278,45 @@ class TestRunPlanPolicy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCollectMeasuresExitCodeNotSubstrings(unittest.TestCase):
+    """A selected test whose NAME contains 'error' must be collectable.
+
+    Regression guard for the 2026-08-31 defect: _collect_tests scanned
+    the collect output for the substring 'error' and rejected any
+    selection containing a legitimately named test such as
+    test_returns_dispatch_error. The exit code is the measurement.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        _init_repo(self.tmpdir)
+        _write_pytest_test(
+            self.tmpdir,
+            "test_named_error.py",
+            "def test_returns_dispatch_error():\n    assert True\n",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_a_test_named_error_is_collectable_and_runs(self):
+        plan = _make_plan(
+            is_exhaustive=False,
+            selected_tests=["test_named_error.py"],
+            resolved_scope="component",
+        )
+        policy = _make_policy()
+        evidence = run_plan(self.tmpdir, plan, policy, timeout=60)
+        self.assertEqual(evidence["status"], "PASS")
+
+    def test_an_unloadable_selection_still_fails_closed(self):
+        plan = _make_plan(
+            is_exhaustive=False,
+            selected_tests=["test_does_not_exist.py"],
+            resolved_scope="component",
+        )
+        policy = _make_policy()
+        evidence = run_plan(self.tmpdir, plan, policy, timeout=60)
+        self.assertEqual(evidence["status"], "ERROR")
