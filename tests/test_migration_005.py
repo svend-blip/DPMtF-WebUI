@@ -38,6 +38,15 @@ EXCLUDED_ROLES = ["human", "humancloud", "humanpay", "humantrade"]
 # allocator_client and model identity in default_model_alias.
 HARNESS_ROLES = ["super-deep-deep4", "imple-codex-minimaxM3"]
 
+# dsh-harness roles (2026-08-31): the harness owns model identity
+# end-to-end — launched via harness_terminal.py, no allocator alias at
+# all. An empty default_model_alias is the correct state for these.
+HARNESS_OWNS_MODEL_ROLES = [
+    "1000-escalation-supervisor",
+    "1010-escalation-supervisor",
+    "9000-escalation-supervisor",
+]
+
 
 def test_migration_005_all_nonhuman_roles_use_allocator():
     """Every non-human, non-excluded role must use model_allocator."""
@@ -54,6 +63,11 @@ def test_migration_005_all_nonhuman_roles_use_allocator():
             assert not model_source, f"Human role '{role_key}' has model_source set"
             continue
         if role_key in EXCLUDED_ROLES:
+            continue
+        if role_key in HARNESS_OWNS_MODEL_ROLES:
+            assert model_source == "harness_provider", (
+                f"dsh role '{role_key}' has model_source='{model_source}', "
+                f"expected 'harness_provider'")
             continue
         if role_key in HARNESS_ROLES:
             assert model_source in ("harness", "harness_provider"), (

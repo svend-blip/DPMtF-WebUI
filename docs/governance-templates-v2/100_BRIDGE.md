@@ -405,7 +405,7 @@ Each convention defines:
 7. **trace.log is append-only** — never edit existing entries.
 
    **And it is FLOW-WIDE, while the id counter is not.** Rule 6 says handoff
-   ids are unique *per flow*; `/home/svend/flows/trace.log` holds every flow.
+   ids are unique *per flow*; `{bridge_dir}/trace.log` holds every flow.
    A handoff id is therefore **not a key**. Anything that measures a run's
    traffic — a testgoal, a supervisor's state report, a duplicate check —
    must match on **flow AND id**, and a run's contract must state its first

@@ -195,7 +195,9 @@ def test_nudge_fires_for_stalled_step(tmp_path, monkeypatch):
     calls = _run_advance(sched, _job(), base, monkeypatch)
     assert len(calls) == 1
     cmd = calls[0]
-    assert "--signal-complete" in cmd
+    # Run 034 D3: the nudge is a broker enqueue with an --action value,
+    # not a direct dispatch --signal-complete flag.
+    assert cmd[cmd.index("--action") + 1] == "signal-complete"
     assert cmd[cmd.index("--from-role") + 1] == "imple01"
     assert cmd[cmd.index("--id") + 1] == "42"
 

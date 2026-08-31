@@ -28,10 +28,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 DOC_PATH = PROJECT_ROOT / "README.md"
 
+# The canonical README standard (9618890) nests the content sections
+# under Overview/Architecture as H3 — the anchors follow the structure,
+# the bound CONTENT is unchanged.
 REQUIRED_ANCHORS = (
-    "## Place in the DPMtF Ecosystem",
-    "## The Three-Layer Bridge",
-    "## Flow Types",
+    "### Place in the DPMtF Ecosystem",
+    "### The Three-Layer Bridge",
+    "### Flow Types",
     "## Runtime Services",
     "## Validation",
 )

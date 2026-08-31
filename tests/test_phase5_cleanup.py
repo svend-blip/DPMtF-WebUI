@@ -208,26 +208,39 @@ def test_snapshot_canonical_byte_length_matches_recorded():
     )
 
 def test_snapshot_recomputed_equals_recorded():
-    """Recomputing the resolution snapshot from the live DB yields the
-    same 46-entry mapping as the pre-068 baseline. Step-level shadows
-    role-level everywhere it matters, so the snapshot is invariant under
-    D1 (migration 068 role-level repoint) AND D3 (deletion of the 35
-    absorbed-original files)."""
+    """The 46 pre-068 steps still resolve exactly as the baseline records.
+
+    The invariant Run 017 proved is that D1 (migration 068 role-level
+    repoint) and D3 (deletion of the 35 absorbed-original files) moved
+    NOTHING for the steps that existed then. Flows added since (9000,
+    escalation steps) legitimately grow the mapping, so the guard is a
+    subset equality over the baseline's entries — a whole-mapping pin
+    would go red on every new flow while the invariant held (it did,
+    2026-08-31, at 64 steps)."""
     mapping = _recompute_snapshot()
-    assert len(mapping) == 46, (
-        f"active step count moved: expected 46, got {len(mapping)}"
+    assert len(mapping) >= 46, (
+        f"active step count shrank below the baseline: {len(mapping)}"
     )
-    assert mapping == PRE_068_SNAPSHOT, (
-        f"recomputed snapshot diverges from PRE-068 baseline; "
-        f"first 3 diffs: {_diff_first_n(mapping, PRE_068_SNAPSHOT, 3)}"
+    drifted = {
+        k: (mapping.get(k), v)
+        for k, v in PRE_068_SNAPSHOT.items()
+        if mapping.get(k) != v
+    }
+    assert not drifted, (
+        f"pre-068 steps no longer resolve as the baseline records: "
+        f"{dict(list(drifted.items())[:3])}"
     )
 
 def test_snapshot_recomputed_md5_equals_recorded_md5():
-    """The recomputed snapshot's md5 matches the bound value, end-to-end."""
+    """The baseline subset of the recomputed snapshot matches the bound
+    md5, end-to-end — same canonical serialization, restricted to the
+    46 pre-068 keys so legitimate new flows cannot move it."""
     mapping = _recompute_snapshot()
-    md5 = hashlib.md5(_canonical_bytes(mapping)).hexdigest()
+    subset = {k: mapping[k] for k in PRE_068_SNAPSHOT if k in mapping}
+    md5 = hashlib.md5(_canonical_bytes(subset)).hexdigest()
     assert md5 == "5b325af5d94e7b54da029ac901be277f", (
-        f"recomputed snapshot md5 {md5!r} != bound '5b325af5d94e7b54da029ac901be277f'"
+        f"recomputed baseline-subset md5 {md5!r} != bound "
+        f"'5b325af5d94e7b54da029ac901be277f'"
     )
 
 def _diff_first_n(actual, expected, n):

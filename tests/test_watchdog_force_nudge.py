@@ -42,16 +42,19 @@ def _captured_nudge_cmd(monkeypatch, **kwargs):
     return captured["cmd"]
 
 
-def test_receiver_stall_nudge_forces_past_the_guard(monkeypatch):
-    """The receiver produced nothing; re-delivery must bypass the guard."""
+def test_receiver_stall_nudge_routes_through_the_broker(monkeypatch):
+    """Run 034 D3: the repair is a broker enqueue, screened by the run-025
+    D1 idempotency guard. `force` is a documented no-op there — the broker
+    has no --force, and that guard is exactly the screen D3 wants."""
     cmd = _captured_nudge_cmd(
         monkeypatch, stalled="Rev_Imple", why="produced nothing", force=True
     )
-    assert "--force" in cmd, (
-        "receiver-stall nudge omitted --force; dispatch will suppress it as a "
-        "duplicate and the chain stays stalled"
+    assert "--force" not in cmd, (
+        "the broker has no --force; a forced flag here means the nudge "
+        "regressed to calling dispatch directly"
     )
-    assert "--signal-complete" in cmd
+    assert "enqueue" in cmd
+    assert cmd[cmd.index("--action") + 1] == "signal-complete"
     assert cmd[cmd.index("--from-role") + 1] == "Rev_Supervisor"
 
 

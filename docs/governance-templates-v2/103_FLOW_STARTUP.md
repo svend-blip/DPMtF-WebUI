@@ -150,7 +150,7 @@ fails or silently stalls when any is broken.
 3. **The closing turn persists `END-REPORT.md` via broker
    materialize — never direct filesystem writes from a sandbox.** A
    sandboxed role (Codex workspace-write; DeepSeek Harness sandbox)
-   cannot write to `/home/svend/flows/` directly. The closing role
+   cannot write to `{bridge_dir}/` directly. The closing role
    enqueues a materialize row via `bridge_broker.py materialize`;
    the daemon writes the file host-side.
 

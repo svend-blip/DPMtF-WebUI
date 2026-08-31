@@ -818,11 +818,15 @@ def test_harness_alive_does_not_write_to_flow_runtime_resources(
                             "tmux_session": "review-claude-sonnet5-session",
                         })
 
+    # monkeypatch.setitem restores sys.modules at teardown — a bare
+    # assignment leaked the gutted fake into every later test that
+    # imports runtime_owner (11 red tests across two files, 2026-08-31).
     import sys as _sys
-    _sys.modules["runtime_owner"] = type(sys)("runtime_owner")
-    _sys.modules["runtime_owner"].list_for_flow = sentinel.list_for_flow
-    _sys.modules["runtime_owner"].record = sentinel.record
-    _sys.modules["runtime_owner"].release = sentinel.release
+    _fake_runtime_owner = type(sys)("runtime_owner")
+    _fake_runtime_owner.list_for_flow = sentinel.list_for_flow
+    _fake_runtime_owner.record = sentinel.record
+    _fake_runtime_owner.release = sentinel.release
+    monkeypatch.setitem(_sys.modules, "runtime_owner", _fake_runtime_owner)
     monkeypatch.setattr(_dispatch, "_default_list_harness_anchors",
                         lambda flow_key, db_path=None:
                         _sys.modules["runtime_owner"].list_for_flow(

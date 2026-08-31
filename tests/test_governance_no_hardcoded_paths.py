@@ -69,6 +69,42 @@ ALLOWED_LINES = {
     "LLAMASG/SKILL.md": {
         "run: grep -c '^# Example: /home/svend' .env.example",
     },
+    # Documents the DEFAULT value of the bridge dir — naming a default is
+    # the point of the line; the placeholder form sits beside it.
+    "103_FLOW_STARTUP.md": {
+        "| Start artifacts | `{bridge_dir}/{flow_key}/runs/{NNN}/GOAL.md`, "
+        "`BACKLOG.md`, `RUN-LEDGER.md` (default bridge dir: "
+        "`/home/svend/flows`) |",
+    },
+    # Historical narratives: the lesson records what happened on a named
+    # machine at a named time. Rewriting the path rewrites the record.
+    "IMPLEMENTOR.md": {
+        "was recreated twice on `/home/svend/DPMtF-WebUI`: at 2026-08-24 19:42",
+    },
+    "SUPERVISOR_AUTONOMOUS.md": {
+        "as `/home/svend/DPMtF-WebUI/.tmp-102-handoff.md` and its backlog as",
+    },
+    # Cold-start skills exist to be paste-runnable on THIS machine after a
+    # context wipe — a placeholder the reader must resolve defeats them.
+    "1000/SKILL.md": {
+        "python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 1000-01-PLOOP",
+        "python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 1000-02-ELOOP",
+        "ls /home/svend/flows/1000/goals/          # drafts awaiting approval",
+        "ls /home/svend/flows/1000/runs/           # promoted runs; END-REPORT.md = closed",
+        "tail -30 /home/svend/flows/1000/RUNS-BACKLOG.md",
+        "cat /home/svend/flows/1000/SCOPE.md      # the Human-owned standing scope",
+        "`/home/svend/flows/1000/SCOPE.md` — Human-owned, read-only to you.** Every",
+    },
+    "9000/SKILL.md": {
+        "the throwaway repository `/home/svend/9000-sandbox` — nothing in it matters",
+        "python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-01-PLOOP",
+        "python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-02-ELOOP",
+        "ls /home/svend/flows/9000/goals/          # drafts awaiting approval",
+        "ls /home/svend/flows/9000/runs/           # promoted runs; END-REPORT.md = closed",
+        "git -C /home/svend/9000-sandbox status --short && git -C /home/svend/9000-sandbox log --oneline -3",
+        "under `dash -c`, never bash. Testgoals measure `/home/svend/9000-sandbox`.",
+        "`/home/svend/9000-sandbox` outside a governed handoff; never commit or push",
+    },
 }
 
 

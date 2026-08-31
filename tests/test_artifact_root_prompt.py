@@ -63,9 +63,11 @@ class TestConventionTemplates(unittest.TestCase):
             '"SELECT content_template FROM bridge_convention_rules;" '
             "| grep -c '{bridge_dir}/{flow_key}/'"
         )
-        self.assertEqual(result.returncode, 0,
-                         f"grep failed (rc={result.returncode}): "
-                         f"{result.stderr.decode()}")
+        # grep -c exits 1 when the count is 0 — the very state this test
+        # wants. Only rc > 1 is a real grep/sqlite error.
+        self.assertLessEqual(result.returncode, 1,
+                             f"grep failed (rc={result.returncode}): "
+                             f"{result.stderr.decode()}")
         self.assertEqual(result.stdout.strip(), b"0",
                          "TG1: convention templates still use {flow_key} "
                          "as a path root")
