@@ -46,3 +46,4 @@ father-uvicorn.log
 scripts/bridgeV002/bridge.db
 databases/bridge/
 !tests/fixtures/*.log
+node_modules/
