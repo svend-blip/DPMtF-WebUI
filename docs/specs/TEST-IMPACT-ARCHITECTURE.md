@@ -856,3 +856,144 @@ for-byte `Selection` produced with and without the new parameter.
 TG6 (the existing test_index test suite) also pins this from the other
 direction: every test that existed before Run 013 must still pass.
 
+## Parallel Execution Strategy (Run 014)
+
+Run 014 introduces an optional parallel execution strategy in the
+runner. Parallel execution is **purely an optimisation of how selected
+tests are executed** — selection identity is preserved byte-for-byte.
+
+### Why parallelism is execution, not selection
+
+The deterministic test-impact subsystem commits to a contract:
+selection is determined by the planner from git facts, the policy,
+and the dependency graph. Parallel execution sits *below* the
+planner — it consumes the planner's `selected_tests` list verbatim
+and decides only how to dispatch those tests to subprocesses. No
+parallel path can:
+
+- alter `selected_tests`,
+- alter `is_exhaustive`,
+- alter `resolved_scope`, `requested_scope`, or `affected_components`,
+- alter the 22-key canonical evidence schema (it only adds the
+  additive `parallel_executed` and `parallel_workers` fields).
+
+`test_selection_is_identical_before_and_after` proves this: the same
+plan run with `parallel=False` and `parallel=True` produces identical
+`selected_tests` lists.
+
+### Worker isolation via ProcessPoolExecutor
+
+When `parallel=True` and the runner can prove worker isolation, the
+selected tests are split into groups and dispatched to fresh Python
+subprocesses via `concurrent.futures.ProcessPoolExecutor` (stdlib
+only — no new dependency). Worker isolation has three properties:
+
+1. **No shared memory** — each worker is a fresh subprocess with its
+   own interpreter.
+2. **No shared database handles** — the runner does not open any
+   database connection; the only persistence is the optional
+   coverage-index file, written from the parent after all workers
+   complete.
+3. **No shared filesystem state without unique names** — each worker
+   writes pytest's own output, scoped to its test directory by pytest
+   itself; no runner-managed temp files.
+
+The worker function (`_parallel_worker_run`) is at module level so the
+executor can pickle it across the spawn boundary. It receives a tuple
+`(repo_root, test_paths, timeout)` and returns a dict with
+`returncode`, `stdout`, `stderr`, `duration`, and an optional `error`
+field for exceptional exits.
+
+### Serial fallback — fail-closed, not warning
+
+When the runner cannot prove worker independence, the entire suite
+runs serially via the same `_run_command` path used by `parallel=False`.
+**It is not a warning; it is serial.** A parallel runner that cannot
+prove isolation would turn real failures into passes by hiding errors
+behind cross-worker shared state.
+
+The fallback cases are explicit and reported:
+
+| Fallback reason | Triggered when |
+|------------------|----------------|
+| `serial_components_restriction` | `policy.parallel.serial_components` overlaps `plan.affected_components` |
+| `fewer_than_two_workers` | `len(selected_tests) < 2` (no parallelism possible) |
+| `process_pool_unavailable` | `concurrent.futures.ProcessPoolExecutor` cannot be imported |
+| `executor_creation_failed` | The executor's `__init__` or `submit` raised an unexpected exception |
+
+Every fallback sets `parallel_executed=False` and adds
+`serial_fallback_reason` naming the cause. The evidence dict's
+`status` and `selected_tests` are identical to what a parallel run
+would have produced in the absence of the fallback.
+
+### Policy extension — optional `parallel` block
+
+The policy file's optional `parallel` block is **backward-compatible**:
+
+```json
+{
+  "parallel": {
+    "enabled": true,
+    "workers": "auto",
+    "serial_components": ["database", "browser"]
+  }
+}
+```
+
+A policy without the block — or with `"parallel": null` — stores
+`policy.parallel = None` and behaves exactly as it did before Run 014.
+`is_empty` is unchanged: a missing file or empty policy still yields
+`Policy(is_empty=True)` with `parallel=None`.
+
+Sub-keys are validated independently:
+
+| Sub-key | Type | Default | Meaning |
+|---------|------|---------|---------|
+| `enabled` | `bool` | `False` | Advisory flag — does not gate the runner, but downstream tooling may inspect it. |
+| `workers` | `int ≥ 1` or `"auto"` | `"auto"` | Maximum number of worker subprocesses. `"auto"` resolves to `max(1, os.cpu_count())`. |
+| `serial_components` | `list[str]` | `[]` | Component names that must run serially. Any plan whose `affected_components` overlaps this list executes serially. |
+
+Unknown sub-keys raise `PolicyError` (no guesswork on user intent).
+
+### Evidence dict additions
+
+Two additive fields describe the execution path:
+
+| Field | Type | Set when | Meaning |
+|-------|------|----------|---------|
+| `parallel_executed` | `bool` | Always | `True` only when worker subprocesses actually ran tests. `False` for serial fallback and for the default `parallel=False` path. |
+| `parallel_workers` | `int` | When `parallel_executed=True` | Number of worker subprocesses used. |
+
+The 22-key canonical evidence schema (`scripts/testing/evidence.py`)
+is unchanged. The runner adds these fields after `build_evidence()`
+returns its validated record. `write_evidence()` would refuse to
+re-validate a record carrying these fields; the runner does not call
+`write_evidence()` itself.
+
+### Aggregation rules
+
+When parallel execution succeeds, results from all workers are
+aggregated:
+
+- `status = "FAIL"` if **any** worker reports a non-zero exit code.
+- `status = "ERROR"` if **any** worker raises an exception (timeout,
+  `FileNotFoundError`, executor failure).
+- `status = "PASS"` otherwise.
+- `duration_seconds` is the wall-clock time from `submit` to last
+  `future.result()` — the time the parent spent coordinating.
+- `escalation_reason` is appended with the worker exit code and the
+  number of failing workers (or the first three error messages for
+  ERROR outcomes).
+
+The 22 canonical fields remain the same. Reviewers reading a
+parallel-mode evidence record see the same status semantics as a
+serial record — `PASS` means every worker passed, `FAIL` means at
+least one worker failed, `ERROR` means the runner itself could not
+reliably execute the plan.
+
+### No new dependencies
+
+The implementation uses stdlib only: `concurrent.futures`,
+`multiprocessing`, `os`, `subprocess`. `requirements.txt` is
+byte-identical to the Run 014 baseline.
+

@@ -19,6 +19,7 @@ _VALID_TOP_LEVEL_KEYS = frozenset(
         "full_regression_triggers",
         "test_command",
         "policy_hash",
+        "parallel",
     ]
 )
 
@@ -40,7 +41,7 @@ class PolicyError(Exception):
 class Policy:
     """Immutable test-policy model loaded from a JSON file.
 
-    Attributes
+Attributes
     ----------
     components:
         Mapping of component name → list of source-glob patterns.
@@ -55,11 +56,25 @@ class Policy:
     full_regression_triggers:
         List of file-glob patterns that trigger a full regression suite.
     test_command:
-        Optional test-command template (``None`` when not set).
+        Optional test command template (``None`` when not set).
     policy_hash:
         64-character SHA-256 hex digest of the canonical serialization.
     is_empty:
         ``True`` when no policy file was found or it declared nothing.
+    parallel:
+        Optional ``dict`` describing parallel-execution preferences,
+        or ``None`` when the policy carries no parallel block. Shape:
+
+        .. code-block:: python
+
+           {
+               "enabled": bool,            # default False
+               "workers": int | "auto",    # default "auto" → os.cpu_count()
+               "serial_components": list[str],  # default []
+           }
+
+        Backward-compatible: a policy without the block stores ``None``
+        and behaves exactly as it did before Run 014.
     """
 
     __slots__ = (
@@ -72,6 +87,7 @@ class Policy:
         "test_command",
         "policy_hash",
         "is_empty",
+        "parallel",
         "_source_globs",
     )
 
@@ -84,6 +100,7 @@ class Policy:
         high_fanout_files: list[str] | None = None,
         full_regression_triggers: list[str] | None = None,
         test_command: list[str] | None = None,
+        parallel: dict[str, Any] | None = None,
         is_empty: bool = False,
     ) -> None:
         self.components: dict[str, list[str]] = components or {}
@@ -95,6 +112,9 @@ class Policy:
         self.high_fanout_files: list[str] = high_fanout_files or []
         self.full_regression_triggers: list[str] = full_regression_triggers or []
         self.test_command: list[str] | None = test_command
+        self.parallel: dict[str, Any] | None = (
+            dict(parallel) if parallel is not None else None
+        )
         self.is_empty: bool = is_empty
         # Pre-computed hash of canonical serialization
         self.policy_hash: str = _compute_policy_hash(self)
@@ -167,6 +187,16 @@ class Policy:
             )
         if self.test_command is not None:
             result["test_command"] = list(self.test_command)
+        if self.parallel is not None:
+            # Canonicalize sub-fields deterministically (sort keys).
+            par: dict[str, Any] = {}
+            for k in sorted(self.parallel.keys()):
+                v = self.parallel[k]
+                if isinstance(v, list):
+                    par[k] = list(v)
+                else:
+                    par[k] = v
+            result["parallel"] = par
 
         return result
 
@@ -204,6 +234,12 @@ def _validate_value(key: str, value: Any) -> Any:
                 )
         return value
 
+    # Special handling for parallel block (Run 014): optional dict
+    # describing the runner's parallel execution strategy. Absent or
+    # null → stored as None and behaves exactly as before.
+    if key == "parallel":
+        return _validate_parallel_block(value)
+
     # Dict keys: must be dict[str, list[str]]
     if key in _DICT_LIST_KEYS:
         if not isinstance(value, dict):
@@ -237,6 +273,86 @@ def _validate_value(key: str, value: Any) -> Any:
                 f"Items in '{key}' must be strings, got {type(item).__name__}"
             )
     return value
+
+
+def _validate_parallel_block(value: Any) -> dict[str, Any] | None:
+    """Validate the optional ``parallel`` sub-block (Run 014).
+
+    Returns a canonicalized ``dict`` on success, ``None`` when the
+    block is absent or explicitly null. Raises ``PolicyError`` on any
+    structural problem.
+
+    The block shape is::
+
+        {
+            "enabled": bool,            # default False
+            "workers": int | "auto",    # default "auto"
+            "serial_components": list[str],  # default []
+        }
+
+    Sub-keys may be omitted individually — each falls back to its
+    default. Unknown sub-keys raise ``PolicyError`` (no guesswork on
+    user intent).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise PolicyError(
+            f"Key 'parallel' must be a dict or null, got {type(value).__name__}"
+        )
+
+    valid_sub_keys = frozenset({"enabled", "workers", "serial_components"})
+    for sub_key in value:
+        if sub_key not in valid_sub_keys:
+            raise PolicyError(
+                f"Unknown sub-key in 'parallel': '{sub_key}'"
+            )
+
+    # enabled: bool, default False
+    enabled = value.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise PolicyError(
+            f"'parallel.enabled' must be a bool, got {type(enabled).__name__}"
+        )
+
+    # workers: int (positive) or "auto", default "auto"
+    workers = value.get("workers", "auto")
+    if workers == "auto":
+        workers_resolved: Any = "auto"
+    elif isinstance(workers, bool):
+        # bool is a subclass of int — reject explicitly.
+        raise PolicyError(
+            "'parallel.workers' must be 'auto' or a positive int, got bool"
+        )
+    elif isinstance(workers, int):
+        if workers < 1:
+            raise PolicyError(
+                f"'parallel.workers' must be 'auto' or a positive int, got {workers}"
+            )
+        workers_resolved = workers
+    else:
+        raise PolicyError(
+            f"'parallel.workers' must be 'auto' or a positive int, got {type(workers).__name__}"
+        )
+
+    # serial_components: list[str], default []
+    serial_components = value.get("serial_components", [])
+    if not isinstance(serial_components, list):
+        raise PolicyError(
+            f"'parallel.serial_components' must be a list, got {type(serial_components).__name__}"
+        )
+    for item in serial_components:
+        if not isinstance(item, str):
+            raise PolicyError(
+                f"Items in 'parallel.serial_components' must be strings, "
+                f"got {type(item).__name__}"
+            )
+
+    return {
+        "enabled": enabled,
+        "workers": workers_resolved,
+        "serial_components": list(serial_components),
+    }
 
 
 def _parse(raw: str) -> dict[str, Any]:
@@ -305,6 +421,7 @@ def load_policy(repo_root: str) -> Policy:
     high_fanout_files: list[str] = []
     full_regression_triggers: list[str] = []
     test_command: list[str] | None = None
+    parallel: dict[str, Any] | None = None
 
     for key, value in data.items():
         validated = _validate_value(key, value)
@@ -323,6 +440,8 @@ def load_policy(repo_root: str) -> Policy:
             full_regression_triggers = validated
         elif key == "test_command":
             test_command = validated
+        elif key == "parallel":
+            parallel = validated
         # policy_hash in file is ignored; always computed fresh
 
     return Policy(
@@ -333,5 +452,6 @@ def load_policy(repo_root: str) -> Policy:
         high_fanout_files=high_fanout_files,
         full_regression_triggers=full_regression_triggers,
         test_command=test_command,
+        parallel=parallel,
         is_empty=False,
     )

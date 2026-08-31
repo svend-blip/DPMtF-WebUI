@@ -71,7 +71,7 @@ class TestPublicAPI(unittest.TestCase):
             "components", "test_mappings", "component_dependencies",
             "mandatory_smoke_tests", "high_fanout_files",
             "full_regression_triggers", "test_command", "policy_hash",
-            "is_empty", "_source_globs",
+            "is_empty", "parallel", "_source_globs",
         ])
         self.assertEqual(frozenset(Policy.__slots__), expected)
 
@@ -97,6 +97,7 @@ class TestAbsentAndMalformedPolicies(unittest.TestCase):
         self.assertEqual(policy.high_fanout_files, [])
         self.assertEqual(policy.full_regression_triggers, [])
         self.assertIsNone(policy.test_command)
+        self.assertIsNone(policy.parallel)
 
     def test_malformed_json_raises_policy_error(self):
         """A file with invalid JSON raises PolicyError (TG3)."""
@@ -400,6 +401,144 @@ class TestEdgeCases(unittest.TestCase):
         exc = PolicyError("test message")
         self.assertIsInstance(exc, Exception)
         self.assertEqual(str(exc), "test message")
+
+
+# ---------------------------------------------------------------------------
+# Tests for the optional parallel block (Run 014, handoff 107)
+# ---------------------------------------------------------------------------
+
+class TestParallelBlock(unittest.TestCase):
+    """Tests for the optional ``parallel`` block on the policy (Run 014)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def test_a_policy_without_a_parallel_block_is_unchanged(self):
+        """A policy without the parallel block stores parallel=None and
+        behaves exactly as it did before Run 014 (TG4)."""
+        _write_policy(self.tmpdir, {
+            "components": {"backend": ["app/*.py"]},
+            "mandatory_smoke_tests": ["tests/test_health.py"],
+        })
+        policy = load_policy(self.tmpdir)
+        # The new attribute exists and is None.
+        self.assertIsNone(policy.parallel)
+        # Every pre-014 attribute is preserved exactly.
+        self.assertEqual(policy.components, {"backend": ["app/*.py"]})
+        self.assertEqual(policy.mandatory_smoke_tests, ["tests/test_health.py"])
+        self.assertFalse(policy.is_empty)
+
+    def test_an_empty_policy_has_parallel_none(self):
+        """A policy with no parallel block (and absent file) has parallel=None."""
+        policy = load_policy(self.tmpdir)
+        self.assertIsNone(policy.parallel)
+
+    def test_an_explicit_null_parallel_block_is_none(self):
+        """An explicit ``"parallel": null`` in JSON becomes None on the object."""
+        _write_policy(self.tmpdir, {"parallel": None})
+        policy = load_policy(self.tmpdir)
+        self.assertIsNone(policy.parallel)
+
+    def test_a_full_parallel_block_loads_with_defaults_resolved(self):
+        """A complete parallel block is canonicalized."""
+        _write_policy(self.tmpdir, {
+            "parallel": {
+                "enabled": True,
+                "workers": "auto",
+                "serial_components": ["database", "browser"],
+            },
+        })
+        policy = load_policy(self.tmpdir)
+        self.assertIsNotNone(policy.parallel)
+        self.assertEqual(policy.parallel, {
+            "enabled": True,
+            "workers": "auto",
+            "serial_components": ["database", "browser"],
+        })
+
+    def test_a_parallel_block_with_partial_keys_gets_defaults(self):
+        """Omitted sub-keys fall back to their defaults."""
+        _write_policy(self.tmpdir, {"parallel": {"enabled": True}})
+        policy = load_policy(self.tmpdir)
+        self.assertEqual(policy.parallel, {
+            "enabled": True,
+            "workers": "auto",
+            "serial_components": [],
+        })
+
+    def test_a_parallel_block_must_be_dict_or_null(self):
+        """A non-dict, non-null parallel value raises PolicyError."""
+        _write_policy(self.tmpdir, {"parallel": "not a dict"})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+        _write_policy(self.tmpdir, {"parallel": ["a", "list"]})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+
+    def test_an_unknown_parallel_sub_key_raises_policy_error(self):
+        """Unknown sub-keys in the parallel block raise PolicyError."""
+        _write_policy(self.tmpdir, {"parallel": {"bogus": True}})
+        with self.assertRaises(PolicyError) as ctx:
+            load_policy(self.tmpdir)
+        self.assertIn("Unknown sub-key in 'parallel'", str(ctx.exception))
+
+    def test_parallel_enabled_must_be_a_bool(self):
+        """``parallel.enabled`` must be a bool."""
+        _write_policy(self.tmpdir, {"parallel": {"enabled": "yes"}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+
+    def test_parallel_workers_must_be_auto_or_positive_int(self):
+        """``parallel.workers`` accepts 'auto' or positive int only."""
+        _write_policy(self.tmpdir, {"parallel": {"workers": 4}})
+        policy = load_policy(self.tmpdir)
+        self.assertEqual(policy.parallel["workers"], 4)
+
+        _write_policy(self.tmpdir, {"parallel": {"workers": 0}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+        _write_policy(self.tmpdir, {"parallel": {"workers": -2}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+        _write_policy(self.tmpdir, {"parallel": {"workers": 2.5}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+        _write_policy(self.tmpdir, {"parallel": {"workers": True}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+        _write_policy(self.tmpdir, {"parallel": {"workers": "two"}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+
+    def test_parallel_serial_components_must_be_list_of_strings(self):
+        """``parallel.serial_components`` must be list[str]."""
+        _write_policy(self.tmpdir, {
+            "parallel": {"serial_components": ["db", "browser"]},
+        })
+        policy = load_policy(self.tmpdir)
+        self.assertEqual(
+            policy.parallel["serial_components"], ["db", "browser"]
+        )
+
+        _write_policy(self.tmpdir, {"parallel": {"serial_components": "db"}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+
+        _write_policy(self.tmpdir, {"parallel": {"serial_components": [1, 2]}})
+        with self.assertRaises(PolicyError):
+            load_policy(self.tmpdir)
+
+    def test_parallel_block_does_not_alter_other_attributes(self):
+        """Adding a parallel block does not change other policy fields."""
+        _write_policy(self.tmpdir, {
+            "components": {"core": ["app/*.py"]},
+            "test_mappings": {"core": ["tests/test_*.py"]},
+            "parallel": {"enabled": True, "workers": 2},
+        })
+        policy = load_policy(self.tmpdir)
+        self.assertEqual(policy.components, {"core": ["app/*.py"]})
+        self.assertEqual(policy.test_mappings, {"core": ["tests/test_*.py"]})
+        self.assertEqual(policy.parallel["workers"], 2)
 
 
 # ---------------------------------------------------------------------------
