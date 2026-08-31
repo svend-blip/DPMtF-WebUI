@@ -144,6 +144,17 @@ code interface) or the equivalent scripts.
 venv/bin/python -m pytest tests/ -q
 ```
 
+Regression testing is governed by the test selection policy in
+`.dpmtf/test-policy.json`, consumed by the test-impact engine
+(`scripts/testing/`, spec `docs/specs/TEST-IMPACT-ARCHITECTURE.md`): a
+change runs the policy-resolved selection for its changed files, and
+uncertainty escalates toward the full suite — never past it. Changes to
+the engine itself or to the policy file always run everything. The
+`gate-test-impact` pre-dispatch gate applies the same selection inside
+BridgeV002 flows and records an impact artifact per handoff. Delivery
+stalls are measured with `scripts/trace_delivery_stats.py` (per-day
+DELIVERED/ATTEMPTS plus three failure classes from the trace log).
+
 The mechanical validation checklist every change must pass is summarized
 in the Validation section below; `13_VALIDATION.md` is authoritative.
 
