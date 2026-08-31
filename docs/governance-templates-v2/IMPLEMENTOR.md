@@ -316,7 +316,7 @@ the supervisor:
 | Check | Result |
 |-------|--------|
 | py_compile | PASS/FAIL |
-| target test suite | {verbatim summary line} |
+| target test run | {verbatim summary line} + scope (policy-selected or full) |
 | diff scope (`git status --short`) | {verbatim output} |
 ```
 

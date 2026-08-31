@@ -109,3 +109,27 @@ in scripts/init_db.py mirror it.
 
 **References:** [[30_FRONTEND_GOVERNANCE]], scripts/db/087_experimental_group.sql,
 scripts/db/088_flow_ui_category.sql.
+
+---
+
+## Decision: Test selection policy activated for DPMtF-WebUI
+
+**Date:** 2026-08-31
+
+**Decision:** `.dpmtf/test-policy.json` is authored and active. The
+test-impact engine (Runs 002-014 of the 1000 test-minimization program)
+now selects tests per change instead of the gate skipping on an empty
+policy. Governance amended to match: TECHNICAL_REVIEW check 9 runs the
+policy-resolved selection (full suite when the policy is absent, the
+scope resolves full, or the selection cannot be verified — escalation
+always permitted, narrowing never), IMPLEMENTOR's validation table
+reports the run's scope, and 12_CODING_STANDARD gains the Test Selection
+Policy section. The engine's own files and the policy file itself are
+full-regression triggers: the selector never vouches for itself.
+
+**Made by:** Human (2026-08-31: "forfat politik-udkast til DPMtF nu, og
+du skal sikre dig at governance dokumenter rettes så de afspejler
+politikken"), authored and applied by the supervising session.
+
+**References:** [[12_CODING_STANDARD]], TECHNICAL_REVIEW.md check 9,
+docs/specs/TEST-IMPACT-ARCHITECTURE.md, .dpmtf/test-policy.json.

@@ -173,15 +173,29 @@ git diff | grep -E "ALTER TABLE|CREATE TABLE"
 
 ### 9. Test Suite (MANDATORY — never skip)
 
+**Which tests:** governed by the target repository's test policy
+(`.dpmtf/test-policy.json`), consumed through the test-impact engine
+(`scripts/testing/`, spec: `docs/specs/TEST-IMPACT-ARCHITECTURE.md`).
+
 ```bash
 # Use the TARGET project's interpreter — .venv/bin/python when it has one.
+# Policy present: run the policy-resolved selection for the handoff's
+# changed files (the handoff's test-impact artifact names the exact
+# test_command and selected_tests — re-run them, do not trust its status).
+# Policy absent/empty, resolved scope full/exhaustive, artifact missing,
+# or selection not verifiable → run the FULL suite:
 python3 -m pytest tests/ -q
 ```
 
-**YOU must run this yourself** — do NOT trust the summary line reported in
-the implementer's result file. Quote the actual summary line (for example
-"176 passed in 18.04s") verbatim in your review. **ANY failed test →
-automatic FAIL**, regardless of all other checks.
+**Escalation is always permitted, narrowing never is:** you may run MORE
+than the resolved selection — up to the full suite — whenever you doubt
+the selection; you may never run less. **YOU must run the tests
+yourself** — do NOT trust the summary line reported in the implementer's
+result file, and do NOT trust the impact artifact's recorded status.
+Quote the actual summary line (for example "22 passed in 11.28s")
+verbatim in your review, and name which scope you ran (selected or
+full, and why). **ANY failed test → automatic FAIL**, regardless of all
+other checks.
 
 A count that disagrees with the result file by a large margin is evidence
 about YOUR cwd first and the implementer second: confirm with `pwd` and

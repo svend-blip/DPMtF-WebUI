@@ -1,0 +1,177 @@
+{
+  "components": {
+    "backend-app": [
+      "app.py",
+      "routers/*.py"
+    ],
+    "bridge": [
+      "scripts/bridgeV002/*.py",
+      "scripts/bridgeV002/**/*.py"
+    ],
+    "testing-engine": [
+      "scripts/testing/*.py"
+    ],
+    "db-migrations": [
+      "scripts/db/*.sql",
+      "scripts/migrate.py",
+      "scripts/init_db.py"
+    ],
+    "job-queue": [
+      "scripts/job_queue/*.py"
+    ],
+    "patcher": [
+      "scripts/patcher_cli.py"
+    ],
+    "lightworker": [
+      "routers/lightworkers.py",
+      "scripts/lightworker*.py"
+    ],
+    "frontend": [
+      "static/**/*.js",
+      "static/**/*.css",
+      "templates/*.html"
+    ],
+    "governance-docs": [
+      "docs/governance-templates-v2/*.md"
+    ]
+  },
+  "test_mappings": {
+    "backend-app": [
+      "tests/test_artifact_root.py",
+      "tests/test_artifact_root_prompt.py",
+      "tests/test_artifact_root_ui_roundtrip.py",
+      "tests/test_bridge_endpoints.py",
+      "tests/test_flow_implementation_mode_api.py",
+      "tests/test_flow_target_project.py",
+      "tests/test_harness_fields_roundtrip.py",
+      "tests/test_health.py",
+      "tests/test_intent_api.py",
+      "tests/test_readme_doc.py"
+    ],
+    "bridge": [
+      "tests/test_attach_tmux_remote.py",
+      "tests/test_bridge_broker.py",
+      "tests/test_bridge_dispatch.py",
+      "tests/test_bridge_endpoints.py",
+      "tests/test_bridge_lib.py",
+      "tests/test_bridge_trace.py",
+      "tests/test_broker_resilience.py",
+      "tests/test_chain_watchdog.py",
+      "tests/test_check_testgoals.py",
+      "tests/test_checkpoint_integration.py",
+      "tests/test_checkpoint_schema.py",
+      "tests/test_claim_expiry.py",
+      "tests/test_codex_context_release.py",
+      "tests/test_delivery_truthfulness.py",
+      "tests/test_dispatch_auto_dispatch_flag.py",
+      "tests/test_dispatch_fix.py",
+      "tests/test_dispatch_injection.py",
+      "tests/test_dispatch_once.py",
+      "tests/test_dispatch_pi_pane.py",
+      "tests/test_duplicate_dispatch_fixes.py",
+      "tests/test_execution_config.py",
+      "tests/test_gate_deliverable_evidence.py",
+      "tests/test_gate_path_resolution.py",
+      "tests/test_governance_final_repoint.py",
+      "tests/test_governance_impl_sup_repoint.py",
+      "tests/test_governance_no_hardcoded_paths.py",
+      "tests/test_governance_repoint.py",
+      "tests/test_governance_review_repoint.py",
+      "tests/test_handoff_compiler.py",
+      "tests/test_harness_anchor.py",
+      "tests/test_harness_fields_roundtrip.py",
+      "tests/test_harness_profile_launch.py",
+      "tests/test_harness_source_unification.py",
+      "tests/test_laguna_swap_guard.py",
+      "tests/test_launch_owner_agreement.py",
+      "tests/test_launchspec_agreement.py",
+      "tests/test_launchspec_consumption.py",
+      "tests/test_launchspec_literals.py",
+      "tests/test_model_lease.py",
+      "tests/test_pane_busy_status_bar.py",
+      "tests/test_preferred_cloud_harness.py"
+    ],
+    "testing-engine": [
+      "tests/test_agra_validation_report.py",
+      "tests/test_gate_test_impact.py",
+      "tests/test_lifecycle_baselines.py",
+      "tests/test_testing_coverage_index.py",
+      "tests/test_testing_dependency_graph.py",
+      "tests/test_testing_evidence.py",
+      "tests/test_testing_git_changes.py",
+      "tests/test_testing_planner.py",
+      "tests/test_testing_policy.py",
+      "tests/test_testing_runner.py",
+      "tests/test_testing_runner_performance.py",
+      "tests/test_testing_symbol_analysis.py",
+      "tests/test_testing_test_index.py"
+    ],
+    "db-migrations": [
+      "tests/test_config_db_path.py",
+      "tests/test_migrate.py",
+      "tests/test_migration_005.py",
+      "tests/test_migration_007.py",
+      "tests/test_model_source_migration.py"
+    ],
+    "job-queue": [
+      "tests/test_job_endpoints.py",
+      "tests/test_job_models.py",
+      "tests/test_job_queue_integration.py",
+      "tests/test_job_queue_spike.py"
+    ],
+    "patcher": [
+      "tests/test_patch_mode.py",
+      "tests/test_patcher_cst_engine.py",
+      "tests/test_patcher_dispatch_injection.py",
+      "tests/test_patcher_flow_integration.py",
+      "tests/test_patcher_git_engine.py",
+      "tests/test_patcher_implementation_mode.py",
+      "tests/test_patcher_models.py",
+      "tests/test_patcher_policy.py",
+      "tests/test_patcher_verification_audit_cli.py"
+    ],
+    "lightworker": [
+      "tests/test_lightworker_auth.py",
+      "tests/test_lightworker_endpoints.py",
+      "tests/test_lightworker_store.py"
+    ],
+    "frontend": [],
+    "governance-docs": [
+      "tests/test_flow_startup_doc.py",
+      "tests/test_governance_no_hardcoded_paths.py"
+    ]
+  },
+  "component_dependencies": {
+    "backend-app": [
+      "bridge",
+      "job-queue",
+      "lightworker"
+    ],
+    "bridge": [
+      "testing-engine"
+    ],
+    "patcher": [
+      "bridge"
+    ],
+    "lightworker": [
+      "backend-app"
+    ]
+  },
+  "mandatory_smoke_tests": [
+    "tests/test_health.py",
+    "tests/test_config_db_path.py",
+    "tests/test_no_direct_path.py"
+  ],
+  "high_fanout_files": [
+    "config.py",
+    "app.py",
+    "tests/conftest.py"
+  ],
+  "full_regression_triggers": [
+    "requirements.txt",
+    "pyproject.toml",
+    "pytest.ini",
+    ".dpmtf/test-policy.json",
+    "scripts/testing/*.py"
+  ]
+}

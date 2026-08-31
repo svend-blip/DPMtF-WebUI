@@ -101,6 +101,21 @@ subgroup mapping, and i18n requirements.
 | **Consistent tables** | Align table columns for readability. |
 | **Append-only logs** | [[25_DECISIONS]] and [[26_CHANGELOG]] are append-only — add new entries at the bottom. |
 
+## Test Selection Policy (Mandatory where a policy file exists)
+
+The repository's regression testing is governed by
+`.dpmtf/test-policy.json`, consumed by the test-impact engine
+(`scripts/testing/`, spec: `docs/specs/TEST-IMPACT-ARCHITECTURE.md`).
+
+| Rule | Description |
+|------|-------------|
+| **Selection, not skipping** | A change runs the policy-resolved selection for its changed files. The selection may only ever be *escalated* (component → broad → full) — never narrowed below what the engine resolves. |
+| **Fallback, not floor** | Uncertainty escalates: an unmapped file, an unresolved symbol, or an empty/absent policy resolves to a broader scope, ultimately the full suite. |
+| **Smoke tests are unconditional** | `mandatory_smoke_tests` run at every scope, including the narrowest. |
+| **The engine never vouches for itself** | Any change under `scripts/testing/` triggers the full suite (`full_regression_triggers`). So does a change to the policy file itself. |
+| **Reviewers verify, never trust** | The reviewer re-runs the resolved selection (or the full suite) — never the implementer's pasted summary, never the impact artifact's recorded status. See TECHNICAL_REVIEW check 9. |
+| **Frontend changes escalate** | No JavaScript test suite exists (Run 012 parked), so JS/CSS/template changes resolve broad — honest escalation, not a gap to patch around. |
+
 ## 4-Layer i18n Architecture (Mandatory)
 
 The four-layer internationalization architecture is mandatory across all projects:
