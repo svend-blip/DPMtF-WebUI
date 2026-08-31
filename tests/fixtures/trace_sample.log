@@ -1,0 +1,9 @@
+2026-01-01T10:00:00Z | zz-supervisor->zz-implementer | 1 | dispatched | manual | Handoff dispatched to implementer
+2026-01-01T10:01:00Z | zz-implementer->zz-reviewer | 1 | signal_complete | manual | Callback dispatched to reviewer
+2026-01-01T10:02:00Z | zz-supervisor->zz-implementer | 2 | dispatched | manual | Handoff dispatched to implementer
+2026-01-01T10:03:00Z | zz-implementer->zz-reviewer | 2 | signal_complete | manual | Callback dispatched to reviewer
+2026-01-01T10:04:00Z | zz-impl->zz-rev | 10 | signal_complete_refused | manual | Step 'implementer-reviewer' is manual-dispatch only
+2026-01-01T10:05:00Z | zz-impl->zz-rev | 11 | signal_complete_refused | manual | Step 'implementer-reviewer' is manual-dispatch only
+2026-01-01T10:06:00Z | zz-impl->zz-rev | 12 | signal_complete_refused | manual | Step 'implementer-reviewer' is manual-dispatch only
+2026-01-01T10:07:00Z | zz-archi->zz-impl | 20 | send_failed | manual | Handoff file missing: /home/svend/flows/test/handoffs/20-handoff.md
+2026-01-01T10:08:00Z | zz-impl->zz-rev | 30 | send_failed | manual | Target session 'rev' is not running

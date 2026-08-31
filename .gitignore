@@ -45,3 +45,4 @@ father-uvicorn.log
 /flows.db
 scripts/bridgeV002/bridge.db
 databases/bridge/
+!tests/fixtures/*.log
