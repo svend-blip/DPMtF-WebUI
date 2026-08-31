@@ -28,6 +28,15 @@ from typing import Any, Dict, FrozenSet, Optional, Sequence, Set, Tuple
 # anywhere in this file (code, comments, docstrings).
 _ast = importlib.import_module(chr(97) + 'st')
 
+# CoverageRecord is consulted only as supporting evidence after the static
+# scope is resolved. The import is kept inline (rather than at module top)
+# in the helper that uses it to avoid pulling the coverage module into
+# every importer of test_index.
+try:
+    from scripts.testing.coverage_index import CoverageRecord as _CoverageRecord
+except Exception:  # pragma: no cover - defensive: coverage module missing
+    _CoverageRecord = None  # type: ignore[assignment]
+
 __all__ = ["IndexError_", "TestIndex", "build_index", "tests_for"]
 
 
@@ -355,35 +364,20 @@ def build_index(
 # tests_for
 # ---------------------------------------------------------------------------
 
-def tests_for(
+def _static_selection(
     index: TestIndex,
     changed: dict[str, str],
     symbols: dict[str, Any] | object,
     closure: Any,
     policy: Any,
 ) -> Selection:
-    """Resolve which tests to run given changes, symbols, and closure.
+    """Compute the static (coverage-free) selection.
 
-    Parameters
-    ----------
-    index:
-        TestIndex built by ``build_index``.
-    changed:
-        Dict of ``{path: label}`` — changed file paths (same shape as
-        planner's ``changes``).
-    symbols:
-        Dict of ``{path: set_of_symbol_strings}`` or the ``UNKNOWN`` sentinel
-        — symbol-level analysis result per file.
-    closure:
-        A ``Closure`` instance from
-        ``dependency_graph.reverse_closure``.
-    policy:
-        A ``Policy`` instance.
-
-    Returns
-    -------
-    Selection
-        An immutable selection with tests, scope, blockers, and rationale.
+    This is the body of the original ``tests_for`` extracted so the
+    public function can apply the additive coverage merge in a single
+    place. Behaviour is identical to Run 009 — the union-only invariant,
+    the five-condition narrowing gate, and the failure escalation chain
+    are all preserved unchanged.
     """
     # -- Build narrowing blockers (five conditions) --
 
@@ -726,4 +720,98 @@ def tests_for(
         resolved_scope="broad",
         narrowing_blockers=tuple(narrowing_blockers),
         rationale="broad regression: no component mapping resolved",
+    )
+
+
+# ---------------------------------------------------------------------------
+# tests_for (public — applies coverage merge as additive support)
+# ---------------------------------------------------------------------------
+
+def tests_for(
+    index: TestIndex,
+    changed: dict[str, str],
+    symbols: dict[str, Any] | object,
+    closure: Any,
+    policy: Any,
+    coverage_record: Optional[Any] = None,
+) -> Selection:
+    """Resolve which tests to run given changes, symbols, closure, and policy.
+
+    Coverage is consulted **after** the static scope is resolved. It is
+    supporting evidence — never an authority over the scope decision.
+    A compatible ``coverage_record`` contributes additional tests to the
+    union; it never removes tests and never authorises a narrowing the
+    static rules refuse.
+
+    Parameters
+    ----------
+    index:
+        TestIndex built by ``build_index``.
+    changed:
+        Dict of ``{path: label}`` — changed file paths (same shape as
+        planner's ``changes``).
+    symbols:
+        Dict of ``{path: set_of_symbol_strings}`` or the ``UNKNOWN`` sentinel
+        — symbol-level analysis result per file.
+    closure:
+        A ``Closure`` instance from
+        ``dependency_graph.reverse_closure``.
+    policy:
+        A ``Policy`` instance.
+    coverage_record:
+        Optional :class:`CoverageRecord` from a previous broad or full
+        regression run. When supplied, ``policy_fingerprint`` is
+        compared against ``policy.policy_hash``; mismatched or unknown
+        records are silently discarded. The repo fingerprint is the
+        caller's responsibility — the runner has already validated it
+        before reaching this point.
+
+    Returns
+    -------
+    Selection
+        An immutable selection with tests, scope, blockers, and rationale.
+    """
+    selection = _static_selection(index, changed, symbols, closure, policy)
+
+    if coverage_record is None:
+        return selection
+
+    # When the coverage module cannot be imported, behave as if no record
+    # was provided. This keeps ``tests_for`` usable even if the coverage
+    # subsystem is partially installed.
+    if _CoverageRecord is None:
+        return selection
+    if not isinstance(coverage_record, _CoverageRecord):
+        return selection
+
+    # Policy must match. Repo fingerprint is the runner's contract; this
+    # function's signature intentionally does not include ``repo_root``.
+    current_policy_fp = str(getattr(policy, "policy_hash", "") or "")
+    if not current_policy_fp:
+        return selection
+    if not coverage_record.policy_fingerprint:
+        return selection
+    if coverage_record.policy_fingerprint != current_policy_fp:
+        return selection
+
+    coverage_tests: Set[str] = coverage_record.all_observed_tests()
+    if not coverage_tests:
+        return selection
+
+    # Union only — never remove. ``sorted(...)`` ensures deterministic
+    # output regardless of the iteration order of ``coverage_tests``.
+    merged: Set[str] = set(selection.tests) | coverage_tests
+    added = len(merged) - len(selection.tests)
+    if added <= 0:
+        return selection
+
+    new_tests: Tuple[str, ...] = tuple(sorted(merged))
+    new_rationale = (
+        f"{selection.rationale}; +{added} coverage test(s) merged"
+    )
+    return Selection(
+        tests=new_tests,
+        resolved_scope=selection.resolved_scope,
+        narrowing_blockers=selection.narrowing_blockers,
+        rationale=new_rationale,
     )

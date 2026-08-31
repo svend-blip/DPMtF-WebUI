@@ -695,3 +695,164 @@ Three new fields enrich the 22-key evidence schema:
 | `lifecycle_point` | `str` | `"work_unit"`, `"run_baseline"`, `"explicit_gate"` | Which lifecycle point produced this record |
 | `baseline_tree_state` | `str or None` | `"clean"`, `"dirty"`, `None` | Was the tree clean at promotion? None = unknown (treated as dirty) |
 | `baseline_resolution` | `str or None` | `"resolved"`, `"unresolved"`, `None` | Did the baseline resolve? None = not applicable (work_unit) |
+
+## Coverage-Assisted Impact Index (Run 013)
+
+Run 013 introduces an optional, additive layer over the static test
+index: a `CoverageRecord` that maps each symbol to the set of test
+paths that **actually executed** it during a broad or full regression
+run. The static index remains the authority; coverage is **supporting
+evidence only**.
+
+### Why coverage is supporting evidence, not authority
+
+A previous run exercised whatever behaviours it happened to reach.
+Treating that record as the complete set of dependents would narrow the
+mandatory surface on the strength of what nobody thought to test. A
+test that the previous run never invoked becomes invisible to the next
+selector. Coverage is corroboration, never enumeration.
+
+This is the principle behind three hard rules that bind every change in
+this Run:
+
+```text
+coverage may ADD a test                                   yes
+coverage may REMOVE a test                                never
+coverage may permit a narrowing the static rules refuse   never
+"only the tests seen in a previous coverage run"          never
+```
+
+The third rule is the one worth naming explicitly: even when coverage
+has seen a symbol executed, it cannot authorise a narrowing below the
+scope the five-condition gate has already chosen. If the static rules
+landed on `component` because condition (c) failed, coverage cannot
+move that to `symbol` or `file`.
+
+### What invalidates a record
+
+A `CoverageRecord` is bound to two pieces of state at collection time:
+
+- `repo_fingerprint` — SHA-256 over `git rev-parse HEAD`.
+- `policy_fingerprint` — `policy.policy_hash` from the canonical
+  serialization.
+
+A record is **discarded**, not trusted, when:
+
+```text
+its own fingerprints are empty                  — unknown → incompatible
+the current policy's hash mismatches            — different policy → incompatible
+the current repo's HEAD differs                 — different repository → incompatible
+```
+
+Unknown compatibility is incompatibility — the same fail-closed rule
+Run 005 applies to evidence staleness. A record that cannot be proven
+fresh is never used, and the static selection is the answer that stands.
+
+### How coverage merges into the union
+
+When `tests_for()` receives a compatible `coverage_record`, the merge is
+strictly additive:
+
+```text
+static_tests   = tests_for(index, changed, symbols, closure, policy)
+                       # Run 009 selection — five-condition narrowing
+coverage_tests = ⋃ { tests for sym in coverage_record.symbol_to_tests }
+final_tests    = static_tests ∪ coverage_tests
+```
+
+The merge is implemented as a single union at the end of `tests_for()`,
+after the static scope is resolved. Coverage never re-enters the
+narrowing-gate evaluation; it can only add to the set the gate already
+produced. `narrowing_blockers` are preserved verbatim on the returned
+`Selection`, because the gate's blockers are still the reasons the
+scope is what it is.
+
+There is no `intersection()`, no `&=`, no `& set(...)` anywhere on this
+path — TG8 mechanically enforces it.
+
+### Why coverage cannot narrow below static scope
+
+The static scope decision happens **first**. Once that decision is
+made, coverage consults `coverage_record.symbol_to_tests` and unions
+those paths into the test set. The resolved scope, the rationale, and
+the narrowing blockers are all preserved. Coverage cannot:
+
+- Replace a `component` decision with `symbol` because some symbols
+  appeared in the record.
+- Replace a `broad` decision with `file` because the coverage record
+  has file-level observations.
+- Reduce the blocker list to silence what the gate has already refused.
+
+The contract: coverage changes the **set of tests**, never the **scope
+ladder rung**. A reviewer reading the resulting `Selection.rationale`
+sees the same scope reasoning they would see without coverage, plus a
+`+N coverage test(s) merged` suffix on the rationale.
+
+### Collection is off by default
+
+The runner's `run_plan()` accepts a `collect_coverage: bool = False`
+parameter. With the default, behaviour is exactly as Run 005 left it:
+no coverage overhead, no extra subprocess, no new file. The change is
+opt-in at the call site and only proceeds when the plan's
+`resolved_scope` is `broad` or `full` — coverage at narrower rungs is
+meaningless and is silently skipped.
+
+When collection does proceed, the runner:
+
+1. Reads the current `repo_fingerprint` from `git rev-parse HEAD`.
+2. Reads the current `policy_fingerprint` from `policy.policy_hash`.
+3. Builds an empty `CoverageRecord` bound to those fingerprints (this
+   Run does not parse `.coverage` or `coverage.json` — the binding
+   infrastructure is the deliverable; content parsing is deferred to
+   a later Run).
+4. Persists the record to `<repo_root>/.dpmtf/coverage-index.json` for
+   a later handoff to read.
+
+The 22-key evidence schema is **unchanged** — coverage never alters
+evidence. The record lives in a separate index file that downstream
+handoffs may consult via `CoverageRecord.from_dict()`.
+
+### `CoverageRecord` contract
+
+```python
+@dataclass(frozen=True)
+class CoverageRecord:
+    symbol_to_tests:    dict[str, set[str]]
+    repo_fingerprint:   str
+    policy_fingerprint: str
+    run_scope:          str   # "broad" | "full"
+    collected_at:       str   # ISO-8601 UTC
+    schema_version:     str   # constant for now
+```
+
+Frozen dataclass; `merge()` returns a new record; the original is never
+mutated. `is_compatible(repo_fp, policy_fp)` returns `True` only when
+both pairs of fingerprints are non-empty and equal. `empty()` returns
+a sentinel record whose fingerprints are the empty string — it is
+never compatible with any state and is equivalent to passing `None`
+into `tests_for()`.
+
+### Module surface
+
+```python
+# scripts/testing/coverage_index.py
+__all__ = ["CoverageRecord", "COVERAGE_RECORD_SCHEMA_VERSION", "CoverageError"]
+```
+
+The module is **only** imported by `scripts/testing/test_index.py` (as
+the type for the optional `coverage_record` parameter on `tests_for()`)
+and by `scripts/testing/runner.py` (as the type to build and persist
+when `collect_coverage=True`). The rest of the test-impact subsystem
+does not know coverage exists — Run 009 invariance is preserved
+mechanically by the `coverage_record=None` default and by the
+optionality of the parameter.
+
+### Invariant guard
+
+`tests_for()` without a `coverage_record` produces the same
+`Selection` Run 009 delivered. This is enforced by
+`test_tests_for_without_coverage_unchanged`, which compares the byte-
+for-byte `Selection` produced with and without the new parameter.
+TG6 (the existing test_index test suite) also pins this from the other
+direction: every test that existed before Run 013 must still pass.
+
