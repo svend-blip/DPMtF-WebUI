@@ -9,9 +9,9 @@ __pycache__/
 databases/*.db
 databases/*.bak*
 databases/*.preh99.*
-# Exception: commit the Father DB (databases/dpmtf.db) for rollback safety.
-# Private repo, no secrets (verified — .env holds secrets separately).
-!databases/dpmtf.db
+# databases/dpmtf.db was tracked until 2026-09-01 (192 revisions, 193 MB of
+# history). Untracked and purged before the repo goes public: it is live
+# operational state, and the i18n seed lives in scripts/db/ migrations.
 .playwright-mcp/
 screenshot-*.png
 
@@ -47,3 +47,22 @@ scripts/bridgeV002/bridge.db
 databases/bridge/
 !tests/fixtures/*.log
 node_modules/
+
+# Local tool runtime (Superpowers brainstorm server state; was tracked
+# until 2026-09-01 — pid files and server logs do not belong in git)
+.superpowers/
+
+# Environment variants beyond bare .env (added 2026-09-01)
+.env.*
+!.env.example
+
+# Backup, editor and OS litter (added 2026-09-01 — a 50 KB .bak of a
+# PLAN document slipped through before these lines existed)
+*.bak
+*.old
+*.orig
+*~
+*.swp
+*.pid
+.claude/settings.local.json
+.DS_Store
