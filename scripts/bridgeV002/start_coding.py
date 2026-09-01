@@ -551,6 +551,40 @@ def main():
             cwd = project_root if role["workdir_mode"] == "father" else target_cwd
             prefix = " ".join(f"{k}={shlex.quote(str(v))}"
                               for k, v in sorted(child_env.items()))
+
+            # The LaunchSpec binds terminal wrapping for THIS branch too.
+            # Until 2026-09-01 only the native branch below consulted it, so a
+            # harness whose model comes from the allocator was always launched
+            # as a bare binary regardless of its declared mode. For
+            # simple-harness that silently produced a role that could not act:
+            # the bare binary is its INTERACTIVE mode, which calls loop.RunOne
+            # (single turn, no tool dispatch), so a dispatched role advertised
+            # tools, narrated a plan and finished having done nothing —
+            # measured on flow 9000-02-ELOOP, 1 model_request and ZERO
+            # tool_calls, while the same prompt through `simple-harness run`
+            # produced two tool_calls and exit 0.
+            #
+            # The env prefix travels with the terminal: it invokes the harness
+            # one-shot as a child, and the harness reads its endpoint and key
+            # from the parent environment.
+            tw, _send_initial, _record_own = _launch_decisions_for(harness_source)
+            if tw:
+                print(f"  {role['role_key']:15s} → '{session_name}'  "
+                      f"(harness={harness_source}, model={resolved.get('alias')},"
+                      f" Harness Terminal) ...")
+                terminal_cmd = _harness_terminal_command(
+                    role, harness_source, args.flow_key, cwd, project_root
+                )
+                cmd_str = f"cd {cwd} && {prefix} {terminal_cmd}".replace("&&  ", "&& ")
+                if run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
+                    started.append(session_name)
+                    print(f"    Harness Terminal launched.")
+                else:
+                    print(f"    ERROR launching Harness Terminal in '{session_name}'.",
+                          file=sys.stderr)
+                    errors.append(role["role_key"])
+                continue
+
             cmd_str = f"cd {cwd} && {prefix} {shell_str}".replace("&&  ", "&& ")
             print(f"  {role['role_key']:15s} → '{session_name}'  "
                   f"(harness={harness_source}, model={resolved.get('alias')}) ...")
