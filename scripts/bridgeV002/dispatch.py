@@ -3781,7 +3781,8 @@ def signal_answer(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=N
     return True
 
 
-def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=None):
+def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=None,
+                force=False):
     """Signal initial handoff dispatch from review to target role.
 
     Replaces legacy cmd_send(). DB-driven: resolves both roles,
@@ -3932,6 +3933,31 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 print(f"  ERROR: No convention template available to auto-generate handoff")
                 print(f"  Prompt Compiler must write handoff file before signaling send")
                 return False
+
+    # Idempotency guard — the same rule signal_complete has enforced since
+    # preferred_cloud run 005: a transition happens at most once per handoff
+    # id, and `dispatched` in trace.log is the record. signal_send had no
+    # guard, so a role that ran its signal command twice — which the 9000
+    # implementer did for handoff 4 on 2026-09-01, and the decomposer did
+    # for the same handoff after its first send failed — produced two
+    # `dispatched` events and two pastes into the receiver's pane, the
+    # second executing the whole handoff again after the first finished.
+    # Both duplicates had to be cancelled by hand. Failed sends
+    # (`send_failed`) are not delivery events, so a retry after a missing
+    # file or a dead session still goes through; --force bypasses for a
+    # `dispatched` that genuinely did not land.
+    if not force and transition_recently_delivered(
+            bridge_dir, from_role_key, to_role_key, handoff_id):
+        print(f"  SKIP: {from_role_key}->{to_role_key} #{handoff_id} was "
+              f"already delivered — duplicate suppressed (use --force to "
+              f"override)")
+        log(
+            f"{from_role_key}->{to_role_key}",
+            handoff_id,
+            "send_skipped",
+            "Duplicate delivery suppressed by idempotency guard",
+        )
+        return True
 
     # Step 2: Check target session is alive
     if not session_alive(tmux_session):
@@ -4390,6 +4416,7 @@ def main():
             args.to_role,
             handoff_id,
             bridge_dir,
+            force=args.force,
         )
         # Run 034 D6: terminate explicitly on success. _dispatch_main_run
         # returns on truthy result; the trailing run_flow_step_db call below
