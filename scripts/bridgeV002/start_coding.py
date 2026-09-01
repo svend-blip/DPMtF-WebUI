@@ -572,6 +572,22 @@ def main():
             if cold_start_skill:
                 child_env["SIMPLE_HARNESS_SKILL"] = cold_start_skill
 
+            # The role's output ceiling (bridge_roles.max_output_tokens, the
+            # same UI-managed field the allocator branch passes as
+            # --max-output-tokens) reaches a native harness through its env
+            # contract; simple-harness reads SIMPLE_HARNESS_MAX_OUTPUT_TOKENS
+            # into config.max_output_tokens. Its own default is 8192, and a
+            # response cut at that ceiling ends the turn as COMPLETED —
+            # measured 2026-09-01 on 9000-implementer: a 33,630-character
+            # stream stopped mid-function with no file written and no
+            # signal. The role's own field wins; otherwise the allocator's
+            # resolved ceiling for the alias (models.yaml max_output_tokens)
+            # applies, so a cloud model with a 64k output is not launched
+            # behind an 8k default. Neither set: the harness's default.
+            output_cap = role.get("max_output_tokens") or resolved.get("max_output_tokens")
+            if output_cap:
+                child_env["SIMPLE_HARNESS_MAX_OUTPUT_TOKENS"] = str(output_cap)
+
             # The credential never appears in the pane. The command line is
             # echoed by the pane's shell and stays in its scrollback, so a
             # literal key there is a key on screen for as long as the session
