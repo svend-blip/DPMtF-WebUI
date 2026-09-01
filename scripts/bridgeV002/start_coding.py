@@ -572,7 +572,21 @@ def main():
             if cold_start_skill:
                 child_env["SIMPLE_HARNESS_SKILL"] = cold_start_skill
 
-            prefix = " ".join(f"{k}={shlex.quote(str(v))}"
+            # The credential never appears in the pane. The command line is
+            # echoed by the pane's shell and stays in its scrollback, so a
+            # literal key there is a key on screen for as long as the session
+            # lives (measured 2026-09-01 on every 9000 chain pane). The alias
+            # named the variable holding it, and the pane's shell has that
+            # variable, so the launch references it by NAME and the shell
+            # expands it at run time — the same idiom the claude-code branch
+            # uses for ANTHROPIC_AUTH_TOKEN. `:?` makes a shell without the
+            # variable refuse loudly instead of launching without a key.
+            def _render_env(k, v):
+                if api_key and key_env and str(v) == api_key:
+                    return f'{k}="${{{key_env}:?{key_env} is not set in this shell}}"'
+                return f"{k}={shlex.quote(str(v))}"
+
+            prefix = " ".join(_render_env(k, v)
                               for k, v in sorted(child_env.items()))
 
             # The LaunchSpec binds terminal wrapping for THIS branch too.
