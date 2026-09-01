@@ -345,19 +345,30 @@ def _compose_initial_supervisor_prompt(role, flow_key, project_root):
     return " ".join(parts)
 
 
-def _harness_terminal_command(role, harness_key, flow_key, cwd, project_root):
+def _harness_terminal_command(role, harness_key, flow_key, cwd, project_root,
+                              model_target=None):
     """The shell command that launches the persistent Harness Terminal.
 
     The terminal (scripts/bridgeV002/harness_terminal.py) owns the persistent
     interactive surface; the one-shot harness is invoked from inside it, so the
     tmux pane shows a real client rather than an idle shell.
+
+    ``model_target`` is the model the harness must be told to use. It defaults
+    to the role's alias, which is right for a harness whose model is pinned in
+    its own launch (dsh, the only terminal_wrapped harness before 2026-09-01).
+    A harness whose model comes from model-allocator needs the RESOLVED model
+    instead: the alias is a DPMtF-side name, and the adapter passes whatever it
+    is given straight through to ``--model``. Measured on flow 9000-02-ELOOP —
+    ``--model cloud_minimax`` reached api.minimax.io and the request failed in
+    0.6s with status FAILED and exit code 3, the SCOPE §28 model/API failure.
     """
     script = os.path.join(project_root, "scripts", "bridgeV002", "harness_terminal.py")
+    model = model_target or role.get("default_model_alias") or ""
     return (
         f"python3 {shlex.quote(script)} "
         f"--role {shlex.quote(role['role_key'])} "
         f"--harness {shlex.quote(harness_key)} "
-        f"--model {shlex.quote(role.get('default_model_alias') or '')} "
+        f"--model {shlex.quote(model)} "
         f"--flow {shlex.quote(flow_key)} "
         f"--cwd {shlex.quote(cwd)}"
     )
@@ -573,7 +584,8 @@ def main():
                       f"(harness={harness_source}, model={resolved.get('alias')},"
                       f" Harness Terminal) ...")
                 terminal_cmd = _harness_terminal_command(
-                    role, harness_source, args.flow_key, cwd, project_root
+                    role, harness_source, args.flow_key, cwd, project_root,
+                    model_target=resolved.get("real_model") or resolved.get("alias"),
                 )
                 cmd_str = f"cd {cwd} && {prefix} {terminal_cmd}".replace("&&  ", "&& ")
                 if run_cmd_in_session(session_name, cmd_str, bridge_dir, project_root):
