@@ -2393,6 +2393,24 @@ function renderFlowCard(flow, steps) {
   }
   card.appendChild(arLine);
 
+  // Cold-start skill — the skill a chain role loads at dispatch
+  // (migration 094). Shown on the card so an unset skill is visible before
+  // dispatching: a role without one rediscovers its Run by reading source
+  // and exhausts its turn budget.
+  var csLine = el("p", "dpmtf-small");
+  csLine.appendChild(el("span", "dpmtf-muted",
+    lbl("lbl_bridge_flow_cold_start_skill", "Cold-Start Skill") + ": "));
+  if (flow.cold_start_skill) {
+    var csValue = el("span", null, flow.cold_start_skill);
+    csValue.style.fontFamily = "monospace";
+    csLine.appendChild(csValue);
+  } else {
+    csLine.appendChild(el("span", "dpmtf-muted",
+      lbl("lbl_bridge_flow_cold_start_skill_placeholder",
+        "Empty = no cold-start skill is loaded")));
+  }
+  card.appendChild(csLine);
+
   // Step count badge
   if (steps && steps.length) {
     card.appendChild(el("p", "dpmtf-badge dpmtf-badge-info", String(steps.length) + " step(s)"));
@@ -3385,6 +3403,9 @@ function editBridgeFlowFull(flowKey) {
         var arInput = document.getElementById("bridge-edit-input-artifact_root");
         if (arInput) body.artifact_root = arInput.value.trim();
 
+        var csInput = document.getElementById("bridge-edit-input-cold_start_skill");
+        if (csInput) body.cold_start_skill = csInput.value.trim();
+
         var imSelect = document.getElementById("bridge-edit-input-implementation_mode");
         if (imSelect) body.implementation_mode = imSelect.value;
 
@@ -3480,6 +3501,20 @@ function editBridgeFlowFull(flowKey) {
         "Empty = flow key is the root");
       arDiv.appendChild(arInput);
       form.appendChild(arDiv);
+
+      // cold_start_skill — the skill name a chain role loads at dispatch
+      // (migration 094). Empty means NULL = no --skill flag is emitted.
+      var csDiv = el("div", "dpmtf-form-group");
+      csDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_cold_start_skill", "Cold-Start Skill")));
+      var csInput = el("input", null);
+      csInput.id = "bridge-edit-input-cold_start_skill";
+      csInput.type = "text";
+      csInput.value = flow.cold_start_skill || "";
+      csInput.placeholder = lbl("lbl_bridge_flow_cold_start_skill_placeholder",
+        "Empty = no cold-start skill is loaded");
+      csDiv.appendChild(csInput);
+      form.appendChild(csDiv);
 
       // ui_category — which flows panel the card renders in (migration 088).
       var ucDiv = el("div", "dpmtf-form-group");

@@ -646,6 +646,48 @@ def get_effective_artifact_root(flow_key, db_path=None):
     return flow_key
 
 
+def get_flow_cold_start_skill(flow_key, db_path=None):
+    """Return the flow's cold-start skill name, or "" when it sets none.
+
+    A chain role is stateless: each dispatch is a fresh invocation. The skill
+    carries the role's cold-start procedure — how it finds its Run, where its
+    channels are, what its tool boundary is — so it does not rediscover them
+    by reading source and exhaust its turn budget doing it.
+
+    The name belongs to the FLOW, not to the machine and not to the role: one
+    skill describes one workspace's conventions, so a machine-wide value would
+    hand one flow's skill to another flow's role. Roles are shared across
+    flows, exactly as with target_project_path.
+
+    Returns "" for a flow that sets none, for an unknown flow, and for a
+    database that predates the column. Empty means the launcher emits no
+    skill flag, which is the unchanged historical behaviour.
+
+    Args:
+        flow_key: The flow_key to look up.
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        str: the skill name, or "" when unset. Never None.
+    """
+    if db_path is None:
+        db_path = config.get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT cold_start_skill FROM bridge_flows WHERE flow_key = ?",
+            (flow_key,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+    except sqlite3.Error:
+        # A database without the column is not an error: it predates
+        # migration 094 and simply has no skill to report.
+        return ""
+    return (row[0] or "").strip() if row else ""
+
+
 def get_flow_target_project(flow_key, db_path=None):
     """Return the absolute path of the project a flow operates on.
 

@@ -975,12 +975,22 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
             )
         data["ui_category"] = category
 
+    # cold_start_skill (migration 094): the name of the skill a chain role
+    # loads at dispatch. Free text, normalized to NULL when blank — the
+    # harness resolves the name against its own skills roots, so validating
+    # it here would duplicate a lookup this process cannot perform. Mirrors
+    # artifact_root's normalize-to-NULL shape.
+    if "cold_start_skill" in data:
+        skill = (data["cold_start_skill"] or "").strip()
+        data["cold_start_skill"] = skill or None
+
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
         "auto_complete_enabled", "use_machine_profile", "target_project_path",
         "artifact_root",
         "implementation_mode",
         "ui_category",
+        "cold_start_skill",
     ]
     sets = []
     params = []

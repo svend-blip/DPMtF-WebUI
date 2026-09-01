@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 from bridge_lib import (  # noqa: E402
     ensure_opencode_model_field,
     get_effective_model_source,
+    get_flow_cold_start_skill,
     get_flow_target_project,
     resolve_placeholders,
 )
@@ -560,6 +561,17 @@ def main():
                 continue
 
             cwd = project_root if role["workdir_mode"] == "father" else target_cwd
+
+            # The flow's cold-start skill (migration 094) travels to the
+            # harness as an environment variable, which the allocator's
+            # config getter reads ahead of its own ini. Per FLOW, never per
+            # machine: one skill describes one workspace's conventions, so a
+            # machine-wide value would hand this flow's skill to another
+            # flow's role. Empty sets nothing and emits no flag.
+            cold_start_skill = get_flow_cold_start_skill(args.flow_key)
+            if cold_start_skill:
+                child_env["SIMPLE_HARNESS_SKILL"] = cold_start_skill
+
             prefix = " ".join(f"{k}={shlex.quote(str(v))}"
                               for k, v in sorted(child_env.items()))
 
