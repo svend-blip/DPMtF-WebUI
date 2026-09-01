@@ -34,6 +34,7 @@ EXAMPLE_ROLES = {
 }
 GOVERNANCE_DIR = PROJECT_ROOT / "docs" / "governance-templates-v2"
 MIGRATION_091 = PROJECT_ROOT / "scripts" / "db" / "091_example_cloud_flows.sql"
+MIGRATION_093 = PROJECT_ROOT / "scripts" / "db" / "093_9010_flows.sql"
 
 
 @pytest.fixture(scope="module")
@@ -147,8 +148,81 @@ def test_gate_deliverable_evidence_registered_on_fresh_db(fresh_db):
 
 def test_seed_sql_carries_no_machine_paths():
     # The governance no-hardcoded-paths guard does not cover
-    # scripts/db/*.sql; hold at least the shipped example seed to it.
-    assert "/home/svend" not in MIGRATION_091.read_text(encoding="utf-8")
+    # scripts/db/*.sql; hold the shipped seeds (091 examples, 093 9010)
+    # to it.
+    for migration in (MIGRATION_091, MIGRATION_093):
+        assert "/home/svend" not in migration.read_text(encoding="utf-8"), (
+            migration.name
+        )
+
+
+def test_9010_flows_seeded_experimental_and_self_contained(fresh_db):
+    """Migration 093: the 9010 DeepSeek/Codex pair ships on fresh DBs."""
+    flows = {
+        r["flow_key"]: r
+        for r in fresh_db.execute(
+            "SELECT flow_key, ui_category, artifact_root,"
+            " target_project_path, supervisor_role FROM bridge_flows"
+            " WHERE flow_key IN ('9010-01-PLOOP', '9010-02-ELOOP')"
+        )
+    }
+    assert set(flows) == {"9010-01-PLOOP", "9010-02-ELOOP"}
+    for row in flows.values():
+        assert row["ui_category"] == "experimental", row["flow_key"]
+        assert row["artifact_root"] == "9010", row["flow_key"]
+        assert row["target_project_path"] is None, row["flow_key"]
+    assert flows["9010-01-PLOOP"]["supervisor_role"] == "9010-planning-supervisor"
+    assert flows["9010-02-ELOOP"]["supervisor_role"] == "9010-escalation-supervisor"
+
+    roles = {
+        r["role_key"]: r
+        for r in fresh_db.execute(
+            "SELECT role_key, default_model_source, default_model_alias,"
+            " allocator_client, default_harness_source, workdir_mode,"
+            " governance_file FROM bridge_roles WHERE role_key LIKE '9010-%'"
+        )
+    }
+    assert set(roles) == {
+        "9010-planning-supervisor",
+        "9010-execution-decomposer",
+        "9010-implementer",
+        "9010-reviewer",
+        "9010-escalation-supervisor",
+    }
+    planner = roles["9010-planning-supervisor"]
+    # PLOOP: DeepSeek DIRECT over claude-code, resolved by model-allocator.
+    assert planner["default_model_source"] == "model_allocator"
+    assert planner["default_model_alias"] == "cloud_deepseek"
+    assert planner["default_harness_source"] == "claude-code"
+    for key, row in roles.items():
+        if key == "9010-planning-supervisor":
+            continue
+        # ELOOP: MiniMax-M3 over the native Codex harness on every role —
+        # codex has no model-allocator adapter, so harness_provider with
+        # the literal model id is the proven shape.
+        assert row["default_model_source"] == "harness_provider", key
+        assert row["default_model_alias"] == "MiniMax-M3", key
+        assert row["default_harness_source"] == "codex", key
+    for row in roles.values():
+        assert row["workdir_mode"] == "father", row["role_key"]
+        assert (GOVERNANCE_DIR / row["governance_file"]).is_file(), (
+            row["role_key"]
+        )
+
+    steps = fresh_db.execute(
+        "SELECT flow_key, governance_file, pre_dispatch_script"
+        " FROM bridge_flow_steps"
+        " WHERE flow_key IN ('9010-01-PLOOP', '9010-02-ELOOP')"
+    ).fetchall()
+    assert len(steps) == 5
+    registered = {
+        r["script_key"]
+        for r in fresh_db.execute("SELECT script_key FROM bridge_scripts")
+    }
+    for step in steps:
+        assert (GOVERNANCE_DIR / step["governance_file"]).is_file()
+        if step["pre_dispatch_script"]:
+            assert step["pre_dispatch_script"] in registered
 
 
 def test_id_counters_seeded(fresh_db):
