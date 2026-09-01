@@ -36,7 +36,14 @@ EXCLUDED_ROLES = ["human", "humancloud", "humanpay", "humantrade"]
 # model_source is 'harness' — a deliberate, additive exception to 005's
 # "everything on model_allocator" invariant. Harness identity stays in
 # allocator_client and model identity in default_model_alias.
-HARNESS_ROLES = ["super-deep-deep4", "imple-codex-minimaxM3"]
+# The 9010 ELOOP roles (migration 093) are the same shape: codex is a
+# native harness with no model-allocator adapter, so they carry the
+# literal model id MiniMax-M3 as harness_provider.
+HARNESS_ROLES = [
+    "super-deep-deep4", "imple-codex-minimaxM3",
+    "9010-execution-decomposer", "9010-implementer",
+    "9010-reviewer", "9010-escalation-supervisor",
+]
 
 # dsh-harness roles (2026-08-31): the harness owns model identity
 # end-to-end — launched via harness_terminal.py, no allocator alias at
