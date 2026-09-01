@@ -1144,10 +1144,9 @@ def test_terminal_heartbeat_emitted_while_runner_runs(monkeypatch):
     assert "[RUNNING]" in out
     assert "pid: 7" in out
     # HEARTBEAT block carries request_id, process_alive, elapsed.
-    assert "[HEARTBEAT]" in out
-    assert "request_id: ha-hb" in out
-    assert "process_alive: true" in out
-    assert "elapsed: 1.50s" in out or "elapsed: 1.5s" in out
+    # One line per heartbeat since harness-allocator b50bba8: header,
+    # request id, elapsed and either the live activity or "alive".
+    assert "[HEARTBEAT] · ha-hb · 1.50s · alive" in out
     # No chain-of-thought: nothing private leaks. The harness label is the
     # only human-facing string besides the lifecycle tokens.
     assert "[SUCCESS]" in out

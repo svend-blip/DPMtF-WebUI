@@ -61,6 +61,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import json
 import os
 import select
 import shlex
@@ -204,7 +205,7 @@ def _metadata_choice(environ, names, allowed, default=UNKNOWN):
     return default
 
 
-def collect_runtime_status():
+def collect_runtime_status(harness_key=None, cwd=None):
     """Collect explicit, non-secret labels; bridge path comes from config.
 
     The configured bridge dir is reported ONLY when it was explicitly set:
@@ -246,7 +247,7 @@ def collect_runtime_status():
         except (OSError, TypeError):
             bridge_access = UNKNOWN
 
-    return {
+    info = {
         "sandbox_mode": _metadata_choice(
             os.environ,
             ("DPMTF_SANDBOX_MODE", "DPMTF_SANDBOX"),
@@ -273,7 +274,121 @@ def collect_runtime_status():
             {"connected", "available", "unavailable", "not configured"},
             "not configured",
         ),
+        "permission": _metadata_choice(
+            os.environ,
+            ("DPMTF_PERMISSION", "DPMTF_PERMISSION_MODE"),
+            {"read-only", "workspace-write", "full-access", "unknown"},
+            UNKNOWN,
+        ),
     }
+    # An explicit environment value always wins; what the harness's own
+    # configuration can state fills only the fields that are still unknown.
+    # The banner's rule stands — never guess — and these are not guesses:
+    # they are read from the same configuration the launch is built from.
+    if harness_key == "simple-harness":
+        for key, value in _simple_harness_status(cwd or os.getcwd()).items():
+            if info.get(key) in (UNKNOWN, NOT_CONFIGURED, None):
+                info[key] = value
+    return info
+
+
+_SIMPLE_HARNESS_PERMISSION_LABELS = {
+    "read_only": "read-only",
+    "workspace_write": "workspace-write",
+    "full_access": "full-access",
+}
+
+
+def _simple_harness_status(cwd):
+    """Banner facts for a simple-harness role, from real configuration.
+
+    Permission is the allocator's resolved ``--permission`` mode (env, then
+    ini, then the harness default) — the very value the launch passes. The
+    sandbox line is that mode; workspace access follows from it; approval
+    is ``never`` because a headless one-shot harness has nobody to ask —
+    the permission mode IS the whole policy. MCP-Light is read from the
+    harness's own config files (``~/.simple-harness/config.json``, then
+    ``.simple-harness/config.json`` searched upward from the workspace, the
+    harness's own precedence) and probed once: ``available`` when the
+    declared endpoint answers, ``unavailable`` when it does not, and
+    ``not configured`` when no file declares it. The probe matters
+    because the harness refuses to run at all when a configured server is
+    unreachable (exit 2) — a pane that says ``unavailable`` at start is
+    the warning before every dispatch fails.
+    """
+    facts = {}
+    mode = ""
+    try:
+        mode = (harness._standalone().config.get_simple_harness_permission() or "").strip().lower()
+    except Exception:  # noqa: BLE001 — a missing standalone leaves the field unknown
+        mode = ""
+    label = _SIMPLE_HARNESS_PERMISSION_LABELS.get(mode)
+    if label:
+        facts["permission"] = label
+        facts["sandbox_mode"] = label
+        facts["workspace_access_mode"] = "read-only" if mode == "read_only" else "writable"
+    facts["approval_policy"] = "never"
+    endpoint = _simple_harness_mcp_light_endpoint(cwd)
+    if endpoint is None:
+        facts["mcp_light"] = NOT_CONFIGURED
+    else:
+        facts["mcp_light"] = "available" if _probe_mcp_endpoint(endpoint) else "unavailable"
+    return facts
+
+
+def _simple_harness_mcp_light_endpoint(cwd):
+    """The mcp-light endpoint the harness will connect to, or None.
+
+    Later files override earlier ones field-wise in the harness, and
+    ``mcp_servers`` is one field, so the LAST file that sets it wins.
+    """
+    candidates = [Path.home() / ".simple-harness" / "config.json"]
+    node = Path(cwd).resolve()
+    project = None
+    for parent in [node, *node.parents]:
+        probe = parent / ".simple-harness" / "config.json"
+        if probe.is_file():
+            project = probe
+            break
+    if project is not None:
+        candidates.append(project)
+    endpoint = None
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        servers = data.get("mcp_servers") if isinstance(data, dict) else None
+        if not isinstance(servers, list):
+            continue
+        found = None
+        for server in servers:
+            if isinstance(server, dict) and server.get("name") == "mcp-light":
+                found = server.get("endpoint") or ""
+        endpoint = found  # this file sets the field: its answer replaces the earlier one
+    return endpoint or None
+
+
+def _probe_mcp_endpoint(endpoint, timeout=2.0):
+    """One MCP initialize round trip; True when the server answers 2xx."""
+    import urllib.request
+    import urllib.error
+    body = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-03-26", "capabilities": {},
+                   "clientInfo": {"name": "dpmtf-harness-terminal", "version": "0"}},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint, data=body, method="POST",
+        headers={"Content-Type": "application/json",
+                 "Accept": "application/json, text/event-stream"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
 
 #: How long the reader waits for new bytes before treating the accumulated
 #: input as one complete submission. Tuned to comfortably outlast a normal
@@ -517,7 +632,7 @@ def main(argv=None):
     ha = _standalone_pkg()
     reader = _IdleAccumulatingReader(sys.stdin.buffer)
     cancel_event = threading.Event()
-    status_info = collect_runtime_status()
+    status_info = collect_runtime_status(harness_key=args.harness, cwd=cwd)
     status_info.update({
         "flow": args.flow,
         "model_target": args.model,
