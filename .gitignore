@@ -22,6 +22,11 @@ profiles/*.json
 # Runtime artifacts (bridge inbox remnants, app/cron logs)
 inbox/
 logs/
+
+# Default bridge directory (config.get_bridge_dir() falls back to
+# <project root>/flows when DPMTF_BRIDGE_DIR is unset — the quickstart
+# relies on that; deliverables are runtime state, never committed)
+/flows/
 .aider*
 
 # Job queue checkpoints (runtime artifacts, one per completed job)

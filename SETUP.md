@@ -34,22 +34,59 @@ not work with two models loaded simultaneously.
 
 ## Clone Repositories
 
-Clone all three repositories as siblings under your projects base directory (default: $HOME):
+Clone the repositories as siblings under your projects base directory (default: $HOME). The first four form the quickstart set — the shipped example flows expect this sibling layout:
 
 ```bash
 cd $HOME
-git clone https://github.com/your-org/DPMtF-WebUI.git
-git clone https://github.com/your-org/model-allocator.git
+git clone https://github.com/svend-blip/DPMtF-WebUI.git
+git clone https://github.com/svend-blip/model-allocator.git
+git clone https://github.com/svend-blip/harness-allocator.git
+git clone https://github.com/svend-blip/simple-harness.git
 git clone https://github.com/svend-blip/mcp-light.git
 ```
 
-> Note: Replace `your-org` with the actual organization name if different. The layout should be:
+> The layout should be:
 > ```
 > $HOME/
 >   ├── DPMtF-WebUI/
 >   ├── model-allocator/
+>   ├── harness-allocator/
+>   ├── simple-harness/
 >   └── mcp-light/
 > ```
+
+## Quickstart: Example Flows
+
+A fresh install ships with three cloud-only example flows (migration 091) so you can drive a real chain before configuring any local models or GPUs:
+
+- **`example-cloud`** — the 1-flow principle: one closed supervisor → implementer → reviewer chain.
+- **`example-01-PLOOP` + `example-02-ELOOP`** — the 2-flow principle: a planning loop (Human ↔ supervisor, owns Run IDs and GOAL-DRAFTs) and an execution loop (decomposer → implementer → reviewer, owns handoffs/results/verdicts) sharing the artifact root `example`.
+
+Every example role resolves the `cloud_minimax` alias through model-allocator and runs on the OpenCode interface, so the only credential required is a MiniMax API key. Steps:
+
+```bash
+# 1. Copy the example configs into place (sibling layout assumed)
+cd $HOME/model-allocator
+cp models.example.yaml models.yaml
+cp roles.example.yaml roles.yaml
+cp runtime_profiles.example.yaml runtime_profiles.yaml
+cd $HOME/harness-allocator
+cp harness-allocator.ini.example harness-allocator.ini
+
+# 2. The one credential the examples need
+export MINIMAX_API_KEY=<your key>        # put it in your shell profile or .env
+
+# 3. Install OpenCode (the example flows' interface) — https://opencode.ai
+
+# 4. Initialize the database and start the app (from DPMtF-WebUI, venv active)
+cd $HOME/DPMtF-WebUI
+python scripts/init_db.py                # runs all migrations, seeds the examples
+uvicorn app:app --host 0.0.0.0 --port 9130
+```
+
+The three example flows appear in the Flows panel at `http://localhost:9130`. Deliverables land under the bridge directory, which defaults to `DPMtF-WebUI/flows/` (git-ignored) when `DPMTF_BRIDGE_DIR` is unset — no extra directory setup is needed. Start with `example-cloud`: dispatch it from the UI and watch the chain hand off through handoffs → results → verdicts.
+
+Everything below this point configures the full local-model setup (llama.cpp, Ollama, SGLang, machine profiles) and is **not** required for the example flows.
 
 ## Python Environment
 
@@ -139,9 +176,10 @@ python scripts/init_db.py
 
 The model-allocator is a separate repository that needs to be configured:
 
-1. Copy example configuration files:
+1. Copy example configuration files (the quickstart already did this):
    ```bash
    cp model-allocator/models.example.yaml model-allocator/models.yaml
+   cp model-allocator/roles.example.yaml model-allocator/roles.yaml
    cp model-allocator/runtime_profiles.example.yaml model-allocator/runtime_profiles.yaml
    ```
 
