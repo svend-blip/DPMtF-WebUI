@@ -35,6 +35,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -91,16 +92,23 @@ def _spawn_detached_dummy(sleep_seconds, ignore_sigterm=False):
     the signal — the dummy survives SIGTERM, exercising the
     SIGTERM-ignoring-dummy contract (the stop step must REFUSE).
     """
+    # Unique per-spawn marker, carried as an extra argv element (harmless
+    # under ``python3 -c``) so the /proc scan can identify THIS dummy and
+    # no other. Without it the finder returned the first init-parented
+    # python3 on the machine — during a full-suite run that could be a
+    # sibling test's SIGTERM-ignoring dummy or a foreign process, which
+    # the stop step then signalled (observed 2026-09-01).
+    marker = f"dpmtf-test-dummy-{uuid.uuid4().hex}"
     if ignore_sigterm:
         cmd = (
             "trap '' TERM; "
             f"python3 -c \"import time, signal, os; "
             f"signal.signal(signal.SIGTERM, signal.SIG_IGN); "
-            f"time.sleep({sleep_seconds})\""
+            f"time.sleep({sleep_seconds})\" {marker}"
         )
     else:
         cmd = (
-            f"python3 -c \"import time; time.sleep({sleep_seconds})\""
+            f"python3 -c \"import time; time.sleep({sleep_seconds})\" {marker}"
         )
     # Intermediate bash exits 0 immediately; the python dummy is left
     # as a direct child of init (reparented).
@@ -112,9 +120,8 @@ def _spawn_detached_dummy(sleep_seconds, ignore_sigterm=False):
     )
     # Give the intermediate bash time to fork-exec the python child.
     time.sleep(0.3)
-    # Find the python child by walking `ps -ef` for our marker pattern.
-    # The python -c argv includes 'time.sleep' which we can grep for.
-    found = _find_python_sleeper_child()
+    # Find the python child by its unique marker in /proc cmdline.
+    found = _find_python_sleeper_child(marker)
     if found is None:
         proc.wait(timeout=5)
         pytest.skip("could not attach to a python sleeper child "
@@ -122,13 +129,15 @@ def _spawn_detached_dummy(sleep_seconds, ignore_sigterm=False):
     return found
 
 
-def _find_python_sleeper_child():
-    """Find a python sleeper pid under init, by /proc walk.
+def _find_python_sleeper_child(marker):
+    """Find OUR python sleeper pid under init, by /proc walk.
 
-    Walks ``/proc/<pid>/stat`` and looks for a python3 process whose
-    parent is 1 (init), so we KNOW the dummy was reparented. The
-    fixture sleeps in short intervals so this scan runs at most once
-    per test.
+    Walks ``/proc/<pid>/stat`` for a python3 process whose parent is 1
+    (init), so we KNOW the dummy was reparented — and requires the
+    spawn's unique ``marker`` in ``/proc/<pid>/cmdline``, so a sibling
+    test's dummy or an unrelated init-parented python3 can never be
+    mistaken for ours. Identity first: the caller records this pid and
+    the stop step SIGNALS it.
     """
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
@@ -152,6 +161,13 @@ def _find_python_sleeper_child():
         if ppid != 1:
             continue
         if not comm_full.startswith("python"):
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().decode("utf-8", "replace")
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        if marker not in cmdline:
             continue
         return pid
     return None
