@@ -1276,9 +1276,11 @@ def test_terminal_identity_block_printed_for_submission(monkeypatch):
     # request_id is synthesized per-frame; we only assert the prefix is
     # present (the counter is module-level and may differ across runs).
     assert "[DISPATCH] ha-" in out
-    assert "harness: DeepSeek Harness" in out
-    assert "role: super-deep-deep4" in out
-    assert "model_target: DeepSeek V4 Pro" in out
+    # The per-submission identity block is gone (harness-allocator f09cc08);
+    # the banner carries role, harness and model target for the whole pane.
+    assert "DeepSeek Harness" in out
+    assert "super-deep-deep4" in out
+    assert "DeepSeek V4 Pro" in out
     assert len(recorder) == 1
 
 
