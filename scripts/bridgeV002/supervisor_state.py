@@ -38,8 +38,11 @@ import config  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bridge_lib  # noqa: E402  — the ONE artifact-root resolver (two-flow spec §2)
 
-# "**First handoff id: 011**", "First handoff id: 11", with or without markup.
-_FIRST_ID = re.compile(r"First handoff id:\s*\**\s*(\d+)", re.IGNORECASE)
+# "**First handoff id: 011**", "First handoff id: 11", "first handoff id is
+# 22" -- with or without markup, case-insensitive. A colon or "is" joins the
+# phrase to the number; anything else ("First handoff id: set by the kickoff
+# dispatch.", the promoted-GOAL placeholder) is not a floor.
+_FIRST_ID = re.compile(r"First handoff id\s*(?::|\bis\b)\s*\**\s*(\d+)", re.IGNORECASE)
 _HANDOFF_FILE = re.compile(r"^(\d+)-handoff\.md$")
 _TRACE_TS = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})Z")
 
@@ -123,6 +126,51 @@ def active_run(bridge_dir, flow_key):
     return None
 
 
+def ledger_says_opened(run_path):
+    """True when RUN-LEDGER.md carries a heading with "opened" in it.
+
+    The opening entry is written as ``## <stamp> — Run NNN opened (...)``.
+    Only headings count: a later entry's prose may mention that something
+    was opened without this run ever having been.
+    """
+    path = run_path / "RUN-LEDGER.md"
+    if not path.exists():
+        return False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("#") and "opened" in line.lower():
+            return True
+    return False
+
+
+def executing_run(bridge_dir, flow_key):
+    """Lowest opened run without an END-REPORT.md, as a run id string, or None.
+
+    Differs from ``active_run`` on purpose. When the Human promotes a batch of
+    drafts at once (9000: runs 011-033 promoted in one go while 011 was the
+    one executing), every promoted directory holds a GOAL.md and a ledger, so
+    the *newest* opened directory is the last promotion rather than the run
+    the chain is working. The executing run is the lowest one that has a
+    Human-approved GOAL.md, has not closed, and shows evidence of a kickoff:
+    a numeric first-handoff floor, or a ledger heading saying it was opened.
+    A promoted-but-not-kicked-off run has neither -- its ledger heading says
+    "GOAL promoted" and its GOAL.md floor reads "set by the kickoff dispatch".
+
+    ``active_run`` keeps its behaviour: other cold-start skills read it.
+    """
+    base = run_dir(bridge_dir, flow_key)
+    if not base.is_dir():
+        return None
+    runs = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name)
+    for path in runs:
+        if (path / "END-REPORT.md").exists():
+            continue
+        if not (path / "GOAL.md").exists():
+            continue
+        if first_handoff_id(path) is not None or ledger_says_opened(path):
+            return path.name
+    return None
+
+
 def draft_runs(bridge_dir, flow_key):
     """Run directories holding a GOAL-DRAFT.md and no opened-run artefact.
 
@@ -183,14 +231,45 @@ def handoffs_at_or_above(bridge_dir, flow_key, floor):
     return sorted(ids)
 
 
+def id_forms(handoff_id):
+    """The two spellings a handoff id has on disk and in trace.log.
+
+    dispatch.py has written the unpadded form (``22-handoff.md``, trace field
+    ``22``) since 2026-08-29; everything before it is zero-padded (``022``).
+    Both are the same id and both must match -- by whole field, never by
+    substring (100_BRIDGE Security Rules 7).
+    """
+    value = int(handoff_id)
+    return (str(value), f"{value:03d}")
+
+
+def deliverable_path(base, subdir, suffix, handoff_id):
+    """The path of one chain artefact, whichever spelling exists.
+
+    The unpadded canonical name is checked first, then the padded one. When
+    neither exists the canonical name is returned so callers can still name
+    the file that would be written.
+    """
+    candidates = [base / subdir / f"{form}-{suffix}.md" for form in id_forms(handoff_id)]
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[0]
+
+
 def deliverables_for(bridge_dir, flow_key, handoff_id):
-    """Which of the three chain artefacts exist for one handoff."""
+    """Which of the three chain artefacts exist for one handoff.
+
+    True when either spelling of the file exists: ``21-handoff.md`` (the
+    canonical form) or ``021-handoff.md`` (pre-2026-08-29). Checking only the
+    padded name reported a delivered result as "(nothing written)" on the
+    9000 flows.
+    """
     base = Path(bridge_dir) / bridge_lib.get_effective_artifact_root(flow_key)
-    padded = f"{handoff_id:03d}"
     return {
-        "handoff": (base / "handoffs" / f"{padded}-handoff.md").exists(),
-        "result": (base / "results" / f"{padded}-result.md").exists(),
-        "verdict": (base / "verdicts" / f"{padded}-verdict.md").exists(),
+        "handoff": deliverable_path(base, "handoffs", "handoff", handoff_id).exists(),
+        "result": deliverable_path(base, "results", "result", handoff_id).exists(),
+        "verdict": deliverable_path(base, "verdicts", "verdict", handoff_id).exists(),
     }
 
 
@@ -206,12 +285,17 @@ def last_trace_signal(bridge_dir, flow_key, handoff_id, db_path=None):
         return None
 
     roles = flow_role_keys(flow_key, db_path=db_path)
-    padded = f"{handoff_id:03d}"
+    # Field comparison against both spellings: dispatch.py writes "22" since
+    # 2026-08-29, older eras wrote "022". A substring test would let "22"
+    # match "122" or "220"; a padded-only test matched nothing on the 9000
+    # flows and reported "(none in trace.log)" for a handoff that had been
+    # dispatched minutes earlier.
+    forms = id_forms(handoff_id)
     found = None
     with path.open(encoding="utf-8", errors="replace") as handle:
         for line in handle:
             parts = [p.strip() for p in line.split("|")]
-            if len(parts) < 4 or parts[2] != padded:
+            if len(parts) < 4 or parts[2] not in forms:
                 continue
             # The id alone is not enough: trace.log spans every flow and every
             # era of the bridge, and ids repeat. On 2026-08-06 a grep for
@@ -258,9 +342,9 @@ def last_movement(bridge_dir, flow_key, run_path, current, last_signal):
         candidates.append((epoch, "trace signal"))
 
     if current is not None:
-        handoff = (Path(bridge_dir)
-                   / bridge_lib.get_effective_artifact_root(flow_key)
-                   / "handoffs" / f"{current:03d}-handoff.md")
+        handoff = deliverable_path(
+            Path(bridge_dir) / bridge_lib.get_effective_artifact_root(flow_key),
+            "handoffs", "handoff", current)
         if handoff.exists():
             # A written handoff is not a delivered one — only the trace line
             # means delivered. It still dates the attempt, which is what a
@@ -375,6 +459,10 @@ def collect(flow_key, now=None, stale_after_seconds=_STALE_AFTER_SECONDS):
         # commits. Defaults on a database predating the columns.
         "mandate": bridge_lib.get_flow_supervisor_mandate(flow_key),
         "run": None,
+        # The lowest opened, unclosed run -- the one the chain is working.
+        # Distinct from "run" (the newest) whenever drafts were promoted in
+        # bulk; see executing_run().
+        "executing_run": executing_run(bridge_dir, flow_key),
         "artefacts": {},
         "first_handoff_id": None,
         "counter": flow_counter(flow_key),
@@ -534,6 +622,7 @@ def render(state):
     add(f"Commit cadence  {mandate.get('commit_cadence') or 'none'}")
 
     add(f"Active run      {state['run'] or '(none)'}")
+    add(f"Executing run   {state.get('executing_run') or '(none)'}")
 
     if state["artefacts"]:
         present = [n for n, ok in state["artefacts"].items() if ok]

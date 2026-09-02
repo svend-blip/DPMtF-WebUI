@@ -459,3 +459,193 @@ class TestFlowAwareness:
     def test_unknown_flow_claims_nothing(self, two_flows):
         assert state.flow_tmux_sessions("nope", db_path=two_flows) == set()
         assert state.flow_uses_local_models("nope", db_path=two_flows) is False
+
+
+class TestExecutingRun:
+    """9000, 2026-09-02: runs 011-033 promoted in one batch while 011 executed.
+
+    ``active_run`` answered 033 -- the newest promoted directory -- and the
+    cold-start skill read run 033's empty ledger as the chain's state. The
+    executing run is the LOWEST opened, unclosed run, and ``active_run`` keeps
+    its old meaning because other cold-start skills depend on it.
+    """
+
+    @staticmethod
+    def _bulk_promoted(bridge):
+        """001-010 closed; 011 kicked off; 012-033 promoted but not opened."""
+        for i in range(1, 11):
+            _run(bridge, f"{i:03d}", goal="**First handoff id: 001**", end_report=True)
+        _run(bridge, "011",
+             goal="First handoff id: set by the kickoff dispatch.\n",
+             ledger="# RUN-LEDGER — run 011\n\n"
+                    "## 2026-09-02T08:46:19Z — Run 011 opened (kickoff, planning "
+                    "supervisor under the Human's mandate)\n"
+                    "- **First handoff id: 22** (flow counter next_id=22).\n")
+        for i in range(12, 34):
+            _run(bridge, f"{i:03d}",
+                 goal="First handoff id: set by the kickoff dispatch.\n",
+                 ledger=f"# RUN-LEDGER — run {i:03d}\n\n"
+                        "## 2026-09-01T18:35:46Z — GOAL promoted (recorded Human approval)\n"
+                        "- GOAL-DRAFT.md -> GOAL.md by `promote-goal`\n")
+
+    def test_executing_run_is_the_lowest_opened_while_active_stays_newest(self, bridge):
+        self._bulk_promoted(bridge)
+        assert state.executing_run(bridge, FLOW) == "011"
+        # Documented difference, not a bug: active_run is unchanged on purpose.
+        assert state.active_run(bridge, FLOW).name == "033"
+
+    def test_a_ledger_opened_heading_alone_is_enough(self, bridge):
+        _run(bridge, "010", goal="x", end_report=True)
+        _run(bridge, "011", goal="no floor stated",
+             ledger="## 2026-09-02T08:46:19Z — Run 011 opened (kickoff)\n")
+        _run(bridge, "012", goal="no floor stated",
+             ledger="## 2026-09-01T18:35:46Z — GOAL promoted\n")
+        assert state.executing_run(bridge, FLOW) == "011"
+
+    def test_a_numeric_floor_alone_is_enough(self, bridge):
+        _run(bridge, "011", goal="**First handoff id: 022**")
+        _run(bridge, "012", goal="First handoff id: set by the kickoff dispatch.")
+        assert state.executing_run(bridge, FLOW) == "011"
+
+    def test_opened_in_prose_is_not_a_heading(self, bridge):
+        """Only a heading proves the kickoff; body text may merely say the word."""
+        _run(bridge, "012", goal="no floor",
+             ledger="## GOAL promoted\n- the draft was opened for review by the Human\n")
+        assert state.executing_run(bridge, FLOW) is None
+
+    def test_promoted_but_not_kicked_off_is_not_executing(self, bridge):
+        for i in (12, 13):
+            _run(bridge, f"{i:03d}",
+                 goal="First handoff id: set by the kickoff dispatch.",
+                 ledger="## 2026-09-01T18:35:46Z — GOAL promoted\n")
+        assert state.executing_run(bridge, FLOW) is None
+        assert state.active_run(bridge, FLOW).name == "013"
+
+    def test_a_closed_run_is_skipped_and_goal_is_required(self, bridge):
+        _run(bridge, "010", goal="**First handoff id: 020**", end_report=True)
+        _run(bridge, "011", ledger="## Run 011 opened\n")  # ledger, no GOAL.md
+        _run(bridge, "012", goal="**First handoff id: 022**")
+        assert state.executing_run(bridge, FLOW) == "012"
+
+    def test_no_runs_directory_is_none(self, tmp_path):
+        assert state.executing_run(tmp_path / "nowhere", FLOW) is None
+
+    def test_collect_and_render_carry_the_executing_run(self, bridge, db, monkeypatch):
+        self._bulk_promoted(bridge)
+        monkeypatch.setattr(state.config, "get_bridge_dir", lambda: str(bridge))
+        monkeypatch.setattr(state.config, "get_db_path", lambda: db)
+        monkeypatch.setattr(state, "_probe", lambda *a, **k: True)
+        monkeypatch.setattr(state, "_tmux_sessions", lambda names: {n: True for n in names})
+        result = state.collect(FLOW)
+        assert result["executing_run"] == "011"
+        assert result["run"] == "033"
+        lines = state.render(result).split("\n")
+        active = next(i for i, l in enumerate(lines) if l.startswith("Active run      "))
+        assert lines[active] == "Active run      033"
+        assert lines[active + 1] == "Executing run   011"
+
+    def test_render_says_none_when_nothing_executes(self, bridge, db, monkeypatch):
+        _run(bridge, "010", goal="x", end_report=True)
+        monkeypatch.setattr(state.config, "get_bridge_dir", lambda: str(bridge))
+        monkeypatch.setattr(state.config, "get_db_path", lambda: db)
+        monkeypatch.setattr(state, "_probe", lambda *a, **k: True)
+        monkeypatch.setattr(state, "_tmux_sessions", lambda names: {n: True for n in names})
+        lines = state.render(state.collect(FLOW)).split("\n")
+        assert "Active run      (none)" in lines
+        assert lines[lines.index("Active run      (none)") + 1] == "Executing run   (none)"
+
+
+class TestDeliverableNaming:
+    """dispatch.py writes ``22-handoff.md`` since 2026-08-29; older runs have
+    ``022-handoff.md``. Both are the same handoff and both must be seen."""
+
+    def test_unpadded_canonical_names_are_detected(self, bridge):
+        (bridge / FLOW / "handoffs" / "22-handoff.md").write_text("x")
+        (bridge / FLOW / "results" / "22-result.md").write_text("x")
+        assert state.deliverables_for(bridge, FLOW, 22) == {
+            "handoff": True, "result": True, "verdict": False}
+
+    def test_padded_names_are_still_detected(self, bridge):
+        (bridge / FLOW / "handoffs" / "022-handoff.md").write_text("x")
+        (bridge / FLOW / "verdicts" / "022-verdict.md").write_text("x")
+        assert state.deliverables_for(bridge, FLOW, 22) == {
+            "handoff": True, "result": False, "verdict": True}
+
+    def test_neither_form_is_false(self, bridge):
+        assert state.deliverables_for(bridge, FLOW, 22) == {
+            "handoff": False, "result": False, "verdict": False}
+
+    def test_the_unpadded_handoff_dates_movement(self, bridge, db, monkeypatch):
+        """last_movement's mtime fallback must find the canonical file too."""
+        _run(bridge, "011", goal="**First handoff id: 022**", backlog=True)
+        (bridge / FLOW / "handoffs" / "22-handoff.md").write_text("x")
+        monkeypatch.setattr(state.config, "get_bridge_dir", lambda: str(bridge))
+        monkeypatch.setattr(state.config, "get_db_path", lambda: db)
+        monkeypatch.setattr(state, "_probe", lambda *a, **k: True)
+        monkeypatch.setattr(state, "_tmux_sessions", lambda names: {n: True for n in names})
+        result = state.collect(FLOW)
+        assert result["owned_handoffs"] == [22]
+        assert result["deliverables"]["handoff"] is True
+        assert result["last_movement"] is not None
+
+
+class TestTraceIdForms:
+
+    def test_unpadded_trace_id_is_matched(self, bridge, db):
+        (bridge / "trace.log").write_text(
+            "2026-09-02T08:55:39Z | supervisor01_llama->imple01SG | 22 | dispatched | manual | Handoff 22-handoff.md dispatched\n",
+            encoding="utf-8",
+        )
+        line = state.last_trace_signal(bridge, FLOW, 22, db_path=db)
+        assert line is not None and "| 22 | dispatched |" in line
+
+    def test_padded_trace_id_is_still_matched(self, bridge, db):
+        (bridge / "trace.log").write_text(
+            "2026-08-06T07:12:30Z | supervisor01_llama->imple01SG | 022 | dispatched | m | x\n",
+            encoding="utf-8",
+        )
+        line = state.last_trace_signal(bridge, FLOW, 22, db_path=db)
+        assert line is not None and "| 022 | dispatched |" in line
+
+    def test_both_forms_in_one_log_yield_the_last(self, bridge, db):
+        (bridge / "trace.log").write_text(
+            "2026-08-06T07:12:30Z | supervisor01_llama->imple01SG | 022 | dispatched | m | x\n"
+            "2026-09-02T08:55:39Z | imple01SG->review01SG | 22 | signal_complete | m | y\n",
+            encoding="utf-8",
+        )
+        line = state.last_trace_signal(bridge, FLOW, 22, db_path=db)
+        assert "signal_complete" in line
+
+    def test_id_is_compared_as_a_whole_field_not_a_substring(self, bridge, db):
+        """100_BRIDGE Security Rules 7: '22' must not match '122' or '220'."""
+        (bridge / "trace.log").write_text(
+            "2026-09-02T08:55:39Z | supervisor01_llama->imple01SG | 122 | dispatched | m | x\n"
+            "2026-09-02T08:56:39Z | supervisor01_llama->imple01SG | 220 | dispatched | m | x\n",
+            encoding="utf-8",
+        )
+        assert state.last_trace_signal(bridge, FLOW, 22, db_path=db) is None
+
+
+class TestFloorPhrasing:
+    """The kickoff ledger writes the floor in prose, not only in bold markup."""
+
+    def test_plain_colon_form(self, bridge):
+        run = _run(bridge, "011", goal="no floor here",
+                   ledger="## Run 011 opened\n- First handoff id: 22 (counter 22)\n")
+        assert state.first_handoff_id(run) == 22
+
+    def test_is_form_case_insensitive(self, bridge):
+        run = _run(bridge, "011", goal="no floor here",
+                   ledger="the first handoff id is 22 for this run\n")
+        assert state.first_handoff_id(run) == 22
+
+    def test_placeholder_is_not_a_floor(self, bridge):
+        """A promoted GOAL.md defers the floor to the kickoff; it must not parse."""
+        run = _run(bridge, "011", goal="First handoff id: set by the kickoff dispatch.\n")
+        assert state.first_handoff_id(run) is None
+
+    def test_goal_placeholder_falls_through_to_the_ledger(self, bridge):
+        """The live 9000 run 011 layout: placeholder in GOAL.md, floor in the ledger."""
+        run = _run(bridge, "011", goal="First handoff id: set by the kickoff dispatch.\n",
+                   ledger="- **First handoff id: 22** (flow counter next_id=22)\n")
+        assert state.first_handoff_id(run) == 22
