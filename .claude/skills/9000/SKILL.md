@@ -28,6 +28,15 @@ rules live in your governance file — read it in full before acting.
 
 ## Step 0 — read in this order (both roles)
 
+A kickoff or handoff wake-up starts from the deterministic scripts that
+produce the packet and the skeleton. The planning supervisor's kickoff
+begins with `python3 scripts/bridgeV002/kickoff_packet.py --flow <eloop> --run <NNN>`;
+the execution decomposer's handoff begins with
+`python3 scripts/bridgeV002/handoff_skeleton.py --flow <eloop> --id <N> --to <role>`.
+Both scripts live under this checkout's `scripts/bridgeV002/` and are
+read-only; run `--help` to see their arguments. They produce the starting
+point; the role fills in judgement.
+
 If the `mcp-light` tools are available, two calls replace steps 2-3:
 `get_flow_scope("9000-01-PLOOP", mode="full")` and
 `get_flow_state("9000-02-ELOOP")` — the latter returns the mandate fields,

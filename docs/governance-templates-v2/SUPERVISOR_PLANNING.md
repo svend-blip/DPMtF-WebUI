@@ -268,6 +268,15 @@ set the field. A mandate you cannot point at is not a mandate.
 
 The kickoff prompt opens a Run. It goes into the decomposer's tmux pane (the
 dispatcher's paste shape; never `signal-send`, since no handoff exists yet).
+The supervisor's kickoff starts from the deterministic packet produced by
+`python3 scripts/bridgeV002/kickoff_packet.py --flow <eloop> --run <NNN>`,
+which assembles the ten items below (run id, GOAL path, previous run's closure
+status, first handoff id from the measured counter, baseline sha + branch +
+tree state, D-decisions, fence and frozen paths, delivery discipline,
+environment, closure discipline). The supervisor fills in judgement instead
+of collecting state; the packet is the starting point, not the finished
+prompt.
+
 It MUST contain, in this order:
 
 1. "This prompt opens Run NNN of `{family}-02-ELOOP`. You are

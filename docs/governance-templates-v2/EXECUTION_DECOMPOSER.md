@@ -119,6 +119,13 @@ on a guessed interpretation.
 
 ## Handoff Authoring Duty
 
+The decomposer's handoff starts from the deterministic skeleton produced by
+`python3 scripts/bridgeV002/handoff_skeleton.py --flow <eloop> --id <N> --to <role>`,
+which writes the `<role>`, `<task>`, `<constraint>` envelope with the scope
+fence, standing constraints and signal section pre-filled from the GOAL. The
+decomposer fills in the `<task>` judgement; the skeleton is the starting
+point, not the finished handoff.
+
 Every handoff you write MUST state:
 
 1. **The recipient's signal verb** — the exact command-line flag the Implementer
