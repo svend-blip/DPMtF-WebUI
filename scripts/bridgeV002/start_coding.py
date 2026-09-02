@@ -588,6 +588,18 @@ def main():
             if output_cap:
                 child_env["SIMPLE_HARNESS_MAX_OUTPUT_TOKENS"] = str(output_cap)
 
+            # Reasoning effort (2026-09-02): an alias may name the OpenAI-
+            # compatible `reasoning_effort` level (low | medium | high |
+            # xhigh). simple-harness reads SIMPLE_HARNESS_REASONING_EFFORT
+            # into config.reasoning_effort and sends the field only when
+            # set; absent means the model's own default. On the Qwen Cloud
+            # Token Plan the default is xhigh and reasoning tokens count
+            # against max_tokens, which is why a small-handoff role may
+            # want less.
+            reasoning_effort = resolved.get("reasoning_effort")
+            if reasoning_effort:
+                child_env["SIMPLE_HARNESS_REASONING_EFFORT"] = str(reasoning_effort)
+
             # The credential never appears in the pane. The command line is
             # echoed by the pane's shell and stays in its scrollback, so a
             # literal key there is a key on screen for as long as the session
