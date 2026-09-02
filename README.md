@@ -257,3 +257,17 @@ python3 -m pytest tests/ -q
 A regression green baseline (tests/test_execution_config.py +
 tests/test_preferred_cloud_harness.py) runs in under 15 seconds; the
 reviewer is expected to keep it green across every handoff.
+
+## TROUBLESHOOTING
+
+A role pane whose harness has exited shows a bare shell prompt — the
+harness process is gone and the pane is no longer running an active role.
+
+Relaunch every coding frontend for a flow with:
+
+```bash
+python3 scripts/bridgeV002/start_coding.py <flow_key>
+```
+
+This restarts the matching coding client for each role whose
+`harness_source` resolves to a coding harness in that flow.
