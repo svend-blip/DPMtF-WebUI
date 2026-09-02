@@ -157,7 +157,7 @@ class TestSharedRoot(unittest.TestCase):
             flow_key="1000-02-ELOOP", run_id=None, handoff_id=5,
             artifact_type="handoff")
         self.assertEqual(
-            a, f"{bridge_broker._get_bridge_dir()}/1000/handoffs/005-handoff.md")
+            a, f"{bridge_broker._get_bridge_dir()}/1000/handoffs/5-handoff.md")  # unpadded since 2026-09-02 (dispatch.py's canonical name)
 
 
 class TestCallerSupplied(unittest.TestCase):

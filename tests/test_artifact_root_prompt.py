@@ -91,19 +91,36 @@ class TestConventionTemplates(unittest.TestCase):
     # ── TG3 ──────────────────────────────────────────────────
 
     def test_tg3_fence_handoff_and_json_output_keep_flow_argument(self):
-        """Both handoff and json_output must still carry --flow {flow_key}."""
+        """json_output still carries --flow {flow_key}; handoff carries no command.
+
+        Until migration 095 both templates embedded an enqueue command and this
+        test counted two `--flow {flow_key}` occurrences. The handoff template
+        now points at dispatch's computed "## Signal Completion" section instead
+        of carrying its own command (a role read two signal commands per
+        dispatch), so the fence for `handoff` is "no command at all" and the
+        `--flow {flow_key}` fence remains on `json_output` alone.
+        """
         result = _run(
             "sqlite3 databases/dpmtf.db "
             "\"SELECT content_template FROM bridge_convention_rules "
-            "WHERE rule_key IN ('handoff', 'json_output');\" | "
+            "WHERE rule_key = 'json_output';\" | "
             "grep -c -- '--flow {flow_key}'"
         )
         self.assertEqual(result.returncode, 0,
                          f"grep failed (rc={result.returncode}): "
                          f"{result.stderr.decode()}")
-        self.assertEqual(result.stdout.strip(), b"2",
-                         "TG3/FENCE: handoff or json_output lost --flow "
+        self.assertEqual(result.stdout.strip(), b"1",
+                         "TG3/FENCE: json_output lost --flow "
                          f"(got {result.stdout.strip().decode()})")
+        handoff = _run(
+            "sqlite3 databases/dpmtf.db "
+            "\"SELECT content_template FROM bridge_convention_rules "
+            "WHERE rule_key = 'handoff';\""
+        ).stdout.decode()
+        self.assertNotIn("bridge_broker.py enqueue", handoff,
+                         "the handoff template must not carry a signal command "
+                         "(migration 095): the computed section is the only one")
+        self.assertIn("Signal Completion", handoff)
 
 
 # ────────────────────────────────────────────────────────────
