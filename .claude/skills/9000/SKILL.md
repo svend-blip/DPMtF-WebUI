@@ -28,6 +28,14 @@ rules live in your governance file — read it in full before acting.
 
 ## Step 0 — read in this order (both roles)
 
+If the `mcp-light` tools are available, two calls replace steps 2-3:
+`get_flow_scope("9000-01-PLOOP", mode="full")` and
+`get_flow_state("9000-02-ELOOP")` — the latter returns the mandate fields,
+drafts with promotability, runs classified closed / executing / waiting,
+the executing Run's floor, owned ids, deliverables and ledger tail, the
+queue and trace tails, and a `phase`. Read the scope in full regardless.
+The shell lines below are the fallback and the paste-runnable record.
+
 1. **Scope first, in full.** It is Human-owned and read-only to you.
 
 ```
