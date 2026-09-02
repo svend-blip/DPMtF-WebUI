@@ -788,7 +788,7 @@ def test_d3_end_report_rematerialize_allowed_when_dest_absent(
         "--flow", "preferred_cloud_harness",
         "--type", "end-report",
         "--run-id", "42",
-        "--content", "# re-closure\n",
+        "--content", "# re-closure\n\n**Status:** SUCCESS — CLOSED\n\n## Outcome\n- re-closure\n",
     ])
     assert rc == 0, f"materialize must succeed; got rc={rc}"
 
@@ -841,7 +841,7 @@ def test_d3_end_report_rematerialize_refused_when_dest_present(
         "--flow", "preferred_cloud_harness",
         "--type", "end-report",
         "--run-id", "42",
-        "--content", "# attempted re-closure\n",
+        "--content", "# attempted re-closure\n\n**Status:** SUCCESS — CLOSED\n\n## Outcome\n- attempted re-closure\n",
     ])
     assert rc == 0, (
         f"materialize silently returns 0 when refused (matching the old "
