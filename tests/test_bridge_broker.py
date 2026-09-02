@@ -1061,7 +1061,7 @@ def test_canonical_destination_handoff(
     dest = bridge_broker._canonical_destination(
         "preferred_cloud_harness", None, 11, "handoff",
     )
-    assert dest == f"{tmp_path}/preferred_cloud_harness/handoffs/011-handoff.md"
+    assert dest == f"{tmp_path}/preferred_cloud_harness/handoffs/11-handoff.md"
 
 
 def test_canonical_destination_end_report(
@@ -1075,16 +1075,21 @@ def test_canonical_destination_end_report(
     assert dest == f"{tmp_path}/preferred_cloud_harness/runs/003/END-REPORT.md"
 
 
-def test_canonical_destination_handoff_zero_pads_id(
+def test_canonical_destination_handoff_uses_the_unpadded_canonical_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The handoff path uses {id:03d}-handoff.md — explicit zero-pad."""
+    """The handoff path is the UNPADDED {id}-handoff.md dispatch.py looks for.
+
+    Until 2026-09-02 this builder zero-padded ({id:03d}) while dispatch.py's
+    canonical name has been the bare number since 2026-08-29; a materialized
+    handoff was therefore invisible to dispatch (measured: 9000 handoff 4).
+    """
     monkeypatch.setattr(bridge_broker, "_get_bridge_dir",
                         lambda: str(tmp_path))
     dest = bridge_broker._canonical_destination(
         "preferred_cloud_harness", None, 7, "handoff",
     )
-    assert dest == f"{tmp_path}/preferred_cloud_harness/handoffs/007-handoff.md"
+    assert dest == f"{tmp_path}/preferred_cloud_harness/handoffs/7-handoff.md"
 
 
 def test_canonical_destination_unknown_type_raises() -> None:
@@ -1363,8 +1368,8 @@ def test_materialize_handoff_at_zero_padded_canonical_path(
     ])
     assert rc == 0
     bridge_broker.main(["process-once"])
-    # Zero-padded 03d.
-    path = bridge_dir / "preferred_cloud_harness" / "handoffs" / "011-handoff.md"
+    # Unpadded canonical name (dispatch.py's form).
+    path = bridge_dir / "preferred_cloud_harness" / "handoffs" / "11-handoff.md"
     assert path.exists()
     assert path.read_text() == "# handoff 011\n"
 
@@ -1452,7 +1457,7 @@ def test_materialize_refuses_handoff_overwrite(
     """A handoff file that already exists must NOT be silently
     overwritten — it has been dispatched or staged."""
     db_path, bridge_dir = tmp_bridge_and_db
-    existing = bridge_dir / "preferred_cloud_harness" / "handoffs" / "011-handoff.md"
+    existing = bridge_dir / "preferred_cloud_harness" / "handoffs" / "11-handoff.md"
     existing.write_text("# EXISTING\n")
     rc = bridge_broker.main([
         "materialize",
@@ -1914,7 +1919,7 @@ def test_materialize_handoff_remains_idempotent_per_handoff_id(
     assert handoff_count == 1
     # File content unchanged (the second materialize was a no-op).
     handoff_file = (
-        bridge_dir / "preferred_cloud_harness" / "handoffs" / "012-handoff.md"
+        bridge_dir / "preferred_cloud_harness" / "handoffs" / "12-handoff.md"
     )
     assert handoff_file.read_text() == "# handoff 12 original\n"
 
@@ -2060,10 +2065,10 @@ def test_canonical_destination_escalation_response(
         "preferred_cloud_harness", None, 17, "escalation-response",
         "super-deep-deep4",
     )
-    assert dest == f"{tmp_path}/escalations/017-super-deep-deep4-response.md"
+    assert dest == f"{tmp_path}/escalations/17-super-deep-deep4-response.md"
 
 
-def test_canonical_destination_escalation_response_zero_pads_id(
+def test_canonical_destination_escalation_response_uses_the_unpadded_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(bridge_broker, "_get_bridge_dir",
@@ -2071,7 +2076,7 @@ def test_canonical_destination_escalation_response_zero_pads_id(
     dest = bridge_broker._canonical_destination(
         "preferred_cloud_harness", None, 7, "escalation-response", "r",
     )
-    assert dest == f"{tmp_path}/escalations/007-r-response.md"
+    assert dest == f"{tmp_path}/escalations/7-r-response.md"
 
 
 def test_canonical_destination_escalation_response_requires_role() -> None:
@@ -2100,7 +2105,7 @@ def test_materialize_escalation_response_writes_at_canonical_path(
     ])
     assert rc == 0
     # Enqueue is DB-only; the file is written by the host-side process.
-    resp = bridge_dir / "escalations" / "017-super-deep-deep4-response.md"
+    resp = bridge_dir / "escalations" / "17-super-deep-deep4-response.md"
     assert not resp.exists()
     bridge_broker.main(["process-once"])
     assert resp.exists()
@@ -2176,7 +2181,7 @@ def test_materialize_escalation_response_refuses_overwrite(
     tmp_broker_escalation: tuple[str, Path],
 ) -> None:
     db_path, bridge_dir = tmp_broker_escalation
-    resp = bridge_dir / "escalations" / "017-super-deep-deep4-response.md"
+    resp = bridge_dir / "escalations" / "17-super-deep-deep4-response.md"
     resp.write_text("# EXISTING\n")
     rc = bridge_broker.main([
         "materialize", "--flow", "preferred_cloud_harness",
@@ -2220,7 +2225,7 @@ def test_materialize_escalation_response_idempotent_per_handoff_and_role(
     ).fetchone()[0]
     conn.close()
     assert count == 1
-    resp = bridge_dir / "escalations" / "017-super-deep-deep4-response.md"
+    resp = bridge_dir / "escalations" / "17-super-deep-deep4-response.md"
     assert resp.read_text() == "# FIRST\n"
 
 

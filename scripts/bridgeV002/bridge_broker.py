@@ -339,13 +339,21 @@ def _canonical_destination(
     if artifact_type == "run-ledger":
         return f"{bridge_dir}/{root}/runs/{run_id:03d}/RUN-LEDGER.md"
     if artifact_type == "handoff":
-        return f"{bridge_dir}/{root}/handoffs/{handoff_id:03d}-handoff.md"
+        # UNPADDED: dispatch.py's canonical deliverable name has been the bare
+        # number since 2026-08-29 (its --id normalisation strips zeros because
+        # "every deliverable file on disk is written unpadded"). This builder
+        # kept the older preferred_cloud_harness Run 006 form ({id:03d}) and so
+        # wrote 004-handoff.md while dispatch looked for 4-handoff.md — measured
+        # on 9000-02-ELOOP 2026-09-01: two send_failed, then a role-made symlink.
+        return f"{bridge_dir}/{root}/handoffs/{int(handoff_id)}-handoff.md"
     if artifact_type == "end-report":
         return f"{bridge_dir}/{root}/runs/{run_id:03d}/END-REPORT.md"
     if artifact_type == "escalation-response":
         # Matches dispatch.py signal_answer's lookup:
         #   {bridge_dir}/escalations/{handoff_id}-{from_role}-response.md
-        return f"{bridge_dir}/escalations/{handoff_id:03d}-{role_key}-response.md"
+        # Same canonical form as dispatch.py signal_answer's lookup
+        # (f"{handoff_id}-{from_role_key}-response.md" with the normalised id).
+        return f"{bridge_dir}/escalations/{int(handoff_id)}-{role_key}-response.md"
     # Defensive — unreachable given the check above.
     raise ValueError(f"unhandled artifact_type: {artifact_type!r}")  # pragma: no cover
 
