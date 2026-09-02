@@ -212,11 +212,14 @@ The signal verb to use depends on the step's `auto_dispatch` value in the
 bridge flow steps table. Check the value for your step (query
 `bridge_flow_steps WHERE step_key = '<your-step-key>'`).
 
-- **`auto_dispatch` is truthy** (non-zero, set) → use `--signal-complete`
-  (the role names itself as the source; the bridge routes the verdict).
-- **`auto_dispatch` is 0 or unset** → use
-  `--signal-send --to-role {next_role}` (the role names the downstream
-  role explicitly; this is "manual dispatch").
+- **`auto_dispatch` is 0** (explicitly) → `--signal-send --to-role
+  {next_role}` (the role names the downstream role; the bridge refuses
+  `--signal-complete` on such a step).
+- **`auto_dispatch` is unset or truthy** → `--signal-complete` (the role
+  names itself as the source; the bridge routes the verdict). "Unset" is
+  not "0". The "## Signal Completion" section of your dispatch prompt is
+  computed from the step and names the right command — run it exactly,
+  once, with the ROLE key in `--to-role`, never `--db-path`.
 
 For the currently active step, the command is:
 

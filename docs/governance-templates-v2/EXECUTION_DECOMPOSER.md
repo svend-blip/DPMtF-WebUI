@@ -125,8 +125,12 @@ Every handoff you write MUST state:
    should use when signalling (`--signal-complete` or `--signal-send --to-role
    {role}`). This comes from the `auto_dispatch` value of the step in the bridge
    flow steps table:
-   - `auto_dispatch` is truthy → `--signal-complete`
-   - `auto_dispatch` is 0 or unset → `--signal-send --to-role {role}`
+   - `auto_dispatch` is 0 (explicitly) → `--signal-send --to-role {role}`;
+     the bridge REFUSES `--signal-complete` on such a step.
+   - `auto_dispatch` is unset or truthy → the verb the "## Signal Completion"
+     section of the dispatch prompt names (`--signal-complete`, self-addressed;
+     the bridge routes to the next step). The section is computed from the
+     step; the role runs it exactly, once.
 2. **The `auto_dispatch` value** that follows from the step, stated as the
    reason for the chosen verb.
 
@@ -147,16 +151,22 @@ signalling.
 The signal verb used for dispatch depends on the step's `auto_dispatch`
 value in the bridge flow steps table.
 
-- **`auto_dispatch` is truthy** (non-zero, set) → use `--signal-complete`
-  (the role names itself as the source; the bridge routes the verdict).
-- **`auto_dispatch` is 0 or unset** → use
-  `--signal-send --to-role {next_role}` (the role names the downstream
-  role explicitly; this is "manual dispatch").
+- **`auto_dispatch` is 0** (explicitly) → `--signal-send --to-role {next_role}`
+  (the role names the downstream role; "manual dispatch"). The bridge
+  refuses `--signal-complete` on such a step.
+- **`auto_dispatch` is unset or truthy** → `--signal-complete` (the role
+  names itself as the source; the bridge routes to the next step). This is
+  what the computed "## Signal Completion" section of a bridge-delivered
+  dispatch prompt says; the role runs that line exactly, once. "Unset" is
+  NOT "0": the code tests for an explicit zero (dispatch.py, migration 054),
+  and every 9000 step is unset.
 
-The decomposer-implementer step has `auto_dispatch` truthy, so the
-Decomposer uses `--signal-complete` when signalling its own steps. But
-the file must name both verbs so the Decomposer can instruct the
-Implementer correctly for manual-dispatch steps.
+You, the Decomposer, never receive a computed section for the handoff you
+are issuing — a kickoff is a typed prompt and a verdict callback carries
+none. You always signal a NEW handoff with `--signal-send --to-role
+{implementer}` naming the receiving role, once; the flow counter allocates
+the id when you signal. The handoff must name both verbs so the
+Implementer can follow its own step's section.
 
 ## Git — read-only, always
 

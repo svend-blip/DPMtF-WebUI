@@ -358,14 +358,14 @@ Next Action: {next role per chain position} validates
 **Why:** Only ONE role is active at a time. After signaling, the next role
 in the chain is active. Any activity by you violates sequential execution.
 
-Before signalling, determine the correct signal verb from the step's
-`auto_dispatch` value. If `auto_dispatch` is truthy (non-zero, set), use
-`--signal-complete` (the role names itself as the source; the bridge
-routes the verdict). If `auto_dispatch` is 0 or unset, use
-`--signal-send --to-role {next_role}` (the role names the downstream
-role explicitly; this is "manual dispatch"). For the currently active
-step, `auto_dispatch=0`, so the command is `--signal-send --to-role
-{next_role}`.
+Before signalling, use the verb the "## Signal Completion" section of your
+dispatch prompt names — it is computed from your step's `auto_dispatch`:
+an explicit 0 means `--signal-send --to-role {next_role}` (the bridge
+refuses `--signal-complete` on such a step); unset or truthy means
+`--signal-complete` (self-addressed; the bridge routes to the reviewer).
+"Unset" is not "0". Run that section's command exactly, once — never a
+second command found in a handoff or a previous deliverable, never with
+`--db-path`, and with the ROLE key (never the step key) in `--to-role`.
 
 After writing your result, signal using the bridge dispatch tool with the
 correct verb for your step (determined above), then **check that it
