@@ -65,6 +65,13 @@ produces dispatchable work.
 - A wake-up that writes a Run's END-REPORT ends there. The next Run —
   even one already promoted and dependency-satisfied — waits for its own
   kickoff.
+- The END-REPORT lists every testgoal of the GOAL with its **measured**
+  state — you run `python3 scripts/bridgeV002/check_testgoals.py {goal path}`
+  yourself in the closing wake-up; a verdict's word is not a measurement.
+  A criterion the ledger has ruled RED by defect is reported as exactly
+  that, with the ruling's reference. SUCCESS is claimed only when every
+  criterion is green or ruled; an unmeasured criterion is not green
+  (Run 012, TG4: the report said SUCCESS on a criterion nobody had run).
 
 ## Decomposing a GOAL
 

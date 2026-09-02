@@ -120,6 +120,18 @@ These are absolute. A verdict that breaks any of them is invalid.
    `A|B` and returns 0 — a real verdict cited exactly that and reported a
    true claim with false evidence. Quote the command verbatim in your
    evidence block; do not paraphrase it from memory.
+8. **Measure the Run's testgoals, not only the behaviour.** When the Run
+   has a `GOAL.md`, run its criteria exactly as the gate does —
+   `python3 scripts/bridgeV002/check_testgoals.py {goal path}` from the
+   Father checkout — and paste the per-criterion result. A criterion is
+   code: one that stays red against correct work is reported as
+   **RED by defect**, with the alternative command that measures the
+   GOAL's intent and its output, never silently treated as green. Passing
+   subtests that exercise the behaviour do not stand in for the criterion
+   (Run 012, TG4: the behaviour was proven, the criterion was never run,
+   and the END-REPORT said SUCCESS on an unmeasured criterion). A verdict
+   that lists no testgoal measurement for a Run that has testgoals is
+   incomplete.
 
 ## Counting Is Not Reading
 
@@ -171,6 +183,7 @@ $ {command checking claim 1}
 
 ## Test Results
 - {command run} → {actual result}
+- check_testgoals.py {GOAL.md} → {n}/{m} green; red: {ids, each "by defect" or "by work"}
 
 ## Recommendation
 - {next step}
