@@ -156,6 +156,27 @@ class TestIndex:
 # Internal: import-path resolution
 # ---------------------------------------------------------------------------
 
+
+#: Directories that are never part of the repository's own code. Walking
+#: them made the dependency graph and the test index treat
+#: ``venv/lib/python3.12/site-packages/attrs/validators.py`` as a test of
+#: this repository (51 such "tests" selected on 2026-09-02) and cost most
+#: of the graph-build time.
+_EXCLUDED_DIRS = frozenset({
+    "venv", ".venv", "env", ".env", "node_modules", "__pycache__", ".git",
+    "site-packages", "build", "dist", ".tox", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", ".eggs",
+})
+
+
+def _is_excluded(path: Path, root: Path) -> bool:
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return True
+    return any(part in _EXCLUDED_DIRS for part in rel.parts[:-1])
+
+
 def _import_to_module_path(import_name: str, repo_root: str) -> Optional[str]:
     """Convert an imported dotted name to a repo-relative .py path.
 
@@ -280,7 +301,9 @@ def build_index(
     root = Path(repo_root).resolve()
 
     # -- Discover all .py files --
-    py_files: list[Path] = sorted(root.rglob("*.py"))
+    py_files: list[Path] = sorted(
+        f for f in root.rglob("*.py") if not _is_excluded(f, root)
+    )
 
     # -- Build symbol/file → test mappings --
     symbol_to_tests: dict[str, set[str]] = {}
@@ -644,7 +667,13 @@ def _static_selection(
     # Also collect reverse dependencies
     from collections import deque
 
-    for comp in all_affected_components:
+    # Iterate over a snapshot: the loop body adds the reverse dependencies to
+    # the same set, and mutating a set while iterating it raises
+    # "Set changed size during iteration". On 2026-09-02 that made every
+    # live selection on this repository crash inside tests_for; the planner
+    # swallowed the exception and silently fell back.
+    discovered_reverse_deps: set[str] = set()
+    for comp in sorted(all_affected_components):
         # Collect reverse dependencies (components that depend on this one)
         reverse_deps: set[str] = set()
         all_components: set[str] = set(index.component_dependencies)
@@ -664,7 +693,8 @@ def _static_selection(
                     visited.add(dependent)
                     queue.append(dependent)
         reverse_deps = visited - {comp}
-        all_affected_components.update(reverse_deps)
+        discovered_reverse_deps.update(reverse_deps)
+    all_affected_components.update(discovered_reverse_deps)
 
     if all_affected_components:
         # Component fallback tests — this IS the scope, not an addition

@@ -36,6 +36,27 @@ class GraphError(Exception):
 # Node identity helpers (language-neutral)
 # ---------------------------------------------------------------------------
 
+
+#: Directories that are never part of the repository's own code. Walking
+#: them made the dependency graph and the test index treat
+#: ``venv/lib/python3.12/site-packages/attrs/validators.py`` as a test of
+#: this repository (51 such "tests" selected on 2026-09-02) and cost most
+#: of the graph-build time.
+_EXCLUDED_DIRS = frozenset({
+    "venv", ".venv", "env", ".env", "node_modules", "__pycache__", ".git",
+    "site-packages", "build", "dist", ".tox", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", ".eggs",
+})
+
+
+def _is_excluded(path: Path, root: Path) -> bool:
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return True
+    return any(part in _EXCLUDED_DIRS for part in rel.parts[:-1])
+
+
 def node_id(path: str, symbol: Optional[str] = None) -> str:
     """Return a node identifier for the given path and optional symbol.
 
@@ -250,7 +271,9 @@ def build_graph(root_dir: str) -> Graph:
     root = Path(root_dir).resolve()
 
     # -- Step 1: discover .py files (sorted for determinism) --
-    py_files: list[Path] = sorted(root.rglob("*.py"))
+    py_files: list[Path] = sorted(
+        f for f in root.rglob("*.py") if not _is_excluded(f, root)
+    )
 
     # -- Step 2: first pass — parse, build symbol map, record edges --
     # module_symbols[module_path] = { local_name: qualified_symbol_id }

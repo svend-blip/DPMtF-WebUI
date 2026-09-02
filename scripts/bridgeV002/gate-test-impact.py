@@ -51,6 +51,42 @@ from scripts.testing.runner import RunnerError, run_plan  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+def _compose_narrowing(target_repo, changes, baseline, policy):
+    """Build (symbols, closure, note) for symbol/file narrowing.
+
+    Returns ``(None, None, reason)`` whenever narrowing cannot be trusted:
+    no Python changes, an empty policy, or any analysis failure. The
+    planner treats ``None`` as "component ladder only".
+    """
+    py_changes = [p for p in changes if p.endswith(".py")]
+    if not py_changes:
+        return None, None, "not attempted: no Python files changed"
+    if policy.is_empty:
+        return None, None, "not attempted: empty policy"
+    try:
+        from scripts.testing.git_changes import changed_ranges
+        from scripts.testing.symbol_analysis import changed_symbols
+        from scripts.testing.dependency_graph import build_graph, reverse_closure, node_id
+        ranges = changed_ranges(target_repo, baseline=baseline)
+        symbols = {}
+        for path in changes:
+            if path.endswith(".py"):
+                found = changed_symbols(target_repo, path, ranges.get(path, []))
+                symbols[path] = set(found) if isinstance(found, (list, set, tuple)) else found
+            else:
+                symbols[path] = set()
+        graph = build_graph(target_repo)
+        seeds = [
+            node_id(path, sym)
+            for path, syms in symbols.items()
+            if isinstance(syms, set)
+            for sym in syms
+        ]
+        closure = reverse_closure(graph, seeds)
+        return symbols, closure, f"symbols for {len(py_changes)} Python file(s); closure safe={closure.is_safe}"
+    except Exception as exc:  # noqa: BLE001 — degrade, never block the dispatch
+        return None, None, f"unavailable: {type(exc).__name__}: {exc}"
+
 def engine_chain(
     target_repo: str,
     flow_key: str,
@@ -128,9 +164,16 @@ def engine_chain(
         result["error"] = f"Change detection failed: {exc}"
         return result
 
-    # Step 3: Plan tests
+    # Step 3: Plan tests — with symbol/closure narrowing when the change is
+    # Python and the analysis succeeds. Every failure degrades to the
+    # component ladder; the reason is recorded, never hidden.
+    symbols, closure, narrowing_note = _compose_narrowing(target_repo, changes, resolved_baseline, policy)
+    result["narrowing"] = narrowing_note
     try:
-        plan = plan_tests(target_repo, policy, changes, requested_scope=requested_scope)
+        plan = plan_tests(
+            target_repo, policy, changes, requested_scope=requested_scope,
+            symbols=symbols, closure=closure,
+        )
     except PlanError as exc:
         result["error"] = f"Planning failed: {exc}"
         return result
@@ -139,12 +182,19 @@ def engine_chain(
     # When the policy is empty and the plan is exhaustive, skip the test run
     # to avoid running the full suite indefinitely (no policy = no gates).
     if policy.is_empty and getattr(plan, "is_exhaustive", False):
-        status = "PASS"
+        # No policy at the target: nothing was measured. This is SKIPPED,
+        # not PASS — until 2026-09-02 it was recorded as PASS and 150
+        # evidence files in a row said green without running a test.
+        status = "SKIPPED"
+        print(
+            f"test-impact: no .dpmtf/test-policy.json in {target_repo} — "
+            f"no tests selected or run (SKIPPED, not a pass)"
+        )
         evidence = build_evidence(
             repo_root=target_repo,
             plan=plan,
             test_command=["skip-empty-policy"],
-            status="PASS",
+            status="SKIPPED",
             duration_seconds=0.0,
             lifecycle_point=lifecycle_point,
             baseline_tree_state=baseline_tree_state,
@@ -179,7 +229,7 @@ def engine_chain(
         return result
     result["status"] = status
     result["evidence"] = evidence
-    result["success"] = status == "PASS"
+    result["success"] = status in ("PASS", "SKIPPED")
     return result
 
 

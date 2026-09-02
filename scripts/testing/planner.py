@@ -384,6 +384,22 @@ def _collect_tests_for_components(
             tests.update(policy.test_mappings[comp])
     return tests
 
+def _is_test_file(path: str, policy: Any) -> bool:
+    """True when *path* is one of the policy's mapped test files or matches
+    the conventional ``tests/**/test_*.py`` shape."""
+    norm = path.replace("\\", "/")
+    for globs in getattr(policy, "test_mappings", {}).values():
+        for g in globs:
+            if norm == g or _match_glob(norm, g):
+                return True
+    for smoke in getattr(policy, "mandatory_smoke_tests", []) or []:
+        if norm == smoke:
+            return True
+    base = norm.rsplit("/", 1)[-1]
+    return (
+        (norm.startswith("tests/") or "/tests/" in norm)
+        and base.startswith("test_") and base.endswith(".py")
+    )
 
 def _resolve_scope_for_change(
     path: str,
@@ -411,6 +427,15 @@ def _resolve_scope_for_change(
     tuple[str, str]
         ``(scope_str, reason_str)``.
     """
+    # Rule 0: a changed test file is its own test. It has no owning
+    # component (components claim source paths), and without this rule it
+    # resolved to broad — on 2026-09-02 a three-file commit ran 85 test files
+    # because one of them was the new test. File scope selects the file
+    # itself; the source files in the same change still escalate on their
+    # own rules.
+    if _is_test_file(path, policy):
+        reason = f"path '{path}' is a test file — selects itself"
+        return ("file", reason)
     # Rule 1: full regression trigger
     if _is_full_regression_trigger(path, policy):
         reason = (
@@ -531,6 +556,7 @@ def plan_tests(
     # Process each changed path individually
     all_affected_components: set[str] = set()
     all_tests: set[str] = set()
+    self_selected_tests: set[str] = set()
 
     for path, label in changes.items():
         per_path_scope, reason = _resolve_scope_for_change(path, policy)
@@ -538,6 +564,8 @@ def plan_tests(
 
         # Monotonicity: resolved scope is the MAX of all per-path scopes
         current_scope = _scope_max(current_scope, per_path_scope)
+        if per_path_scope == "file":
+            self_selected_tests.add(path)
 
         # Collect affected components
         if per_path_scope == "component":
@@ -567,6 +595,11 @@ def plan_tests(
         )
 
     # -- Symbol/file narrowing (when symbols and closure are provided) --
+    # ``collect_fallback`` stays True until an index selection has actually
+    # replaced ``all_tests``. Before 2026-09-02 a failed index lookup (the
+    # exception is swallowed below) left the plan with the smoke tests only:
+    # component scope, three tests, a green that measured nothing.
+    collect_fallback = True
     if symbols is not None and closure is not None:
         selection = None
         try:
@@ -594,6 +627,7 @@ def plan_tests(
 
             if selection_scope_idx < existing_scope_idx:
                 # Selection narrowed further — use it
+                collect_fallback = False
                 current_scope = selection.resolved_scope
                 all_tests = set(selection.tests)
                 if current_scope == "component" and all_affected_components:
@@ -618,6 +652,7 @@ def plan_tests(
                     escalation_reason = selection.rationale
             elif selection_scope_idx == existing_scope_idx:
                 # Same scope — merge test sets
+                collect_fallback = False
                 all_tests = set(selection.tests)
                 if current_scope == "component" and all_affected_components:
                     test_globs = _collect_tests_for_components(
@@ -638,7 +673,7 @@ def plan_tests(
             # If selection is weaker (higher scope), keep existing resolution
             else:
                 all_tests.update(policy.mandatory_smoke_tests)
-    else:
+    if collect_fallback:
         # No symbols/closure — use existing component/broad/full logic
         if current_scope == "component" and all_affected_components:
             test_globs = _collect_tests_for_components(
@@ -651,6 +686,7 @@ def plan_tests(
             ))
 
     # Mandatory smoke tests are included at every scope level
+    all_tests.update(self_selected_tests)
     all_tests.update(policy.mandatory_smoke_tests)
 
     return TestPlan(

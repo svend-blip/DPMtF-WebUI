@@ -205,7 +205,7 @@ class TestGateTestImpactCLI(unittest.TestCase):
             with tempfile.TemporaryDirectory() as bridge_dir:
                 _setup_passing_repo(repo_root)
                 result = engine_chain(repo_root, "1000-02-ELOOP", "99", bridge_dir)
-                expected_keys = {"success", "status", "evidence", "error", "evidence_path"}
+                expected_keys = {"success", "status", "evidence", "error", "evidence_path", "narrowing"}
                 self.assertEqual(set(result.keys()), expected_keys)
 
     def test_parse_args_minimal_required(self):
