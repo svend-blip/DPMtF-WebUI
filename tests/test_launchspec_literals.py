@@ -83,7 +83,12 @@ _FROZEN_MODE = {
     "sweagent": "one_shot", "aider": "one_shot",
     # Roster growth after the freeze: whip (run 020/023) and simple-harness
     # (the eleventh harness) — frozen 2026-08-30 from the live spec.
-    "whip": "one_shot", "simple-harness": "one_shot",
+    # simple-harness re-frozen 2026-09-02 as terminal_wrapped: its bare
+    # binary is the interactive REPL (single turn, no tool dispatch), so a
+    # dispatched role could not act; the Harness Terminal invokes `run`
+    # one-shot per dispatch instead (harness-allocator, 2026-09-01; the
+    # Human confirmed terminal_wrapped as the standing mode 2026-09-02).
+    "whip": "one_shot", "simple-harness": "terminal_wrapped",
 }
 _FROZEN_NEEDS_INITIAL_PROMPT = {
     "dsh": True,

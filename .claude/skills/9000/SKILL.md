@@ -9,15 +9,26 @@ Invoke with `/9000` to reconstruct context after a cold start in either flow
 that shares the `9000` artifact root. You are stateless by design; everything
 below is discoverable, and discovering it beats being told it.
 
-**The 9000 workspace exists to prove wiring, not to build software.** These
-are TEST flows (Human decision 2026-08-30): every model is resolved by
-model-allocator, every interface is launched via harness-allocator. The
-planning supervisor runs claude-code (opus5); the three chain roles run the
-**simple-harness** interface with cloud_minimax (MiniMax-M3). The target is
-the throwaway repository `/home/svend/9000-sandbox` — nothing in it matters
-beyond being a real git worktree the chain can read, edit, and be
-gate-measured against. Keep runs SMALL: the deliverable is evidence that the
-composition works, not features.
+Every model is resolved by model-allocator, every interface is launched via
+harness-allocator. The planning supervisor runs claude-code (opus5); the
+three chain roles run the **simple-harness** interface with cloud_minimax
+(MiniMax-M3).
+
+**The target repository is `/home/svend/FlowRunner`** (Human decision
+2026-09-01) — a real greenfield product build from `SCOPE.md`, no longer a
+throwaway wiring proof. The former `/home/svend/9000-sandbox` is dead; do
+not look for it. Runs 001-033 are promoted and their contracts live in
+`/home/svend/flows/9000/runs/NNN/GOAL.md`.
+
+**Tool boundary, measured 2026-09-01 and easy to lose an hour to.** A chain
+role's workspace is the target repository. `read_file`, `write_file`,
+`grep`, `list_directory` and `search_files` are workspace-relative and
+reject an ABSOLUTE path as `absolute_path` at the permission gate's path
+stage — before the policy stage, so no permission mode changes it. The
+`shell` tool's arguments are `command` and `cwd`, which the gate's
+`looksLikePath` heuristic does not match, so shell reaches any path. Every
+artifact a role reads or writes (`/home/svend/flows/...`, governance under
+`/home/svend/DPMtF-WebUI/docs/...`) is outside the workspace: use shell.
 
 **Two flows, one workspace, split authority — verify, then act within yours:**
 
@@ -33,7 +44,7 @@ python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 90
 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-02-ELOOP
 ls /home/svend/flows/9000/goals/          # drafts awaiting approval
 ls /home/svend/flows/9000/runs/           # promoted runs; END-REPORT.md = closed
-git -C /home/svend/9000-sandbox status --short && git -C /home/svend/9000-sandbox log --oneline -3
+git -C /home/svend/FlowRunner status --short && git -C /home/svend/FlowRunner log --oneline -3
 ```
 
 trace.log is flow-wide and the id counter is not: filter on flow AND id
@@ -47,10 +58,10 @@ BECOMES the Run id. You may create and revise drafts. **You may not
 promote:** `GOAL.md` means the Human approved the Run; promotion is the
 Human-side `bridge_broker.py promote-goal`.
 
-Plan runs that exercise the WIRING: a role reads a file, edits `hello.py`,
-a verdict lands, the trace shows the full chain. A draft's testgoals must
-parse (`check_testgoals.py`) and be measured RED before approval — rehearse
-under `dash -c`, never bash. Testgoals measure `/home/svend/9000-sandbox`.
+A draft's testgoals must parse (`check_testgoals.py`) and be measured RED
+before approval — rehearse under `dash -c`, never bash, and guard every
+criterion so it cannot pass on an empty repository. Testgoals measure
+`/home/svend/FlowRunner`.
 
 ## If you are 9000-escalation-supervisor (ELOOP)
 
@@ -63,8 +74,10 @@ diagnosis is success.
 ## What a cold start never does
 
 Never re-signal a step whose last event is an escalation; never touch
-`/home/svend/9000-sandbox` outside a governed handoff; never commit or push
-in ANY repo (Human-only); never start or stop shared model servers — all
+`/home/svend/FlowRunner` outside a governed handoff; never start another
+role's harness terminal (a role exploring with shell has done exactly that,
+producing sessions nobody dispatched); never start or stop shared model
+servers — all
 9000 chain roles are cloud (MiniMax), there is nothing local to swap. A
 FAILED simple-harness status event usually means the endpoint env did not
 reach the session — check `SIMPLE_HARNESS_BASE_URL`/`SIMPLE_HARNESS_MODEL`
