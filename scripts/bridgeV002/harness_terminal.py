@@ -63,6 +63,7 @@ import argparse
 import errno
 import json
 import os
+import re
 import select
 import shlex
 import signal
@@ -394,6 +395,9 @@ def _probe_mcp_endpoint(endpoint, timeout=2.0):
 #: input as one complete submission. Tuned to comfortably outlast a normal
 #: human Enter cadence while still feeling snappy on small inputs.
 IDLE_FLUSH_SECONDS = 0.4
+#: ANSI CSI / SS3 sequences (cursor keys, function keys, mode reports) that a
+#: canonical-mode tty passes through into the input line.
+_ANSI_CSI_RE = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|O[A-Za-z])")
 IDLE_READ_INTERRUPTED = object()
 
 
@@ -521,6 +525,12 @@ class _IdleAccumulatingReader:
             payload = payload_bytes.decode("utf-8")
         except UnicodeDecodeError:
             payload = payload_bytes.decode("utf-8", "replace")
+        # The pane's tty is in canonical mode: an arrow key pressed while
+        # typing (or while trying to scroll the transcript) is not handled
+        # by anyone and lands in the line buffer as an escape sequence —
+        # the Human saw a prompt line fill with ^[[A. Nothing in a role's
+        # prompt is ever an ANSI control sequence, so strip them all.
+        payload = _ANSI_CSI_RE.sub("", payload)
         # Strip a single trailing newline that the user pressed as Enter, so
         # the harness does not receive a phantom trailing blank line. The
         # submitted prompt is still "the whole paste": internal newlines are
