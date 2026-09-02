@@ -151,3 +151,61 @@ def test_exhaustive_plan_calls_dotnet_test_once_on_the_root(tmp_path, monkeypatc
     evidence = runner_mod.run_plan(str(repo), plan, pol, timeout=60)
     assert evidence["status"] == "PASS"
     assert log.read_text().strip().splitlines() == ["test --no-restore"]
+
+
+# ---------------------------------------------------------------------------
+# Real SDK (dotnet 8 landed on this machine 2026-09-02). Skipped without a
+# toolchain or without a working restore (NuGet needs the network).
+# ---------------------------------------------------------------------------
+import shutil  # noqa: E402
+
+import pytest  # noqa: E402
+
+_ENV = {"DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1"}
+
+
+def _real_dotnet_project(tmp_path):
+    env = {**os.environ, **_ENV}
+    def run(*args):
+        return subprocess.run(["dotnet", *args], cwd=tmp_path, env=env, capture_output=True, text=True)
+    if run("new", "classlib", "-n", "Core", "-o", "src/Core").returncode != 0:
+        pytest.skip("dotnet new classlib failed")
+    if run("new", "xunit", "-n", "Core.Tests", "-o", "tests/Core.Tests").returncode != 0:
+        pytest.skip("dotnet new xunit failed")
+    run("add", "tests/Core.Tests", "reference", "src/Core")
+    (tmp_path / "src" / "Core" / "Class1.cs").write_text(
+        "namespace Core;\npublic static class Calc { public static int Add(int a, int b) => a + b; }\n")
+    (tmp_path / "tests" / "Core.Tests" / "UnitTest1.cs").write_text(
+        "namespace Core.Tests;\npublic class CalcTests { [Fact] public void Adds() => Assert.Equal(3, Core.Calc.Add(1, 2)); }\n")
+    if run("restore", "tests/Core.Tests").returncode != 0:
+        pytest.skip("dotnet restore failed (no NuGet access?)")
+    (tmp_path / ".dpmtf").mkdir()
+    (tmp_path / ".dpmtf" / "test-policy.json").write_text(json.dumps({
+        "components": {"core": ["src/Core/*.cs"], "core-tests": ["tests/Core.Tests/*.cs"]},
+        "test_mappings": {"core": ["tests/Core.Tests/Core.Tests.csproj"], "core-tests": ["tests/Core.Tests/Core.Tests.csproj"]},
+        "component_dependencies": {}, "mandatory_smoke_tests": [], "high_fanout_files": [],
+        "full_regression_triggers": [".dpmtf/test-policy.json"],
+        "test_command": ["dotnet", "test", "--no-restore", "--nologo"],
+    }))
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "base"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+@pytest.mark.skipif(not shutil.which("dotnet"), reason="no dotnet SDK")
+def test_real_dotnet_sdk_runs_the_selected_project_and_reports_failures(tmp_path, monkeypatch):
+    for k, v in _ENV.items():
+        monkeypatch.setenv(k, v)
+    repo = _real_dotnet_project(tmp_path)
+    pol = load_policy(str(repo))
+    plan = plan_tests(str(repo), pol, {"src/Core/Class1.cs": "modified"})
+    assert plan.selected_tests == ["tests/Core.Tests/Core.Tests.csproj"]
+    evidence = runner_mod.run_plan(str(repo), plan, pol, timeout=600)
+    assert evidence["status"] == "PASS", evidence.get("escalation_reason")
+    assert evidence["test_command"][-1] == "tests/Core.Tests/Core.Tests.csproj"
+    (repo / "tests" / "Core.Tests" / "UnitTest1.cs").write_text(
+        "namespace Core.Tests;\npublic class CalcTests { [Fact] public void Adds() => Assert.Equal(4, Core.Calc.Add(1, 2)); }\n")
+    evidence = runner_mod.run_plan(str(repo), plan, pol, timeout=600)
+    assert evidence["status"] == "FAIL"
+    assert "exit code 1" in evidence["escalation_reason"]
