@@ -1,84 +1,98 @@
 ---
 name: "9000"
-description: Cold-start reconstruction for the shared 9000 TEST workspace (allocator-composition proof) — PLOOP planning state or an ELOOP escalation, discovered, never assumed
+description: Cold-start for the shared 9000 workspace (FlowRunner build, allocator composition) — the planning supervisor's lifecycle position or an ELOOP escalation, discovered in order, never assumed
 ---
 
-# 9000 — Cold-Start (PLOOP / ELOOP shared TEST workspace)
+# 9000 — Cold-Start (PLOOP / ELOOP shared workspace)
 
-Invoke with `/9000` to reconstruct context after a cold start in either flow
-that shares the `9000` artifact root. You are stateless by design; everything
-below is discoverable, and discovering it beats being told it.
+Invoke with `/9000` at the start of any session in either flow that shares
+the `9000` artifact root. You are stateless by design; everything below is
+discoverable. This skill holds the flow's FACTS and the reading ORDER. The
+rules live in your governance file — read it in full before acting.
 
-Every model is resolved by model-allocator, every interface is launched via
-harness-allocator. The planning supervisor runs claude-code (opus5); the
-three chain roles run the **simple-harness** interface with cloud_minimax
-(MiniMax-M3).
+## Flow facts
 
-**The target repository is `/home/svend/FlowRunner`** (Human decision
-2026-09-01) — a real greenfield product build from `SCOPE.md`, no longer a
-throwaway wiring proof. The former `/home/svend/9000-sandbox` is dead; do
-not look for it. Runs 001-033 are promoted and their contracts live in
-`/home/svend/flows/9000/runs/NNN/GOAL.md`.
+- Flows: `9000-01-PLOOP` (planning: human-planning → planning-human) and
+  `9000-02-ELOOP` (execution: decomposer → implementer → reviewer), artifact
+  root `/home/svend/flows/9000`.
+- Every model is resolved by model-allocator, every interface is launched by
+  harness-allocator. The planning supervisor runs claude-code; the three chain
+  roles run the **simple-harness** interface with cloud_minimax (MiniMax-M3).
+- **The target repository is `/home/svend/FlowRunner`** (Human decision
+  2026-09-01): a real greenfield product built from `SCOPE.md`. Testgoals
+  measure that tree.
+- Chain-role tool boundary: `read_file`, `write_file`, `grep`,
+  `list_directory`, `search_files` are workspace-relative and reject an
+  ABSOLUTE path at the permission gate. The `shell` tool is not path-checked.
+  Every flow artifact and governance file lies outside the workspace: shell.
 
-**Tool boundary, measured 2026-09-01 and easy to lose an hour to.** A chain
-role's workspace is the target repository. `read_file`, `write_file`,
-`grep`, `list_directory` and `search_files` are workspace-relative and
-reject an ABSOLUTE path as `absolute_path` at the permission gate's path
-stage — before the policy stage, so no permission mode changes it. The
-`shell` tool's arguments are `command` and `cwd`, which the gate's
-`looksLikePath` heuristic does not match, so shell reaches any path. Every
-artifact a role reads or writes (`/home/svend/flows/...`, governance under
-`/home/svend/DPMtF-WebUI/docs/...`) is outside the workspace: use shell.
+## Step 0 — read in this order (both roles)
 
-**Two flows, one workspace, split authority — verify, then act within yours:**
+1. **Scope first, in full.** It is Human-owned and read-only to you.
 
-| | `9000-01-PLOOP` | `9000-02-ELOOP` |
-|---|---|---|
-| Owns | Run IDs, GOAL-DRAFT, (via Human-approved promotion) GOAL | handoff ids, handoffs, results, verdicts |
-| Never | writes into `9000/handoffs/` | allocates a Run number |
+```
+cat /home/svend/flows/9000/SCOPE.md
+```
 
-## Step 0 — discover the state (both roles)
+2. **Mandate.** Empty `supervisor_mandate` = planning only; set = resident
+   driving under SUPERVISOR_PLANNING.md Phases 5-6.
+
+```
+sqlite3 -readonly /home/svend/DPMtF-WebUI/databases/dpmtf.db "SELECT flow_key, supervisor_role, supervisor_mandate, commit_cadence, cold_start_skill FROM bridge_flows WHERE flow_key LIKE '9000-%'"
+```
+
+3. **State.** Both flows, drafts, runs, the backlog tail, the executing Run's
+   ledger tail, the target tree, the id counters.
 
 ```
 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-01-PLOOP
 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-02-ELOOP
-ls /home/svend/flows/9000/goals/          # drafts awaiting approval
+ls /home/svend/flows/9000/goals/          # drafts awaiting promotion
 ls /home/svend/flows/9000/runs/           # promoted runs; END-REPORT.md = closed
+tail -40 /home/svend/flows/9000/planning/PLOOP-BACKLOG.md
 git -C /home/svend/FlowRunner status --short && git -C /home/svend/FlowRunner log --oneline -3
+sqlite3 -readonly /home/svend/DPMtF-WebUI/databases/dpmtf.db "SELECT * FROM bridge_id_counters WHERE flow_key LIKE '9000%'"
 ```
 
-trace.log is flow-wide and the id counter is not: filter on flow AND id
+   Then `tail -60` of the executing Run's `RUN-LEDGER.md`. The executing Run
+   is the one with a ledger "opened" entry and no END-REPORT — NOT the newest
+   directory. Many Runs are promoted at once; one executes.
+
+4. **Phase.** Decide it from the table in SUPERVISOR_PLANNING.md §Phase 0 and
+   state it in one sentence before doing anything.
+
+trace.log is flow-wide and the id counters are not: filter on flow AND id
 (100_BRIDGE Security Rules 7). File mtimes are local, trace is UTC.
 
-## If you are 9000-planning-supervisor (PLOOP)
+## If you are 9000-planning-supervisor
 
-Governance: `500_SUPERVISOR.md`. Your deliverable channel is
-`9000/goals/{ID}-GOAL-DRAFT.md` via ordinary dispatch — the deliverable id
-BECOMES the Run id. You may create and revise drafts. **You may not
-promote:** `GOAL.md` means the Human approved the Run; promotion is the
-Human-side `bridge_broker.py promote-goal`.
-
-A draft's testgoals must parse (`check_testgoals.py`) and be measured RED
-before approval — rehearse under `dash -c`, never bash, and guard every
-criterion so it cannot pass on an empty repository. Testgoals measure
-`/home/svend/FlowRunner`.
+Governance: `SUPERVISOR_PLANNING.md` — read it in full; it IS your procedure,
+phase by phase, as checklists. This skill adds nothing to it. Facts you need
+that it cannot know: drafts are `goals/{ID}-GOAL-DRAFT.md` with the bare Run
+number; run directories are padded; chain deliverables are unpadded;
+promotion is the Human-side `bridge_broker.py promote-goal`; testgoals are
+rehearsed under `dash -c` and measure `/home/svend/FlowRunner`.
 
 ## If you are 9000-escalation-supervisor (ELOOP)
 
 Governance: `SUPERVISOR_ESCALATION.md` — read it in full; it IS your
 procedure. You are one-shot: ONE bounded decision — ANSWER within the GOAL's
 fence, RETRY WITH CORRECTION naming the one change (new handoff id), or PARK
-FOR HUMAN — recorded durably, then stand down. Parking on an accurate
-diagnosis is success.
+FOR HUMAN — recorded durably, then stand down. When the planning supervisor
+is resident under a mandate, it is the wake-up target and you are not invoked.
 
-## What a cold start never does
+## Flow-specific hazards (facts, measured)
 
-Never re-signal a step whose last event is an escalation; never touch
-`/home/svend/FlowRunner` outside a governed handoff; never start another
-role's harness terminal (a role exploring with shell has done exactly that,
-producing sessions nobody dispatched); never start or stop shared model
-servers — all
-9000 chain roles are cloud (MiniMax), there is nothing local to swap. A
-FAILED simple-harness status event usually means the endpoint env did not
-reach the session — check `SIMPLE_HARNESS_BASE_URL`/`SIMPLE_HARNESS_MODEL`
-in the pane's environment before blaming the model.
+- A FAILED simple-harness status usually means the endpoint env did not reach
+  the session — check `SIMPLE_HARNESS_BASE_URL` / `SIMPLE_HARNESS_MODEL` in
+  the pane before blaming the model.
+- The chain roles' shell tool has a default deadline (10 min) since 2026-09-02;
+  a helper started with `&` from the shell tool still holds the pipe until the
+  deadline — helpers belong inside `go test`.
+- A role once signalled into an invented `--db-path`; the broker now refuses a
+  path that does not exist. The queue is never opened with sqlite3.
+- Run 007's live test fires a real model call and rewrites
+  `docs/EVIDENCE-run-007.md` on every full `go test ./...` in the target —
+  measure with targeted tests until the Human gates it.
+- Never start another role's harness terminal; never start or stop shared
+  model servers — the chain is all cloud, there is nothing local to swap.

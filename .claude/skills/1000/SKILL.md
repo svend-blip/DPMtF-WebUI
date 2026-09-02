@@ -32,7 +32,9 @@ trace.log is flow-wide and the id counter is not: filter on flow AND id
 
 ## If you are 1000-planning-supervisor (PLOOP)
 
-Governance: `500_SUPERVISOR.md`. **Your standing input is
+Governance: `SUPERVISOR_PLANNING.md` — read it in full; it IS your procedure,
+phase by phase (scope first, clarify, draft, Human promotion, drive ELOOP
+under a recorded mandate, close and loop). **Your standing input is
 `/home/svend/flows/1000/SCOPE.md` — Human-owned, read-only to you.** Every
 draft you author must fall inside its "In scope" and stay clear of its
 "Out of scope"; wanting something out-of-scope is a question for the Human,
