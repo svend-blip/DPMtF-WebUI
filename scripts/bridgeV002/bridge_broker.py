@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -489,7 +490,37 @@ def _validate_materialize_identity(
             f"content too large: {len(content)} chars "
             f"(max {_MAX_CONTENT_BYTES} bytes)"
         )
+    if artifact_type == "end-report":
+        # An END-REPORT closes a Run for every reader — supervisor_state,
+        # the flow-state tools, the next kickoff's preconditions. A stub
+        # that reaches that path reads as closure. Measured 2026-09-02 on
+        # 9000 run 013: a closing session left a 4-byte "test" probe as
+        # END-REPORT.md and the Run showed closed while its rework was
+        # still owed. A report has a heading and states an outcome.
+        problem = _end_report_problem(content)
+        if problem:
+            return problem
 
+    return None
+
+
+_END_REPORT_OUTCOME_RE = re.compile(
+    r"(?im)^\s*\**\s*(outcome|status)\s*[:*]", re.MULTILINE
+)
+
+
+def _end_report_problem(content: str):
+    """Why `content` is not an END-REPORT, or None when it is one.
+
+    The floor is deliberately low — a Markdown heading and a line that
+    names an outcome or status — so a real report of any length passes
+    and a probe, an empty template or a one-word stub does not.
+    """
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+    if not any(ln.startswith("# ") for ln in lines):
+        return "end-report must carry a top-level '# ' heading; a stub is not a report"
+    if not _END_REPORT_OUTCOME_RE.search(content):
+        return "end-report must state an outcome ('Outcome:' or 'Status:' line); a stub is not a report"
     return None
 
 

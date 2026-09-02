@@ -1384,12 +1384,12 @@ def test_materialize_end_report_replaces(
         "--flow", "preferred_cloud_harness",
         "--type", "end-report",
         "--run-id", "3",
-        "--content", "# END REPORT\n",
+        "--content", "# END REPORT\nOutcome: SUCCESS\n",
     ])
     assert rc == 0
     bridge_broker.main(["process-once"])
     assert endrep.exists()
-    assert endrep.read_text() == "# END REPORT\n"
+    assert endrep.read_text() == "# END REPORT\nOutcome: SUCCESS\n"
 
 
 # ── B.4 filesystem untouched on validation failure ───────
@@ -1936,7 +1936,7 @@ def test_materialize_end_report_remains_idempotent_per_run_id(
         "--flow", "preferred_cloud_harness",
         "--type", "end-report",
         "--run-id", "3",
-        "--content", "# END original\n",
+        "--content", "# END original\nOutcome: SUCCESS\n",
     ])
     assert rc == 0
     bridge_broker.main(["process-once"])
@@ -1961,7 +1961,7 @@ def test_materialize_end_report_remains_idempotent_per_run_id(
     end_report_file = (
         bridge_dir / "preferred_cloud_harness" / "runs" / "003" / "END-REPORT.md"
     )
-    assert end_report_file.read_text() == "# END original\n"
+    assert end_report_file.read_text() == "# END original\nOutcome: SUCCESS\n"
 
 
 def test_materialize_allows_re_dispatch_for_failed_rows(
