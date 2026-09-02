@@ -1090,8 +1090,8 @@ def test_terminal_full_loop_one_invocation_for_20k_multiline(monkeypatch):
     assert len(call["task"]) == len(payload)
     # The terminal prints a request identity block (objective 5) — chars and
     # lines for the submitted payload.
-    assert f"chars: {len(payload)}" in out
-    assert f"lines: {len(payload.splitlines())}" in out
+    assert f"{len(payload)} chars" in out
+    assert f"{len(payload.splitlines())} lines" in out
     assert "[DISPATCH]" in out
     assert "[SUCCESS]" in out
     # Exactly one DISPATCH block (one turn) and exactly one SUCCESS block.
@@ -1142,11 +1142,11 @@ def test_terminal_heartbeat_emitted_while_runner_runs(monkeypatch):
 
     # RUNNING block carries pid and elapsed time.
     assert "[RUNNING]" in out
-    assert "pid: 7" in out
+    assert "pid 7" in out
     # HEARTBEAT block carries request_id, process_alive, elapsed.
     # One line per heartbeat since harness-allocator b50bba8: header,
     # request id, elapsed and either the live activity or "alive".
-    assert "[HEARTBEAT] · ha-hb · 1.50s · alive" in out
+    assert "[HEARTBEAT] · ha-hb · 1s · alive" in out
     # No chain-of-thought: nothing private leaks. The harness label is the
     # only human-facing string besides the lifecycle tokens.
     assert "[SUCCESS]" in out
@@ -1270,12 +1270,12 @@ def test_terminal_identity_block_printed_for_submission(monkeypatch):
     # locally over the same bytes.
     import hashlib as _hl
     expected_sha = _hl.sha256(payload.encode("utf-8")).hexdigest()
-    assert f"chars: {len(payload)}" in out
-    assert f"lines: {len(payload.splitlines())}" in out
-    assert f"sha256: {expected_sha}" in out
+    assert f"{len(payload)} chars" in out
+    assert f"{len(payload.splitlines())} lines" in out
+    assert f"sha256 {expected_sha[:8]}" in out
     # request_id is synthesized per-frame; we only assert the prefix is
     # present (the counter is module-level and may differ across runs).
-    assert "request_id: ha-" in out
+    assert "[DISPATCH] ha-" in out
     assert "harness: DeepSeek Harness" in out
     assert "role: super-deep-deep4" in out
     assert "model_target: DeepSeek V4 Pro" in out
