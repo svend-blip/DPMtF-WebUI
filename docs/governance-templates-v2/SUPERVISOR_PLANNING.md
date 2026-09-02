@@ -182,6 +182,9 @@ number (`goals/7-GOAL-DRAFT.md`).
 - [ ] Then the prompt, into the decomposer's pane (§Kickoff Protocol).
 - [ ] Then verify delivery: the decomposer's pane shows a running request.
       Only that means delivered — not the paste, not the ledger.
+- [ ] Then arm the watchers (§Watchers): chain progress, Run closure,
+      session failure and stall at minimum. A kickoff without watchers is a
+      Run nobody is supervising.
 
 **5c — Event loop**
 
@@ -293,6 +296,49 @@ It MUST contain, in this order:
     decomposer stands down; the next Run waits for its own kickoff.
 
 Ledger first, prompt second, delivery verified third.
+
+## Watchers — Arm Before the Kickoff, Re-arm After Each Fires
+
+You are stateless between wake-ups and the chain is silent between events.
+A watcher is the only thing that turns a state into a wake-up. Arm the set
+below before every kickoff (5b) and re-arm each one after it fires: a watcher
+that has completed is not watching, and the gap after a verdict lands is
+exactly where a Run finishes.
+
+**Three rules that every watcher obeys**
+
+1. **It emits or exits — it never only writes to a file.** A poll loop that
+   records events into a log for four hours says nothing for four hours. A
+   watcher's success is a notification; its exit is a notification.
+2. **It reads durable signals, never the pane's text.** The pane format is a
+   rendering and changes without notice (on 2026-09-02 a compaction of the
+   Harness Terminal broke two watchers keyed on `Status:` and `tool shell
+   #N running` in one afternoon). What is stable: `trace.log` fields, the
+   harness's session event stream, the dispatch queue table, the ledger,
+   and files appearing under `{bridge_dir}/{artifact_root}/`. Read the pane
+   only when a watcher has already told you where to look.
+3. **Silence is not success.** Ask, before arming: if the role's harness
+   crashed right now, would this watcher say anything? If not, widen it.
+
+**The set**
+
+| # | Watches for | Durable signal | Fires when | Then |
+|---|---|---|---|---|
+| 1 | Chain progress | `trace.log` lines whose flow field is this family's ELOOP key. Split the line on ` \| ` and compare fields; never substring-match (`signal_complete_failed` contains `signal_complete`; an id matches other eras' ids). | Every `dispatched` / `signal_*` / `*_failed` line. | Rung 0 on `*_failed`; otherwise observe and re-arm. |
+| 2 | Run closure | `runs/{NNN}/END-REPORT.md` appears (via the broker's `materialize`) in the active Run's directory. | The file exists and passes the floor (a heading plus an `Outcome:` or `Status:` line). | Phase 6. **The decomposer's closing wake-up produces no trace signal**: this watcher is the only thing that tells you a Run has closed. |
+| 3 | Session failure | The harness's session event stream (simple-harness: `events.jsonl` under its sessions directory; `status: FAILED`, `TOOL_DISPATCH_OVERFLOW`, `exit_code != 0`). For other harnesses: the allocator's `completed` event with a non-zero exit. | A role's session ends without a deliverable on disk. | Rung 0 with the session id; then rung 2 or 3 as §Intervention Ladder dictates. |
+| 4 | Stall | Time since the LATER of the Run's opening (ledger) and the last trace signal or artifact mtime for this family. A watcher that measures from the last signal alone reports the gap since the previous Run closed. | Longer than the flow's stall threshold (the watchdog's, or 30 min), **repeating every interval while the stall persists** — one alert that then goes quiet is a monitor that has stopped. | Rung 0: a role thinking is not a stall; a blocked signal is. |
+| 5 | Tool hang | A `tool_call` in the session event stream with no matching `tool_result` after the harness's shell timeout (default 10 min in simple-harness; the role can set `timeout_ms`). | One call open past the threshold. | Rung 0, then rung 7 only for a process whose ancestry is the role's pane; `SIGTERM` first; pid and ancestry in the ledger. |
+| 6 | Queue health | `bridge_dispatch_queue` and `bridge_materialize_queue` rows `pending`/`processing` older than a few minutes; `systemctl --user is-active bridge-broker.service`. | A row ages without moving, or the broker is not `active`. | The broker is host infrastructure: restart it only in an idle window, record it. A stuck row is rung 0 evidence, never something you edit in SQL. |
+| 7 | Missing kickoff | A `Run NNN opened` ledger entry with no `dispatched` trace line for the first handoff id within 15 min. | The decomposer never issued handoff one. | Rung 1 (nudge) — the kickoff prompt may not have been delivered; verify the pane shows a running request before re-pasting. |
+| 8 | Fence drift | `git -C {target_project} status --short` shows paths outside the active handoff's fence, or a frozen path modified. | Any such path. | Rung 8 (park): a fence breach is the Human's decision. Never `git checkout --` a path you have not measured against the fence. |
+| 9 | Model runtime (local flows only) | The model server's health endpoint, `ollama ps`, or the allocator's launch status. | The runtime the role depends on is gone or swapped. | Rung 0 → rung 8 if the runtime cannot come back without a Human. Never start a local model manually while a chain is dispatching. |
+
+Watchers 1, 2, 3 and 4 are the minimum for a mandated Run; 5–9 are the ones
+that earned their place by being missed once. Where the flow's watchdog
+already provides a signal (stall wake-ups, `chain_watchdog`), consume that
+signal rather than measuring it a second time — but read its log at rung 0
+before acting, because a wake-up says that the watchdog fired, not why.
 
 ## Intervention Ladder
 
