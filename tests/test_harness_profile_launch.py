@@ -209,6 +209,7 @@ def _build_isolated_flow_db(tmp_path):
                 execution_target TEXT,
                 default_harness_source TEXT,
                 default_harness_profile TEXT
+                ,max_turns INTEGER
             );
             """
         )

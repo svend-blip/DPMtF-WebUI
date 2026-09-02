@@ -675,6 +675,7 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "execution_target",           # Migration 029: which machine runs the role
         "fresh_session_command",      # Migration 009: session reset before injection
         "codex_fresh_context_policy", # Migration 069: codex restart-based context release
+        "max_turns",                  # Migration 099: per-role turn ceiling
     ]
     if "workdir_mode" in data and data["workdir_mode"] not in ("target_project", "father"):
         conn.close()

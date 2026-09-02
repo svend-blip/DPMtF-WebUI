@@ -2202,6 +2202,7 @@ function renderRoleCard(role, refresh, container) {
     [lbl("lbl_bridge_governance_file", "Governance File"), role.governance_file],
     [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
     [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
+    [lbl("lbl_bridge_role_max_turns", "Max Turns"), role.max_turns != null ? String(role.max_turns) : null],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -3093,6 +3094,10 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
         if (cdEl) body.config_dir = cdEl.value.trim() || null;
         if (cfpEl) body.codex_fresh_context_policy = cfpEl.value || null;
 
+        // Migration 099: per-role turn ceiling
+        var mtEl = document.getElementById("bridge-edit-input-max_turns");
+        if (mtEl) body.max_turns = mtEl.value ? parseInt(mtEl.value, 10) : null;
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -3351,6 +3356,18 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
       }
       if (hsInputForSync) hsInputForSync.addEventListener("input", syncCodexPolicyVisibility);
       syncCodexPolicyVisibility();
+
+      // Migration 099: per-role turn ceiling
+      var mtDiv = el("div", "dpmtf-form-group");
+      mtDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_role_max_turns", "Max Turns")));
+      var mtInput = el("input", null);
+      mtInput.type = "number";
+      mtInput.min = "1";
+      mtInput.id = "bridge-edit-input-max_turns";
+      mtInput.value = role.max_turns != null ? String(role.max_turns) : "";
+      mtDiv.appendChild(mtInput);
+      mtDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_role_max_turns_help", "Session turn ceiling for this role. Empty = harness default.")));
+      form.appendChild(mtDiv);
 
       // Target project is a FLOW field (bridge_flows.target_project_path),
       // not a role field — a role can run in several flows, each with its

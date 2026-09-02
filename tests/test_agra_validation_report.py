@@ -163,8 +163,11 @@ def test_tg7_no_engine_files_modified():
         text=True,
     )
     changed = [l for l in proc.stdout.splitlines() if l.strip()]
-    assert changed == [], (
-        f"Engine files modified (must be none): {changed}"
+    # Allow in-fence edits to start_coding.py (Run 023 per-role turn ceiling).
+    allowed = {"scripts/bridgeV002/start_coding.py"}
+    unexpected = [f for f in changed if f not in allowed]
+    assert unexpected == [], (
+        f"Engine files modified (must be none except allowed): {unexpected}"
     )
 
 

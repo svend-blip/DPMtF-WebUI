@@ -75,6 +75,7 @@ def get_flow_roles(db_path, flow_key):
                r.default_harness_source,
                r.default_harness_profile,
                r.workdir_mode,
+               r.max_turns,
                s.sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.from_role = r.role_key
@@ -98,6 +99,7 @@ def get_flow_roles(db_path, flow_key):
                r.default_harness_source,
                r.default_harness_profile,
                r.workdir_mode,
+               r.max_turns,
                s.sort_order + 0.5 AS sort_order
         FROM bridge_flow_steps s
         JOIN bridge_roles r ON s.to_role = r.role_key
@@ -132,6 +134,7 @@ def get_flow_roles(db_path, flow_key):
                 "harness_source": (row["default_harness_source"] or row["allocator_client"] or "opencode"),  # allocator_client kept as fallback mirror (deprecated)
                 "harness_profile": (row["default_harness_profile"] or ""),
                 "workdir_mode": row["workdir_mode"] or "target_project",
+                "max_turns": row["max_turns"],
             })
 
     conn.close()
@@ -613,6 +616,13 @@ def main():
             thinking_budget = resolved.get("thinking_budget")
             if thinking_budget:
                 child_env["SIMPLE_HARNESS_THINKING_BUDGET"] = str(thinking_budget)
+
+            # Per-role turn ceiling (migration 099): when the role carries a
+            # max_turns value, thread it into the child env so simple-harness
+            # reads it before the ini default. Absent = ini default applies.
+            role_max_turns = role.get("max_turns")
+            if role_max_turns is not None:
+                child_env["SIMPLE_HARNESS_MAX_TURNS"] = str(role_max_turns)
 
             # The credential never appears in the pane. The command line is
             # echoed by the pane's shell and stays in its scrollback, so a
