@@ -1947,7 +1947,7 @@ def test_materialize_end_report_remains_idempotent_per_run_id(
         "--flow", "preferred_cloud_harness",
         "--type", "end-report",
         "--run-id", "3",
-        "--content", "# END should NOT win\n",
+        "--content", "# END should NOT win\nOutcome: SUCCESS\n",
     ])
     assert rc == 0
     conn = sqlite3.connect(db_path)
