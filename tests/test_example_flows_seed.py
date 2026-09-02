@@ -172,7 +172,8 @@ def test_9010_flows_seeded_experimental_and_self_contained(fresh_db):
         assert row["artifact_root"] == "9010", row["flow_key"]
         assert row["target_project_path"] is None, row["flow_key"]
     assert flows["9010-01-PLOOP"]["supervisor_role"] == "9010-planning-supervisor"
-    assert flows["9010-02-ELOOP"]["supervisor_role"] == "9010-escalation-supervisor"
+    # Migration 097: both rows of a family wake the resident planning supervisor.
+    assert flows["9010-02-ELOOP"]["supervisor_role"] == "9010-planning-supervisor"
 
     roles = {
         r["role_key"]: r
