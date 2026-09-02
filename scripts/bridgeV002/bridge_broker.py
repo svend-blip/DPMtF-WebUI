@@ -1038,6 +1038,31 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
     # cmd_enqueue READS the bridge dir (trace.log); its no-touch contract
     # now means "never WRITES". The read is defensive: missing or
     # unreadable trace.log -> no evidence -> suppress (row stands).
+    # A pending or processing row for this exact transition is this signal,
+    # already on its way. A second row would be delivered as a duplicate and
+    # suppressed only at dispatch time (trace: send_skipped) — after a
+    # second paste attempt and a second log line. Say so here instead.
+    live = conn.execute(
+        """
+        SELECT id, status FROM bridge_dispatch_queue
+        WHERE flow_key = ? AND from_role = ? AND to_role = ?
+          AND handoff_id = ? AND action = ?
+          AND status IN ('pending', 'processing')
+        ORDER BY id DESC LIMIT 1
+        """,
+        (args.flow_key, args.from_role, args.to_role,
+         args.handoff_id, args.action),
+    ).fetchone()
+    if live is not None:
+        conn.close()
+        print(
+            f"already enqueued: {args.flow_key} {args.from_role}->"
+            f"{args.to_role} id={args.handoff_id} action={args.action} "
+            f"(row {live[0]} is {live[1]}; nothing new written — do not run "
+            f"this command again)"
+        )
+        return 0
+
     existing = conn.execute(
         """
         SELECT id FROM bridge_dispatch_queue
@@ -1058,6 +1083,12 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
             # Delivered (last_event == "delivery") or no evidence
             # (last_event is None) -> row stands -> suppress.
             conn.close()
+            print(
+                f"already enqueued: {args.flow_key} {args.from_role}->"
+                f"{args.to_role} id={args.handoff_id} action={args.action} "
+                f"(row {existing[0] if existing else '?'} stands; nothing new "
+                f"written — do not run this command again)"
+            )
             return 0
         # last_event == "rejection": the gate turned this delivery back,
         # so the re-enqueue must NOT be silently swallowed. Fall through
@@ -1073,10 +1104,20 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
         (args.flow_key, args.from_role, args.to_role,
          args.handoff_id, args.action, args.handoff_path),
     )
+    row_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
     conn.close()
-    # Be silent on success — the supervisor's chain_advancement is
-    # `nohup ... &` and expects a quiet completion.
+    # One line of confirmation. This command used to be silent on
+    # success, and silence was read as failure: on 2026-09-02 a decomposer
+    # whose kickoff said "confirm it printed a dispatch line" re-ran the
+    # enqueue twice to find the missing line, and every duplicate signal of
+    # the night has the same shape. The chain_advancement's `nohup ... &`
+    # sends this line to its log file, where it belongs.
+    print(
+        f"enqueued: row {row_id} {args.flow_key} {args.from_role}->"
+        f"{args.to_role} id={args.handoff_id} action={args.action} "
+        f"(the broker daemon delivers it; do not run this command again)"
+    )
     return 0
 
 
