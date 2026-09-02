@@ -4,10 +4,6 @@
       "app.py",
       "routers/*.py"
     ],
-    "bridge": [
-      "scripts/bridgeV002/*.py",
-      "scripts/bridgeV002/**/*.py"
-    ],
     "testing-engine": [
       "scripts/testing/*.py"
     ],
@@ -33,6 +29,46 @@
     ],
     "governance-docs": [
       "docs/governance-templates-v2/*.md"
+    ],
+    "bridge-dispatch": [
+      "scripts/bridgeV002/dispatch.py",
+      "scripts/bridgeV002/bridge_lib.py",
+      "scripts/bridgeV002/execution_config.py",
+      "scripts/bridgeV002/check_testgoals.py",
+      "scripts/bridgeV002/patch_mode.py",
+      "scripts/bridgeV002/readme_impact.py",
+      "scripts/bridgeV002/worker_results.py",
+      "scripts/bridgeV002/worker_routing.py",
+      "scripts/bridgeV002/mint_worker_token.py",
+      "scripts/bridgeV002/run_report.py",
+      "scripts/bridgeV002/post-dispatch-common.py",
+      "scripts/bridgeV002/_deprecated/command_builder.py"
+    ],
+    "bridge-broker": [
+      "scripts/bridgeV002/bridge_broker.py"
+    ],
+    "bridge-launch": [
+      "scripts/bridgeV002/harness.py",
+      "scripts/bridgeV002/start_coding.py",
+      "scripts/bridgeV002/runtime_owner.py",
+      "scripts/bridgeV002/codex_context_release.py",
+      "scripts/bridgeV002/harness_terminal.py",
+      "scripts/bridgeV002/start_tmuxflow.py",
+      "scripts/bridgeV002/stop_tmuxflow.py",
+      "scripts/bridgeV002/attach_tmux.py",
+      "scripts/bridgeV002/laguna_swap_guard.py",
+      "scripts/bridgeV002/import-flow-output.py",
+      "scripts/bridgeV002/role_setup.py",
+      "scripts/bridgeV002/role_teardown.py"
+    ],
+    "bridge-watchdog": [
+      "scripts/bridgeV002/chain_watchdog.py",
+      "scripts/bridgeV002/supervisor_state.py"
+    ],
+    "bridge-gates": [
+      "scripts/bridgeV002/gate-deliverable-evidence.py",
+      "scripts/bridgeV002/gate-test-impact.py",
+      "scripts/bridgeV002/pre-dispatch-import.py"
     ]
   },
   "test_mappings": {
@@ -47,49 +83,6 @@
       "tests/test_health.py",
       "tests/test_intent_api.py",
       "tests/test_readme_doc.py"
-    ],
-    "bridge": [
-      "tests/test_attach_tmux_remote.py",
-      "tests/test_bridge_broker.py",
-      "tests/test_bridge_dispatch.py",
-      "tests/test_bridge_endpoints.py",
-      "tests/test_bridge_lib.py",
-      "tests/test_bridge_trace.py",
-      "tests/test_broker_resilience.py",
-      "tests/test_chain_watchdog.py",
-      "tests/test_check_testgoals.py",
-      "tests/test_checkpoint_integration.py",
-      "tests/test_checkpoint_schema.py",
-      "tests/test_claim_expiry.py",
-      "tests/test_codex_context_release.py",
-      "tests/test_delivery_truthfulness.py",
-      "tests/test_dispatch_auto_dispatch_flag.py",
-      "tests/test_dispatch_fix.py",
-      "tests/test_dispatch_injection.py",
-      "tests/test_dispatch_once.py",
-      "tests/test_dispatch_pi_pane.py",
-      "tests/test_duplicate_dispatch_fixes.py",
-      "tests/test_execution_config.py",
-      "tests/test_gate_deliverable_evidence.py",
-      "tests/test_gate_path_resolution.py",
-      "tests/test_governance_final_repoint.py",
-      "tests/test_governance_impl_sup_repoint.py",
-      "tests/test_governance_no_hardcoded_paths.py",
-      "tests/test_governance_repoint.py",
-      "tests/test_governance_review_repoint.py",
-      "tests/test_handoff_compiler.py",
-      "tests/test_harness_anchor.py",
-      "tests/test_harness_fields_roundtrip.py",
-      "tests/test_harness_profile_launch.py",
-      "tests/test_harness_source_unification.py",
-      "tests/test_laguna_swap_guard.py",
-      "tests/test_launch_owner_agreement.py",
-      "tests/test_launchspec_agreement.py",
-      "tests/test_launchspec_consumption.py",
-      "tests/test_launchspec_literals.py",
-      "tests/test_model_lease.py",
-      "tests/test_pane_busy_status_bar.py",
-      "tests/test_preferred_cloud_harness.py"
     ],
     "testing-engine": [
       "tests/test_agra_validation_report.py",
@@ -139,11 +132,83 @@
     "governance-docs": [
       "tests/test_flow_startup_doc.py",
       "tests/test_governance_no_hardcoded_paths.py"
+    ],
+    "bridge-dispatch": [
+      "tests/test_bridge_broker.py",
+      "tests/test_bridge_dispatch.py",
+      "tests/test_bridge_lib.py",
+      "tests/test_bridge_trace.py",
+      "tests/test_check_testgoals.py",
+      "tests/test_checkpoint_integration.py",
+      "tests/test_checkpoint_schema.py",
+      "tests/test_claim_expiry.py",
+      "tests/test_codex_context_release.py",
+      "tests/test_delivery_truthfulness.py",
+      "tests/test_dispatch_auto_dispatch_flag.py",
+      "tests/test_dispatch_fix.py",
+      "tests/test_dispatch_injection.py",
+      "tests/test_dispatch_once.py",
+      "tests/test_dispatch_pi_pane.py",
+      "tests/test_duplicate_dispatch_fixes.py",
+      "tests/test_execution_config.py",
+      "tests/test_gate_deliverable_evidence.py",
+      "tests/test_governance_final_repoint.py",
+      "tests/test_governance_impl_sup_repoint.py",
+      "tests/test_governance_no_hardcoded_paths.py",
+      "tests/test_governance_repoint.py",
+      "tests/test_governance_review_repoint.py",
+      "tests/test_handoff_compiler.py",
+      "tests/test_harness_fields_roundtrip.py",
+      "tests/test_harness_profile_launch.py",
+      "tests/test_model_lease.py",
+      "tests/test_pane_busy_status_bar.py",
+      "tests/test_preferred_cloud_harness.py"
+    ],
+    "bridge-broker": [
+      "tests/test_bridge_broker.py",
+      "tests/test_broker_resilience.py",
+      "tests/test_delivery_truthfulness.py",
+      "tests/test_dispatch_once.py"
+    ],
+    "bridge-launch": [
+      "tests/test_attach_tmux_remote.py",
+      "tests/test_bridge_endpoints.py",
+      "tests/test_codex_context_release.py",
+      "tests/test_delivery_truthfulness.py",
+      "tests/test_execution_config.py",
+      "tests/test_governance_impl_sup_repoint.py",
+      "tests/test_harness_anchor.py",
+      "tests/test_harness_profile_launch.py",
+      "tests/test_harness_source_unification.py",
+      "tests/test_laguna_swap_guard.py",
+      "tests/test_launch_owner_agreement.py",
+      "tests/test_launchspec_agreement.py",
+      "tests/test_launchspec_consumption.py",
+      "tests/test_launchspec_literals.py",
+      "tests/test_preferred_cloud_harness.py"
+    ],
+    "bridge-watchdog": [
+      "tests/test_chain_watchdog.py",
+      "tests/test_dispatch_once.py",
+      "tests/test_governance_impl_sup_repoint.py",
+      "tests/test_governance_no_hardcoded_paths.py",
+      "tests/test_launch_owner_agreement.py",
+      "tests/test_launchspec_consumption.py",
+      "tests/test_preferred_cloud_harness.py"
+    ],
+    "bridge-gates": [
+      "tests/test_codex_context_release.py",
+      "tests/test_gate_deliverable_evidence.py",
+      "tests/test_gate_path_resolution.py",
+      "tests/test_preferred_cloud_harness.py"
     ]
   },
   "component_dependencies": {
     "backend-app": [
-      "bridge",
+      "bridge-broker",
+      "bridge-dispatch",
+      "bridge-launch",
+      "bridge-watchdog",
       "job-queue",
       "lightworker"
     ],
@@ -151,10 +216,24 @@
       "testing-engine"
     ],
     "patcher": [
-      "bridge"
+      "bridge-dispatch"
     ],
     "lightworker": [
       "backend-app"
+    ],
+    "bridge-broker": [
+      "bridge-dispatch"
+    ],
+    "bridge-gates": [
+      "bridge-dispatch",
+      "testing-engine"
+    ],
+    "bridge-watchdog": [
+      "bridge-dispatch",
+      "bridge-launch"
+    ],
+    "bridge-launch": [
+      "bridge-dispatch"
     ]
   },
   "mandatory_smoke_tests": [

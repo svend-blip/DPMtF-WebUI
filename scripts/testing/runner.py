@@ -37,6 +37,7 @@ before and after Run 014 is byte-identical.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -68,6 +69,56 @@ def _run_command(
         timeout=timeout,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _is_pytest_command(cmd: List[str]) -> bool:
+    """True for the default runner and any ``pytest``/``python -m pytest`` form."""
+    if not cmd:
+        return False
+    head = os.path.basename(cmd[0])
+    if head in ("pytest", "py.test"):
+        return True
+    return head.startswith("python") and "pytest" in cmd[:4]
+
+
+def _is_go_command(cmd: List[str]) -> bool:
+    return bool(cmd) and os.path.basename(cmd[0]) == "go"
+
+
+_TOOLCHAIN_FALLBACK_DIRS = ("~/.local/bin", "~/go/bin", "/usr/local/go/bin")
+
+
+def resolve_command(cmd: List[str]) -> List[str]:
+    """Return *cmd* with its executable resolved.
+
+    The gate runs from whatever environment dispatched it (a systemd user
+    unit, a tmux pane, a test), and a Go toolchain installed under the
+    user's home is not on that PATH. A policy must not carry an absolute
+    home path either, so the runner looks in the conventional toolchain
+    directories when ``which`` fails. Everything else is left alone.
+    """
+    if not cmd:
+        return cmd
+    if os.path.sep in cmd[0] or shutil.which(cmd[0]):
+        return list(cmd)
+    for d in _TOOLCHAIN_FALLBACK_DIRS:
+        candidate = os.path.join(os.path.expanduser(d), cmd[0])
+        if os.access(candidate, os.X_OK):
+            return [candidate, *cmd[1:]]
+    return list(cmd)
+
+
+def _collect_go_packages(repo_root: str, packages: List[str], go_cmd: List[str]) -> tuple[bool, str]:
+    """``go list`` is to Go what ``--collect-only`` is to pytest: it fails
+    when a selected package pattern matches nothing or does not build."""
+    cmd = [go_cmd[0], "list", *packages]
+    try:
+        rc, stdout, stderr = _run_command(cmd, repo_root, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"go list failed to run: {exc}"
+    if rc == 0:
+        return True, ""
+    return False, stdout + stderr
 
 
 def _collect_tests(
@@ -626,16 +677,29 @@ def run_plan(
 
     is_exhaustive = bool(getattr(plan, "is_exhaustive", False))
     selected_tests = list(getattr(plan, "selected_tests", []))
+    test_command = resolve_command(test_command)
+    pytest_runner = _is_pytest_command(test_command)
 
     # Determine actual command and test paths
     if is_exhaustive:
         cmd = list(test_command)
+        if _is_go_command(test_command) and not any(a.startswith("./") or a == "..." for a in cmd[1:]):
+            # ``go test`` with no package argument tests only the current
+            # directory; exhaustive means the whole module.
+            cmd.append("./...")
     else:
         cmd = list(test_command) + list(selected_tests)
 
     # Selective mode: verify collectability first
     if not is_exhaustive and selected_tests:
-        collect_ok, collect_error = _collect_tests(repo_root, selected_tests)
+        if pytest_runner:
+            collect_ok, collect_error = _collect_tests(repo_root, selected_tests)
+        elif _is_go_command(test_command):
+            collect_ok, collect_error = _collect_go_packages(repo_root, selected_tests, test_command)
+        else:
+            # An unknown runner has no collection step; the run itself is
+            # the measurement.
+            collect_ok, collect_error = True, ""
         if not collect_ok:
             duration = 0.0
             evidence = build_evidence(
@@ -660,8 +724,9 @@ def run_plan(
     # there are fewer than two test files to distribute; keeping the
     # gating here at the selective-plan level lets that fallback be
     # reported with its own ``serial_fallback_reason``.
-    parallel_attempted = parallel and not is_exhaustive
-
+    # The parallel path shards test FILES across pytest workers; it has
+    # no meaning for another runner.
+    parallel_attempted = parallel and not is_exhaustive and pytest_runner
     if parallel_attempted:
         return _run_plan_parallel(
             repo_root=repo_root,
