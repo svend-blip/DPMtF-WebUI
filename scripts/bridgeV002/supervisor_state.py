@@ -368,6 +368,12 @@ def collect(flow_key, now=None, stale_after_seconds=_STALE_AFTER_SECONDS):
         "flow": flow_key,
         "bridge_dir": bridge_dir,
         "project_root": config.get_project_root(),
+        # The Human's standing mandate to this flow's resident supervisor
+        # (migration 096). Read here so a cold-started supervisor sees the
+        # bound it works under in the same report that tells it where it
+        # is; empty mandate = planning only, cadence "none" = the Human
+        # commits. Defaults on a database predating the columns.
+        "mandate": bridge_lib.get_flow_supervisor_mandate(flow_key),
         "run": None,
         "artefacts": {},
         "first_handoff_id": None,
@@ -521,6 +527,12 @@ def render(state):
     add = lines.append
     add(f"Flow            {state['flow']}")
     add(f"Bridge dir      {state['bridge_dir']}")
+
+    mandate = state.get("mandate") or {}
+    add(f"Supervisor role {mandate.get('supervisor_role') or '(none)'}")
+    add(f"Mandate         {mandate.get('supervisor_mandate') or '(none — planning only)'}")
+    add(f"Commit cadence  {mandate.get('commit_cadence') or 'none'}")
+
     add(f"Active run      {state['run'] or '(none)'}")
 
     if state["artefacts"]:

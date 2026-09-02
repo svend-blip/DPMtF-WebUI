@@ -2411,6 +2411,45 @@ function renderFlowCard(flow, steps) {
   }
   card.appendChild(csLine);
 
+  // Supervisor mandate (migration 096) — the bound the resident planning
+  // supervisor works under. Shown on the card so an unset mandate is visible
+  // before a supervisor is dispatched: empty is fail-closed = planning only.
+  const srLine = el("p", "dpmtf-small");
+  srLine.appendChild(el("span", "dpmtf-muted",
+    lbl("lbl_bridge_flow_supervisor_role", "Supervisor role (wake-up target)") + ": "));
+  if (flow.supervisor_role) {
+    const srValue = el("span", null, flow.supervisor_role);
+    srValue.style.fontFamily = "monospace";
+    srLine.appendChild(srValue);
+  } else {
+    srLine.appendChild(el("span", "dpmtf-muted", "—"));
+  }
+  card.appendChild(srLine);
+
+  const smLine = el("p", "dpmtf-small");
+  smLine.appendChild(el("span", "dpmtf-muted",
+    lbl("lbl_bridge_flow_supervisor_mandate", "Supervisor mandate") + ": "));
+  if (flow.supervisor_mandate) {
+    smLine.appendChild(el("span", null, flow.supervisor_mandate));
+  } else {
+    smLine.appendChild(el("span", "dpmtf-muted",
+      lbl("lbl_bridge_flow_supervisor_mandate_placeholder",
+        "Empty = planning only; the supervisor never opens a Run")));
+  }
+  card.appendChild(smLine);
+
+  const ccLabels = {
+    none: lbl("lbl_bridge_flow_commit_cadence_none", "None (the Human commits)"),
+    per_run: lbl("lbl_bridge_flow_commit_cadence_per_run", "Per Run"),
+    per_handoff: lbl("lbl_bridge_flow_commit_cadence_per_handoff", "Per handoff")
+  };
+  const ccKey = flow.commit_cadence || "none";
+  const ccLine = el("p", "dpmtf-small");
+  ccLine.appendChild(el("span", "dpmtf-muted",
+    lbl("lbl_bridge_flow_commit_cadence", "Commit cadence") + ": "));
+  ccLine.appendChild(el("span", null, ccLabels[ccKey] || ccKey));
+  card.appendChild(ccLine);
+
   // Step count badge
   if (steps && steps.length) {
     card.appendChild(el("p", "dpmtf-badge dpmtf-badge-info", String(steps.length) + " step(s)"));
@@ -3406,6 +3445,15 @@ function editBridgeFlowFull(flowKey) {
         var csInput = document.getElementById("bridge-edit-input-cold_start_skill");
         if (csInput) body.cold_start_skill = csInput.value.trim();
 
+        const srInput = document.getElementById("bridge-edit-input-supervisor_role");
+        if (srInput) body.supervisor_role = srInput.value.trim();
+
+        const smInput = document.getElementById("bridge-edit-input-supervisor_mandate");
+        if (smInput) body.supervisor_mandate = smInput.value.trim();
+
+        const ccSelect = document.getElementById("bridge-edit-input-commit_cadence");
+        if (ccSelect) body.commit_cadence = ccSelect.value;
+
         var imSelect = document.getElementById("bridge-edit-input-implementation_mode");
         if (imSelect) body.implementation_mode = imSelect.value;
 
@@ -3515,6 +3563,52 @@ function editBridgeFlowFull(flowKey) {
         "Empty = no cold-start skill is loaded");
       csDiv.appendChild(csInput);
       form.appendChild(csDiv);
+
+      // supervisor_role — the role key the stall watchdog wakes for this
+      // flow (migration 061, UI-editable since 096). Empty means NULL.
+      const srDiv = el("div", "dpmtf-form-group");
+      srDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_supervisor_role", "Supervisor role (wake-up target)")));
+      const srInput = el("input", null);
+      srInput.id = "bridge-edit-input-supervisor_role";
+      srInput.type = "text";
+      srInput.value = flow.supervisor_role || "";
+      srDiv.appendChild(srInput);
+      form.appendChild(srDiv);
+
+      // supervisor_mandate — the Human's standing mandate to the resident
+      // planning supervisor (migration 096). Empty means NULL = planning
+      // only; the supervisor never opens a Run.
+      const smDiv = el("div", "dpmtf-form-group");
+      smDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_supervisor_mandate", "Supervisor mandate")));
+      const smInput = el("input", null);
+      smInput.id = "bridge-edit-input-supervisor_mandate";
+      smInput.type = "text";
+      smInput.value = flow.supervisor_mandate || "";
+      smInput.placeholder = lbl("lbl_bridge_flow_supervisor_mandate_placeholder",
+        "Empty = planning only; the supervisor never opens a Run");
+      smDiv.appendChild(smInput);
+      form.appendChild(smDiv);
+
+      // commit_cadence — when the chain may commit on the Human's behalf
+      // (migration 096). The router rejects anything outside these three.
+      const ccDiv = el("div", "dpmtf-form-group");
+      ccDiv.appendChild(el("label", "dpmtf-label",
+        lbl("lbl_bridge_flow_commit_cadence", "Commit cadence")));
+      const ccSelect = el("select", null);
+      ccSelect.id = "bridge-edit-input-commit_cadence";
+      [["none", lbl("lbl_bridge_flow_commit_cadence_none", "None (the Human commits)")],
+       ["per_run", lbl("lbl_bridge_flow_commit_cadence_per_run", "Per Run")],
+       ["per_handoff", lbl("lbl_bridge_flow_commit_cadence_per_handoff", "Per handoff")]
+      ].forEach(function (pair) {
+        const opt = el("option", null, pair[1]);
+        opt.value = pair[0];
+        if ((flow.commit_cadence || "none") === pair[0]) opt.selected = true;
+        ccSelect.appendChild(opt);
+      });
+      ccDiv.appendChild(ccSelect);
+      form.appendChild(ccDiv);
 
       // ui_category — which flows panel the card renders in (migration 088).
       var ucDiv = el("div", "dpmtf-form-group");

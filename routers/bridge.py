@@ -984,6 +984,38 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
         skill = (data["cold_start_skill"] or "").strip()
         data["cold_start_skill"] = skill or None
 
+    # supervisor_mandate (migration 096): the Human's standing mandate to
+    # the resident planning supervisor. Free text, normalized to NULL when
+    # blank. Fail-closed: NULL means planning only — the supervisor never
+    # opens a Run. Mirrors cold_start_skill's normalize-to-NULL shape.
+    if "supervisor_mandate" in data:
+        mandate = (data["supervisor_mandate"] or "").strip()
+        data["supervisor_mandate"] = mandate or None
+
+    # commit_cadence (migration 096): when the chain may commit on the
+    # Human's behalf. The column is NOT NULL DEFAULT 'none' and SQLite's
+    # ALTER cannot add a CHECK, so the allowed set is enforced here —
+    # an unknown value stored would leave a supervisor guessing.
+    if "commit_cadence" in data:
+        cadence = (data["commit_cadence"] or "").strip()
+        if cadence not in ("none", "per_run", "per_handoff"):
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid commit_cadence '{cadence}'. "
+                    f"Allowed: 'none', 'per_run', 'per_handoff'."
+                ),
+            )
+        data["commit_cadence"] = cadence
+
+    # supervisor_role (migration 061, UI-editable since 096): the role key
+    # the stall watchdog wakes for this flow. Free text, normalized to NULL
+    # when blank — NULL means no wake-up target, the historical behaviour.
+    if "supervisor_role" in data:
+        role = (data["supervisor_role"] or "").strip()
+        data["supervisor_role"] = role or None
+
     updatable = [
         "name", "description", "step_order", "is_default", "is_active",
         "auto_complete_enabled", "use_machine_profile", "target_project_path",
@@ -991,6 +1023,9 @@ async def bridge_v2_update_flow(flow_key: str, request: Request):
         "implementation_mode",
         "ui_category",
         "cold_start_skill",
+        "supervisor_mandate",
+        "commit_cadence",
+        "supervisor_role",
     ]
     sets = []
     params = []

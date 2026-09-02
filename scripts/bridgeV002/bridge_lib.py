@@ -688,6 +688,69 @@ def get_flow_cold_start_skill(flow_key, db_path=None):
     return (row[0] or "").strip() if row else ""
 
 
+def get_flow_supervisor_mandate(flow_key, db_path=None):
+    """Return the flow's supervisor mandate, commit cadence and supervisor role.
+
+    A resident planning supervisor is the one session that may open a Run on
+    the execution chain, and it may do so only under a mandate the Human has
+    given. Before migration 096 that mandate lived in prose and in the
+    supervisor's memory — gone on every cold start, invisible to the UI.
+
+    The three values belong to the FLOW, not to the machine and not to the
+    role: roles are shared across flows, and one mandate covers one
+    workspace. Exactly as with cold_start_skill.
+
+    Fail-closed. An empty mandate means PLANNING ONLY — the supervisor never
+    opens a Run. A cadence of "none" means the Human commits. Those are the
+    defaults returned for a flow that sets nothing, for an unknown flow, and
+    for a database that predates the columns, so a caller on an unmigrated
+    database gets the historical behaviour rather than an exception.
+
+    Args:
+        flow_key: The flow_key to look up.
+        db_path: Optional path to SQLite database.
+
+    Returns:
+        dict: {"supervisor_mandate": str, "commit_cadence": str,
+        "supervisor_role": str}. Values are "" / "none" / "" when unset.
+        Never None.
+    """
+    defaults = {
+        "supervisor_mandate": "",
+        "commit_cadence": "none",
+        "supervisor_role": "",
+    }
+    if db_path is None:
+        db_path = config.get_db_path()
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT supervisor_mandate, commit_cadence, supervisor_role "
+                "FROM bridge_flows WHERE flow_key = ?",
+                (flow_key,),
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        # A database without the columns (sqlite3.OperationalError, "no such
+        # column") is not an error: it predates migration 096 (or 061) and
+        # simply has no mandate to report.
+        return dict(defaults)
+    if not row:
+        return dict(defaults)
+    mandate = (row[0] or "").strip()
+    cadence = (row[1] or "").strip() or "none"
+    role = (row[2] or "").strip()
+    return {
+        "supervisor_mandate": mandate,
+        "commit_cadence": cadence,
+        "supervisor_role": role,
+    }
+
+
 def get_flow_target_project(flow_key, db_path=None):
     """Return the absolute path of the project a flow operates on.
 
