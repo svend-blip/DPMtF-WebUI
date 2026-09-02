@@ -23,3 +23,11 @@ def test_reasoning_effort_is_only_set_when_present():
 
 def test_reasoning_effort_follows_the_output_cap_block():
     assert SRC.index('SIMPLE_HARNESS_MAX_OUTPUT_TOKENS') < SRC.index('SIMPLE_HARNESS_REASONING_EFFORT')
+
+
+def test_thinking_controls_are_wired_from_the_resolved_alias():
+    assert 'enable_thinking = resolved.get("enable_thinking")' in SRC
+    assert 'child_env["SIMPLE_HARNESS_ENABLE_THINKING"] = "true" if enable_thinking else "false"' in SRC
+    assert 'child_env["SIMPLE_HARNESS_THINKING_BUDGET"] = str(thinking_budget)' in SRC
+    block = SRC[SRC.index('enable_thinking = resolved.get("enable_thinking")'):]
+    assert "if enable_thinking is not None:" in block[: block.index("SIMPLE_HARNESS_ENABLE_THINKING")]

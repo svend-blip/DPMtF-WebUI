@@ -600,6 +600,20 @@ def main():
             if reasoning_effort:
                 child_env["SIMPLE_HARNESS_REASONING_EFFORT"] = str(reasoning_effort)
 
+            # Hybrid-thinking controls (2026-09-02): `enable_thinking`
+            # (true/false) and `thinking_budget` (tokens) on the alias reach
+            # simple-harness as SIMPLE_HARNESS_ENABLE_THINKING /
+            # SIMPLE_HARNESS_THINKING_BUDGET and are sent only when set.
+            # Measured on qwen3.8-max: the default spent 2,541 reasoning
+            # tokens and 68 s before the first text token on a small Go
+            # function; thinking off answered in 3.2 s.
+            enable_thinking = resolved.get("enable_thinking")
+            if enable_thinking is not None:
+                child_env["SIMPLE_HARNESS_ENABLE_THINKING"] = "true" if enable_thinking else "false"
+            thinking_budget = resolved.get("thinking_budget")
+            if thinking_budget:
+                child_env["SIMPLE_HARNESS_THINKING_BUDGET"] = str(thinking_budget)
+
             # The credential never appears in the pane. The command line is
             # echoed by the pane's shell and stays in its scrollback, so a
             # literal key there is a key on screen for as long as the session
