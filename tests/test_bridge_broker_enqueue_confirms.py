@@ -49,3 +49,26 @@ def test_second_enqueue_says_already_and_writes_nothing(tmp_path, monkeypatch, c
     assert "do not run this command again" in out
     conn = sqlite3.connect(str(db))
     assert conn.execute("SELECT count(*) FROM bridge_dispatch_queue").fetchone()[0] == 1
+
+
+def test_signal_send_to_self_is_refused_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    """h31 (2026-09-02): the implementer enqueued 9000-implementer->9000-implementer
+    signal-send, consuming id 32 for nothing. signal-send names the NEXT role."""
+    db = _fresh(tmp_path, monkeypatch)
+    argv = ["enqueue", "--flow", "9000-02-ELOOP", "--from-role", "9000-implementer",
+            "--to-role", "9000-implementer", "--id", "31", "--action", "signal-send"]
+    assert bridge_broker.main(argv) == 2
+    err = capsys.readouterr().err
+    assert "to itself is not a delivery" in err
+    assert "Nothing was enqueued" in err
+    conn = sqlite3.connect(str(db))
+    assert conn.execute("SELECT COUNT(*) FROM bridge_dispatch_queue").fetchone()[0] == 0
+    conn.close()
+
+
+def test_signal_complete_may_self_address(tmp_path, monkeypatch, capsys):
+    _fresh(tmp_path, monkeypatch)
+    argv = ["enqueue", "--flow", "9000-02-ELOOP", "--from-role", "9000-implementer",
+            "--to-role", "9000-implementer", "--id", "31", "--action", "signal-complete"]
+    assert bridge_broker.main(argv) == 0
+    assert capsys.readouterr().out.startswith("enqueued: row 1 ")

@@ -993,6 +993,22 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
     if db_err:
         print(f"ERROR: {db_err}", file=sys.stderr)
         return 2
+
+    # A signal-send addressed to the sender itself is never a delivery:
+    # signal-send names the NEXT role. (signal-complete legitimately
+    # self-addresses — the bridge routes it.) On 2026-09-02 an implementer
+    # read the decomposer's note about how IT had signalled the implementer
+    # as its own instruction and enqueued 9000-implementer->9000-implementer,
+    # which consumed a handoff id and delivered nothing.
+    if args.action == "signal-send" and args.from_role == args.to_role:
+        print(
+            f"ERROR: signal-send from {args.from_role} to itself is not a "
+            f"delivery; --to-role must name the NEXT role in the chain (the "
+            f"'## Signal Completion' section of your handoff names it). "
+            f"Nothing was enqueued.",
+            file=sys.stderr,
+        )
+        return 2
     conn = _open_db(db_path)
     _ensure_schema(conn)
 

@@ -134,6 +134,15 @@ Every handoff you write MUST state:
 2. **The `auto_dispatch` value** that follows from the step, stated as the
    reason for the chosen verb.
 
+   State the verb as the RECIPIENT's onward command: the recipient is
+   `--from-role`, the next role in the chain is `--to-role`. Never echo the
+   verb you yourself used to reach the recipient. A handoff of 2026-09-02
+   carried the note "Signal verb for the implementer: `--signal-send
+   --to-role {implementer}`" — the decomposer's own delivery verb — and the
+   implementer ran it verbatim, signalling itself and consuming a handoff
+   id for nothing. The broker now refuses a `signal-send` whose target is
+   the sender, but the refusal costs a turn the handoff should have saved.
+
 Both must appear in the handoff's signal section. The cost of omitting this
 instruction lands on a role other than the one who omitted it. The author gets
 no feedback; the recipient gets a refusal that looks like its own mistake.
