@@ -52,7 +52,7 @@ Read these files in order to reconstruct project state for `cloud_pay` flow:
 | 1 | **NO parallel work** — one role active at a time. BridgeV002 enforces via ollama stop. |
 | 2 | **STOP after handoff** — Architect stops ALL activity after dispatch. No Monitor, no Bash, no background tasks. |
 | 3 | **NO split-brain** — batch dispatch prohibited. One handoff at a time. |
-| 4 | **HUMAN COMMIT GATE** — only Human may commit/push. |
+| 4 | **HUMAN COMMIT GATE** — only Human may commit/push. Recorded exception: in a two-flow family (PLOOP / ELOOP) the planning supervisor acting under a recorded mandate (`bridge_flows.commit_cadence`, `SUPERVISOR_PLANNING.md` §Commit and Push Cadence) commits and pushes the target repository's baseline between Runs (or per approved handoff); chain roles never commit. |
 | 5 | **Tool-independent governance** — DPMtF governance files are primary authority. |
 | 6 | **All inter-role communication in English (en-US)** |
 | 7 | **Implementer NEVER commits** — changes remain unstaged. |

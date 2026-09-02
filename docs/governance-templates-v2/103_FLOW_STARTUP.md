@@ -7,8 +7,9 @@ every named role, flow, or column is a current fact.
 
 The generic behavioral governance files
 (`docs/governance-templates-v2/IMPLEMENTOR.md`, `REVIEW.md`,
-`SUPERVISOR_AUTONOMOUS.md`, `ARCHITECT.md`, `HUMAN.md`,
-`ADDENDUM_AUTONOMOUS_RUN.md`,
+`SUPERVISOR_AUTONOMOUS.md`, `SUPERVISOR_PLANNING.md`,
+`SUPERVISOR_ESCALATION.md`, `EXECUTION_DECOMPOSER.md`, `ARCHITECT.md`,
+`HUMAN.md`, `ADDENDUM_AUTONOMOUS_RUN.md`,
 `ADDENDUM_LOCAL_MODEL_LIFECYCLE.md`) are the live resolution: the
 step-key resolver (`scripts/bridgeV002/execution_config.py`) walks
 STEP → ROLE → SYSTEM, so a step binds the generic file its role
@@ -23,7 +24,13 @@ Rev_Supervisor`, `preferred_cloud → Pre-super-cl`,
 `preferred_cloud_harness → super-deep-deep4`. The
 `_supervisor_wake_up` function in
 `scripts/bridgeV002/chain_watchdog.py` reads this column to name the
-stall-escalation wake-up target.
+stall-escalation wake-up target. Migration 097 seeds it for the
+two-flow families: both `{family}-01-PLOOP` and `{family}-02-ELOOP`
+name `{family}-planning-supervisor` (Claude Code, workdir = the Father
+project, bound to `SUPERVISOR_PLANNING.md`). The watchdog sends the
+target role's `fresh_session_command` before the wake-up, which is
+why that command is NULL for resident planning supervisors — their
+session is already running and must not be replaced.
 
 ---
 
@@ -42,6 +49,48 @@ Flows: `llama_SG`, `preferred_cloud`, `preferred_cloud_harness`,
 
 A directory is NOT a run until it holds at least one of the three
 artifacts (and the GOAL has been approved — see the Binding Rules).
+
+## Two-Flow Families (PLOOP / ELOOP)
+
+Flows: the `1000-`, `1010-`, `9000-`, `9010-` and `example-` pairs.
+A family is two flow rows sharing one `artifact_root`:
+`{family}-01-PLOOP` (steps human-planning → planning-human) and
+`{family}-02-ELOOP` (decomposer-implementer → implementer-reviewer →
+reviewer-decomposer). The planning supervisor
+(`{family}-planning-supervisor`, Claude Code, workdir = the Father
+project) is bound to `SUPERVISOR_PLANNING.md` (migration 097) and is
+named in `bridge_flows.supervisor_role` on BOTH rows.
+`bridge_flows.supervisor_mandate` (NULL = planning only) and
+`bridge_flows.commit_cadence` (`none` | `per_run` | `per_handoff`)
+exist from migration 096 and are UI-managed.
+
+| Aspect | Binding |
+|---|---|
+| Start artifacts | `{bridge_dir}/{artifact_root}/SCOPE.md` (Human-owned) → `{bridge_dir}/{artifact_root}/goals/{ID}-GOAL-DRAFT.md` → `{bridge_dir}/{artifact_root}/runs/{NNN}/GOAL.md` (+ `RUN-LEDGER.md`, `END-REPORT.md`); planning backlog at `{bridge_dir}/{artifact_root}/planning/PLOOP-BACKLOG.md` |
+| WHO writes each | The **Human** writes `SCOPE.md`. The **planning supervisor** drafts GOALs. The **Human** promotes: `python3 scripts/bridgeV002/bridge_broker.py promote-goal --flow {family}-01-PLOOP --run-id N --approved-by <human>` — the promotion IS the approval act (the `testgoals` block is parse-gated by `promote-goal`). |
+| First dispatch | A promoted GOAL is NOT an open Run. The Run opens with a kickoff prompt from the planning supervisor (under mandate) or the Human, pasted into the decomposer's pane — `SUPERVISOR_PLANNING.md` §Kickoff Protocol. Never `--signal-send`. |
+| Verification | `python3 scripts/bridgeV002/supervisor_state.py --flow {family}-01-PLOOP` and `--flow {family}-02-ELOOP`, plus the "Run NNN opened" entry in `runs/{NNN}/RUN-LEDGER.md`. |
+
+The Human's startup order:
+
+1. Write `{bridge_dir}/{artifact_root}/SCOPE.md`.
+2. Set the family's flow rows in the UI: `target_project_path`,
+   `artifact_root` and `cold_start_skill` on both rows,
+   `supervisor_role` on both rows, `supervisor_mandate` and
+   `commit_cadence` on the ELOOP row.
+3. `python3 scripts/bridgeV002/start_tmuxflow.py {family}-01-PLOOP`
+   and `python3 scripts/bridgeV002/start_tmuxflow.py {family}-02-ELOOP`.
+4. `python3 scripts/bridgeV002/start_coding.py` for both flows.
+5. `systemctl --user is-active bridge-broker.service` → `active`.
+6. Attach to the planning supervisor's tmux session; the first prompt
+   is `/{cold_start_skill}`.
+7. Answer its clarifying questions; review the drafts it writes to
+   `{bridge_dir}/{artifact_root}/goals/`.
+8. Promote: `python3 scripts/bridgeV002/bridge_broker.py promote-goal
+   --flow {family}-01-PLOOP --run-id N --approved-by <human>`.
+9. With a mandate set, the planning supervisor kicks off Run N itself;
+   without one, the Human pastes the kickoff prompt into the
+   decomposer's pane (`SUPERVISOR_PLANNING.md` §Kickoff Protocol).
 
 ## Architect-Driven Flows
 
@@ -177,9 +226,22 @@ fails or silently stalls when any is broken.
    seeded it for the five autonomous flows: `supervised_review →
    supervisor_auto`, `llama_SG → supervisor01_llama`, `reveng →
    Rev_Supervisor`, `preferred_cloud → Pre-super-cl`,
-   `preferred_cloud_harness → super-deep-deep4`. The column is
-   seeded and live — not opt-in.
+   `preferred_cloud_harness → super-deep-deep4`. Migration 097 seeds
+   it for the two-flow families: both `{family}-01-PLOOP` and
+   `{family}-02-ELOOP` → `{family}-planning-supervisor`. The column is
+   seeded and live — not opt-in. The watchdog sends the target role's
+   `fresh_session_command` before the wake-up; for resident planning
+   supervisors that command is NULL so the running session is woken,
+   not replaced.
 
 7. **`bridge_broker.service` is a precondition for any flow with
    sandboxed roles.** See step 4 of the Cold Start From Nothing
    sequence; a non-`active` broker daemon stalls the chain silently.
+
+8. **A promoted GOAL is not an open Run; the kickoff is a separate
+   event, recorded in the Run's ledger before the prompt is
+   delivered.** `promote-goal` writes `runs/{NNN}/GOAL.md`; the Run
+   opens only when a kickoff prompt from the planning supervisor
+   (under mandate) or the Human is pasted into the decomposer's pane
+   (`SUPERVISOR_PLANNING.md` §Kickoff Protocol), never via
+   `--signal-send`.

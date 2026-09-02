@@ -546,7 +546,11 @@ What acts when the chain does not move:
   the wake-up targets `bridge_flows.supervisor_role` for the
   flow_key (migration 061); NULL preserves the historical behavior
   (wake the `supervisor_auto` role from the scheduler, escalate via
-  `notify-send` from the watchdog).
+  `notify-send` from the watchdog). In a two-flow family (PLOOP /
+  ELOOP) both flow rows name the resident planning supervisor
+  (`{family}-planning-supervisor`, bound to `SUPERVISOR_PLANNING.md`,
+  migration 097) in `bridge_flows.supervisor_role`, so a stall on
+  either flow wakes that one session.
 - **Lease sweep** — `JobRepository.recover_expired_leases()` reaps
   claimed rows whose lease has expired (the broker / scheduler
   separation guard).
@@ -572,15 +576,15 @@ are non-overlapping — a flow belongs to exactly one type, classified
 by **who authors the start artifact** and **who drives the first
 dispatch**:
 
-| Mechanism | Supervisor-driven | Architect-driven | Bare / other |
-|---|---|---|---|
-| **Flows** | llama_SG, preferred_cloud, preferred_cloud_harness, reveng | strict_review, cloud_llm, cloud_pay | supervisor, pi_test, lightworker |
-| **Start artifacts** | `runs/NNN/GOAL.md` + `BACKLOG.md` + `RUN-LEDGER.md` | handoff file in `{flow}/handoffs/` | per-flow minimal contract |
-| **GOAL requirements** | testgoals block + scope fence + budget | n/a (contract lives in the handoff) | n/a |
-| **Author** | Human approves the GOAL — renaming `GOAL-DRAFT.md` → `GOAL.md` **is** the approval act. The supervisor may materialize BACKLOG/LEDGER via the broker. | Human / Architect writes the handoff | Human |
-| **First dispatch** | wake-up to the supervisor role (broker `enqueue` or `dispatch.py --signal-send`) | `--signal-send` Human → first role | manual |
-| **Verification** | `supervisor_state.py --flow {flow}` assessment string | role cold-start skill (`STRICTREVIEW` / `CLOUDLLM` / `CLOUDPAY`) | n/a |
-| **Session bring-up** | `start_tmuxflow.py` → `start_coding.py` → harness terminal for harness roles → broker daemon check | same minus the harness terminal | per flow |
+| Mechanism | Supervisor-driven | Two-flow family (PLOOP / ELOOP) | Architect-driven | Bare / other |
+|---|---|---|---|---|
+| **Flows** | llama_SG, preferred_cloud, preferred_cloud_harness, reveng | `1000-`, `1010-`, `9000-`, `9010-`, `example-` pairs: `{family}-01-PLOOP` (human-planning → planning-human) + `{family}-02-ELOOP` (decomposer-implementer → implementer-reviewer → reviewer-decomposer), sharing one `artifact_root` | strict_review, cloud_llm, cloud_pay | supervisor, pi_test, lightworker |
+| **Start artifacts** | `runs/NNN/GOAL.md` + `BACKLOG.md` + `RUN-LEDGER.md` | `{bridge_dir}/{artifact_root}/SCOPE.md` (Human-owned) → `goals/{ID}-GOAL-DRAFT.md` → `runs/{NNN}/GOAL.md` (+ `RUN-LEDGER.md`, `END-REPORT.md`); planning backlog at `planning/PLOOP-BACKLOG.md` | handoff file in `{flow}/handoffs/` | per-flow minimal contract |
+| **GOAL requirements** | testgoals block + scope fence + budget | `testgoals` block (parse-gated by `promote-goal`) + §2 standing constraints + scope fence + handoff budget | n/a (contract lives in the handoff) | n/a |
+| **Author** | Human approves the GOAL — renaming `GOAL-DRAFT.md` → `GOAL.md` **is** the approval act. The supervisor may materialize BACKLOG/LEDGER via the broker. | The planning supervisor (`{family}-planning-supervisor`, `SUPERVISOR_PLANNING.md`) drafts; the Human promotes with `python3 scripts/bridgeV002/bridge_broker.py promote-goal --flow {family}-01-PLOOP --run-id N --approved-by <human>` — the promotion **is** the approval act. | Human / Architect writes the handoff | Human |
+| **First dispatch** | wake-up to the supervisor role (broker `enqueue` or `dispatch.py --signal-send`) | A promoted GOAL is not an open Run: a kickoff prompt from the planning supervisor (under `bridge_flows.supervisor_mandate`) or the Human, pasted into the decomposer session — `SUPERVISOR_PLANNING.md` §Kickoff Protocol; never `--signal-send` | `--signal-send` Human → first role | manual |
+| **Verification** | `supervisor_state.py --flow {flow}` assessment string | `supervisor_state.py --flow {family}-01-PLOOP` and `--flow {family}-02-ELOOP` + the "Run NNN opened" entry in `runs/{NNN}/RUN-LEDGER.md` | role cold-start skill (`STRICTREVIEW` / `CLOUDLLM` / `CLOUDPAY`) | n/a |
+| **Session bring-up** | `start_tmuxflow.py` → `start_coding.py` → harness terminal for harness roles → broker daemon check | `start_tmuxflow.py` + `start_coding.py` for BOTH flows → broker daemon `active` → `/{cold_start_skill}` as the first prompt in the planning supervisor pane | same minus the harness terminal | per flow |
 
 ### Binding rules across types
 

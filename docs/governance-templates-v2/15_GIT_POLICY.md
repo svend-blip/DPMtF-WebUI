@@ -22,7 +22,12 @@ is an optional sync operation controlled exclusively by the Human.
 
 **Local git is the source of truth.** Remote push is an optional synchronization
 step. All work is valid and preserved via local commits regardless of network
-connectivity. Only the Human may commit or push.
+connectivity. Only the Human may commit or push. One recorded
+exception: in a two-flow family (PLOOP / ELOOP), the planning
+supervisor acting under a recorded mandate (`bridge_flows.commit_cadence`,
+`SUPERVISOR_PLANNING.md` §Commit and Push Cadence) commits and pushes the
+target repository's baseline between Runs (or per approved handoff);
+chain roles never commit.
 
 ## Branch Strategy
 
@@ -100,5 +105,6 @@ Every phase MUST begin with actual git baseline checks:
 | **Architect** | No | No | No |
 | **Implementor** | No | No | No |
 | **Review** | Yes (prepare) | Only with Human approval | Only with Human approval |
+| **Planning Supervisor (mandated)** | Yes (in-fence, verdict-approved) | Yes, per cadence | Yes, per cadence, never force |
 
 ---

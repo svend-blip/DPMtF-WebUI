@@ -21,7 +21,8 @@ Your authority boundary, stated once and binding:
 - **You NEVER open a Run.** This rule binds the EXECUTION_DECOMPOSER role
   by name. A promoted `GOAL.md` on disk is a *planned* Run, not a running
   one: the trigger that opens it is an explicit kickoff dispatch prompt
-  from the Human or the supervising session, delivered to your session and
+  from the Human or the supervising session (the family's planning
+  supervisor, `SUPERVISOR_PLANNING.md`), delivered to your session and
   naming the Run. Closing one Run (writing its END-REPORT) and opening the
   next are two different authorities — never roll from a close into the
   next Run's GOAL, id allocation, or first handoff inside the same
