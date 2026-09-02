@@ -911,6 +911,30 @@ def _write_materialize_artifact(
 
 # ── the original signal-transition enqueue ──────────────
 
+def _queue_db_path_for_role_command(args: argparse.Namespace):
+    """The database a sandbox-safe command (enqueue / materialize) writes to.
+
+    An explicit --db-path must name an EXISTING file. sqlite3 creates any
+    path it is handed, and _ensure_schema then makes it look like a queue —
+    so a role that invents a --db-path (measured 2026-09-02: the 9000
+    decomposer read `enqueue --help`, saw the flag, and signalled into
+    /home/svend/flows/9000/dispatch.sqlite3) gets a fresh, empty database
+    that the daemon never polls. Its signal "succeeds", its handoff never
+    dispatches, and the row it re-reads is id 1 of a phantom queue. A role
+    signal must land in the flow's database; refusing to create one is the
+    only answer that makes the mistake visible at the moment it is made.
+    Returns (db_path, None) or (None, error_message).
+    """
+    if args.db_path:
+        if not os.path.isfile(args.db_path):
+            return None, (
+                f"refusing --db-path {args.db_path!r}: no such database. "
+                f"Role signals go to the flow's database (omit --db-path)."
+            )
+        return args.db_path, None
+    return _get_db_path(), None
+
+
 def cmd_enqueue(args: argparse.Namespace) -> int:
     """Sandbox-safe: write a queue row and return.
 
@@ -934,7 +958,10 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
     `--id 042` resolve the canonical `042-handoff.md` correctly (the
     live orphan is dispatch row 47, handoff_id stored unpadded '21').
     """
-    db_path = args.db_path or _get_db_path()
+    db_path, db_err = _queue_db_path_for_role_command(args)
+    if db_err:
+        print(f"ERROR: {db_err}", file=sys.stderr)
+        return 2
     conn = _open_db(db_path)
     _ensure_schema(conn)
 
@@ -1042,7 +1069,10 @@ def cmd_materialize(args: argparse.Namespace) -> int:
     host-side in `_process_one_materialize` so the enqueue step
     touches nothing under the bridge dir.
     """
-    db_path = args.db_path or _get_db_path()
+    db_path, db_err = _queue_db_path_for_role_command(args)
+    if db_err:
+        print(f"ERROR: {db_err}", file=sys.stderr)
+        return 2
     conn = _open_db(db_path)
     _ensure_schema(conn)
 
