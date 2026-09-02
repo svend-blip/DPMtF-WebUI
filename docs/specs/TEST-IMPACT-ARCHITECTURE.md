@@ -997,3 +997,27 @@ The implementation uses stdlib only: `concurrent.futures`,
 `multiprocessing`, `os`, `subprocess`. `requirements.txt` is
 byte-identical to the Run 014 baseline.
 
+
+
+## Language runners (2026-09-02)
+
+The runner (`scripts/testing/runner.py`) recognises the policy's
+`test_command` and branches on it; nothing else in the engine is
+language-aware except the Python-only symbol adapter.
+
+| Runner | Recogniser | Collection step | Execution | Exhaustive |
+|---|---|---|---|---|
+| pytest (default) | `_is_pytest_command` | `_collect_tests` (`pytest --collect-only -q`) | one run; parallel sharding allowed | command as given |
+| Go | `_is_go_command` | `_collect_go_packages` (`go list`) | one run | appends `./...` |
+| .NET | `_is_dotnet_command` | `_collect_dotnet_projects` (structural: file/dir exists, one project per dir) | `_run_per_target` — one `dotnet test` per selected project, first non-zero exit wins, per-project headers in stdout | command on the repository root |
+
+`resolve_command` resolves the executable through `shutil.which` and then
+the conventional toolchain directories (`~/.local/bin`, `~/go/bin`,
+`/usr/local/go/bin`, `~/.dotnet`, `/usr/share/dotnet`) so that a policy
+never carries a home path and the gate works from a systemd user unit whose
+PATH lacks the toolchain. The parallel path is pytest-only
+(`parallel_attempted` requires `pytest_runner`). An unknown runner has no
+collection step; the run itself is the measurement.
+
+Governance: `12_CODING_STANDARD.md` §Test Selection Policy, "Language
+support — Python, Go, .NET (C#)".

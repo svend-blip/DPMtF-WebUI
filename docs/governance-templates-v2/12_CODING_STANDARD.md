@@ -118,6 +118,94 @@ The repository's regression testing is governed by
 | **Non-Python targets use `test_command`** | A policy names its runner (`"test_command": ["go", "test", "-count=1"]`) and maps components to what that runner accepts — Go package patterns such as `./internal/loader/...`, not files. The runner uses `go list` as its collection step and resolves the toolchain from `~/.local/bin`, `~/go/bin` or `/usr/local/go/bin` when it is not on the gate's PATH, so a policy never carries a home directory. Symbol- and file-level narrowing is Python-only; for any other language the component ladder is the floor. C# follows the same shape: `"test_command": ["dotnet", "test", "--no-restore"]`, components mapped to test projects (`tests/Core.Tests/Core.Tests.csproj` or the project directory); `dotnet test` takes one project per call, so the runner runs the selected projects one by one within a single time budget and names the failing project in the evidence, and the collection step checks that every selected project exists. A further language follows the same shape (a runner branch, a collection command, a policy) and nothing else. |
 | **No policy means SKIPPED, not PASS** | A target without `.dpmtf/test-policy.json` produces evidence with `status: SKIPPED` and `test_command: ["skip-empty-policy"]`. Nothing was selected or run; the reviewer's own suite run is the only test evidence on such a target. Until 2026-09-02 this was recorded as PASS and 150 consecutive evidence files were green without a test. |
 
+### How test minimisation is applied
+
+1. **Where it runs.** The pre-dispatch gate `gate-test-impact` is bound to
+   every `implementer-reviewer` step of the ELOOP families. When the
+   implementer signals, the gate resolves the changed files against the
+   target repository's `.dpmtf/test-policy.json`, plans a selection, runs
+   it, and writes the evidence to
+   `{bridge_dir}/{artifact_root}/artifacts/test-impact/{flow_key}/handoff-{id}-impact.md`
+   before the reviewer is dispatched.
+2. **What the evidence says.** `resolved_scope` (symbol / file / component /
+   broad / full), `selected_tests`, `test_command`, `status` and
+   `duration_seconds`. `status` is `PASS`, `FAIL` or `ERROR` when tests ran,
+   and `SKIPPED` when the target has no policy — nothing was measured, and
+   a reviewer must not read SKIPPED as green.
+3. **Warn mode.** The gate never blocks a dispatch today; the evidence is
+   for the reviewer and the ledger. Block mode is a Human decision per
+   flow.
+4. **Duties.** The implementer runs the selection the policy resolves for
+   its change (or the full suite when the policy escalates) and pastes the
+   command and its exit status. The reviewer re-runs the resolved selection
+   itself — never the implementer's paste — and may always escalate to the
+   full suite, never narrow.
+5. **The policy is code.** A change to `.dpmtf/test-policy.json` is itself a
+   full-regression trigger, and a policy must never name a home directory
+   or an absolute path.
+
+### Language support — Python, Go, .NET (C#)
+
+The engine is one planner with one scope ladder and one evidence format.
+Language enters only through the policy's `test_command` and through what
+`test_mappings` point at. Symbol- and file-level narrowing exists for
+Python only; for every other language the component ladder is the floor,
+so the policy's component granularity IS the minimisation.
+
+| | Python | Go | .NET (C#) |
+|---|---|---|---|
+| `test_command` | omitted (default `python3 -m pytest -q`) | `["go", "test", "-count=1"]` | `["dotnet", "test", "--no-restore"]` |
+| `components` point at | source files/globs (`app.py`, `routers/*.py`) | package sources (`internal/loader/*.go`) | project sources (`src/Core/*.cs`) and test projects (`tests/Core.Tests/*.cs`) |
+| `test_mappings` point at | test files (`tests/test_x.py`), explicit list | package patterns (`./internal/loader/...`) | test project files or directories (`tests/Core.Tests/Core.Tests.csproj`) |
+| Collection step | `pytest --collect-only` on the selection | `go list <patterns>` | every selected project exists and is a `.csproj`/`.fsproj`/`.sln` or a directory holding exactly one |
+| Execution | one pytest run over the selected files (parallel workers allowed) | one `go test` over the selected patterns | one `dotnet test` **per project**, in sequence, within one time budget; the failing project is named in the evidence |
+| Exhaustive (`full`) | `pytest` with no paths | `go test ./...` | `dotnet test` on the repository root (solution) |
+| Narrowest reachable scope | symbol / file (with the test index) | component | component |
+| A changed test file | selects itself (file scope) | its package (component) | its test project (component) |
+| Dependencies | `component_dependencies` by hand or from imports | from the import graph (`go list -f '{{.ImportPath}} {{.Imports}}' ./...`) | from `ProjectReference` entries in the `.csproj` files |
+| Toolchain resolution | `python3` on PATH | `go` on PATH, else `~/.local/bin`, `~/go/bin`, `/usr/local/go/bin` | `dotnet` on PATH, else `~/.dotnet`, `/usr/share/dotnet` |
+| Known limits | tests reaching code through `main(argv)` or `sys.path` imports are invisible to the index → component | a second module in the tree (own `go.mod`) is outside `./...` and is never tested by the root policy | `--no-restore` requires a prior restore; NuGet needs the network |
+
+**Minimal policies.** Go:
+
+```json
+{
+  "components": {"loader": ["internal/loader/*.go"], "cli": ["cmd/app/*.go"]},
+  "test_mappings": {"loader": ["./internal/loader/..."], "cli": ["./cmd/app/..."]},
+  "component_dependencies": {"cli": ["loader"]},
+  "mandatory_smoke_tests": [],
+  "high_fanout_files": [],
+  "full_regression_triggers": ["go.mod", "go.sum", ".dpmtf/test-policy.json"],
+  "test_command": ["go", "test", "-count=1"]
+}
+```
+
+.NET:
+
+```json
+{
+  "components": {"core": ["src/Core/*.cs"], "core-tests": ["tests/Core.Tests/*.cs"]},
+  "test_mappings": {"core": ["tests/Core.Tests/Core.Tests.csproj"],
+                    "core-tests": ["tests/Core.Tests/Core.Tests.csproj"]},
+  "component_dependencies": {},
+  "mandatory_smoke_tests": [],
+  "high_fanout_files": [],
+  "full_regression_triggers": ["Directory.Build.props", ".dpmtf/test-policy.json"],
+  "test_command": ["dotnet", "test", "--no-restore"]
+}
+```
+
+Python needs no `test_command`; the Father repository's own policy is the
+reference (`bridge-*` components with explicit test lists).
+
+**Adding a language** means exactly three things in `scripts/testing/runner.py`:
+a command recogniser, a collection step, and (only if the runner takes one
+target per call, as `dotnet test` does) a per-target execution loop. The
+planner, the policy schema and the evidence do not change. Any such change
+is a full-regression trigger and must ship with tests that drive the
+runner through a stub executable on PATH, plus an SDK-gated integration
+test that skips without the toolchain.
+
 ## 4-Layer i18n Architecture (Mandatory)
 
 The four-layer internationalization architecture is mandatory across all projects:
