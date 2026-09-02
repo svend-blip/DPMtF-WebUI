@@ -39,6 +39,14 @@ def _die(msg: str, code: int = 2) -> None:
     sys.exit(code)
 
 
+def _father_db_relpath(target_project: str) -> str | None:
+    """Path of the Father database relative to target_project, or None if outside it."""
+    try:
+        return os.path.relpath(config.get_db_path(), target_project)
+    except (ValueError, TypeError):
+        return None
+
+
 def _git_state(target_project: str) -> tuple[str, str, str]:
     """Return (sha, branch, tree_state) for the target project."""
     try:
@@ -59,24 +67,50 @@ def _git_state(target_project: str) -> tuple[str, str, str]:
         ["git", "-C", target_project, "status", "--short"],
         stderr=subprocess.DEVNULL, text=True
     )
-    tree_state = "clean" if not status.strip() else "dirty"
+    # The Father database is the standing exception: the flow writes to it on
+    # every dispatch, so it is never evidence of a dirty tree (CLAUDE.md §11).
+    db_rel = _father_db_relpath(target_project)
+    lines = [
+        ln for ln in status.splitlines()
+        if ln.strip() and ln[3:].strip() != db_rel
+    ]
+    tree_state = "clean" if not lines else "dirty"
     return sha, branch, tree_state
 
 
-def _previous_run_closed(artifact_root: str, run_id: int) -> tuple[bool, str]:
-    """Check whether run (run_id - 1) has an END-REPORT.md.
+def _previous_run_dir(runs_dir: Path, run_id: int) -> Path | None:
+    """The predecessor is the highest-numbered existing run below run_id.
 
-    A missing previous-run directory counts as 'no END-REPORT'.
+    Runs are promoted in the order the Human decides, which need not be
+    numeric (024 -> 027 -> 025 is a real order), so `run_id - 1` is not the
+    predecessor. None when no lower run directory exists (first run).
+    """
+    if not runs_dir.is_dir():
+        return None
+    candidates = []
+    for entry in runs_dir.iterdir():
+        if entry.is_dir() and entry.name.isdigit() and int(entry.name) < run_id:
+            candidates.append((int(entry.name), entry))
+    if not candidates:
+        return None
+    return max(candidates)[1]
+
+
+def _previous_run_closed(artifact_root: str, run_id: int) -> tuple[bool, str]:
+    """Check whether the predecessor run has an END-REPORT.md.
+
+    The predecessor is the highest-numbered existing run below run_id (see
+    _previous_run_dir). No lower run counts as 'first run'. A predecessor
+    directory without END-REPORT means an open run: refuse.
     Returns (closed, status_text).
     """
-    if run_id <= 1:
-        return True, "no previous run (first run)"
-    prev = f"{run_id - 1:03d}"
     bridge_dir = config.get_bridge_dir()
-    prev_dir = Path(bridge_dir) / artifact_root / "runs" / prev
+    runs_dir = Path(bridge_dir) / artifact_root / "runs"
+    prev_dir = _previous_run_dir(runs_dir, run_id)
+    if prev_dir is None:
+        return True, "no previous run (first run)"
+    prev = prev_dir.name
     end_report = prev_dir / "END-REPORT.md"
-    if not prev_dir.is_dir():
-        return False, f"previous run directory {prev} does not exist"
     if not end_report.exists():
         return False, f"previous run {prev} has no END-REPORT.md"
     # Read first few lines for status
@@ -85,8 +119,8 @@ def _previous_run_closed(artifact_root: str, run_id: int) -> tuple[bool, str]:
         for line in text.splitlines()[:10]:
             low = line.lower()
             if "status:" in low or "**status**" in low:
-                return True, line.strip()
-        return True, "END-REPORT present"
+                return True, f"run {prev}: {line.strip()}"
+        return True, f"run {prev}: END-REPORT present"
     except OSError as exc:
         return False, f"cannot read END-REPORT: {exc}"
 
