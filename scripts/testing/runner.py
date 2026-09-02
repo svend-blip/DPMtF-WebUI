@@ -85,7 +85,15 @@ def _is_go_command(cmd: List[str]) -> bool:
     return bool(cmd) and os.path.basename(cmd[0]) == "go"
 
 
-_TOOLCHAIN_FALLBACK_DIRS = ("~/.local/bin", "~/go/bin", "/usr/local/go/bin")
+def _is_dotnet_command(cmd: List[str]) -> bool:
+    return bool(cmd) and os.path.basename(cmd[0]) == "dotnet"
+
+
+_TOOLCHAIN_FALLBACK_DIRS = (
+    "~/.local/bin", "~/go/bin", "/usr/local/go/bin", "~/.dotnet", "/usr/share/dotnet",
+)
+
+_DOTNET_PROJECT_SUFFIXES = (".csproj", ".fsproj", ".vbproj", ".sln")
 
 
 def resolve_command(cmd: List[str]) -> List[str]:
@@ -119,6 +127,62 @@ def _collect_go_packages(repo_root: str, packages: List[str], go_cmd: List[str])
     if rc == 0:
         return True, ""
     return False, stdout + stderr
+
+
+def _collect_dotnet_projects(repo_root: str, targets: List[str]) -> tuple[bool, str]:
+    """``dotnet test`` takes one project or solution per invocation, so the
+    collection step is structural: every selected target must be a project
+    or solution file under the repository, or a directory holding exactly
+    one. Listing tests would build every project first; existence is the
+    honest cheap check, and the run itself is the measurement."""
+    problems: List[str] = []
+    for target in targets:
+        full = os.path.join(repo_root, target)
+        if os.path.isfile(full):
+            if not full.endswith(_DOTNET_PROJECT_SUFFIXES):
+                problems.append(f"{target}: not a project or solution file")
+        elif os.path.isdir(full):
+            projects = [
+                f for f in os.listdir(full)
+                if f.endswith(_DOTNET_PROJECT_SUFFIXES)
+            ]
+            if len(projects) != 1:
+                problems.append(
+                    f"{target}: directory holds {len(projects)} project/solution files, need exactly 1"
+                )
+        else:
+            problems.append(f"{target}: does not exist")
+    if problems:
+        return False, "; ".join(problems)
+    return True, ""
+
+
+def _run_per_target(
+    base: List[str],
+    targets: List[str],
+    cwd: str,
+    timeout: Optional[float],
+) -> tuple[int, str, str]:
+    """Run ``base + [target]`` once per target within one total timeout.
+
+    The first non-zero exit code is the aggregate code; outputs are
+    concatenated with a header per target so the evidence shows which
+    project failed."""
+    deadline = None if timeout is None else perf_counter() + timeout
+    rc_all = 0
+    out_parts: List[str] = []
+    err_parts: List[str] = []
+    for target in targets:
+        remaining = None if deadline is None else max(0.0, deadline - perf_counter())
+        if remaining is not None and remaining <= 0:
+            raise subprocess.TimeoutExpired(base + [target], timeout or 0)
+        rc, stdout, stderr = _run_command(base + [target], cwd, timeout=remaining)
+        out_parts.append(f"=== {target} (exit {rc}) ===\n{stdout}")
+        if stderr:
+            err_parts.append(f"=== {target} ===\n{stderr}")
+        if rc != 0 and rc_all == 0:
+            rc_all = rc
+    return rc_all, "\n".join(out_parts), "\n".join(err_parts)
 
 
 def _collect_tests(
@@ -696,6 +760,8 @@ def run_plan(
             collect_ok, collect_error = _collect_tests(repo_root, selected_tests)
         elif _is_go_command(test_command):
             collect_ok, collect_error = _collect_go_packages(repo_root, selected_tests, test_command)
+        elif _is_dotnet_command(test_command):
+            collect_ok, collect_error = _collect_dotnet_projects(repo_root, selected_tests)
         else:
             # An unknown runner has no collection step; the run itself is
             # the measurement.
@@ -743,7 +809,13 @@ def run_plan(
     # the additive ``parallel_executed`` field.
     start = perf_counter()
     try:
-        rc, stdout, stderr = _run_command(cmd, repo_root, timeout=timeout)
+        if _is_dotnet_command(test_command) and not is_exhaustive and selected_tests:
+            # dotnet test accepts a single project or solution per call.
+            rc, stdout, stderr = _run_per_target(
+                list(test_command), selected_tests, repo_root, timeout
+            )
+        else:
+            rc, stdout, stderr = _run_command(cmd, repo_root, timeout=timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         duration = round(perf_counter() - start, 2)
         evidence = build_evidence(
