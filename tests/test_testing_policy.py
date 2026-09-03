@@ -70,6 +70,7 @@ class TestPublicAPI(unittest.TestCase):
         expected = frozenset([
             "components", "test_mappings", "component_dependencies",
             "mandatory_smoke_tests", "high_fanout_files",
+            "test_timeout_seconds",
             "full_regression_triggers", "test_command", "policy_hash",
             "is_empty", "parallel", "_source_globs",
         ])

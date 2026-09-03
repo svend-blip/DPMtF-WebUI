@@ -1,4 +1,5 @@
 {
+  "test_timeout_seconds": 600,
   "components": {
     "backend-app": [
       "app.py",

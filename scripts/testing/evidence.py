@@ -89,6 +89,8 @@ _TYPE_MAP: Dict[str, type] = {
 _ADDITIVE_KEYS: Dict[str, type] = {
     "parallel_executed": bool,
     "parallel_workers": int,
+    "stdout_tail": str,
+    "stderr_tail": str,
 }
 
 
@@ -237,6 +239,8 @@ def build_evidence(
     lifecycle_point: str = "work_unit",
     baseline_tree_state: str | None = None,
     baseline_resolution: str | None = None,
+    stdout_tail: str = "",
+    stderr_tail: str = "",
 ) -> Dict[str, Any]:
     """Build a fully populated evidence dict from a test plan and result.
 
@@ -249,6 +253,8 @@ def build_evidence(
         lifecycle_point: one of "work_unit", "run_baseline", "explicit_gate".
         baseline_tree_state: "clean", "dirty", or None for unknown.
         baseline_resolution: "resolved", "unresolved", or None if N/A.
+        stdout_tail: last 40 lines of test stdout (additive field).
+        stderr_tail: last 40 lines of test stderr (additive field).
 
     Returns:
         A dict with all 22 required keys.
@@ -287,6 +293,10 @@ def build_evidence(
         "baseline_tree_state": baseline_tree_state,
         "baseline_resolution": baseline_resolution,
     }
+    if stdout_tail:
+        record["stdout_tail"] = stdout_tail
+    if stderr_tail:
+        record["stderr_tail"] = stderr_tail
 
     _validate_evidence(record)
     return record

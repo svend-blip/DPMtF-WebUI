@@ -20,6 +20,7 @@ _VALID_TOP_LEVEL_KEYS = frozenset(
         "test_command",
         "policy_hash",
         "parallel",
+        "test_timeout_seconds",
     ]
 )
 
@@ -89,6 +90,7 @@ Attributes
         "is_empty",
         "parallel",
         "_source_globs",
+        "test_timeout_seconds",
     )
 
     def __init__(
@@ -101,6 +103,7 @@ Attributes
         full_regression_triggers: list[str] | None = None,
         test_command: list[str] | None = None,
         parallel: dict[str, Any] | None = None,
+        test_timeout_seconds: int | None = None,
         is_empty: bool = False,
     ) -> None:
         self.components: dict[str, list[str]] = components or {}
@@ -115,6 +118,7 @@ Attributes
         self.parallel: dict[str, Any] | None = (
             dict(parallel) if parallel is not None else None
         )
+        self.test_timeout_seconds: int | None = test_timeout_seconds
         self.is_empty: bool = is_empty
         # Pre-computed hash of canonical serialization
         self.policy_hash: str = _compute_policy_hash(self)
@@ -239,6 +243,15 @@ def _validate_value(key: str, value: Any) -> Any:
     # null → stored as None and behaves exactly as before.
     if key == "parallel":
         return _validate_parallel_block(value)
+
+    # Optional integer timeout (Run 027 rework): seconds per test command.
+    # Absent or null → caller defaults to 600. Must be a positive int when present.
+    if key == "test_timeout_seconds":
+        if value is None:
+            return None
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            raise PolicyError(f"Key 'test_timeout_seconds' must be a positive int or null, got {type(value).__name__}")
+        return value
 
     # Dict keys: must be dict[str, list[str]]
     if key in _DICT_LIST_KEYS:
@@ -422,6 +435,7 @@ def load_policy(repo_root: str) -> Policy:
     full_regression_triggers: list[str] = []
     test_command: list[str] | None = None
     parallel: dict[str, Any] | None = None
+    test_timeout_seconds: int | None = None
 
     for key, value in data.items():
         validated = _validate_value(key, value)
@@ -442,6 +456,8 @@ def load_policy(repo_root: str) -> Policy:
             test_command = validated
         elif key == "parallel":
             parallel = validated
+        elif key == "test_timeout_seconds":
+            test_timeout_seconds = validated
         # policy_hash in file is ignored; always computed fresh
 
     return Policy(
@@ -453,5 +469,6 @@ def load_policy(repo_root: str) -> Policy:
         full_regression_triggers=full_regression_triggers,
         test_command=test_command,
         parallel=parallel,
+        test_timeout_seconds=test_timeout_seconds,
         is_empty=False,
     )

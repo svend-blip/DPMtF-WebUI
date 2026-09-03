@@ -202,7 +202,9 @@ def engine_chain(
         )
     else:
         try:
-            evidence = run_plan(target_repo, plan, policy, timeout=120)
+            # Policy is an object with attributes, not a dict.
+            _timeout = getattr(policy, "test_timeout_seconds", None) or 600
+            evidence = run_plan(target_repo, plan, policy, timeout=_timeout)
             status = evidence.get("status", "ERROR")
             # Post-process: add lifecycle fields to evidence from run_plan
             evidence["lifecycle_point"] = lifecycle_point

@@ -131,10 +131,11 @@ class TestRunPlanExhaustive(unittest.TestCase):
         # In exhaustive mode, selected_tests should NOT appear in the command.
         self.assertNotIn("test_pass.py", evidence["test_command"])
         self.assertNotIn("test_other.py", evidence["test_command"])
-        # The command should be the default pytest command.
-        self.assertEqual(evidence["test_command"], [
-            "python3", "-m", "pytest", "-q", "-p", "no:cacheprovider",
-        ])
+        # The command should be the default pytest command with the
+        # interpreter resolved (not bare "python3").
+        cmd = evidence["test_command"]
+        self.assertEqual(cmd[1:], ["-m", "pytest", "-q", "-p", "no:cacheprovider"])
+        self.assertNotEqual(cmd[0], "python3")
 
     def test_selective_plan_runs_selected_tests_only(self):
         """Create a Plan with is_exhaustive=False and specific selected tests;
@@ -142,6 +143,7 @@ class TestRunPlanExhaustive(unittest.TestCase):
         plan = _make_plan(
             is_exhaustive=False,
             selected_tests=["test_pass.py"],
+            resolved_scope="broad",
         )
         policy = _make_policy()
         evidence = run_plan(self.tmpdir, plan, policy)
@@ -172,6 +174,7 @@ class TestRunPlanSelective(unittest.TestCase):
         plan = _make_plan(
             is_exhaustive=False,
             selected_tests=["test_nonexistent_test_file.py"],
+            resolved_scope="broad",
         )
         policy = _make_policy()
         evidence = run_plan(self.tmpdir, plan, policy)
@@ -271,9 +274,9 @@ class TestRunPlanPolicy(unittest.TestCase):
         policy = _make_policy(test_command=None)
         evidence = run_plan(self.tmpdir, plan, policy)
         self.assertEqual(evidence["status"], "PASS")
-        self.assertEqual(evidence["test_command"], [
-            "python3", "-m", "pytest", "-q", "-p", "no:cacheprovider",
-        ])
+        cmd = evidence["test_command"]
+        self.assertEqual(cmd[1:], ["-m", "pytest", "-q", "-p", "no:cacheprovider"])
+        self.assertNotEqual(cmd[0], "python3")
 
 
 if __name__ == "__main__":

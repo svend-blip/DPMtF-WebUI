@@ -37,6 +37,7 @@ before and after Run 014 is byte-identical.
 from __future__ import annotations
 
 import os
+import sys
 import shutil
 import subprocess
 from time import perf_counter
@@ -55,6 +56,51 @@ class RunnerError(Exception):
     """Raised for truly unexpected failures during test execution."""
 
 
+def resolve_test_interpreter(repo_root: str) -> str:
+    """Resolve the Python interpreter that can run pytest.
+
+    Priority order:
+      1. ``<repo_root>/venv/bin/python`` — if it exists AND can import pytest.
+      2. ``sys.executable`` — if it can import pytest.
+      3. Raises ``RunnerError("no interpreter with pytest")`` otherwise.
+
+    A bare ``python3`` on PATH is never used as a fallback — it may lack
+    pytest and produce misleading FAIL results instead of an honest ERROR.
+    """
+    candidates: list[str] = []
+    venv_python = os.path.join(repo_root, "venv", "bin", "python")
+    if os.path.isfile(venv_python):
+        candidates.append(venv_python)
+    candidates.append(sys.executable)
+
+    probe_cmd = "import pytest; print(pytest.__version__)"
+    for candidate in candidates:
+        try:
+            proc = subprocess.run(
+                [candidate, "-c", probe_cmd],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if proc.returncode == 0:
+                return candidate
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+            continue
+
+    raise RunnerError("no interpreter with pytest")
+
+
+def _is_environment_error(rc: int, stderr: str) -> bool:
+    """True when the failure is an environment problem, not a test failure.
+
+    Exit code 1 with ``No module named`` on stderr means the interpreter
+    lacks a required package. ``FileNotFoundError`` is caught at the
+    call site and already produces ERROR; this helper handles the case
+    where the subprocess ran but reported a missing module.
+    """
+    return rc != 0 and "No module named" in stderr
+
+
 def _run_command(
     cmd: List[str],
     cwd: str,
@@ -69,6 +115,20 @@ def _run_command(
         timeout=timeout,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _tail_lines(text: str, n: int = 40) -> str:
+    """Return the last *n* lines of *text*, preserving line endings.
+
+    Returns an empty string when *text* is empty. The returned string
+    has no trailing newline unless the original last line had one.
+    """
+    if not text:
+        return ""
+    lines = text.splitlines(keepends=True)
+    tail = lines[-n:]
+    result = "".join(tail)
+    return result.rstrip("\n")
 
 
 def _is_pytest_command(cmd: List[str]) -> bool:
@@ -195,8 +255,9 @@ def _collect_tests(
     ok is True when collection succeeds, False otherwise.
     error_detail describes the failure when ok is False.
     """
+    interpreter = resolve_test_interpreter(repo_root)
     cmd: List[str] = [
-        "python3", "-m", "pytest",
+        interpreter, "-m", "pytest",
         "--collect-only", "-q",
         "-p", "no:cacheprovider",
         *test_paths,
@@ -456,8 +517,9 @@ def _parallel_worker_run(args: Tuple[str, List[str], Optional[float]]) -> Dict[s
         ``duration``, and an optional ``error`` field.
     """
     repo_root, test_paths, timeout = args
+    interpreter = resolve_test_interpreter(repo_root)
     cmd: List[str] = [
-        "python3", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        interpreter, "-m", "pytest", "-q", "-p", "no:cacheprovider",
         *test_paths,
     ]
     start = perf_counter()
@@ -510,7 +572,7 @@ def _execute_serial_for_fallback(
     """
     start = perf_counter()
     try:
-        rc, _stdout, _stderr = _run_command(cmd, repo_root, timeout=timeout)
+        rc, stdout, stderr = _run_command(cmd, repo_root, timeout=timeout)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
         duration = round(perf_counter() - start, 2)
         evidence = build_evidence(
@@ -536,6 +598,8 @@ def _execute_serial_for_fallback(
         test_command=cmd,
         status=status,
         duration_seconds=duration,
+        stdout_tail=_tail_lines(stdout),
+        stderr_tail=_tail_lines(stderr),
     )
 
     if status == "FAIL":
@@ -660,12 +724,22 @@ def _run_plan_parallel(
     else:
         status = "PASS"
 
+    # Aggregate stdout/stderr tails from all workers for the evidence record.
+    combined_stdout = "\n".join(
+        r.get("stdout", "") for r in worker_results if r.get("stdout")
+    )
+    combined_stderr = "\n".join(
+        r.get("stderr", "") for r in worker_results if r.get("stderr")
+    )
+
     evidence = build_evidence(
         repo_root=repo_root,
         plan=plan,
         test_command=cmd,
         status=status,
         duration_seconds=duration,
+        stdout_tail=_tail_lines(combined_stdout),
+        stderr_tail=_tail_lines(combined_stderr),
     )
 
     if status == "FAIL":
@@ -736,10 +810,27 @@ def run_plan(
     test_command = getattr(policy, "test_command", None)
     if test_command is None:
         test_command = list(_DEFAULT_TEST_COMMAND)
+        # Default pytest path: replace the placeholder interpreter with
+        # one that can actually import pytest. A policy-provided command
+        # is left alone — the operator chose that interpreter explicitly.
+        try:
+            interpreter = resolve_test_interpreter(repo_root)
+        except RunnerError as exc:
+            evidence = build_evidence(
+                repo_root=repo_root,
+                plan=plan,
+                test_command=test_command,
+                status="ERROR",
+                duration_seconds=0.0,
+            )
+            evidence["escalation_reason"] = str(exc)
+            evidence["parallel_executed"] = False
+            return evidence
+        test_command[0] = interpreter
     else:
         test_command = list(test_command)
 
-    is_exhaustive = bool(getattr(plan, "is_exhaustive", False))
+    is_exhaustive = getattr(plan, "resolved_scope", "") == "full"
     selected_tests = list(getattr(plan, "selected_tests", []))
     test_command = resolve_command(test_command)
     pytest_runner = _is_pytest_command(test_command)
@@ -833,7 +924,9 @@ def run_plan(
     duration = round(perf_counter() - start, 2)
 
     # Determine status from exit code
-    if rc == 0:
+    if _is_environment_error(rc, stderr):
+        status = "ERROR"
+    elif rc == 0:
         status = "PASS"
     else:
         status = "FAIL"
@@ -844,6 +937,8 @@ def run_plan(
         test_command=cmd,
         status=status,
         duration_seconds=duration,
+        stdout_tail=_tail_lines(stdout),
+        stderr_tail=_tail_lines(stderr),
     )
 
     if status == "FAIL":
@@ -851,6 +946,13 @@ def run_plan(
         if escalation:
             escalation += "; "
         escalation += f"Tests failed with exit code {rc}"
+        evidence["escalation_reason"] = escalation
+
+    if status == "ERROR":
+        escalation = getattr(plan, "escalation_reason", "")
+        if escalation:
+            escalation += "; "
+        escalation += f"Environment error: {stderr.strip()}"
         evidence["escalation_reason"] = escalation
 
     evidence["parallel_executed"] = False
