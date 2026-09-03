@@ -73,6 +73,15 @@ produces dispatchable work.
   criterion is green or ruled; an unmeasured criterion is not green
   (Run 012, TG4: the report said SUCCESS on a criterion nobody had run).
 
+## Verdict wake-up — read the summary before the file
+
+A verdict wake-up now carries the verdict's summary and next action in the
+dispatch prompt itself: the `<verdict_summary>` block holds the status and
+the first lines of the verdict's reason, and the `<next_action>` block
+states what to author next (the next handoff on APPROVED, a rework handoff
+for the same WORK item on REJECTED). Read both blocks first — they are the
+wake-up's primary input — before opening the verdict file itself.
+
 ## Decomposing a GOAL
 
 1. **Read the whole GOAL first** — mission, binding constraints, scope

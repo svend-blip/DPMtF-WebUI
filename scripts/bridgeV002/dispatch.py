@@ -2700,6 +2700,68 @@ def _ensure_session_ready(role_key, db_path=None):
     return session_alive(session_name)
 
 
+def _verdict_context(deliverable_path, max_lines=12):
+    """Parse a verdict deliverable into (status, lines, work_item).
+
+    status: 'APPROVED' or 'REJECTED' from the first ``**Status:**`` line,
+    or '' when the file is not a verdict. lines: the first non-empty lines
+    of the rejection reason (REJECTED) or the approval note (APPROVED),
+    capped at max_lines. work_item: the first WORK-item reference found in
+    the file, or ''.
+    """
+    try:
+        with open(deliverable_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return "", [], ""
+
+    m = re.search(r"^\*\*Status:\*\*\s*(APPROVED|REJECTED)\s*$", content,
+                  re.MULTILINE)
+    if not m:
+        return "", [], ""
+    status = m.group(1)
+
+    lines = []
+    if status == "REJECTED":
+        # First non-empty lines after the Status line carry the reason.
+        after = content[m.end():]
+        for ln in after.splitlines():
+            stripped = ln.strip()
+            if stripped:
+                lines.append(stripped)
+            if len(lines) >= max_lines:
+                break
+    else:
+        lines = ["approved"]
+
+    wm = re.search(r"WORK\s+\d+", content)
+    work_item = wm.group(0) if wm else ""
+    return status, lines, work_item
+
+
+def _fill_verdict_blocks(prompt_text, deliverable_path):
+    """Fill the verdict placeholders in a callback prompt.
+
+    Migration 100 added {verdict_status}, {verdict_lines}, {work_item} and
+    {next_action} to the callback content_template. This replaces them from
+    the verdict deliverable. When the deliverable is not a verdict (no
+    ``**Status:**`` line), the placeholders become empty strings so no
+    literal braces leak into the prompt.
+    """
+    status, lines, work_item = _verdict_context(deliverable_path)
+    if status == "REJECTED":
+        next_action = "author a rework handoff for the same WORK item"
+    elif status == "APPROVED":
+        next_action = "author the next handoff"
+    else:
+        next_action = ""
+    prompt_text = prompt_text.replace("{verdict_status}", status)
+    prompt_text = prompt_text.replace("{verdict_lines}", "\n".join(lines))
+    prompt_text = prompt_text.replace("{work_item}", work_item)
+    prompt_text = prompt_text.replace("{next_action}", next_action)
+    return prompt_text
+
+
 def signal_complete(flow_key, step_key, from_role_key, handoff_id,
                     bridge_dir=None, force=False):
     """Signal that a role has completed its deliverable for a flow step.
@@ -3067,6 +3129,11 @@ def signal_complete(flow_key, step_key, from_role_key, handoff_id,
         prompt_text = prompt_text.replace("{model_name}", target_model_name_sc)
         prompt_text = prompt_text.replace("{previous_deliverable_path}", full_deliverable_path)
         prompt_text = prompt_text.replace("{project_root}", str(PROJECT_ROOT))
+        # Migration 100: when the callback deliverable is a verdict, fill
+        # the <verdict_summary>/<next_action>/<stop> block placeholders
+        # from it. Non-verdict deliverables leave no literal braces.
+        if rule_key == "callback":
+            prompt_text = _fill_verdict_blocks(prompt_text, full_deliverable_path)
         prompt_text += f"\n\n## Current Deliverable\nRead your input from: {full_deliverable_path}"
     else:
         prompt_text = (
