@@ -4652,6 +4652,7 @@ function onReady() {
   loadUserPreferences();
   initDrawer();
   loadBridgeSetup();
+  initFlowappExport();
   if (typeof loadSystemSetup === "function") loadSystemSetup();
 }
 
@@ -4837,6 +4838,123 @@ function renderSystemCheckResults(listDiv, summaryP, data) {
   });
 }
 
+
+
+/* ── 13. Export FlowApp (Run 031 — bound marker: flowapp_export) ──
+   The button talks to the read-only endpoints in routers/flowapp_export.py.
+   Capability state drives enabled/disabled; the click downloads the
+   flow description as JSON via a Blob URL. DOM built with el()/
+   textContent/replaceChildren only — safe-DOM rule 11.3. */
+
+function initFlowappExport() {
+  var btn = document.getElementById("flowapp_export_btn");
+  if (!btn) return;
+  var statusP = document.getElementById("flowapp_export_status");
+  var flowSelect = document.getElementById("flowapp_export_flow_select");
+
+  if (flowSelect) {
+    fetch("/api/bridge-v2/flows")
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var flows = data.flows || [];
+        clear(flowSelect);
+        var emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = lbl("lbl_bridge_select_flow", "Select Flow");
+        flowSelect.appendChild(emptyOpt);
+        flows.forEach(function (f) {
+          var opt = document.createElement("option");
+          opt.value = f.flow_key;
+          opt.textContent = f.name || f.flow_key;
+          flowSelect.appendChild(opt);
+        });
+      })
+      .catch(function (err) {
+        console.error("Failed to load bridge flows for export:", err);
+      });
+  }
+
+  btn.onclick = function () { onFlowappExportClick(btn, flowSelect, statusP); };
+  refreshFlowappCapability(btn, statusP);
+}
+
+function refreshFlowappCapability(btn, statusP) {
+  btn.disabled = true;
+  if (statusP) {
+    statusP.textContent = lbl("lbl_status_loading", "Loading...");
+  }
+  fetch("/api/bridge-v2/flowapp-export/capability")
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      var state = data.state;
+      var detail = data.detail || "";
+      if (!statusP) return;
+      if (state === "compatible") {
+        btn.disabled = false;
+        statusP.textContent = lbl("lbl_flowapp_export_ready", "Exporter ready");
+      } else if (state === "incompatible") {
+        statusP.textContent =
+          lbl("lbl_flowapp_export_incompatible", "Exporter incompatible") +
+          ": " + detail;
+      } else {
+        statusP.textContent =
+          lbl("lbl_flowapp_export_absent", "No exporter available") +
+          (detail ? " — " + detail : "");
+      }
+    })
+    .catch(function (err) {
+      btn.disabled = true;
+      if (statusP) {
+        statusP.textContent =
+          lbl("lbl_flowapp_export_absent", "No exporter available") +
+          " — " + (err.message || "");
+      }
+    });
+}
+
+function onFlowappExportClick(btn, flowSelect, statusP) {
+  var flowKey = flowSelect ? flowSelect.value : "";
+  if (!flowKey) {
+    if (statusP) {
+      statusP.textContent = lbl("lbl_flowapp_export_no_flow", "Select a flow first");
+    }
+    return;
+  }
+  btn.disabled = true;
+  if (statusP) {
+    statusP.textContent = lbl("lbl_status_loading", "Loading...");
+  }
+  fetch("/api/bridge-v2/flowapp-export/description?flow_key=" + encodeURIComponent(flowKey))
+    .then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      var json = JSON.stringify(data, null, 2);
+      var blob = new Blob([json], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = flowKey + "-flowapp-description.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (statusP) {
+        statusP.textContent = lbl("lbl_flowapp_export_done", "Description downloaded");
+      }
+    })
+    .catch(function (err) {
+      if (statusP) {
+        statusP.textContent =
+          lbl("lbl_status_error_prefix", "Error: ") + (err.message || "");
+      }
+    })
+    .finally(function () { btn.disabled = false; });
+}
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", onReady);

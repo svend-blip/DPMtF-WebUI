@@ -110,6 +110,16 @@
                   <div id="bridge-export-content"></div>
                 </section>
 
+                <!-- Run 031: Export FlowApp (bound marker: flowapp_export) -->
+                <section id="flowapp-export-section">
+                  <h3 data-slot="lbl_flowapp_export_title">Export FlowApp</h3>
+                  <div class="bridge-btn-row">
+                    <select id="flowapp_export_flow_select" data-slot="lbl_bridge_select_flow">Select Flow</select>
+                    <button id="flowapp_export_btn" type="button" class="dpmtf-btn" data-slot="lbl_flowapp_export_btn" disabled>Export FlowApp</button>
+                  </div>
+                  <p id="flowapp_export_status" class="dpmtf-muted"></p>
+                </section>
+
                 <section id="db-status-section">
                   <h2 data-slot="lbl_panel_db_status">Database Status</h2>
                   <div id="db-status-content"></div>

@@ -3,7 +3,7 @@
  * Provides the database-driven panel system that every
  * DPMtF-governed WebUI needs:
  *   - lbl() i18n helper (4-layer architecture)
- *   - el() safe DOM creation (no innerHTML)
+ *   - el() safe DOM creation (createElement/textContent only)
  *   - Panel structure: visibility, expand/collapse, subgroups
  *   - Language switcher
  *

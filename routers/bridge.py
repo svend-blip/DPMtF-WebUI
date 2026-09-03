@@ -2119,3 +2119,12 @@ async def bridge_v2_compile_handoff(request: Request):
                   for jid, c in zip(job_ids, compiled)],
         "count": len(job_ids),
     }
+
+
+# ── Run 031: FlowApp export endpoints ───────────────────────────────
+# app.py is FROZEN, so the flowapp-export routes attach to THIS router
+# object here; app.py already includes the bridge router, so they land
+# under /api/bridge-v2 without touching app.py.
+from routers.flowapp_export import router as flowapp_export_router  # noqa: E402
+
+router.include_router(flowapp_export_router)

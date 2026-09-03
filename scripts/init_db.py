@@ -3490,6 +3490,14 @@ _bridge_setup_labels = [
     ("LBL-1000422", "lbl_alloc_load_error", "main", "Failed to load allocator config", "Allocator config load error banner"),
     ("LBL-1000423", "lbl_alloc_name_required", "main", "Name required", "Name field required validation message"),
     ("LBL-1000424", "lbl_alloc_error", "main", "Error", "Generic allocator error message"),
+    # ── Run 031: Export FlowApp button labels ──
+    ("LBL-1000511", "lbl_flowapp_export_title", "main", "Export FlowApp", "FlowApp export section heading"),
+    ("LBL-1000512", "lbl_flowapp_export_btn", "main", "Export FlowApp", "Export FlowApp button"),
+    ("LBL-1000513", "lbl_flowapp_export_ready", "main", "Exporter ready", "Status text when the external exporter is compatible"),
+    ("LBL-1000514", "lbl_flowapp_export_absent", "main", "No exporter available", "Status text when the external exporter is unreachable"),
+    ("LBL-1000515", "lbl_flowapp_export_incompatible", "main", "Exporter incompatible", "Status text when the exporter version does not match"),
+    ("LBL-1000516", "lbl_flowapp_export_no_flow", "main", "Select a flow first", "Hint when Export FlowApp is clicked with no flow selected"),
+    ("LBL-1000517", "lbl_flowapp_export_done", "main", "Description downloaded", "Success message after the flow description JSON is downloaded"),
 ]
 for label in _bridge_setup_labels:
     cursor.execute("""
@@ -3944,6 +3952,38 @@ _bridge_setup_translations = [
     ("LBL-1000422", "en-US", "Failed to load allocator config"), ("LBL-1000422", "da-DK", "Kunne ikke indlæse allocator-konfiguration"),
     ("LBL-1000423", "en-US", "Name required"), ("LBL-1000423", "da-DK", "Navn påkrævet"),
     ("LBL-1000424", "en-US", "Error"), ("LBL-1000424", "da-DK", "Fejl"),
+    # ── Run 031: Export FlowApp labels — en-US ──
+    ("LBL-1000511", "en-US", "Export FlowApp"),
+    ("LBL-1000512", "en-US", "Export FlowApp"),
+    ("LBL-1000513", "en-US", "Exporter ready"),
+    ("LBL-1000514", "en-US", "No exporter available"),
+    ("LBL-1000515", "en-US", "Exporter incompatible"),
+    ("LBL-1000516", "en-US", "Select a flow first"),
+    ("LBL-1000517", "en-US", "Description downloaded"),
+    # ── Run 031: Export FlowApp labels — da-DK ──
+    ("LBL-1000511", "da-DK", "Eksportér FlowApp"),
+    ("LBL-1000512", "da-DK", "Eksportér FlowApp"),
+    ("LBL-1000513", "da-DK", "Eksportør klar"),
+    ("LBL-1000514", "da-DK", "Ingen eksportør tilgængelig"),
+    ("LBL-1000515", "da-DK", "Eksportør inkompatibel"),
+    ("LBL-1000516", "da-DK", "Vælg en flow først"),
+    ("LBL-1000517", "da-DK", "Beskrivelse downloadet"),
+    # ── Run 031: Export FlowApp labels — de-DE ──
+    ("LBL-1000511", "de-DE", "FlowApp exportieren"),
+    ("LBL-1000512", "de-DE", "FlowApp exportieren"),
+    ("LBL-1000513", "de-DE", "Exporteur bereit"),
+    ("LBL-1000514", "de-DE", "Kein Exporteur verfügbar"),
+    ("LBL-1000515", "de-DE", "Exporteur inkompatibel"),
+    ("LBL-1000516", "de-DE", "Zuerst einen Flow auswählen"),
+    ("LBL-1000517", "de-DE", "Beschreibung heruntergeladen"),
+    # ── Run 031: Export FlowApp labels — es-ES ──
+    ("LBL-1000511", "es-ES", "Exportar FlowApp"),
+    ("LBL-1000512", "es-ES", "Exportar FlowApp"),
+    ("LBL-1000513", "es-ES", "Exportador listo"),
+    ("LBL-1000514", "es-ES", "Ningún exportador disponible"),
+    ("LBL-1000515", "es-ES", "Exportador incompatible"),
+    ("LBL-1000516", "es-ES", "Selecciona primero un flujo"),
+    ("LBL-1000517", "es-ES", "Descripción descargada"),
 ]
 for translation in _bridge_setup_translations:
     cursor.execute("""
@@ -4072,6 +4112,13 @@ _bridge_setup_slots = [
     ("lbl_alloc_load_error", "Allocator config load error banner"),
     ("lbl_alloc_name_required", "Name field required validation message"),
     ("lbl_alloc_error", "Generic allocator error message"),
+    ("lbl_flowapp_export_title", "FlowApp export section heading"),
+    ("lbl_flowapp_export_btn", "Export FlowApp button"),
+    ("lbl_flowapp_export_ready", "Exporter-ready status text"),
+    ("lbl_flowapp_export_absent", "Exporter-absent status text"),
+    ("lbl_flowapp_export_incompatible", "Exporter-incompatible status text"),
+    ("lbl_flowapp_export_no_flow", "No-flow-selected hint"),
+    ("lbl_flowapp_export_done", "Description-downloaded success message"),
 ]
 for slot_key, description in _bridge_setup_slots:
     cursor.execute("""
@@ -4206,6 +4253,13 @@ _bridge_setup_slot_labels = [
     ("lbl_alloc_load_error", "lbl_alloc_load_error"),
     ("lbl_alloc_name_required", "lbl_alloc_name_required"),
     ("lbl_alloc_error", "lbl_alloc_error"),
+    ("lbl_flowapp_export_title", "lbl_flowapp_export_title"),
+    ("lbl_flowapp_export_btn", "lbl_flowapp_export_btn"),
+    ("lbl_flowapp_export_ready", "lbl_flowapp_export_ready"),
+    ("lbl_flowapp_export_absent", "lbl_flowapp_export_absent"),
+    ("lbl_flowapp_export_incompatible", "lbl_flowapp_export_incompatible"),
+    ("lbl_flowapp_export_no_flow", "lbl_flowapp_export_no_flow"),
+    ("lbl_flowapp_export_done", "lbl_flowapp_export_done"),
 ]
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""
