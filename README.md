@@ -231,6 +231,49 @@ returns the resolver dict verbatim — `flow_key`, `step_key`,
 `harness_profile`, `harness_source_level`, `implementation_mode`. 404
 when the flow or step is unknown.
 
+### Model residency at role transitions
+
+`dispatch.py` decides what happens to the sender's allocator-managed model
+when the chain moves to the next role (`_from_model_disposition`):
+
+| Receiver | Sender's local model |
+|---|---|
+| binds no GPU (cloud alias, human role) | **kept resident** — lease released without stop |
+| local (needs the GPU) | stopped before the receiver is warmed (VRAM-first swap) |
+| same alias / no allocator sender | untouched |
+
+The discriminator is the allocator's `resolved_gpu`, never the backend
+name; an unreadable allocator fails closed to "stop". Session context is
+fresh regardless: every dispatch opens a new harness session, and a local
+server's prefix cache is only a cache. Before this rule a flow with one
+local model paid a ~2 min reload on every return to it and the stop cut
+the sender's post-signal narration (a benign exit 3).
+
+### Per-role ceilings and the verdict wake-up
+
+- `bridge_roles.max_turns` (per role) and `bridge_roles.max_output_tokens`
+  reach simple-harness as `SIMPLE_HARNESS_MAX_TURNS` /
+  `SIMPLE_HARNESS_MAX_OUTPUT_TOKENS` at pane launch. An output ceiling
+  that is too small truncates a large `write_file` call mid-JSON and the
+  harness reports exit 3 with no text — the last usage line then shows
+  `completion_tokens == ceiling`.
+- The kickoff prompt and every handoff start from deterministic scripts:
+  `scripts/bridgeV002/kickoff_packet.py --flow <eloop> --run <NNN>` (the
+  predecessor is the highest lower run; `databases/dpmtf.db` never counts
+  as dirt) and `scripts/bridgeV002/handoff_skeleton.py --flow <eloop> --id <N> --to <role>`.
+  A skeleton whose `<task>` still carries the placeholder is not a delivery.
+- A verdict callback carries `<verdict_summary>`, `<next_action>` and
+  `<stop>` blocks rendered from the verdict file (migration 100), so the
+  decomposer reads the status and the next action before opening the file.
+- A result file must carry a section headed exactly `## README Impact`
+  with `README impact: yes|no` and `Reason:`; the two lines alone are
+  refused as `README_IMPACT_BLOCK_MISSING`.
+- The test-impact gate (`scripts/bridgeV002/gate-test-impact.py`) runs the
+  planner's selection with an interpreter that has pytest (repo `venv`
+  first, then `sys.executable`, never a bare `python3`); an environment
+  failure is `ERROR` with its message, not `FAIL`, and the timeout comes
+  from `.dpmtf/test-policy.json` (`test_timeout_seconds`).
+
 ## Validation
 
 The validation standard is bound at `docs/governance-templates-v2/13_VALIDATION.md`.
@@ -271,3 +314,20 @@ python3 scripts/bridgeV002/start_coding.py <flow_key>
 
 This restarts the matching coding client for each role whose
 `harness_source` resolves to a coding harness in that flow.
+
+Launch-only environment keys. DeepSeek Harness (`dsh`) refuses to boot when a
+project `.env` sets `DSH_V4_PRO_PATCH` ("only the launching environment may
+set"). Keep that key out of every `.env` under a flow target; export it in
+the environment that launches the process instead (`~/.bashrc`,
+`Environment=` in `bridge-broker.service`, the shell that starts the 9130
+app) and in `harness-allocator.ini` `[harness] dsh_v4_pro_patch`.
+
+Session attribution. `~/.simple-harness/sessions/` is shared by every role
+of every flow family; a session belongs to a role only by its
+`session.json` `config.workspace`, never by id or recency.
+
+Local model dies right after loading under the broker but starts fine from
+a shell: the systemd unit has no CUDA toolkit on `PATH`, so a runtime that
+JIT-builds kernels picks the apt `nvcc` and refuses the version mismatch.
+Set `Environment=CUDA_HOME=/usr/local/cuda-<ver>` on the unit; the
+FreeToken adapter prepends `$CUDA_HOME/bin` to the server's `PATH`.
