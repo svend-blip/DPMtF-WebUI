@@ -140,6 +140,13 @@ The repository's regression testing is governed by
    command and its exit status. The reviewer re-runs the resolved selection
    itself — never the implementer's paste — and may always escalate to the
    full suite, never narrow.
+   **Closing measure (Human decision 2026-09-03):** when the gate's
+   evidence says `resolved_scope` symbol / file / component with `status`
+   PASS, the reviewer's re-run of that selection IS the closing measure —
+   the full suite is not run. At `broad` or `full`, at `FAIL` / `ERROR` /
+   `SKIPPED`, or with no evidence file, the closing measure is the full
+   suite's exit code. The verdict names which case applied
+   (REVIEW.md, Evidence Rule 9).
 5. **The policy is code.** A change to `.dpmtf/test-policy.json` is itself a
    full-regression trigger, and a policy must never name a home directory
    or an absolute path.

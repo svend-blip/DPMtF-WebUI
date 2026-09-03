@@ -132,6 +132,20 @@ These are absolute. A verdict that breaks any of them is invalid.
    and the END-REPORT said SUCCESS on an unmeasured criterion). A verdict
    that lists no testgoal measurement for a Run that has testgoals is
    incomplete.
+9. **The closing test measure follows the gate's scope.** Read the
+   test-impact evidence for the handoff
+   (`{bridge_dir}/{artifact_root}/artifacts/test-impact/{flow_key}/handoff-{id}-impact.md`)
+   before you run tests. When `resolved_scope` is `symbol`, `file` or
+   `component` and `status` is `PASS`, re-run exactly that selection
+   (`test_command` + `selected_tests`) yourself; its exit code is the
+   closing measure, and the full suite is NOT run. When `resolved_scope`
+   is `broad` or `full`, or `status` is `FAIL`, `ERROR` or `SKIPPED`, or
+   the evidence file is absent, run the full suite and its exit code is
+   the closing measure. State in the verdict which case applied and why
+   (Human decision 2026-09-03: a component-scope plan that measured
+   green is trusted; the full suite is reserved for wide changes and for
+   a gate that could not measure). You may always escalate to the full
+   suite when your own review finds a reason; you may never narrow.
 
 ## Counting Is Not Reading
 
@@ -182,6 +196,7 @@ $ {command checking claim 1}
 - {claim} → VERIFIED | FALSE | UNVERIFIED ({why})
 
 ## Test Results
+- test-impact evidence: scope={resolved_scope} status={status} → closing measure = {selection re-run | full suite} because {reason}
 - {command run} → {actual result}
 - check_testgoals.py {GOAL.md} → {n}/{m} green; red: {ids, each "by defect" or "by work"}
 
