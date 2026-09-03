@@ -246,6 +246,22 @@ suite that regenerates an evidence file is a tree change).
   Human. Human decision outstanding on the next Run → park it (rung 8) and
   report.
 
+## Context per Phase
+
+Each phase reads only the context it needs. A successor session uses this
+table to decide what to load on a cold start.
+
+| Phase | Context read | Purpose |
+|-------|-------------|---------|
+| 0 — Cold start | flow state (compact), scope headings, ledger tail | Orient: which run, what phase |
+| 1 — Discover scope | SCOPE.md full, backlog tail | Understand the request |
+| 2 — Clarify | scope, relevant runs, backlog | Identify gaps |
+| 3 — Draft | scope, backlog, predecessor GOALs | Write the contract |
+| 4 — Promotion | the draft, Human confirmation | Hand to Human |
+| 5 — Drive ELOOP | flow state (compact), ledger tail, queue tail | Route events |
+
+Phase 6 (Close) reads: testgoals, END-REPORT, ledger — to measure and report.
+
 ## The Mandate
 
 The mandate is what makes Phases 5 and 6 yours. It lives in the database, on
@@ -477,6 +493,54 @@ Ledger entry shapes, one per action, timestamp in UTC:
 Ledger writes go through the broker (`bridge_broker.py materialize --type
 run-ledger`) where the broker is available; a host-side append is recorded as
 such. Never into a chain deliverable directory.
+
+## Ledger Entry Forms
+
+Five canonical forms. Each entry uses exactly one form so a successor reads
+structured state, not prose.
+
+### Ledger entry — opened
+
+- Timestamp: ISO-8601
+- Run: NNN
+- Baseline: <commit hash>
+- Mandate: <source and date>
+- First handoff id: NNN
+- Fence note: <any special fence facts>
+
+### Ledger entry — event
+
+- Timestamp: ISO-8601
+- Handoff: NNN
+- Event: <what happened>
+- Action: <what was done>
+- Rung: <intervention rung or "observe">
+
+### Ledger entry — intervention
+
+- Timestamp: ISO-8601
+- Handoff: NNN
+- Rung: N
+- Precondition: <what was observed>
+- Action: <what was done>
+- Bound: <limit applied>
+- Evidence: <trace line, queue row id, or file path>
+
+### Ledger entry — closed
+
+- Timestamp: ISO-8601
+- Run: NNN
+- Outcome: <SUCCESS|PARTIAL|FAILED>
+- Testgoals: <n>/<m> measured
+- Baseline committed: <sha> (<cadence>)
+- Next Run: NNN or "none promoted"
+
+### Ledger entry — hand-over
+
+- Timestamp: ISO-8601
+- Phase: <current phase number and name>
+- Executing Run: NNN
+- Next expected event: <what to watch for>
 
 ## Hand-over to the Next Session
 

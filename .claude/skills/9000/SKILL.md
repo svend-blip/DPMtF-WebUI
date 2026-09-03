@@ -26,57 +26,41 @@ rules live in your governance file — read it in full before acting.
   ABSOLUTE path at the permission gate. The `shell` tool is not path-checked.
   Every flow artifact and governance file lies outside the workspace: shell.
 
-## Step 0 — read in this order (both roles)
+## Step 0 — cold start: minimal context diet
 
-A kickoff or handoff wake-up starts from the deterministic scripts that
-produce the packet and the skeleton. The planning supervisor's kickoff
-begins with `python3 scripts/bridgeV002/kickoff_packet.py --flow <eloop> --run <NNN>`;
-the execution decomposer's handoff begins with
-`python3 scripts/bridgeV002/handoff_skeleton.py --flow <eloop> --id <N> --to <role>`.
-Both scripts live under this checkout's `scripts/bridgeV002/` and are
-read-only; run `--help` to see their arguments. They produce the starting
-point; the role fills in judgement.
+A cold start reads the MINIMUM needed to orient. Do not read the full
+SCOPE, do not read the governance file in full, and do not read the
+ledger beyond the tail. The order is deterministic:
 
-If the `mcp-light` tools are available, two calls replace steps 2-3:
-`get_flow_scope("9000-01-PLOOP", mode="full")` and
-`get_flow_state("9000-02-ELOOP")` — the latter returns the mandate fields,
-drafts with promotability, runs classified closed / executing / waiting,
-the executing Run's floor, owned ids, deliverables and ledger tail, the
-queue and trace tails, and a `phase`. Read the scope in full regardless.
-The shell lines below are the fallback and the paste-runnable record.
+1. **`get_flow_state` first.** This orients you: which run is executing,
+   what phase it is in, the mandate, the queue tail. One call, no file I/O.
 
-1. **Scope first, in full.** It is Human-owned and read-only to you.
+2. **`get_flow_scope(mode="headings")` second.** Scope headings only —
+   enough to know what the run is fenced to, without loading the full
+   document. The full SCOPE is read only in Phase 1–3 (discover, clarify,
+   draft), never at cold start.
 
-```
-cat /home/svend/flows/9000/SCOPE.md
-```
+3. **Ledger tail of the executing run third.** `tail -60` of the executing
+   Run's `RUN-LEDGER.md`. The executing Run is the one with a ledger
+   "opened" entry and no END-REPORT — NOT the newest directory.
 
-2. **Mandate.** Empty `supervisor_mandate` = planning only; set = resident
-   driving under SUPERVISOR_PLANNING.md Phases 5-6.
+### Context-diet rules
 
-```
-sqlite3 -readonly /home/svend/DPMtF-WebUI/databases/dpmtf.db "SELECT flow_key, supervisor_role, supervisor_mandate, commit_cadence, cold_start_skill FROM bridge_flows WHERE flow_key LIKE '9000-%'"
-```
+- **Full SCOPE only in Phase 1–3** (discover, clarify, draft). At cold
+  start, headings via `get_flow_scope(mode="headings")` are sufficient.
+- **Governance by section, never the whole file.** Use mcp-light
+  `get_governance_file` to read only the section relevant to the phase at
+  hand. Reading the entire governance file at cold start is prohibited.
 
-3. **State.** Both flows, drafts, runs, the backlog tail, the executing Run's
-   ledger tail, the target tree, the id counters.
+### Shell fallback (when mcp-light is unavailable)
+
+If the `mcp-light` tools are unavailable, the equivalent shell commands are:
 
 ```
-python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-01-PLOOP
 python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-02-ELOOP
-ls /home/svend/flows/9000/goals/          # drafts awaiting promotion
-ls /home/svend/flows/9000/runs/           # promoted runs; END-REPORT.md = closed
-tail -40 /home/svend/flows/9000/planning/PLOOP-BACKLOG.md
-git -C /home/svend/FlowRunner status --short && git -C /home/svend/FlowRunner log --oneline -3
-sqlite3 -readonly /home/svend/DPMtF-WebUI/databases/dpmtf.db "SELECT * FROM bridge_id_counters WHERE flow_key LIKE '9000%'"
+grep '^#' /home/svend/flows/9000/SCOPE.md
+tail -60 /home/svend/flows/9000/runs/<RUN>/RUN-LEDGER.md
 ```
-
-   Then `tail -60` of the executing Run's `RUN-LEDGER.md`. The executing Run
-   is the one with a ledger "opened" entry and no END-REPORT — NOT the newest
-   directory. Many Runs are promoted at once; one executes.
-
-4. **Phase.** Decide it from the table in SUPERVISOR_PLANNING.md §Phase 0 and
-   state it in one sentence before doing anything.
 
 trace.log is flow-wide and the id counters are not: filter on flow AND id
 (100_BRIDGE Security Rules 7). File mtimes are local, trace is UTC.
