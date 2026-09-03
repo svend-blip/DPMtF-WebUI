@@ -346,7 +346,7 @@ def _ma_run(role_key: str, client: str) -> str:
     "kind",
     ["opencode", "claude-code", "codex", "dsh", "pi", "freebuff"],
 )
-def test_launch_identity_reproduced_by_switched_readers(kind):
+def test_launch_identity_reproduced_by_switched_readers(kind, monkeypatch):
     """For each fixture, derive the launch command through the SWITCHED
     code path (the readers landed in handoff 058) and assert the
     resulting command matches the frozen fixture md5 byte-for-byte.
@@ -356,6 +356,14 @@ def test_launch_identity_reproduced_by_switched_readers(kind):
     echoes fixture["command"] is a fabricated pass and is rejected.
     """
     fixture = LAUNCH_FIXTURES[kind]  # structure lookup only — never reads fixture["command"]
+    if kind == "dsh":
+        # The dsh launch identity includes the V4 Pro patch overlay, which the
+        # reader takes from the launching environment (DSH_V4_PRO_PATCH) — dsh
+        # itself refuses that key in a project .env (2026-09-03), so the test
+        # may not depend on the machine's shell: pin the same path the frozen
+        # fixture was recorded with. This is the fixture's own literal, not a
+        # new hardcoded path.
+        monkeypatch.setenv("DSH_V4_PRO_PATCH", "/home/svend/dsh-v4-pro.patch.yml")
     role_key = fixture["role_key"]
     expected_md5 = fixture["command_md5"]
 

@@ -809,6 +809,38 @@ def _backend_is_down(alias):
     return not status.get("running", True)
 
 
+
+def _from_model_disposition(from_alias, to_alias, from_source="model_allocator",
+                            to_source="model_allocator"):
+    """What happens to the sender's model at a role transition.
+
+    Returns one of:
+      "none"  — nothing to stop (no allocator-managed sender, or same alias)
+      "keep"  — the sender's LOCAL model stays resident: the receiver binds no
+                GPU (a cloud alias), so nothing competes for the card
+      "stop"  — the sender's model is stopped before the receiver is warmed
+
+    Human decision 2026-09-03 ("hold eneste lokale model resident"): when a
+    flow has exactly one local model (Flash-Next as implementer, every other
+    role cloud) stopping it at each transition to a cloud role bought
+    nothing and cost a 2 min 09 s reload on every return, plus it cut the
+    sender's post-signal stream (the benign exit 3). The receiver's GPU
+    need is the discriminator, via the allocator's resolved_gpu
+    (_alias_holds_no_gpu); an unreadable allocator fails closed to "stop",
+    which is the previous behaviour. The session context stays fresh
+    regardless: the harness opens a new session per dispatch, and the
+    server's prefix cache is only a cache. Local -> local still stops, and
+    _stop_other_local_models sweeps residents before a local warm-up.
+    """
+    if from_source != "model_allocator" or not from_alias or from_alias == to_alias:
+        return "none"
+    if to_source == "model_allocator" and to_alias and _alias_holds_no_gpu(to_alias):
+        return "keep"
+    if to_source != "model_allocator" or not to_alias:
+        # Human/manual receiver: no model is warmed next, nothing competes.
+        return "keep"
+    return "stop"
+
 def _release_from_model_first(handoff_id, from_alias, to_alias):
     """Free the completing role's VRAM BEFORE the next model is warmed.
 
@@ -822,6 +854,17 @@ def _release_from_model_first(handoff_id, from_alias, to_alias):
     """
     if not from_alias or from_alias == to_alias:
         return False
+    if _from_model_disposition(from_alias, to_alias) == "keep":
+        # Receiver needs no GPU: the sender's local model stays resident.
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "job_queue"))
+            from model_lease import LeaseRegistry
+            LeaseRegistry.release(handoff_id, from_alias, stop_model=False)
+        except Exception as exc:
+            print(f"  WARNING: lease release without stop failed: {exc}")
+        print(f"  Model '{from_alias}' kept resident — receiver '{to_alias}' "
+              f"binds no GPU (Human decision 2026-09-03)")
+        return True
     from_real = _resolve_real_model(from_alias)
     to_real = _resolve_real_model(to_alias) if to_alias else ""
     same_real = bool(from_real) and from_real == to_real
@@ -2476,10 +2519,14 @@ def run_flow_step_db(flow_key, step_key, handoff_id, bridge_dir=None):
         flow_key=flow_key,
         db_path=_db_path(),
     )
-    if from_source == "model_allocator" and from_alias and from_alias != to_alias:
+    disposition = _from_model_disposition(from_alias, to_alias, from_source, to_source)
+    if disposition == "stop":
         _run_allocator_stop(from_alias)
         if to_source == "model_allocator" and to_alias:
             _wait_for_vram_release()
+    elif disposition == "keep":
+        print(f"  Model '{from_alias}' kept resident — receiver '{to_alias}' "
+              f"binds no GPU (Human decision 2026-09-03)")
     if to_source == "model_allocator" and to_alias:
         _stop_other_local_models(to_alias)
         _run_allocator_start(to_alias)

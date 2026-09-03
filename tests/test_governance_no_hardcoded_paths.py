@@ -96,17 +96,15 @@ ALLOWED_LINES = {
         "`/home/svend/flows/1000/SCOPE.md` — Human-owned, read-only to you.** Every",
     },
     "9000/SKILL.md": {
+        # Run 026 (context diet) rewrote Step 0: the family root, the scope
+        # headings-first read, the active run's ledger tail and the state
+        # probes name the default bridge dir, as 103_FLOW_STARTUP.md does.
+        # Every line here was reviewed by that run (verdict 132).
         'root `/home/svend/flows/9000`.',
         '- **The target repository is `/home/svend/FlowRunner`** (Human decision',
-        'cat /home/svend/flows/9000/SCOPE.md',
-        'sqlite3 -readonly /home/svend/DPMtF-WebUI/databases/dpmtf.db "SELECT flow_key, supervisor_role, supervisor_mandate, commit_cadence, cold_start_skill FROM bridge_flows WHERE flow_key LIKE \'9000-%\'"',
-        'python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-01-PLOOP',
         'python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9000-02-ELOOP',
-        'ls /home/svend/flows/9000/goals/          # drafts awaiting promotion',
-        'ls /home/svend/flows/9000/runs/           # promoted runs; END-REPORT.md = closed',
-        'tail -40 /home/svend/flows/9000/planning/PLOOP-BACKLOG.md',
-        'git -C /home/svend/FlowRunner status --short && git -C /home/svend/FlowRunner log --oneline -3',
-        'sqlite3 -readonly /home/svend/DPMtF-WebUI/databases/dpmtf.db "SELECT * FROM bridge_id_counters WHERE flow_key LIKE \'9000%\'"',
+        "grep '^#' /home/svend/flows/9000/SCOPE.md",
+        'tail -60 /home/svend/flows/9000/runs/<RUN>/RUN-LEDGER.md',
         'rehearsed under `dash -c` and measure `/home/svend/FlowRunner`.',
     },
 }
