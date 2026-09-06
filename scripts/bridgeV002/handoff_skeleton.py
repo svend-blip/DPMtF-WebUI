@@ -82,6 +82,11 @@ def main(argv: list[str] | None = None) -> None:
     flow_key: str = args.flow
     handoff_id: int = args.id
     to_role: str = args.to_role
+    # The result->reviewer callback goes to THIS flow's reviewer, derived from
+    # the flow family (e.g. "9000-02-ELOOP" -> "9000-reviewer") — never hardcoded.
+    # A hardcoded "1000-reviewer" here shipped the wrong flow's role key into
+    # every 9000/1010/9010 handoff skeleton (the recurring skeleton-drift).
+    reviewer_role: str = flow_key.split("-")[0] + "-reviewer"
 
     artifact_root = bridge_lib.get_effective_artifact_root(flow_key)
     bridge_dir = config.get_bridge_dir()
@@ -138,7 +143,7 @@ Write your result to: {{bridge_dir}}/{artifact_root}/results/{handoff_id}-result
 After writing your deliverable, signal exactly once:
 
 ```
-python3 scripts/bridgeV002/bridge_broker.py enqueue --flow {flow_key} --from-role {to_role} --to-role 1000-reviewer --id {handoff_id} --action signal-send
+python3 scripts/bridgeV002/bridge_broker.py enqueue --flow {flow_key} --from-role {to_role} --to-role {reviewer_role} --id {handoff_id} --action signal-send
 ```
 """
 
