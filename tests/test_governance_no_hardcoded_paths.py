@@ -117,6 +117,14 @@ ALLOWED_LINES = {
         'tail -60 /home/svend/flows/1020/runs/<RUN>/RUN-LEDGER.md',
         'rehearsed under `dash -c` and measure `/home/svend/AI_AdvisoryBoard`.',
     },
+    "9010/SKILL.md": {
+        # 9010 multi-vendor cloud composition (deepseek planning + deepseek
+        # ELOOP + codex/MiniMax escalation). Paste-runnable on this machine.
+        'root `/home/svend/flows/9010`.',
+        'python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 9010-02-ELOOP',
+        "grep '^#' /home/svend/flows/9010/SCOPE.md",
+        'tail -60 /home/svend/flows/9010/runs/<RUN>/RUN-LEDGER.md',
+    },
 }
 
 
