@@ -41,8 +41,10 @@ EXCLUDED_ROLES = ["human", "humancloud", "humanpay", "humantrade"]
 # literal model id MiniMax-M3 as harness_provider.
 HARNESS_ROLES = [
     "super-deep-deep4", "imple-codex-minimaxM3",
-    "9010-execution-decomposer", "9010-implementer",
-    "9010-reviewer", "9010-escalation-supervisor",
+    # 9010 ELOOP roles moved OFF codex onto simple-harness + cloud_deepseek_v4pro_direct
+    # (Human 2026-09-07): they now resolve through the model allocator like any other
+    # allocator role. Only 9010-escalation-supervisor stays on the codex native harness.
+    "9010-escalation-supervisor",
 ]
 
 # dsh-harness roles (2026-08-31): the harness owns model identity
