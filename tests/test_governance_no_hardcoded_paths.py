@@ -107,6 +107,16 @@ ALLOWED_LINES = {
         'tail -60 /home/svend/flows/9000/runs/<RUN>/RUN-LEDGER.md',
         'rehearsed under `dash -c` and measure `/home/svend/FlowRunner`.',
     },
+    "1020/SKILL.md": {
+        # 1020 pure-cloud pair for AI_AdvisoryBoard (migration 104). Paste-
+        # runnable on this machine, mirroring the 9000 cold-start skill.
+        'root `/home/svend/flows/1020`.',
+        '- **The target repository is `/home/svend/AI_AdvisoryBoard`** (Human decision',
+        'python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 1020-02-ELOOP',
+        "grep '^#' /home/svend/flows/1020/SCOPE.md",
+        'tail -60 /home/svend/flows/1020/runs/<RUN>/RUN-LEDGER.md',
+        'rehearsed under `dash -c` and measure `/home/svend/AI_AdvisoryBoard`.',
+    },
 }
 
 
