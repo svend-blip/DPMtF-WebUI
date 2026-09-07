@@ -6,6 +6,28 @@
 -- has been written host-side. SQLite cannot ALTER a CHECK, so the table is
 -- recreated with 'goal-draft' added; all rows are preserved. (No BEGIN/COMMIT
 -- or PRAGMA: migrate.py wraps each migration in its own transaction.)
+-- Fresh-build safety: bridge_materialize_queue is created lazily by
+-- bridge_broker.py at runtime, not by any migration or the baseline. A
+-- migration-only build (tests, init from scratch) has not run the broker,
+-- so ensure the table exists (broker's original schema) before recreating
+-- it with the wider CHECK. IF NOT EXISTS is a no-op on any DB that already
+-- has the table (live, or one that already applied this migration).
+CREATE TABLE IF NOT EXISTS bridge_materialize_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    flow_key TEXT NOT NULL,
+    run_id INTEGER,
+    handoff_id INTEGER,
+    role_key TEXT,
+    artifact_type TEXT NOT NULL CHECK (artifact_type IN ('backlog', 'run-ledger', 'handoff', 'end-report', 'escalation-response')),
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    claimed_at TEXT,
+    processed_at TEXT,
+    error_msg TEXT,
+    broker_pid INTEGER
+);
+
 CREATE TABLE bridge_materialize_queue_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     flow_key TEXT NOT NULL,
