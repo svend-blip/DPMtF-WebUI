@@ -107,6 +107,16 @@ ALLOWED_LINES = {
         'tail -60 /home/svend/flows/9000/runs/<RUN>/RUN-LEDGER.md',
         'rehearsed under `dash -c` and measure `/home/svend/FlowRunner`.',
     },
+    "2000/SKILL.md": {
+        # 2000 cloud pair (migration 106): FlowRunner + Export FlowApp test on
+        # cloud_qwen38flash over simple-harness. Paste-runnable on this machine,
+        # mirroring the 9000 cold-start skill's family root, state probe, scope
+        # headings read and ledger tail.
+        'root `/home/svend/flows/2000`.',
+        'python3 /home/svend/DPMtF-WebUI/scripts/bridgeV002/supervisor_state.py --flow 2000-02-ELOOP',
+        "grep '^#' /home/svend/flows/2000/SCOPE.md",
+        'tail -60 /home/svend/flows/2000/runs/<RUN>/RUN-LEDGER.md',
+    },
     "1020/SKILL.md": {
         # 1020 pure-cloud pair for AI_AdvisoryBoard (migration 104). Paste-
         # runnable on this machine, mirroring the 9000 cold-start skill.
