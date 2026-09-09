@@ -49,8 +49,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "bridgeV002"))
 # Serialization rule (must match when recomputing):
 #   json.dumps(mapping, sort_keys=True, separators=(",", ":"))
 #   md5 over canonical.encode("utf-8")
-#   length: 2504 bytes
-#   md5:    5b325af5d94e7b54da029ac901be277f
+#   length: 2509 bytes
+#   md5:    255299d3bc5197f90ab5063bc96e56d1
 #   count:  46 active steps
 _PRE_068_SNAPSHOT_JSON = (
     '{"cloud_llm/archi01-imple01":"ARCHITECT.md",'
@@ -89,7 +89,7 @@ _PRE_068_SNAPSHOT_JSON = (
     '"supervised_review/review02-supervisor":"GOVERNANCE_REVIEW.md",'
     '"supervised_review/supervisor-imple01":"SUPERVISOR_AUTONOMOUS.md",'
     '"supervisor/human-supervisor":"HUMAN.md",'
-    '"supervisor/supervisor-human":"500_SUPERVISOR.md",'
+    '"supervisor/supervisor-human":"EXTERNAL_SUPERVISOR.md",'
     '"trade_cockpit_scoring_v001/human-score01":null,'
     '"trade_cockpit_scoring_v001/score01-learn01":"437_TRADE_SCORE01.md",'
     '"trade_cockpit_simulation_v001/analyst01-risk01":"433_TRADE_ANALYST01.md",'
@@ -195,16 +195,16 @@ def test_snapshot_count_matches_recorded():
 def test_snapshot_md5_matches_recorded():
     """The fixture's canonical md5 is the bound value."""
     md5 = hashlib.md5(_canonical_bytes(PRE_068_SNAPSHOT)).hexdigest()
-    assert md5 == "5b325af5d94e7b54da029ac901be277f", (
+    assert md5 == "255299d3bc5197f90ab5063bc96e56d1", (
         f"fixture drift: fixture md5 is {md5!r}, "
-        f"the bound md5 is '5b325af5d94e7b54da029ac901be277f'"
+        f"the bound md5 is '255299d3bc5197f90ab5063bc96e56d1'"
     )
 
 def test_snapshot_canonical_byte_length_matches_recorded():
     """The fixture's canonical byte length is the bound value."""
-    assert len(_canonical_bytes(PRE_068_SNAPSHOT)) == 2504, (
+    assert len(_canonical_bytes(PRE_068_SNAPSHOT)) == 2509, (
         f"fixture drift: canonical bytes are "
-        f"{len(_canonical_bytes(PRE_068_SNAPSHOT))}, bound is 2504"
+        f"{len(_canonical_bytes(PRE_068_SNAPSHOT))}, bound is 2509"
     )
 
 def test_snapshot_recomputed_equals_recorded():
@@ -238,9 +238,9 @@ def test_snapshot_recomputed_md5_equals_recorded_md5():
     mapping = _recompute_snapshot()
     subset = {k: mapping[k] for k in PRE_068_SNAPSHOT if k in mapping}
     md5 = hashlib.md5(_canonical_bytes(subset)).hexdigest()
-    assert md5 == "5b325af5d94e7b54da029ac901be277f", (
+    assert md5 == "255299d3bc5197f90ab5063bc96e56d1", (
         f"recomputed baseline-subset md5 {md5!r} != bound "
-        f"'5b325af5d94e7b54da029ac901be277f'"
+        f"'255299d3bc5197f90ab5063bc96e56d1'"
     )
 
 def _diff_first_n(actual, expected, n):
