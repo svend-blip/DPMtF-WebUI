@@ -148,8 +148,42 @@ def _to_flowrunner_description(flow_row, steps, db_path):
         raise HTTPException(status_code=422,
                             detail=f"flow '{flow_row['flow_key']}' has no active steps")
     gov_dir = config.get_governance_dir_abs()
+
+    # Steps that hand to or from a human role are placeholders for HUMAN.md
+    # (the Human writes SCOPE.md and invokes cold-start out of band); they are
+    # not runnable FlowApp steps, so they are excluded from the FlowApp.
+    human_roles = set()
+    try:
+        hconn = sqlite3.connect(db_path)
+        hconn.row_factory = sqlite3.Row
+        try:
+            human_roles = {
+                r["role_key"]
+                for r in hconn.execute(
+                    "SELECT role_key FROM bridge_roles WHERE role_type = 'human'")
+            }
+        finally:
+            hconn.close()
+    except sqlite3.Error:
+        human_roles = set()
+    human_roles.add("human")  # the literal human sentinel is always a human step
+
+    def _is_human(role):
+        return role in human_roles
+
+    agent_steps = [
+        s for s in steps
+        if not (_is_human(s.get("from_role")) or _is_human(s.get("to_role")))
+    ]
+    if not agent_steps:
+        raise HTTPException(status_code=422, detail=(
+            f"flow '{flow_row['flow_key']}' has no agent steps to export — every "
+            f"step involves a human role (a placeholder for HUMAN.md). A runnable "
+            f"FlowApp needs agent-to-agent steps; export the execution flow, not the "
+            f"human planning loop."))
+
     models, harnesses, flow_steps = {}, {}, []
-    for i, s in enumerate(steps):
+    for i, s in enumerate(agent_steps):
         step_key = s["step_key"]
         try:
             facts = _resolve_execution_config(flow_row["flow_key"], step_key, db_path)
@@ -185,8 +219,8 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             "harness": harness,
             "permissions": ["read_only"],
         }
-        if i + 1 < len(steps):
-            fr_step["next"] = steps[i + 1]["step_key"]
+        if i + 1 < len(agent_steps):
+            fr_step["next"] = agent_steps[i + 1]["step_key"]
         flow_steps.append(fr_step)
 
     return {
@@ -196,7 +230,7 @@ def _to_flowrunner_description(flow_row, steps, db_path):
         "runtime": {"permissions": ["read_only", "workspace_write", "full_access"]},
         "models": list(models.values()),
         "harnesses": list(harnesses.values()),
-        "flows": [{"name": "main", "entry": steps[0]["step_key"], "steps": flow_steps}],
+        "flows": [{"name": "main", "entry": agent_steps[0]["step_key"], "steps": flow_steps}],
     }
 
 

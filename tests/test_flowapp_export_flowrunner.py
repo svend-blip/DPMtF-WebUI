@@ -108,3 +108,46 @@ def test_missing_governance_file_is_422(tmp_path, monkeypatch):
         fe._to_flowrunner_description(flow_row, steps, "unused.db")
     assert exc.value.status_code == 422
     assert "governance file not found" in exc.value.detail
+
+
+def test_human_steps_are_excluded(tmp_path, monkeypatch):
+    # A human role is a placeholder for HUMAN.md, not a runnable FlowApp step:
+    # steps handing to or from it are dropped, and entry/next span the agents.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md", "I.md"]),
+    )
+    facts = {
+        "decompose": _facts("D.md", "simple-harness", "cloud_qwen38flash"),
+        "implement": _facts("I.md", "simple-harness", "cloud_qwen38flash"),
+    }
+    monkeypatch.setattr(fe, "_resolve_execution_config", lambda fk, sk, db: facts[sk])
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "ELOOP"}
+    steps = [
+        {"step_key": "human-planning", "from_role": "human",
+         "to_role": "2000-planning-supervisor", "sort_order": 1},
+        {"step_key": "decompose", "from_role": "2000-execution-decomposer",
+         "to_role": "2000-implementer", "sort_order": 2},
+        {"step_key": "implement", "from_role": "2000-implementer",
+         "to_role": "2000-reviewer", "sort_order": 3},
+    ]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    names = [s["name"] for s in desc["flows"][0]["steps"]]
+    assert names == ["decompose", "implement"]  # human-planning dropped
+    assert desc["flows"][0]["entry"] == "decompose"  # entry spans the agents
+    assert desc["flows"][0]["steps"][0]["next"] == "implement"
+
+
+def test_all_human_steps_is_422(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "get_governance_dir_abs", lambda: str(tmp_path))
+    monkeypatch.setattr(fe, "_resolve_execution_config", lambda fk, sk, db: {})
+    flow_row = {"flow_key": "2000-01-PLOOP", "name": "PLOOP"}
+    steps = [
+        {"step_key": "human-planning", "from_role": "human",
+         "to_role": "2000-planning-supervisor", "sort_order": 1},
+        {"step_key": "planning-human", "from_role": "2000-planning-supervisor",
+         "to_role": "human", "sort_order": 2},
+    ]
+    with pytest.raises(HTTPException) as exc:
+        fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    assert exc.value.status_code == 422
+    assert "no agent steps" in exc.value.detail
