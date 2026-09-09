@@ -4927,18 +4927,22 @@ function onFlowappExportClick(btn, flowSelect, statusP) {
   if (statusP) {
     statusP.textContent = lbl("lbl_status_loading", "Loading...");
   }
-  fetch("/api/bridge-v2/flowapp-export/description?flow_key=" + encodeURIComponent(flowKey))
+  fetch("/api/bridge-v2/flowapp-export/description?flow_key=" +
+        encodeURIComponent(flowKey) + "&format=flowrunner")
     .then(function (res) {
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
+      if (!res.ok) {
+        return res.text().then(function (body) {
+          throw new Error("HTTP " + res.status + (body ? ": " + body : ""));
+        });
+      }
+      return res.text();
     })
-    .then(function (data) {
-      var json = JSON.stringify(data, null, 2);
-      var blob = new Blob([json], { type: "application/json" });
+    .then(function (text) {
+      var blob = new Blob([text], { type: "application/x-yaml" });
       var url = URL.createObjectURL(blob);
       var a = document.createElement("a");
       a.href = url;
-      a.download = flowKey + "-flowapp-description.json";
+      a.download = flowKey + "-flowapp-description.yaml";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
