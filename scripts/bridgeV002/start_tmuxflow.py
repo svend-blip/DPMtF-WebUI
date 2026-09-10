@@ -10,6 +10,7 @@ Example:
 
 import argparse
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -67,6 +68,87 @@ def create_session(session_name):
     )
 
 
+def _native_harness_env_names():
+    """Credential env names the natively launched harnesses declare.
+
+    Imported defensively: harness.py pulls in the standalone allocator, and
+    an optional dependency missing there must never stop a flow starting.
+    """
+    try:
+        import harness  # noqa: E402 -- late and optional by design
+    except Exception:
+        return set()
+    names = set()
+    for mapping in getattr(harness, "REQUIRED_ENV", {}).values():
+        names.update(mapping)
+    return names
+
+
+def _allocator_env_names(config_mod):
+    """Credential env names the model allocator's runtime profiles declare.
+
+    Derived from runtime_profiles.yaml rather than listed here: the allocator
+    owns which credential each backend reads, and a copy kept in this script
+    would rot silently the next time a profile is added. Parsed with a regex
+    on purpose -- PyYAML is not a DPMtF dependency, and starting a flow must
+    not require one.
+    """
+    try:
+        root = config_mod.get_project_path("model-allocator")
+    except Exception:
+        return set()
+    path = os.path.join(root, "runtime_profiles.yaml")
+    if not os.path.exists(path):
+        return set()
+    pattern = re.compile(r"^\s*api_key_env:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$")
+    names = set()
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            match = pattern.match(line)
+            if match:
+                names.add(match.group(1))
+    return names
+
+
+def propagate_credentials(names):
+    """Copy credentials this process holds into the tmux SERVER environment.
+
+    A tmux session inherits the server's global environment at the moment it
+    is created, and that environment is fixed when the server starts. config
+    loads .env into THIS process only, so without this step a key that lives
+    in .env never reaches a chain role's pane: the role fails at dispatch
+    with an auth error while .env looks perfectly correct. Pushing the values
+    in here, before any session is created below, closes that gap and makes
+    .env the durable source it is meant to be.
+
+    Values are never printed -- only the name and whether one was found. The
+    value does pass through the tmux argv, so it is briefly visible to this
+    same user in `ps`; that is the same exposure the environment already has
+    on a single-user host. Sessions that already exist keep the environment
+    they were created with; only sessions created from here inherit these.
+    """
+    # start-server is a no-op when a server is already up, and without it
+    # set-environment has no server to write to on a cold machine.
+    subprocess.run(["tmux", "start-server"], capture_output=True)
+
+    propagated, missing = [], []
+    for name in sorted(names):
+        value = os.environ.get(name)
+        if not value:
+            missing.append(name)
+            continue
+        result = subprocess.run(
+            ["tmux", "set-environment", "-g", name, value],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            propagated.append(name)
+        else:
+            err = result.stderr.decode("utf-8", "replace").strip()
+            print(f"  {name} - WARNING: tmux set-environment failed: {err}")
+    return propagated, missing
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Ensure tmux sessions exist for a BridgeV002 flow."
@@ -97,7 +179,19 @@ def main():
         print(f"No active steps found for flow '{args.flow_key}'. Nothing to do.")
         return
 
-    # 2. Ensure each session exists (create if missing)
+    # 2. Push the credentials this process holds into the tmux server
+    #    environment BEFORE any session is created, so every session made
+    #    below inherits them. Without this, .env reaches only this process.
+    cred_names = _native_harness_env_names() | _allocator_env_names(config_mod)
+    if cred_names:
+        print(f"\nCredentials for flow '{args.flow_key}':")
+        propagated, missing = propagate_credentials(cred_names)
+        for name in propagated:
+            print(f"  {name} - propagated to the tmux server")
+        for name in missing:
+            print(f"  {name} - not set in this process, skipped")
+
+    # 3. Ensure each session exists (create if missing)
     created = []
     existing = []
     print(f"Checking tmux sessions for flow '{args.flow_key}':")
@@ -118,7 +212,7 @@ def main():
             except subprocess.CalledProcessError as e:
                 print(f"    ERROR: Failed to create session: {e}")
 
-    # 3. Rebuild the flow viewer. Recreating sessions silently breaks the
+    # 4. Rebuild the flow viewer. Recreating sessions silently breaks the
     # viewer's linked windows, and the Human's `tmux attach -t flow-<key>`
     # then shows dead panes -- indistinguishable from a stalled chain.
     # Best-effort: the sessions themselves are already up.
@@ -131,7 +225,7 @@ def main():
         except Exception as exc:
             print(f"WARNING: viewer rebuild failed: {exc}")
 
-    # 4. Summary
+    # 5. Summary
     print(f"\nDone: {len(existing)} existing, {len(created)} created "
           f"({len(required_sessions)} total).")
 
