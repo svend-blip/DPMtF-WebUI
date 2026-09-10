@@ -36,6 +36,7 @@ def test_profile_id_strips_flow_prefix_and_avoids_engine_names():
 
 
 def test_to_flowrunner_description_maps_facts(tmp_path, monkeypatch):
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "read_only")
     monkeypatch.setattr(
         config, "get_governance_dir_abs",
         lambda: _gov_dir(tmp_path, ["IMPL.md", "REVIEW.md"]),
@@ -70,6 +71,8 @@ def test_to_flowrunner_description_maps_facts(tmp_path, monkeypatch):
     first = flow["steps"][0]
     assert first["model"] == "implementer"
     assert first["harness"] == "simple-harness"
+    # Pinned to the host-independent fallback: the resolved mode has its own
+    # tests below, and this one is about the fact mapping.
     assert first["permissions"] == ["read_only"]
     assert first["next"] == "s2"
     assert "governance body for IMPL.md" in first["governance"]
@@ -184,3 +187,28 @@ def test_planning_loop_exports_its_single_agent_step(tmp_path, monkeypatch):
     assert names == ["planning-human"]
     assert desc["flows"][0]["entry"] == "planning-human"
     assert desc["flows"][0]["steps"][0].get("next") in (None, "")
+
+
+def test_step_permission_carries_the_resolved_mode(tmp_path, monkeypatch):
+    # Hardcoding read_only exported an app that could not do its work: every
+    # step was denied write access and the harness exited permission_denied
+    # (2000 smoke test, 2026-09-10). The export must describe the mode the
+    # flow actually runs under.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]))
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_qwen38flash"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    flow_row = {"flow_key": "f", "name": "F"}
+    steps = [{"step_key": "d", "from_role": "f-decomposer",
+              "to_role": "f-implementer", "sort_order": 1}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    assert desc["flows"][0]["steps"][0]["permissions"] == ["workspace_write"]
+
+
+def test_step_permission_falls_back_when_unresolvable(monkeypatch):
+    # The exporter must keep working on a host without the allocator, and the
+    # safe mode is the honest answer there.
+    monkeypatch.setattr(fe, "_FLOWRUNNER_PERMISSIONS", ("read_only",))
+    assert fe._resolved_step_permission() in ("read_only", "workspace_write")

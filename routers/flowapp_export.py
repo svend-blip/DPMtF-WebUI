@@ -94,6 +94,41 @@ def probe_exporter(url=None):
     return classify_capability(status_code, body)
 
 
+
+#: FlowRunner's closed permission vocabulary (internal/flowapp AllPermissions).
+#: An exported value outside this set is rejected by its loader, so anything
+#: unrecognised falls back to the safe mode rather than shipping a broken app.
+_FLOWRUNNER_PERMISSIONS = ("read_only", "workspace_write", "full_access")
+
+
+def _resolved_step_permission():
+    """The permission mode this host actually runs simple-harness steps under.
+
+    Hardcoding ``read_only`` shipped an app that could not do its work: every
+    step was denied write access, the harness exited permission_denied, and
+    nothing was produced (found in the 2000 smoke test, 2026-09-10). DPMtF's
+    own chain runs these very roles under ``workspace_write``, resolved by the
+    harness allocator, so exporting read_only misdescribed the flow rather
+    than securing it.
+
+    Resolution is best-effort and never fatal: the exporter must keep working
+    on a host without the allocator, where the safe mode is the honest answer.
+    """
+    try:
+        import sys as _sys
+        _bridge = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "scripts", "bridgeV002")
+        if _bridge not in _sys.path:
+            _sys.path.insert(0, _bridge)
+        import harness  # noqa: E402 -- late and optional by design
+        mode = (harness._standalone().config
+                .get_simple_harness_permission() or "").strip().lower()
+    except Exception:
+        return "read_only"
+    return mode if mode in _FLOWRUNNER_PERMISSIONS else "read_only"
+
+
 def _resolve_execution_config(flow_key, step_key, db_path):
     """Late import of the bridge resolver — sys.path is set up by
     routers/bridge.py, which is the only importer of this module."""
@@ -139,8 +174,10 @@ def _to_flowrunner_description(flow_row, steps, db_path):
 
     Governance is inlined from the governance dir; the model profile is
     abstract (rule 8); the harness must be in FlowRunner's supported set
-    (unknown -> 422, no fallback). Permissions default to the safe
-    ``read_only``; secrets are left empty for the Human to declare.
+    (unknown -> 422, no fallback). Step permissions carry the mode the
+    flow actually runs under here, resolved from the harness allocator
+    (see ``_resolved_step_permission``); secrets are left empty for the
+    Human to declare.
     """
     import config  # late import; sys.path set up by routers/bridge.py
 
@@ -190,6 +227,7 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             f"step is performed by a human role (a placeholder for HUMAN.md). A "
             f"runnable FlowApp needs at least one step whose acting role is an agent."))
 
+    step_permission = _resolved_step_permission()
     models, harnesses, flow_steps = {}, {}, []
     for i, s in enumerate(agent_steps):
         step_key = s["step_key"]
@@ -225,7 +263,7 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             "governance": gov_text,
             "model": profile,
             "harness": harness,
-            "permissions": ["read_only"],
+            "permissions": [step_permission],
         }
         if i + 1 < len(agent_steps):
             fr_step["next"] = agent_steps[i + 1]["step_key"]
