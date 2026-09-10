@@ -149,9 +149,21 @@ def _to_flowrunner_description(flow_row, steps, db_path):
                             detail=f"flow '{flow_row['flow_key']}' has no active steps")
     gov_dir = config.get_governance_dir_abs()
 
-    # Steps that hand to or from a human role are placeholders for HUMAN.md
-    # (the Human writes SCOPE.md and invokes cold-start out of band); they are
-    # not runnable FlowApp steps, so they are excluded from the FlowApp.
+    # A step's FROM_ROLE is the role that ACTS: `A-B` means A does the work
+    # under its own governance and hands the deliverable to B. The step's
+    # governance_file is A's -- verified against every 2000 step (e.g.
+    # implementer-reviewer carries IMPLEMENTOR.md, and planning-human carries
+    # SUPERVISOR_PLANNING.md). So the SOURCE decides whether a step is runnable.
+    #
+    # A step whose source is a human is the flow's ENTRY boundary: the Human
+    # acts out of band and the input arrives as the run's --task, seeded into
+    # the entry step's input file. It is not a runnable FlowApp step.
+    #
+    # A step whose source is an AGENT is always exported, even when it hands to
+    # a human -- that hand-off is just the flow's exit, and the agent's work is
+    # real (Human, 2026-09-10). Filtering on EITHER end used to drop both steps
+    # of a planning loop like {family}-01-PLOOP, refusing a flow whose single
+    # agent step (the planning supervisor) is perfectly runnable.
     human_roles = set()
     try:
         hconn = sqlite3.connect(db_path)
@@ -171,16 +183,12 @@ def _to_flowrunner_description(flow_row, steps, db_path):
     def _is_human(role):
         return role in human_roles
 
-    agent_steps = [
-        s for s in steps
-        if not (_is_human(s.get("from_role")) or _is_human(s.get("to_role")))
-    ]
+    agent_steps = [s for s in steps if not _is_human(s.get("from_role"))]
     if not agent_steps:
         raise HTTPException(status_code=422, detail=(
             f"flow '{flow_row['flow_key']}' has no agent steps to export — every "
-            f"step involves a human role (a placeholder for HUMAN.md). A runnable "
-            f"FlowApp needs agent-to-agent steps; export the execution flow, not the "
-            f"human planning loop."))
+            f"step is performed by a human role (a placeholder for HUMAN.md). A "
+            f"runnable FlowApp needs at least one step whose acting role is an agent."))
 
     models, harnesses, flow_steps = {}, {}, []
     for i, s in enumerate(agent_steps):

@@ -137,9 +137,41 @@ def test_human_steps_are_excluded(tmp_path, monkeypatch):
     assert desc["flows"][0]["steps"][0]["next"] == "implement"
 
 
-def test_all_human_steps_is_422(tmp_path, monkeypatch):
+def test_all_human_performed_steps_is_422(tmp_path, monkeypatch):
+    # 422 only when EVERY step is performed by a human, i.e. no step has an
+    # agent as its acting (from) role. A human on the receiving end is just the
+    # flow's exit and does not disqualify the step -- see the planning-loop test.
     monkeypatch.setattr(config, "get_governance_dir_abs", lambda: str(tmp_path))
     monkeypatch.setattr(fe, "_resolve_execution_config", lambda fk, sk, db: {})
+    flow_row = {"flow_key": "all-human", "name": "AH"}
+    steps = [
+        {"step_key": "human-a", "from_role": "human",
+         "to_role": "human", "sort_order": 1},
+        {"step_key": "human-b", "from_role": "human",
+         "to_role": "2000-planning-supervisor", "sort_order": 2},
+    ]
+    with pytest.raises(HTTPException) as exc:
+        fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    assert exc.value.status_code == 422
+    assert "no agent steps" in exc.value.detail
+
+
+def test_planning_loop_exports_its_single_agent_step(tmp_path, monkeypatch):
+    # Human decision 2026-09-10: "the first role is human, but ALL agents must
+    # be exported." A planning loop runs human -> supervisor -> human. The
+    # supervisor's step is real agent work and must survive; only the step the
+    # HUMAN performs is dropped, because the Human acts out of band and that
+    # input reaches the run as --task. Filtering on either end used to drop both
+    # steps and refuse a flow that is perfectly runnable.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs",
+        lambda: _gov_dir(tmp_path, ["SUPERVISOR_PLANNING.md"]),
+    )
+    facts = {
+        "planning-human": _facts(
+            "SUPERVISOR_PLANNING.md", "simple-harness", "cloud_deepseek_v4pro_direct"),
+    }
+    monkeypatch.setattr(fe, "_resolve_execution_config", lambda fk, sk, db: facts[sk])
     flow_row = {"flow_key": "2000-01-PLOOP", "name": "PLOOP"}
     steps = [
         {"step_key": "human-planning", "from_role": "human",
@@ -147,7 +179,8 @@ def test_all_human_steps_is_422(tmp_path, monkeypatch):
         {"step_key": "planning-human", "from_role": "2000-planning-supervisor",
          "to_role": "human", "sort_order": 2},
     ]
-    with pytest.raises(HTTPException) as exc:
-        fe._to_flowrunner_description(flow_row, steps, "unused.db")
-    assert exc.value.status_code == 422
-    assert "no agent steps" in exc.value.detail
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    names = [s["name"] for s in desc["flows"][0]["steps"]]
+    assert names == ["planning-human"]
+    assert desc["flows"][0]["entry"] == "planning-human"
+    assert desc["flows"][0]["steps"][0].get("next") in (None, "")
