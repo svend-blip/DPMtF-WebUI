@@ -89,4 +89,22 @@ When a new model is added:
 4. Update prompt templates' `suitable_for` flags.
 5. Document in [[26_CHANGELOG]].
 
+## Binding a Model to a Role (two layers, both required)
+
+A role's model is bound in **two** places and both must agree — see the
+configuration-locus rule in [[14_ARCHITECTURE]]:
+
+1. **`bridge_roles` (dpmtf.db)** — `default_model_source` + `default_model_alias`,
+   set and edited in the WebUI frontend. This is what the frontend shows and what
+   DPMtF dispatch reads.
+2. **Model Allocator committed config** — the alias in `models.yaml` (→ runtime
+   profile, real model, context, clients) and, for a remote endpoint, the URL in
+   the runtime profile's `default_api_base` (committed, not an `api_base_env`
+   that reads `.env`). A no-auth node carries no `api_key_env`.
+
+Changing only one layer makes them drift — the chain runs one model while the
+frontend shows another. Never route an endpoint through `.env` or a runtime
+`tmux setenv`; secrets are the only value that lives in `.env` (reached via the
+pane environment).
+
 ---
