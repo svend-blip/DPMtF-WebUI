@@ -4132,6 +4132,19 @@ def signal_send(flow_key, from_role_key, to_role_key, handoff_id, bridge_dir=Non
                 content = f.read()
             required_sections = ["<role>", "<task>", "<constraint>"]
             missing = [s for s in required_sections if s not in content]
+            # Presence is not content. A freshly generated skeleton already
+            # carries all three sections, so it passes the check above and
+            # delivers "TODO: describe the implementation task here." to an
+            # implementer, costing a whole session (observed 2026-09-11 when
+            # an authoring session died and left 209-handoff.md unfilled).
+            # The marker lives in handoff_skeleton so there is one source.
+            if not missing:
+                try:
+                    import handoff_skeleton as _skel
+                    if _skel.UNFILLED_TASK_MARKER in content:
+                        missing = ["<task> (still the unfilled skeleton)"]
+                except Exception:
+                    pass
         if missing:
             print(f"  ERROR: Handoff file missing required XML sections: "
                   f"{', '.join(missing)}")

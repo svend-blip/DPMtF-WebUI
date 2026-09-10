@@ -21,6 +21,14 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 # config.py lives at the project root, not in scripts/bridgeV002/
 _PROJECT_ROOT = str(_HERE.parent.parent)
+
+#: The unfilled task placeholder this module writes into a fresh skeleton.
+#: dispatch.py refuses to send a handoff that still contains it: the broker's
+#: section guard only checks that <role>/<task>/<constraint> are PRESENT, so an
+#: untouched skeleton passes it and delivers a TODO to an implementer, which
+#: costs a whole session (observed 2026-09-11, run 105 handoff 209).
+UNFILLED_TASK_MARKER = "TODO: describe the implementation task here."
+
 for _p in (str(_HERE), _PROJECT_ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -118,7 +126,7 @@ def main(argv: list[str] | None = None) -> None:
 
 <task>
 <!-- DECOMPOSER: fill this section with the implementation task -->
-TODO: describe the implementation task here.
+{UNFILLED_TASK_MARKER}
 </task>
 
 <constraint>
