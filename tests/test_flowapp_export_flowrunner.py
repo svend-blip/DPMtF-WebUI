@@ -318,3 +318,25 @@ def test_governance_carries_the_flowrunner_execution_context(tmp_path, monkeypat
         assert ".flowrunner/" in text
     assert "You are the first step" in first and ".flowrunner/d.md" in first and "`i`" in first
     assert "previous step (`d`)" in second and ".flowrunner/i.md" in second and "last step" in second
+
+
+def test_execution_context_addresses_the_role_by_name(tmp_path, monkeypatch):
+    # 2026-09-11: a flash decomposer under-acted (0 writes in 63 requests) and
+    # a strong one over-acted (implemented GOAL-001 itself). The text is the
+    # variable: the notice must bind the ROLE by name to its only write.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md", "I.md", "R.md"]))
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts({"d": "D.md", "i": "I.md", "r": "R.md"}[sk], "simple-harness", "cloud_x"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer", "to_role": "2000-implementer", "sort_order": 1},
+             {"step_key": "i", "from_role": "2000-implementer", "to_role": "2000-reviewer", "sort_order": 2},
+             {"step_key": "r", "from_role": "2000-reviewer", "to_role": "2000-execution-decomposer", "sort_order": 3}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    d, i, r = [st["governance"] for st in desc["flows"][0]["steps"]]
+    assert "You are the decomposer" in d and "you do not implement" in d and ".flowrunner/d.md" in d
+    assert "You are the implementer" in i and ".flowrunner/i.md" in i
+    assert "You are the reviewer" in r and "do not implement or fix" in r and ".flowrunner/r.md" in r

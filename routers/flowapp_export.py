@@ -257,7 +257,7 @@ def _flowapp_identifier(flow_key: str) -> str:
 
 
 def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | None,
-                        bridge_dir: str) -> str:
+                        bridge_dir: str, from_role: str = "") -> str:
     """Execution-context notice prepended to every exported governance file.
 
     The role files are written for the DPMtF bridge (dispatch signals,
@@ -281,6 +281,28 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         if next_key else
         "- You are the last step: finishing your turn completes the run; your final message is the result.\n"
     )
+    role = (from_role or "").lower()
+    if "decomposer" in role:
+        role_line = (
+            "- **You are the decomposer, addressed by name: you do not implement.** Your ONLY "
+            f"write is `.flowrunner/{step_key}.md` (the handoff). Any other file created or "
+            "changed under the repository root is a role breach that the reviewer rejects — a "
+            "strong model that 'just does the work' fails this run.\n"
+        )
+    elif "review" in role:
+        role_line = (
+            "- **You are the reviewer, addressed by name: you do not implement or fix.** Your "
+            f"ONLY write is `.flowrunner/{step_key}.md` (the verdict, with the evidence you "
+            "measured yourself); the repository stays as the implementer left it.\n"
+        )
+    elif "implement" in role:
+        role_line = (
+            "- **You are the implementer, addressed by name:** you change exactly what the "
+            "handoff names, inside its scope fence, and record what you did in "
+            f"`.flowrunner/{step_key}.md`.\n"
+        )
+    else:
+        role_line = ""
     return (
         "## FlowRunner execution context (prepended by the DPMtF exporter)\n\n"
         "You are running under **FlowRunner**, not under the DPMtF bridge. Everything in "
@@ -294,6 +316,7 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         "never read or modify other projects, other tools' sessions, or DPMtF's database "
         "(`databases/dpmtf.db`), even if the repository is DPMtF itself.\n"
         f"{prev_line}"
+        f"{role_line}"
         f"- Your deliverable is what you write into the workspace. Write your handoff / "
         f"result / verdict to `.flowrunner/{step_key}.md` in the format this file "
         f"prescribes, and summarise it in your final message.\n"
@@ -384,7 +407,8 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             gov_text = fh.read()
         prev_key = agent_steps[i - 1]["step_key"] if i > 0 else None
         next_key = agent_steps[i + 1]["step_key"] if i + 1 < len(agent_steps) else None
-        gov_text = _flowrunner_context(step_key, prev_key, next_key, config.get_bridge_dir()) + gov_text
+        gov_text = _flowrunner_context(step_key, prev_key, next_key, config.get_bridge_dir(),
+                                       s.get("from_role", "")) + gov_text
         harness = facts.get("harness_source")
         if harness not in _FR_SUPPORTED_HARNESSES:
             raise HTTPException(
