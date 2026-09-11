@@ -313,7 +313,8 @@ def test_governance_carries_the_flowrunner_execution_context(tmp_path, monkeypat
     first, second = texts[0], texts[1]
     for text in (first, second):
         assert text.startswith("## FlowRunner execution context")
-        assert "bridge_broker.py" in text and "/home/svend/flows" in text
+        assert "bridge_broker.py" in text and "DPMtF bridge directory" in text
+        assert config.get_bridge_dir() in text
         assert ".flowrunner/" in text
     assert "You are the first step" in first and ".flowrunner/d.md" in first and "`i`" in first
     assert "previous step (`d`)" in second and ".flowrunner/i.md" in second and "last step" in second

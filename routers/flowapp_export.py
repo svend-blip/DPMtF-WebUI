@@ -256,7 +256,8 @@ def _flowapp_identifier(flow_key: str) -> str:
     return slug or "flowapp"
 
 
-def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | None) -> str:
+def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | None,
+                        bridge_dir: str) -> str:
     """Execution-context notice prepended to every exported governance file.
 
     The role files are written for the DPMtF bridge (dispatch signals,
@@ -287,7 +288,8 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         "`dispatch.py`, no `bridge_broker.py`, no signal-send/signal-complete, no "
         "materialize/promote-goal, no RUN-LEDGER or END-REPORT under a flows directory, "
         "no bridge database tables, no bridge-related mcp-light tools, no tmux sessions, "
-        "and never any path under `/home/svend/flows`.\n\n"
+        f"and never any path under the DPMtF bridge directory (`{bridge_dir}` on the "
+        "exporting machine; it does not exist elsewhere).\n\n"
         "- Your workspace is the target repository you were started in. Stay inside it: "
         "never read or modify other projects, other tools' sessions, or DPMtF's database "
         "(`databases/dpmtf.db`), even if the repository is DPMtF itself.\n"
@@ -382,7 +384,7 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             gov_text = fh.read()
         prev_key = agent_steps[i - 1]["step_key"] if i > 0 else None
         next_key = agent_steps[i + 1]["step_key"] if i + 1 < len(agent_steps) else None
-        gov_text = _flowrunner_context(step_key, prev_key, next_key) + gov_text
+        gov_text = _flowrunner_context(step_key, prev_key, next_key, config.get_bridge_dir()) + gov_text
         harness = facts.get("harness_source")
         if harness not in _FR_SUPPORTED_HARNESSES:
             raise HTTPException(
