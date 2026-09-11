@@ -287,3 +287,33 @@ def test_app_identifier_derives_from_flow_key(tmp_path, monkeypatch):
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
     assert desc["app"]["identifier"] == "eloop2000"
     assert desc["app"]["name"] == "2000 Execution Loop"
+
+
+def test_governance_carries_the_flowrunner_execution_context(tmp_path, monkeypatch):
+    # 2026-09-11: an exported decomposer, run by FlowRunner INSIDE the DPMtF
+    # checkout, followed its bridge instructions literally (bridge_broker.py
+    # --help, tmux ls, reading /home/svend/flows). Every exported governance
+    # file must open with a notice that puts the bridge out of force and
+    # states FlowRunner's handoff contract, per step: previous deliverable,
+    # own deliverable path, next step.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md", "I.md"]))
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md" if sk == "d" else "I.md", "simple-harness", "cloud_x"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1},
+             {"step_key": "i", "from_role": "2000-implementer",
+              "to_role": "2000-reviewer", "sort_order": 2}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    texts = [st["governance"] for st in desc["flows"][0]["steps"]]
+    first, second = texts[0], texts[1]
+    for text in (first, second):
+        assert text.startswith("## FlowRunner execution context")
+        assert "bridge_broker.py" in text and "/home/svend/flows" in text
+        assert ".flowrunner/" in text
+    assert "You are the first step" in first and ".flowrunner/d.md" in first and "`i`" in first
+    assert "previous step (`d`)" in second and ".flowrunner/i.md" in second and "last step" in second

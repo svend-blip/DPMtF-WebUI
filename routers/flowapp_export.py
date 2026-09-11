@@ -256,6 +256,51 @@ def _flowapp_identifier(flow_key: str) -> str:
     return slug or "flowapp"
 
 
+def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | None) -> str:
+    """Execution-context notice prepended to every exported governance file.
+
+    The role files are written for the DPMtF bridge (dispatch signals,
+    bridge_broker, RUN-LEDGER, tmux, the flows directory). Under FlowRunner
+    none of that exists — and when the target repository IS DPMtF-WebUI the
+    scripts do exist, so a role following its file literally will probe the
+    live chain (observed 2026-09-11: an exported decomposer ran
+    bridge_broker.py --help and tmux ls inside the DPMtF checkout). The
+    notice puts those parts out of force and states the FlowRunner handoff
+    contract: files in <workspace>/.flowrunner/, finishing = done.
+    """
+    prev_line = (
+        f"- The previous step (`{prev_key}`) left its deliverable at "
+        f"`.flowrunner/{prev_key}.md`; read it first.\n"
+        if prev_key else
+        "- You are the first step: your input is the task text below and the repository itself.\n"
+    )
+    next_line = (
+        f"- Finishing your turn is the completion signal; the next step (`{next_key}`) "
+        f"starts automatically and reads `.flowrunner/{step_key}.md`.\n"
+        if next_key else
+        "- You are the last step: finishing your turn completes the run; your final message is the result.\n"
+    )
+    return (
+        "## FlowRunner execution context (prepended by the DPMtF exporter)\n\n"
+        "You are running under **FlowRunner**, not under the DPMtF bridge. Everything in "
+        "this file about the bridge does NOT apply and must not be attempted: no "
+        "`dispatch.py`, no `bridge_broker.py`, no signal-send/signal-complete, no "
+        "materialize/promote-goal, no RUN-LEDGER or END-REPORT under a flows directory, "
+        "no bridge database tables, no bridge-related mcp-light tools, no tmux sessions, "
+        "and never any path under `/home/svend/flows`.\n\n"
+        "- Your workspace is the target repository you were started in. Stay inside it: "
+        "never read or modify other projects, other tools' sessions, or DPMtF's database "
+        "(`databases/dpmtf.db`), even if the repository is DPMtF itself.\n"
+        f"{prev_line}"
+        f"- Your deliverable is what you write into the workspace. Write your handoff / "
+        f"result / verdict to `.flowrunner/{step_key}.md` in the format this file "
+        f"prescribes, and summarise it in your final message.\n"
+        f"{next_line}"
+        "- Do not commit or push unless the task text explicitly grants it.\n\n"
+        "---\n\n"
+    )
+
+
 def _to_flowrunner_description(flow_row, steps, db_path):
     """Build a FlowRunner exporter Description dict from DPMtF facts.
 
@@ -335,6 +380,9 @@ def _to_flowrunner_description(flow_row, steps, db_path):
                 detail=f"governance file not found for step '{step_key}': {gov_file}")
         with open(gov_path, encoding="utf-8") as fh:
             gov_text = fh.read()
+        prev_key = agent_steps[i - 1]["step_key"] if i > 0 else None
+        next_key = agent_steps[i + 1]["step_key"] if i + 1 < len(agent_steps) else None
+        gov_text = _flowrunner_context(step_key, prev_key, next_key) + gov_text
         harness = facts.get("harness_source")
         if harness not in _FR_SUPPORTED_HARNESSES:
             raise HTTPException(
