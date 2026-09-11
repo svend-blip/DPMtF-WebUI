@@ -292,7 +292,7 @@ def test_app_identifier_derives_from_flow_key(tmp_path, monkeypatch):
 def test_governance_carries_the_flowrunner_execution_context(tmp_path, monkeypatch):
     # 2026-09-11: an exported decomposer, run by FlowRunner INSIDE the DPMtF
     # checkout, followed its bridge instructions literally (bridge_broker.py
-    # --help, tmux ls, reading /home/svend/flows). Every exported governance
+    # --help, tmux ls, reading the bridge directory). Every exported governance
     # file must open with a notice that puts the bridge out of force and
     # states FlowRunner's handoff contract, per step: previous deliverable,
     # own deliverable path, next step.
