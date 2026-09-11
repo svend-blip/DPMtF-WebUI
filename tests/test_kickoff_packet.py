@@ -8,7 +8,6 @@ Also verifies the first handoff id is sourced from bridge_id_counters (TG3).
 """
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -24,27 +23,31 @@ class TestKickoffPacketRefusal:
     def test_script_exists(self):
         assert SCRIPT.exists(), f"{SCRIPT} must exist"
 
-    def test_exit_2_when_previous_run_missing(self):
-        """9000-02-ELOOP run 999 has no run 998 directory → exit 2."""
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--flow", "9000-02-ELOOP", "--run", "999"],
-            capture_output=True,
-            text=True,
-            cwd=str(ROOT),
-        )
-        assert result.returncode == 2, (
-            f"Expected exit 2, got {result.returncode}. "
-            f"stderr: {result.stderr.strip()}"
-        )
+    def _refusal(self, tmp_path, monkeypatch, capsys):
+        """Run main() in-process against a scratch bridge dir whose predecessor
+        run (998) is open, so refusal check 1 fires. Nothing here reads the
+        live bridge directory, the live DB or the real target repository."""
+        import importlib
+        sys.path.insert(0, str(ROOT / "scripts" / "bridgeV002"))
+        sys.path.insert(0, str(ROOT / "scripts"))
+        kp = importlib.import_module("kickoff_packet")
+        (tmp_path / "fam" / "runs" / "998").mkdir(parents=True)  # open: no END-REPORT
+        monkeypatch.setattr(kp.config, "get_bridge_dir", lambda: str(tmp_path))
+        monkeypatch.setattr(kp.bridge_lib, "get_effective_artifact_root", lambda flow_key: "fam")
+        monkeypatch.setattr(kp.bridge_lib, "get_flow_target_project", lambda flow_key: str(tmp_path))
+        with pytest.raises(SystemExit) as exc:
+            kp.main(["--flow", "fam-02-ELOOP", "--run", "999"])
+        return exc.value.code, capsys.readouterr().err
 
-    def test_stderr_contains_reason(self):
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--flow", "9000-02-ELOOP", "--run", "999"],
-            capture_output=True,
-            text=True,
-            cwd=str(ROOT),
-        )
-        assert "REFUSED" in result.stderr or "refused" in result.stderr.lower()
+    def test_exit_2_when_previous_run_open(self, tmp_path, monkeypatch, capsys):
+        """Run 999 whose predecessor 998 has no END-REPORT → exit 2."""
+        code, _ = self._refusal(tmp_path, monkeypatch, capsys)
+        assert code == 2, f"Expected exit 2, got {code}"
+
+    def test_stderr_contains_reason(self, tmp_path, monkeypatch, capsys):
+        _, err = self._refusal(tmp_path, monkeypatch, capsys)
+        assert "REFUSED" in err or "refused" in err.lower()
+        assert "998" in err
 
 
 class TestKickoffPacketCounterSource:

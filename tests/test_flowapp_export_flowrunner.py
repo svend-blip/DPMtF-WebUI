@@ -14,6 +14,13 @@ from fastapi import HTTPException
 from routers import flowapp_export as fe
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path, monkeypatch):
+    """Run every test from a scratch cwd so the sqlite placeholder path
+    ("unused.db") is never created inside the repository."""
+    monkeypatch.chdir(tmp_path)
+
+
 def _facts(governance_file, harness, alias):
     return {
         "governance_file": governance_file,
