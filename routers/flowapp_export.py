@@ -26,6 +26,7 @@ overridable via the FLOWRUNNER_EXPORTER_URL environment variable.
 """
 
 import json
+import re
 import logging
 import os
 import sqlite3
@@ -236,6 +237,25 @@ def _fr_profile_id(to_role, flow_key):
     return role or "model"
 
 
+_FAMILY_FLOW_KEY = re.compile(r"^(\d+)-\d+-([A-Za-z]+)$")
+
+
+def _flowapp_identifier(flow_key: str) -> str:
+    """Short FlowApp identifier for ``app.identifier`` in the description.
+
+    FlowRunner installs an imported FlowApp under this name, so it should
+    read the way the operator names things: a two-flow family key such as
+    ``2000-02-ELOOP`` becomes ``eloop2000`` (loop name + family number),
+    matching the hand-made ``eloop2000``/``ploop2000`` folders. Any other
+    key becomes a lower-case slug (``[a-z0-9-]``).
+    """
+    m = _FAMILY_FLOW_KEY.match(flow_key or "")
+    if m:
+        return f"{m.group(2).lower()}{m.group(1)}"
+    slug = re.sub(r"[^a-z0-9]+", "-", (flow_key or "").lower()).strip("-")
+    return slug or "flowapp"
+
+
 def _to_flowrunner_description(flow_row, steps, db_path):
     """Build a FlowRunner exporter Description dict from DPMtF facts.
 
@@ -344,7 +364,11 @@ def _to_flowrunner_description(flow_row, steps, db_path):
         {m["api_key_env"] for m in models.values() if m.get("api_key_env")})
 
     return {
-        "app": {"name": flow_row.get("name") or flow_row["flow_key"], "version": "1.0.0"},
+        "app": {
+            "identifier": _flowapp_identifier(flow_row["flow_key"]),
+            "name": flow_row.get("name") or flow_row["flow_key"],
+            "version": "1.0.0",
+        },
         "schema_version": "1.0.0",
         "secrets": {"required": required_secrets, "optional": []},
         "runtime": {"permissions": ["read_only", "workspace_write", "full_access"]},

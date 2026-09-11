@@ -265,3 +265,25 @@ def test_export_survives_an_unresolvable_binding(tmp_path, monkeypatch):
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
     assert desc["models"][0] == {"name": "implementer", "dpmtf_alias": "cloud_x"}
     assert desc["secrets"]["required"] == []
+
+
+def test_app_identifier_derives_from_flow_key(tmp_path, monkeypatch):
+    # FlowRunner installs an imported FlowApp under app.identifier, so it
+    # must read the way the Human names the folders: eloop2000 / ploop2000.
+    assert fe._flowapp_identifier("2000-02-ELOOP") == "eloop2000"
+    assert fe._flowapp_identifier("2000-01-PLOOP") == "ploop2000"
+    assert fe._flowapp_identifier("9000-02-ELOOP") == "eloop9000"
+    assert fe._flowapp_identifier("Strict Review 40x") == "strict-review-40x"
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]))
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "2000 Execution Loop"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    assert desc["app"]["identifier"] == "eloop2000"
+    assert desc["app"]["name"] == "2000 Execution Loop"
