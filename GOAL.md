@@ -1,71 +1,71 @@
-# GOAL-DRAFT-002 — Knowledge storage schema and retrieval log
+# GOAL-DRAFT-003 — Provider-neutral content extraction and repository scoping
 
-> Status: PROMOTED 2026-09-11 (approved by the Human) — execute with FlowRunner eloop2000 — COMPLETED 2026-09-12 (run 0ce394ee5b9e3e87, verdict APPROVED, 5/5 testgoals)
-> Depends on: GOAL-DRAFT-001
+> Status: PROMOTED 2026-09-12 (approved by the Human) — execute with FlowRunner eloop2000
+> Depends on: GOAL-DRAFT-001, GOAL-DRAFT-002
 > Blocked by: none
 > Target repository: DPMtF-WebUI (this checkout)
 
 ## Mission
 
-Add the durable storage for the knowledge layer as a versioned SQL migration:
-one table for repository-scoped indexes, one for repository-specific exclusion
-rules, and one append-only retrieval log that makes every retrieval observable
-(addendum §3, §4, §8). The migration is idempotent, numbered after the current
-last migration, and `scripts/init_db.py` applies it unchanged.
+Implement a provider-neutral index builder that scans one selected repository,
+applies default and repository-specific exclusion rules, and writes a JSONL
+manifest of indexable documents with their `scope` and source path. It builds
+the index input for any backend (addendum §3, §4, §9) without importing or
+naming LEANN, and it never writes into the repository it scans.
 
 ## Standing constraints
 
 - No commits, no pushes, no staging by any chain role (`CLAUDE.md` §5).
-- en-US for all SQL comments and Python tests.
-- Versioned migrations live in `scripts/db/*.sql`; `scripts/init_db.py`
-  applies them via `migrate.run_migrations` — do not edit `init_db.py`
-  unless a seed is strictly required and idempotent.
-- Parameterized SQL only; `CREATE TABLE IF NOT EXISTS`; never destructive.
+- en-US for code, docstrings, and tests.
+- Paths come from `config.py` getters where config is needed; no hardcoded
+  `/home/...` paths.
 - No new third-party dependencies.
+- The indexer is read-only toward the scanned repository; the only write is
+  the manifest at the caller-supplied output path.
+- Default exclusions must cover at least: `.git`, `.env`, `__pycache__`,
+  `*.pyc`, `node_modules`, `venv`, `.venv`, `*.db`, `*.sqlite`, `*.bin`,
+  images, and files containing private-key or secret markers.
 
 ## Scope fence
 
 May modify:
 
-- `scripts/db/107_knowledge_tables.sql` (new)
-- `tests/test_migration_107_knowledge.py` (new)
+- `knowledge/indexer.py` (new)
+- `knowledge/content.py` (new, optional extraction helpers)
+- `tests/test_knowledge_indexer.py` (new)
 
 Must not touch:
 
-- `scripts/migrate.py`, `scripts/init_db.py`
-- `app.py`, `routers/`, `static/`, `templates/`, `knowledge/`, `config.py`,
-  `dpmtf.ini`
-- `.env`, `.git/`, `__pycache__/`, `databases/` (except what `init_db.py`
-  itself writes)
-- existing migration files in `scripts/db/` (never renumber or edit)
+- `knowledge/provider.py`, `config.py`, `dpmtf.ini`, `app.py`, `routers/`,
+  `static/`, `templates/`, `scripts/`, `databases/`
+- `.env`, `.git/`, `__pycache__/`
+- any file inside a scanned repository
 
 Non-goals:
 
-- No Python knowledge package, indexer, provider, or API in this Run.
-- No seed data beyond what the migration itself must contain for exclusion
-  defaults.
+- No LEANN, no vector store, no search API in this Run.
+- No background indexing, watching, or scheduling yet (addendum §7 is a later
+  run and requires measurement first).
 
 ## Dependencies
 
-- GOAL-DRAFT-001: the config getter for the database path already exists and
-  is the only DB-path access used by tests.
+- GOAL-DRAFT-001: the manifest format is provider-neutral and feeds the
+  `KnowledgeProvider.index` contract.
+- GOAL-DRAFT-002: `knowledge_exclusions` is the source of repository-specific
+  rules; default exclusions are code constants in this Run.
 
 ## Work items (handoff budget: 4)
 
-1. Write `scripts/db/107_knowledge_tables.sql` with:
-
-   - `knowledge_indexes` — `id`, `scope` (UNIQUE), `provider`, `location`,
-     `document_count`, `status`, `updated_at`.
-   - `knowledge_exclusions` — `id`, `scope`, `pattern`, `kind`
-     (`path`|`name`|`content`), `enabled`, `created_at`, UNIQUE(scope, pattern).
-   - `knowledge_retrieval_log` — `id`, `provider`, `scope`, `query`,
-     `result_count`, `sources`, `retrieved_token_count`,
-     `retrieval_duration_ms`, `agent_role`, `run_id`, `handoff_id`,
-     `created_at`.
-
-2. Write `tests/test_migration_107_knowledge.py` proving the migration
-   applies to a fresh temp DB, applies idempotently a second time, and
-   exposes the required columns.
+1. Implement `knowledge/indexer.py` with a CLI
+   (`venv/bin/python -m knowledge.indexer --repo <path> --scope <name> --out <file>`)
+   that walks text files, applies default exclusions and any enabled
+   `knowledge_exclusions` rows for the scope, and writes one JSON object per
+   document: `{"scope", "path", "content", "size_bytes", "indexed_at"}`.
+2. Implement `tests/test_knowledge_indexer.py` with a temp fixture containing
+   a source file, a `.env`-style secret, a private-key marker, a
+   `node_modules` dependency, a `__pycache__` artifact, and a binary; assert
+   only the source file is emitted, scope and path are correct, and
+   per-scope exclusion rows are honored.
 
 Reserve: 2 handoff slots for rework.
 
@@ -73,37 +73,38 @@ Reserve: 2 handoff slots for rework.
 
 ```testgoals
 id: TG1
-what: migration file exists and is discoverable by the migration runner
-run: venv/bin/python -c 'import pathlib; print(pathlib.Path("scripts/db/107_knowledge_tables.sql").is_file())'
-expect: equals True
+what: indexer module compiles
+run: venv/bin/python -m py_compile knowledge/indexer.py
+expect: exit 0
 
 id: TG2
-what: migration applies cleanly and idempotently to a temp database
-run: venv/bin/python -m pytest tests/test_migration_107_knowledge.py -q
+what: indexer unit tests pass
+run: venv/bin/python -m pytest tests/test_knowledge_indexer.py -q
 expect: exit 0
 
 id: TG3
-what: init_db applies the migration and the retrieval log table exists afterwards
-run: venv/bin/python scripts/init_db.py >/dev/null && venv/bin/python -c 'import sqlite3, config; c=sqlite3.connect(config.get_db_path()); print(c.execute("SELECT count(*) FROM sqlite_master WHERE type=\"table\" AND name=\"knowledge_retrieval_log\"").fetchone()[0])'
-expect: equals 1
+what: CLI indexes the current repository and emits at least one document
+run: tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; venv/bin/python -m knowledge.indexer --repo . --scope dpmtf-webui --out "$tmp/manifest.jsonl"; wc -l < "$tmp/manifest.jsonl"
+expect: at least 1
 
 id: TG4
-what: retrieval log table carries the observability columns
-run: venv/bin/python -c 'import sqlite3, config; c=sqlite3.connect(config.get_db_path()); cols=[r[1] for r in c.execute("PRAGMA table_info(knowledge_retrieval_log)")]; print(all(k in cols for k in ("provider","scope","query","result_count","sources","retrieved_token_count","retrieval_duration_ms","agent_role","run_id","handoff_id")))'
-expect: equals True
+what: a dot-env secret file is never indexed
+run: tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; mkdir -p "$tmp/repo"; printf 'hello\n' > "$tmp/repo/README.md"; printf 'SECRET=abc\n' > "$tmp/repo/.env"; venv/bin/python -m knowledge.indexer --repo "$tmp/repo" --scope test --out "$tmp/manifest.jsonl"; grep -c 'SECRET=abc' "$tmp/manifest.jsonl"
+expect: equals 0
 
 id: TG5
-what: all three knowledge tables exist
-run: venv/bin/python -c 'import sqlite3, config; c=sqlite3.connect(config.get_db_path()); names=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type=\"table\" AND name LIKE \"knowledge_%\"")]; print(len(names))'
-expect: at least 3
+what: indexer does not name LEANN
+run: test -f knowledge/indexer.py && ! grep -qin 'leann' knowledge/indexer.py
+expect: exit 0
 ```
 
 ## Reviewer duties
 
-- Confirm the migration number is the next after the current last migration
-  and no existing migration was edited.
-- Confirm the SQL is non-destructive (`IF NOT EXISTS`, no `DROP`, no
-  `DELETE`) and that the retrieval log is append-oriented.
-- Confirm the exclusion table supports per-scope rules (`kind`, `enabled`).
-- Rehearse under `dash -c`; every criterion must be RED on the current tree
-  before the migration exists.
+- Confirm the CLI never writes inside the scanned repository and the manifest
+  only goes to `--out`.
+- Confirm secrets are excluded by filename and by private-key/secret content
+  markers, not merely by extension.
+- Confirm per-scope exclusion rows from `knowledge_exclusions` are honored and
+  the scope is recorded verbatim on every document.
+- Rehearse under `dash -c`; every criterion must be RED before work and cannot
+  pass on an empty repository.

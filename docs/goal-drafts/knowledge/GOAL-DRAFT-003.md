@@ -57,7 +57,7 @@ Non-goals:
 ## Work items (handoff budget: 4)
 
 1. Implement `knowledge/indexer.py` with a CLI
-   (`python3 -m knowledge.indexer --repo <path> --scope <name> --out <file>`)
+   (`venv/bin/python -m knowledge.indexer --repo <path> --scope <name> --out <file>`)
    that walks text files, applies default exclusions and any enabled
    `knowledge_exclusions` rows for the scope, and writes one JSON object per
    document: `{"scope", "path", "content", "size_bytes", "indexed_at"}`.
@@ -84,12 +84,12 @@ expect: exit 0
 
 id: TG3
 what: CLI indexes the current repository and emits at least one document
-run: tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; python3 -m knowledge.indexer --repo . --scope dpmtf-webui --out "$tmp/manifest.jsonl"; wc -l < "$tmp/manifest.jsonl"
+run: tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; venv/bin/python -m knowledge.indexer --repo . --scope dpmtf-webui --out "$tmp/manifest.jsonl"; wc -l < "$tmp/manifest.jsonl"
 expect: at least 1
 
 id: TG4
 what: a dot-env secret file is never indexed
-run: tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; mkdir -p "$tmp/repo"; printf 'hello\n' > "$tmp/repo/README.md"; printf 'SECRET=abc\n' > "$tmp/repo/.env"; python3 -m knowledge.indexer --repo "$tmp/repo" --scope test --out "$tmp/manifest.jsonl"; grep -c 'SECRET=abc' "$tmp/manifest.jsonl"
+run: tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; mkdir -p "$tmp/repo"; printf 'hello\n' > "$tmp/repo/README.md"; printf 'SECRET=abc\n' > "$tmp/repo/.env"; venv/bin/python -m knowledge.indexer --repo "$tmp/repo" --scope test --out "$tmp/manifest.jsonl"; grep -c 'SECRET=abc' "$tmp/manifest.jsonl"
 expect: equals 0
 
 id: TG5
