@@ -29,6 +29,8 @@ import json
 import logging
 import os
 import sqlite3
+import subprocess
+import sys
 import urllib.request
 
 from fastapi import APIRouter, HTTPException, Query
@@ -127,6 +129,71 @@ def _resolved_step_permission():
     except Exception:
         return "read_only"
     return mode if mode in _FLOWRUNNER_PERMISSIONS else "read_only"
+
+
+
+def _resolved_model_binding(role_key, client):
+    """The concrete engine binding for a role+client, from the model allocator.
+
+    Resolved HERE, at export time, on the machine where the allocator lives.
+    A receiving machine cannot infer an endpoint or an engine name, and the
+    Human's requirement (2026-09-10) is that it must not have to: install
+    FlowRunner, import the FlowApp, type the secrets, run. So the binding
+    travels inside the app instead — FlowRunner never needs the allocator.
+
+    Only the NAME of the key variable travels. "Secrets are always typed in
+    FlowRunner and are never transferred at export" (Human, 2026-09-10), and
+    FlowRunner pins that with its own canary test.
+
+    Best-effort by design: an export on a host without the allocator still
+    produces a valid FlowApp, it simply carries no binding and the receiving
+    operator supplies one with --model-name and FLOWRUNNER_MODEL_ENDPOINT.
+    """
+    role_key = (role_key or "").strip()
+    client = (client or "").strip()
+    if not role_key or not client:
+        return {}
+    try:
+        import config  # late import; sys.path set up by routers/bridge.py
+        root = config.get_project_path("model-allocator")
+        proc = subprocess.run(
+            [sys.executable, "-m", "model_allocator", "resolve",
+             "--role", role_key, "--client", client],
+            cwd=root, capture_output=True, text=True, timeout=20,
+            # PYTHONPATH explicitly rather than relying on cwd or on the
+            # package being installed: the allocator uses a src/ layout, so
+            # the importable root is <root>/src. Under uvicorn neither cwd nor
+            # a site-packages copy applied and the failure was "No module named
+            # model_allocator", which the caller would otherwise have seen only
+            # as a silently missing binding. Both paths are offered so a flat
+            # checkout keeps working.
+            env={**os.environ, "PYTHONPATH": os.pathsep.join(
+                [os.path.join(root, "src"), root,
+                 os.environ.get("PYTHONPATH", "")]).strip(os.pathsep)},
+        )
+        if proc.returncode != 0:
+            logger.warning("model allocator rc=%s for role=%s client=%s: %s",
+                           proc.returncode, role_key, client,
+                           (proc.stderr or "").strip()[:300])
+            return {}
+        resolved = json.loads(proc.stdout)
+    except Exception as exc:
+        # Never fatal, but never silent either: a binding that quietly fails
+        # to resolve produces a FlowApp that looks complete and is not.
+        logger.warning("model binding unresolved for role=%s client=%s: %s: %s",
+                       role_key, client, type(exc).__name__, exc)
+        return {}
+    if not isinstance(resolved, dict):
+        return {}
+    binding = {}
+    for src, dst in (("real_model", "model"),
+                     ("default_api_base", "endpoint"),
+                     ("api_key_env", "api_key_env"),
+                     ("backend", "backend")):
+        value = (resolved.get(src) or "").strip()
+        if value:
+            binding[dst] = value
+    return binding
 
 
 def _resolve_execution_config(flow_key, step_key, db_path):
@@ -256,7 +323,9 @@ def _to_flowrunner_description(flow_row, steps, db_path):
                         f"FlowRunner (supported: {sorted(_FR_SUPPORTED_HARNESSES)})"))
         profile = _fr_profile_id(s.get("to_role", ""), flow_row["flow_key"])
         alias = facts.get("model_alias") or "default"
-        models.setdefault(profile, {"name": profile, "dpmtf_alias": alias})
+        model_entry = {"name": profile, "dpmtf_alias": alias}
+        model_entry.update(_resolved_model_binding(s.get("from_role", ""), harness))
+        models.setdefault(profile, model_entry)
         harnesses.setdefault(harness, {"name": harness, "type": harness})
         fr_step = {
             "name": step_key,
@@ -269,10 +338,15 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             fr_step["next"] = agent_steps[i + 1]["step_key"]
         flow_steps.append(fr_step)
 
+    # The key NAMES the bound profiles need, so `flowrunner secrets check`
+    # on the receiving machine names exactly what the operator must type.
+    required_secrets = sorted(
+        {m["api_key_env"] for m in models.values() if m.get("api_key_env")})
+
     return {
         "app": {"name": flow_row.get("name") or flow_row["flow_key"], "version": "1.0.0"},
         "schema_version": "1.0.0",
-        "secrets": {"required": [], "optional": []},
+        "secrets": {"required": required_secrets, "optional": []},
         "runtime": {"permissions": ["read_only", "workspace_write", "full_access"]},
         "models": list(models.values()),
         "harnesses": list(harnesses.values()),

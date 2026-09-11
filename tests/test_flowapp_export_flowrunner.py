@@ -1,3 +1,4 @@
+import json
 """Tests for the DPMtF -> FlowRunner Description bridge (format=flowrunner).
 
 Run 088 / D(a): routers/flowapp_export.py transforms DPMtF flow facts into
@@ -212,3 +213,55 @@ def test_step_permission_falls_back_when_unresolvable(monkeypatch):
     # safe mode is the honest answer there.
     monkeypatch.setattr(fe, "_FLOWRUNNER_PERMISSIONS", ("read_only",))
     assert fe._resolved_step_permission() in ("read_only", "workspace_write")
+
+
+def test_model_binding_and_secret_name_travel(tmp_path, monkeypatch):
+    # Human requirement 2026-09-10: export on one PC, install FlowRunner on
+    # another, import, type secrets, run. The receiving machine cannot infer
+    # an endpoint or an engine name, so the binding must travel with the app.
+    # Only the key NAME travels: "secrets are always typed in flowrunner and
+    # are never transferred at export" (Human).
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]))
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {
+        "model": "deepseek-v4-pro",
+        "endpoint": "https://api.deepseek.com",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "backend": "openai_compatible",
+    })
+    flow_row = {"flow_key": "f", "name": "F"}
+    steps = [{"step_key": "d", "from_role": "f-decomposer",
+              "to_role": "f-implementer", "sort_order": 1}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    profile = desc["models"][0]
+    assert profile["model"] == "deepseek-v4-pro"
+    assert profile["endpoint"] == "https://api.deepseek.com"
+    assert profile["api_key_env"] == "DEEPSEEK_API_KEY"
+    assert profile["backend"] == "openai_compatible"
+    assert profile["dpmtf_alias"] == "cloud_x"          # provenance retained
+    # the NAME is declared so `flowrunner secrets check` can name it
+    assert desc["secrets"]["required"] == ["DEEPSEEK_API_KEY"]
+    # and no VALUE appears anywhere in the description
+    assert "sk-" not in json.dumps(desc)
+
+
+def test_export_survives_an_unresolvable_binding(tmp_path, monkeypatch):
+    # An export on a host without the allocator must still produce a valid
+    # FlowApp; the receiving operator then supplies --model-name themselves.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]))
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "read_only")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    flow_row = {"flow_key": "f", "name": "F"}
+    steps = [{"step_key": "d", "from_role": "f-decomposer",
+              "to_role": "f-implementer", "sort_order": 1}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    assert desc["models"][0] == {"name": "implementer", "dpmtf_alias": "cloud_x"}
+    assert desc["secrets"]["required"] == []
