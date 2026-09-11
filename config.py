@@ -270,6 +270,39 @@ def get_exports_dir() -> str:
     """Exports directory (relative to project root)."""
     return _config.get("paths", "exports_dir", fallback="exports")
 
+# ── Knowledge layer (provider-neutral, disabled by default) ─────
+
+def get_knowledge_enabled() -> bool:
+    """Whether knowledge retrieval is enabled. Disabled by default."""
+    return _config.getboolean("knowledge", "enabled", fallback=False)
+
+
+def get_knowledge_provider() -> str:
+    """Knowledge provider key. ``none`` (no-op) by default."""
+    return _config.get("knowledge", "provider", fallback="none")
+
+
+def get_knowledge_top_k() -> int:
+    """Default number of retrieval results to return."""
+    return _config.getint("knowledge", "top_k", fallback=8)
+
+
+def get_knowledge_max_context_tokens() -> int:
+    """Default token budget for retrieved knowledge context."""
+    return _config.getint("knowledge", "max_context_tokens", fallback=12000)
+
+
+def get_knowledge_index_dir() -> str:
+    """Knowledge index directory. Resolved absolute from the project root.
+
+    The configured value is relative to this file's directory, so the
+    answer does not depend on the caller's working directory. An absolute
+    value in the .ini is returned unchanged.
+    """
+    configured = _config.get("knowledge", "index_dir", fallback="knowledge_index")
+    return str((Path(__file__).resolve().parent / configured).resolve())
+
+
 # ── Bridge session names (env vars with defaults) ───────────────
 
 def get_review_session() -> str:

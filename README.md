@@ -152,7 +152,8 @@ hardcoded `/home/svend/...`-style paths are an auto-fail:
 
 - `.env` — secrets and infrastructure variables (never committed).
 - `dpmtf.ini` — committed app-config defaults: `[app]` port/host/locale,
-  `[paths]`, `[projects]`, `[integration]` (companion web-UI URLs).
+  `[paths]`, `[projects]`, `[integration]` (companion web-UI URLs),
+  `[knowledge]` (persistent project memory — disabled by default; see `knowledge/`).
 - `databases/dpmtf.db` — the production DB; schema changes are numbered
   migrations under `scripts/db/` applied by `scripts/migrate.py`.
 
