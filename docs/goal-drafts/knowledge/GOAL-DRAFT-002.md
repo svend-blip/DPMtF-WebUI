@@ -83,9 +83,9 @@ run: venv/bin/python -m pytest tests/test_migration_107_knowledge.py -q
 expect: exit 0
 
 id: TG3
-what: init_db applies the migration without error
-run: venv/bin/python scripts/init_db.py
-expect: exit 0
+what: init_db applies the migration and the retrieval log table exists afterwards
+run: venv/bin/python scripts/init_db.py >/dev/null && venv/bin/python -c 'import sqlite3, config; c=sqlite3.connect(config.get_db_path()); print(c.execute("SELECT count(*) FROM sqlite_master WHERE type=\"table\" AND name=\"knowledge_retrieval_log\"").fetchone()[0])'
+expect: equals 1
 
 id: TG4
 what: retrieval log table carries the observability columns
