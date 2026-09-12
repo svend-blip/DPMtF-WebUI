@@ -50,6 +50,7 @@ from bridge_lib import (  # noqa: E402
 from dispatch import build_step_payload  # noqa: E402
 
 import config  # noqa: E402
+from knowledge import retrieval  # noqa: E402
 from routers.shared import get_db_path  # noqa: E402
 
 
@@ -133,6 +134,20 @@ def _load_knowledge_fragment(filename):
     result = "\n".join(lines)
     result = result.replace("{{project_root}}", config.get_project_root())
     return result
+
+
+def _append_retrieval_block(lines, query, scope, agent_role, run_id, handoff_id):
+    """Append the supplemental retrieval block below every authoritative section.
+
+    Guarded by config.get_knowledge_enabled() so disabled mode never calls
+    the retrieval service and leaves ``lines`` byte-for-byte unchanged.
+    """
+    if not config.get_knowledge_enabled():
+        return
+    block = retrieval.retrieve_for_context(query, scope, agent_role, run_id, handoff_id)
+    if block:
+        lines.append("")
+        lines.append(block)
 
 
 # ── Endpoints (moved verbatim from app.py) ────────────────
@@ -362,6 +377,15 @@ async def compile_prompt(request: Request):
         lines.append("Stop after 2 failed patching attempts — document, do not guess.")
         lines.append("</constraint>")
 
+        _append_retrieval_block(
+            lines,
+            query=goal,
+            scope=flow_key or "",
+            agent_role=role_name,
+            run_id="",
+            handoff_id=handoff_id,
+        )
+
         prompt = "\n".join(lines)
 
         result_response = {
@@ -479,6 +503,15 @@ async def compile_prompt(request: Request):
     lines.append(f"Target session: {target_session} (role: {role_name}).")
     lines.append(f"Execute ALL steps in <task> — especially the signal completion command.")
     lines.append("</constraint>")
+
+    _append_retrieval_block(
+        lines,
+        query=goal,
+        scope=flow_key or "",
+        agent_role=role_name,
+        run_id="",
+        handoff_id=handoff_id,
+    )
 
     prompt = "\n".join(lines)
 
