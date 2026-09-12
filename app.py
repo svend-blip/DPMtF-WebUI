@@ -126,6 +126,10 @@ from routers.sessions import router as sessions_router
 
 app.include_router(sessions_router)
 
+from routers.knowledge import router as knowledge_router
+
+app.include_router(knowledge_router)
+
 
 if __name__ == "__main__":
     import uvicorn
