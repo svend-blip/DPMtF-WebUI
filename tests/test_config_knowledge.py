@@ -30,6 +30,10 @@ def test_retrieval_limits_have_defaults():
     assert config.get_knowledge_max_context_tokens() == 12000
 
 
+def test_knowledge_max_document_chars_default():
+    assert config.get_knowledge_max_document_chars() == 20000
+
+
 def test_index_dir_is_absolute_and_inside_project():
     path = config.get_knowledge_index_dir()
     assert os.path.isabs(path)
@@ -45,4 +49,5 @@ def test_getters_fall_back_safely_when_section_absent(monkeypatch):
     assert config.get_knowledge_provider() == "none"
     assert config.get_knowledge_top_k() == 8
     assert config.get_knowledge_max_context_tokens() == 12000
+    assert config.get_knowledge_max_document_chars() == 20000
     assert os.path.isabs(config.get_knowledge_index_dir())

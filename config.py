@@ -292,6 +292,11 @@ def get_knowledge_max_context_tokens() -> int:
     return _config.getint("knowledge", "max_context_tokens", fallback=12000)
 
 
+def get_knowledge_max_document_chars() -> int:
+    """Maximum characters retained from one indexed document (20000 default)."""
+    return _config.getint("knowledge", "max_document_chars", fallback=20000)
+
+
 def get_knowledge_index_dir() -> str:
     """Knowledge index directory. Resolved absolute from the project root.
 

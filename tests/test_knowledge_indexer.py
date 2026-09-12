@@ -58,6 +58,18 @@ def _create_fixture_repo(repo):
         b"\x00\x01\x02"
     )
     (repo / "blob.bin").write_bytes(b"\x00\x01\x02")
+    (repo / "logs").mkdir()
+    (repo / "logs" / "a.log").write_text("log line\n", encoding="utf-8")
+    (repo / "jobs").mkdir()
+    (repo / "jobs" / "b.json").write_text("{}\n", encoding="utf-8")
+    (repo / ".flowrunner").mkdir()
+    (repo / ".flowrunner" / "x.txt").write_text(
+        "runner state\n", encoding="utf-8"
+    )
+    (repo / ".env.example").write_text("API_KEY=example\n", encoding="utf-8")
+    (repo / "notes.txt").write_text(
+        "API_KEY=plaintextsecret\n", encoding="utf-8"
+    )
 
 
 def _patch_db(monkeypatch, db_path):
@@ -93,6 +105,91 @@ def test_only_source_file_is_emitted(tmp_path, monkeypatch):
 
     records = _read_manifest(out)
     paths = {record["path"] for record in records}
+    assert paths == {"README.md"}
+
+
+def test_default_exclusions_skip_logs_jobs_and_flowrunner(tmp_path, monkeypatch):
+    """The extended fixture emits exactly the control README.md record."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _create_fixture_repo(repo)
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+
+    records = _read_manifest(out)
+    assert len(records) == 1
+    assert records[0]["path"] == "README.md"
+
+
+def test_oversized_document_is_truncated_and_flagged(tmp_path, monkeypatch):
+    """A 50000-char document is capped at 20000 and flagged; small ones are not."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "big.md").write_text("a" * 50000, encoding="utf-8")
+    (repo / "small.txt").write_text("small\n", encoding="utf-8")
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+
+    records = _read_manifest(out)
+    by_path = {record["path"]: record for record in records}
+
+    big = by_path["big.md"]
+    assert len(big["content"]) == 20000
+    assert big["truncated"] is True
+    assert big["size_bytes"] == 50000
+
+    small = by_path["small.txt"]
+    assert "truncated" not in small
+    assert set(small) == {
+        "scope",
+        "path",
+        "content",
+        "size_bytes",
+        "indexed_at",
+    }
+
+
+def test_env_and_secret_markers_are_excluded(tmp_path, monkeypatch):
+    """``.env``, ``.env.example``, PEM and ``API_KEY=`` files are never emitted."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _create_fixture_repo(repo)
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+
+    paths = {record["path"] for record in _read_manifest(out)}
+    for excluded in (".env", ".env.example", "private.pem", "notes.txt"):
+        assert excluded not in paths
     assert paths == {"README.md"}
 
 

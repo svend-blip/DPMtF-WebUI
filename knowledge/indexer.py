@@ -39,9 +39,48 @@ import config  # noqa: E402
 # ── Default exclusions (code constants, per GOAL-DRAFT-002/003) ─────────
 
 _DEFAULT_EXCLUDED_NAMES = frozenset(
-    {".git", ".env", "__pycache__", "node_modules", "venv", ".venv"}
+    {
+        ".git",
+        ".env",
+        "__pycache__",
+        "node_modules",
+        "venv",
+        ".venv",
+        "logs",
+        "jobs",
+        ".flowrunner",
+        ".pytest_cache",
+        ".playwright-mcp",
+        ".superpowers",
+        ".ruff_cache",
+        ".mypy_cache",
+        ".claude",
+        "knowledge_index",
+        "dist",
+        "build",
+        "exports",
+        "backups",
+    }
 )
-_DEFAULT_EXCLUDED_SUFFIXES = frozenset({".pyc", ".db", ".sqlite", ".bin"})
+_DEFAULT_EXCLUDED_PREFIXES = (".aider",)
+_DEFAULT_EXCLUDED_SUFFIXES = frozenset(
+    {
+        ".pyc",
+        ".db",
+        ".sqlite",
+        ".bin",
+        ".log",
+        ".jsonl",
+        ".bak",
+        ".tar",
+        ".gz",
+        ".zip",
+        ".whl",
+        ".parquet",
+        ".leann",
+        ".idx",
+    }
+)
 _IMAGE_SUFFIXES = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp", ".tiff"}
 )
@@ -66,6 +105,8 @@ def _default_name_excluded(name: str) -> bool:
         return True
     # Covers .env and backup/template variants such as .env.bak or .env.example.
     if name.startswith(".env."):
+        return True
+    if name.startswith(_DEFAULT_EXCLUDED_PREFIXES):
         return True
     lowered = name.lower()
     return any(
@@ -223,7 +264,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", required=True, help="repository path to scan")
     parser.add_argument("--scope", required=True, help="scope recorded on every document")
     parser.add_argument("--out", required=True, help="manifest file to write (JSONL)")
+    parser.add_argument(
+        "--max-document-chars",
+        type=int,
+        default=None,
+        help=(
+            "maximum characters retained from one indexed document "
+            "(defaults to the configured value)"
+        ),
+    )
     args = parser.parse_args(argv)
+
+    max_chars = (
+        args.max_document_chars
+        if args.max_document_chars is not None
+        else config.get_knowledge_max_document_chars()
+    )
+    if max_chars < 1:
+        _fail("--max-document-chars must be positive")
 
     repo_path = Path(args.repo).expanduser()
     if not repo_path.exists():
@@ -252,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with open(out_path, "w", encoding="utf-8", newline="\n") as handle:
             for rel_path, content, size_bytes in _iter_documents(repo_path, exclusions):
+                truncated = len(content) > max_chars
                 record = {
                     "scope": args.scope,
                     "path": rel_path,
@@ -259,6 +318,9 @@ def main(argv: list[str] | None = None) -> int:
                     "size_bytes": size_bytes,
                     "indexed_at": datetime.now(timezone.utc).isoformat(),
                 }
+                if truncated:
+                    record["content"] = content[:max_chars]
+                    record["truncated"] = True
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
                 count += 1
     except OSError as exc:
