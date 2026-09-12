@@ -141,10 +141,16 @@ def _append_retrieval_block(lines, query, scope, agent_role, run_id, handoff_id)
 
     Guarded by config.get_knowledge_enabled() so disabled mode never calls
     the retrieval service and leaves ``lines`` byte-for-byte unchanged.
+    A retrieval failure is logged at ERROR with the flow key and the
+    prompt is returned unchanged — byte-identical to the disabled output.
     """
     if not config.get_knowledge_enabled():
         return
-    block = retrieval.retrieve_for_context(query, scope, agent_role, run_id, handoff_id)
+    try:
+        block = retrieval.retrieve_for_context(query, scope, agent_role, run_id, handoff_id)
+    except Exception as exc:
+        logger.error("knowledge retrieval failed for flow %s: %s", scope, exc)
+        return
     if block:
         lines.append("")
         lines.append(block)

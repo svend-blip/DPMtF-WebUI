@@ -11,75 +11,20 @@ provider can never make the endpoint exceed the configured result bound.
 
 from __future__ import annotations
 
-import json
 import logging
-import sqlite3
 import time
 
 from fastapi import APIRouter, HTTPException
 
 import config
 from knowledge import search as knowledge_search
+from knowledge import retrieval_log
 from knowledge import scope_guard
 
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 logger = logging.getLogger(__name__)
-
-
-def _record_retrieval(
-    *,
-    provider: str,
-    scope: str | None,
-    query: str,
-    results: list,
-    duration_ms: int,
-    agent_role: str | None,
-    run_id: str | None,
-    handoff_id: str | None,
-) -> None:
-    """Append one ``knowledge_retrieval_log`` row for a real retrieval.
-
-    Parameterized SQL only (``?`` placeholders, never string
-    concatenation). A database failure is logged and surfaced to the
-    caller as a 500 rather than swallowed silently.
-    """
-    sources = json.dumps([item["path"] for item in results])
-    token_count = sum(len(item.get("content", "").split()) for item in results)
-
-    conn = None
-    try:
-        conn = sqlite3.connect(config.get_db_path())
-        conn.execute(
-            "INSERT INTO knowledge_retrieval_log "
-            "(provider, scope, query, result_count, sources, "
-            "retrieved_token_count, retrieval_duration_ms, "
-            "agent_role, run_id, handoff_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                provider,
-                scope or "",
-                query,
-                len(results),
-                sources,
-                token_count,
-                duration_ms,
-                agent_role,
-                run_id,
-                handoff_id,
-            ),
-        )
-        conn.commit()
-    except sqlite3.Error as exc:
-        logger.error("knowledge retrieval log insert failed: %s", exc)
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to record knowledge retrieval",
-        ) from exc
-    finally:
-        if conn is not None:
-            conn.close()
 
 
 @router.get("/search")
@@ -151,7 +96,7 @@ async def search_knowledge(
     # through unchanged (no fields stripped, no scores invented).
     results = results[:top_k]
 
-    _record_retrieval(
+    retrieval_log.record_retrieval(
         provider=provider_key,
         scope=scope,
         query=q,
