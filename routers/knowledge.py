@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 
 import config
 from knowledge import search as knowledge_search
+from knowledge import scope_guard
 
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -123,6 +124,15 @@ async def search_knowledge(
     # mis-bound (e.g. ``results[:-5]`` dropping the tail instead of the head).
     top_k = max(1, min(top_k, config.get_knowledge_top_k()))
     token_budget = max(1, min(token_budget, config.get_knowledge_max_context_tokens()))
+
+    try:
+        scope_guard.require_scope_access(
+            scope,
+            agent_role=agent_role,
+            flow_key=None,
+        )
+    except scope_guard.ScopeAccessDenied as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     provider_cls = knowledge_search.resolve_provider(provider_key)
     provider = provider_cls()

@@ -15,6 +15,7 @@ byte-for-byte unchanged.
 from __future__ import annotations
 
 import config
+from knowledge import scope_guard
 from knowledge.search import resolve_provider
 
 __all__ = ["retrieve_for_context"]
@@ -59,6 +60,15 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id):
 
     top_k = config.get_knowledge_top_k()
     token_budget = config.get_knowledge_max_context_tokens()
+
+    try:
+        scope_guard.require_scope_access(
+            scope,
+            agent_role=agent_role,
+            flow_key=None,
+        )
+    except scope_guard.ScopeAccessDenied:
+        return None
 
     # Resolve through the provider-neutral service only. This module never
     # imports or names any concrete provider.
