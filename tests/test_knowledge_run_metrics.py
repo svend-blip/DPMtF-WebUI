@@ -65,7 +65,7 @@ def test_rejected_verdict_real_bold_format_counted(tmp_path):
     (verdicts / "001.md").write_text("**Status:** REJECTED\n", encoding="utf-8")
     metrics = collect_run_metrics(tmp_path)
     assert metrics["review_failures"] == 1
-    assert metrics["rework"] == 1
+    assert metrics["rework"] == 0
 
 
 def test_bare_status_rejected_still_counted(tmp_path):
@@ -74,7 +74,7 @@ def test_bare_status_rejected_still_counted(tmp_path):
     (verdicts / "001.md").write_text("Status: REJECTED\n", encoding="utf-8")
     metrics = collect_run_metrics(tmp_path)
     assert metrics["review_failures"] == 1
-    assert metrics["rework"] == 1
+    assert metrics["rework"] == 0
 
 
 def test_quoted_status_rejected_in_evidence_not_counted(tmp_path):
@@ -98,7 +98,7 @@ def test_rejected_counted_once_per_file_not_per_occurrence(tmp_path):
     (tmp_path / "notes.txt").write_text("**Status:** REJECTED\n", encoding="utf-8")
     metrics = collect_run_metrics(tmp_path)
     assert metrics["review_failures"] == 1
-    assert metrics["rework"] == 1
+    assert metrics["rework"] == 0
 
 
 def test_metrics_json_supplies_tool_calls_and_tokens(tmp_path):
@@ -210,3 +210,34 @@ def test_harness_main_returns_zero_under_pytest_argv(capsys):
         assert knowledge_eval_harness.main() == 0
     finally:
         sys.argv = saved_argv
+
+
+def test_run_start_is_the_started_line_not_the_promoted_line(tmp_path):
+    run_name = tmp_path.name
+    (tmp_path / "RUN-LEDGER.md").write_text(
+        "## 2026-09-12T00:00:00Z — promoted from GOAL-DRAFT-017.md by cli\n"
+        f"## 2026-09-12T00:05:00Z — run {run_name} started (FlowRunner run x), cycle 1\n"
+        "## 2026-09-12T00:08:00Z — cycle 1: result written by implementer-reviewer\n"
+        "## 2026-09-12T00:15:00Z — run closed\n",
+        encoding="utf-8",
+    )
+    metrics = collect_run_metrics(tmp_path)
+    assert metrics["total_execution_time"] == 600      # 00:05 -> 00:15
+    assert metrics["time_to_first_implementation"] == 180  # 00:05 -> 00:08
+
+
+def test_rework_counts_corrective_handoffs_independently_of_rejections(tmp_path):
+    (tmp_path / "RUN-LEDGER.md").write_text(
+        "## 2026-09-12T00:00:00Z — run started\n"
+        "## 2026-09-12T00:01:00Z — cycle 1: handoff 001 written by decomposer-implementer\n"
+        "## 2026-09-12T00:02:00Z — cycle 2: handoff 002 written by decomposer-implementer\n"
+        "## 2026-09-12T00:03:00Z — cycle 3: handoff 003 written by decomposer-implementer\n"
+        "## 2026-09-12T00:05:00Z — run closed\n",
+        encoding="utf-8",
+    )
+    verdicts = tmp_path / "verdicts"
+    verdicts.mkdir()
+    (verdicts / "001.md").write_text("**Status:** REJECTED\n", encoding="utf-8")
+    metrics = collect_run_metrics(tmp_path)
+    assert metrics["review_failures"] == 1
+    assert metrics["rework"] == 2

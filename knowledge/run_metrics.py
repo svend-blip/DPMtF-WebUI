@@ -2,11 +2,15 @@
 
 The evaluation harness needs durable signals from a completed run: total
 execution time and time-to-first-implementation are measured from the
-``RUN-LEDGER.md`` timestamps, rejected verdicts are counted from
-``verdicts/*.md``, and tool-call / token numbers are only reported when a
-run directory carries an explicit ``metrics.json``. This module opens
-nothing for writing and never creates files, directories, caches, or
-database connections.
+timestamp of the first ledger line whose text contains ``run <NNN> started``
+(``<NNN>`` is the run directory basename), falling back to the first
+non-``promoted from`` ledger timestamp when no such line exists. Rejected
+verdicts are counted from ``verdicts/*.md``, corrective-handoff rework is
+counted from ledger lines matching ``cycle N: handoff`` with ``N >= 2`` (so
+``review_failures`` and ``rework`` are independent signals), and tool-call /
+token numbers are only reported when a run directory carries an explicit
+``metrics.json``. This module opens nothing for writing and never creates
+files, directories, caches, or database connections.
 """
 
 from __future__ import annotations
@@ -23,6 +27,8 @@ _TIMESTAMP_RE = re.compile(
 )
 
 _CYCLE1_MARKER = "cycle 1: result written"
+
+_CORRECTIVE_HANDOFF_RE = re.compile(r"cycle\s+(\d+):\s*handoff")
 
 # A whole-line REJECTED status declaration. Verdict files use markdown bold
 # (``**Status:** REJECTED``), so markdown asterisks are removed from each
@@ -54,6 +60,42 @@ def _ledger_timestamps(ledger_text: str) -> list[datetime]:
         except ValueError:
             continue
     return timestamps
+
+
+def _first_parseable_timestamp(text: str) -> datetime | None:
+    """Return the first ISO-8601 timestamp in ``text`` that parses."""
+    for match in _TIMESTAMP_RE.finditer(text):
+        try:
+            return _parse_timestamp(match.group(0))
+        except ValueError:
+            continue
+    return None
+
+
+def _start_timestamp(ledger_text: str, run_name: str) -> datetime | None:
+    """Return the run-start timestamp for a ledger, or ``None``.
+
+    Precedence: the timestamp of the first ledger line whose text contains
+    ``run <run_name> started``; if the matching line carries no parseable
+    timestamp, the timestamp of the first ledger line that is not a
+    ``promoted from`` line and carries a parseable timestamp; otherwise
+    ``None`` (the honest empty state, measured as 0 duration).
+    """
+    marker = f"run {run_name} started"
+    for line in ledger_text.splitlines():
+        if marker in line:
+            timestamp = _first_parseable_timestamp(line)
+            if timestamp is not None:
+                return timestamp
+            break
+
+    for line in ledger_text.splitlines():
+        if "promoted from" in line:
+            continue
+        timestamp = _first_parseable_timestamp(line)
+        if timestamp is not None:
+            return timestamp
+    return None
 
 
 def _first_cycle1_timestamp(ledger_text: str) -> datetime | None:
@@ -104,6 +146,18 @@ def _count_rejected_verdicts(run_path: Path) -> int:
     return rejected
 
 
+def _count_corrective_handoffs(ledger_text: str) -> int:
+    """Count corrective handoffs: one per ledger line matching
+    ``cycle N: handoff`` with ``N >= 2`` (first match per line only).
+    """
+    corrective = 0
+    for line in ledger_text.splitlines():
+        match = _CORRECTIVE_HANDOFF_RE.search(line)
+        if match is not None and int(match.group(1)) >= 2:
+            corrective += 1
+    return corrective
+
+
 def _metrics_payload(run_path: Path) -> dict:
     """Return metrics.json as a dict, or ``{}`` when absent/invalid."""
     metrics_path = run_path.joinpath("metrics.json")
@@ -136,29 +190,35 @@ def collect_run_metrics(run_dir) -> dict[str, int]:
     ``run_dir`` is a path-like or string naming a FlowRunner run directory.
     Every returned value is an ``int``; any missing or unreadable source is
     the zero state rather than a crash. The function only reads files and
-    never writes into the run directory it measures. Both duration values
-    are clamped to ``0`` when the parsed timestamps would produce a negative
-    interval.
+    never writes into the run directory it measures. Both duration values are
+    measured from the run start (the first ``run <NNN> started`` line, or the
+    first non-``promoted from`` timestamp, or ``None`` when neither exists)
+    and are clamped to ``0`` when the parsed timestamps would produce a
+    negative interval. ``review_failures`` counts REJECTED verdicts while
+    ``rework`` counts corrective handoffs (``cycle N: handoff`` with
+    ``N >= 2``); the two signals are independent.
     """
     run_path = Path(run_dir)
     ledger_text = _read_ledger_text(run_path)
     timestamps = _ledger_timestamps(ledger_text)
+    start_ts = _start_timestamp(ledger_text, run_path.name)
 
     total_execution_time = 0
-    if len(timestamps) >= 2:
-        first_ts = timestamps[0]
+    if start_ts is not None and timestamps:
         last_ts = timestamps[-1]
-        total_execution_time = max(0, int((last_ts - first_ts).total_seconds()))
+        total_execution_time = max(
+            0, int((last_ts - start_ts).total_seconds())
+        )
 
     time_to_first_implementation = 0
     cycle1_ts = _first_cycle1_timestamp(ledger_text)
-    if timestamps and cycle1_ts is not None:
-        first_ts = timestamps[0]
+    if start_ts is not None and cycle1_ts is not None:
         time_to_first_implementation = max(
-            0, int((cycle1_ts - first_ts).total_seconds())
+            0, int((cycle1_ts - start_ts).total_seconds())
         )
 
     rejected = _count_rejected_verdicts(run_path)
+    rework = _count_corrective_handoffs(ledger_text)
     payload = _metrics_payload(run_path)
 
     return {
@@ -167,5 +227,5 @@ def collect_run_metrics(run_dir) -> dict[str, int]:
         "time_to_first_implementation": time_to_first_implementation,
         "total_execution_time": total_execution_time,
         "review_failures": rejected,
-        "rework": rejected,
+        "rework": rework,
     }
