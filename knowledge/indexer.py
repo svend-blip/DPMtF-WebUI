@@ -19,6 +19,7 @@ interpreter behaviour, not writes performed by the indexer's own code.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import re
@@ -41,6 +42,7 @@ import config  # noqa: E402
 _DEFAULT_EXCLUDED_NAMES = frozenset(
     {
         ".git",
+        ".knowledgeignore",
         ".env",
         "__pycache__",
         "node_modules",
@@ -201,10 +203,64 @@ def _matches_repo_exclusion(
     return False
 
 
+def _load_knowledgeignore(repo_path: Path) -> list[tuple[str, bool]]:
+    """Load ``<repo>/.knowledgeignore`` patterns, or [] when the file is absent.
+
+    One pattern per line; blank lines and ``#`` comments are ignored. A
+    trailing ``/`` marks a directory pattern. A present-but-unreadable file is
+    a hard error, never a silent skip.
+    """
+    path = repo_path / ".knowledgeignore"
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        _fail(f"cannot read .knowledgeignore at {path}: {exc}")
+
+    patterns: list[tuple[str, bool]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        is_dir = line.endswith("/")
+        pattern = line.rstrip("/") if is_dir else line
+        if pattern:
+            patterns.append((pattern, is_dir))
+    return patterns
+
+
+def _matches_knowledgeignore(
+    rel_path: str, is_dir: bool, patterns: list[tuple[str, bool]]
+) -> bool:
+    """Return True when ``rel_path`` matches a repository ``.knowledgeignore`` rule.
+
+    Directory patterns apply only to directories; file patterns apply only to
+    files. Patterns match the repository-relative path and the basename.
+    """
+    name = rel_path.rsplit("/", 1)[-1]
+    for pattern, pattern_is_dir in patterns:
+        if pattern_is_dir != is_dir:
+            continue
+        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(name, pattern):
+            return True
+    return False
+
+
 def _iter_documents(
-    repo_path: Path, exclusions: list[tuple[str, str]]
+    repo_path: Path,
+    exclusions: list[tuple[str, str]],
+    knowledgeignore_patterns: list[tuple[str, bool]] | None = None,
 ) -> Generator[tuple[str, str, int], None, None]:
-    """Yield ``(relative_path, content, size_bytes)`` for indexable files."""
+    """Yield ``(relative_path, content, size_bytes)`` for indexable files.
+
+    ``knowledgeignore_patterns`` may be preloaded by the caller; when it is
+    ``None`` the repository's ``.knowledgeignore`` is loaded here so callers
+    that reuse this walk (``knowledge.maintenance.detect_changes``) see the
+    same files a fresh index sees.
+    """
+    if knowledgeignore_patterns is None:
+        knowledgeignore_patterns = _load_knowledgeignore(repo_path)
     content_patterns = [
         pattern for kind, pattern in exclusions if kind == "content"
     ]
@@ -219,8 +275,12 @@ def _iter_documents(
             if os.path.islink(dir_abs):
                 continue
             rel_dir = Path(dir_abs).relative_to(repo_path).as_posix()
-            if _default_name_excluded(dirname) or _matches_repo_exclusion(
-                rel_dir, True, exclusions
+            if (
+                _default_name_excluded(dirname)
+                or _matches_repo_exclusion(rel_dir, True, exclusions)
+                or _matches_knowledgeignore(
+                    rel_dir, True, knowledgeignore_patterns
+                )
             ):
                 continue
             kept_dirs.append(dirname)
@@ -231,8 +291,12 @@ def _iter_documents(
             if os.path.islink(file_abs):
                 continue
             rel_path = Path(file_abs).relative_to(repo_path).as_posix()
-            if _default_name_excluded(filename) or _matches_repo_exclusion(
-                rel_path, False, exclusions
+            if (
+                _default_name_excluded(filename)
+                or _matches_repo_exclusion(rel_path, False, exclusions)
+                or _matches_knowledgeignore(
+                    rel_path, False, knowledgeignore_patterns
+                )
             ):
                 continue
 
@@ -305,11 +369,14 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     exclusions = _load_repo_exclusions(args.scope)
+    knowledgeignore_patterns = _load_knowledgeignore(repo_path)
 
     count = 0
     try:
         with open(out_path, "w", encoding="utf-8", newline="\n") as handle:
-            for rel_path, content, size_bytes in _iter_documents(repo_path, exclusions):
+            for rel_path, content, size_bytes in _iter_documents(
+                repo_path, exclusions, knowledgeignore_patterns
+            ):
                 truncated = len(content) > max_chars
                 record = {
                     "scope": args.scope,

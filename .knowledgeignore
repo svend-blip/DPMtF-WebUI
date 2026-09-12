@@ -1,0 +1,8 @@
+# GOAL-DRAFT-016 — repository-specific indexer exclusions (run 016)
+# One pattern per line; trailing / marks a directory; # comments and blanks ignored.
+jobs/
+logs/
+.flowrunner/
+databases/*.bak
+knowledge_index/
+*.pyc

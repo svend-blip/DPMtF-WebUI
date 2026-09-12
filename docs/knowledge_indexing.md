@@ -37,3 +37,29 @@ manifest's **capped** `content`, so a document larger than the cap is
 reported as changed on every maintenance pass. This is the intended
 consequence of capping at record-build time; `knowledge/maintenance.py` is
 not modified by this run.
+
+## Repository-specific exclusions
+
+The indexer reads `<repo>/.knowledgeignore` when it is present; a missing
+file is not an error. One pattern per line; `#` comments and blank lines
+are ignored; a trailing `/` marks a directory pattern.
+
+Patterns are matched with `fnmatch` against both the repository-relative
+path and the basename, so `*.tmp` matches at any depth and `data/` prunes
+the directory during the walk. Directory patterns apply only to
+directories; file patterns apply only to files.
+
+File rules are merged with the `knowledge_exclusions` rows for the
+requested scope; neither replaces the other. Default exclusions are
+applied first, and a file or directory is skipped when any default
+exclusion, DB row, or `.knowledgeignore` rule matches. A
+present-but-unreadable or non-UTF-8 `.knowledgeignore` aborts the run
+(exit 1, no silent skip).
+
+This repository ships `.knowledgeignore` with `jobs/`, `logs/`,
+`.flowrunner/`, `databases/*.bak`, `knowledge_index/`, and `*.pyc`. The
+first five are already covered by the default exclusions, so the shipped
+file demonstrates the mechanism and satisfies TG3 rather than newly
+excluding trees the defaults already exclude.
+
+The `.knowledgeignore` control file itself is excluded from indexing by default (it is in `_DEFAULT_EXCLUDED_NAMES`), so a repository scan never emits the control file as a document.

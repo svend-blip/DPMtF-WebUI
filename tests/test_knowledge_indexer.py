@@ -275,3 +275,80 @@ def test_per_scope_exclusion_rows_are_honored(tmp_path, monkeypatch):
     other_paths = {record["path"] for record in other_records}
     assert "skipme.txt" in other_paths
     assert all(record["scope"] == "other" for record in other_records)
+
+
+def test_knowledgeignore_directory_pattern_is_honored(tmp_path, monkeypatch):
+    """A trailing-``/`` directory rule prunes the tree during the walk."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "data").mkdir()
+    (repo / "data" / "big.csv").write_text("x\n", encoding="utf-8")
+    (repo / "src").mkdir()
+    (repo / "src" / "c.py").write_text("x\n", encoding="utf-8")
+    (repo / ".knowledgeignore").write_text("data/\n", encoding="utf-8")
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+
+    paths = {record["path"] for record in _read_manifest(out)}
+    assert paths == {"src/c.py"}
+
+
+def test_knowledgeignore_glob_matches_basename(tmp_path, monkeypatch):
+    """A file glob matches the basename, including inside subdirectories."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.tmp").write_text("x\n", encoding="utf-8")
+    (repo / "sub").mkdir()
+    (repo / "sub" / "b.tmp").write_text("x\n", encoding="utf-8")
+    (repo / "keep.txt").write_text("x\n", encoding="utf-8")
+    (repo / ".knowledgeignore").write_text("*.tmp\n", encoding="utf-8")
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+
+    paths = {record["path"] for record in _read_manifest(out)}
+    assert paths == {"keep.txt"}
+
+
+def test_knowledgeignore_and_db_rows_are_merged(tmp_path, monkeypatch):
+    """File rules and DB rows both apply; neither replaces the other."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "db_excluded.txt").write_text("x\n", encoding="utf-8")
+    (repo / "file_excluded.tmp").write_text("x\n", encoding="utf-8")
+    (repo / "keep.txt").write_text("x\n", encoding="utf-8")
+    (repo / ".knowledgeignore").write_text("*.tmp\n", encoding="utf-8")
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [("test", "db_excluded.txt", "name", 1)])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+
+    paths = {record["path"] for record in _read_manifest(out)}
+    assert paths == {"keep.txt"}
