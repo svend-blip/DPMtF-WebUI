@@ -5,11 +5,14 @@ Reads knowledge_retrieval_log and the available execution-ish tables from the
 configured SQLite database (read-only) and prints the fixed comparison report
 required by the §8 measurement addendum.
 
-WORK 1 scope: produce the instrument and its empty report. This script never
-writes to the database or to any file, and it never invents columns or joins
-that do not exist in the current schema.
+With ``--with-run <dir>`` / ``--without-run <dir>`` the report is rendered
+from ``knowledge.run_metrics.collect_run_metrics`` for the supplied run
+directories instead of the database. A missing flag or an unreadable run
+directory renders that arm as the all-zero state, so the default (no flags)
+invocation keeps its existing DB-backed empty-state report unchanged.
 """
 
+import argparse
 import sqlite3
 import sys
 from pathlib import Path
@@ -19,6 +22,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config
+
+from knowledge.run_metrics import collect_run_metrics
 
 # Execution-ish tables present in this checkout. None of them stores the six
 # §8 comparison metrics; this list is only used to prove that absence honestly.
@@ -130,21 +135,61 @@ def _print_report(retrieval_events, metric_values):
     print("\n".join(lines))
 
 
-def main():
-    """Entry point. Returns 0 on success. Takes no arguments."""
-    db_path = config.get_db_path()
-    conn = _open_readonly(db_path)
-    try:
-        retrieval_events = _count_retrieval_events(conn)
-        available_columns = _available_execution_columns(conn)
-    finally:
-        if conn is not None:
-            conn.close()
+def _print_run_report(with_metrics, without_metrics):
+    """Print the comparison report from two measured run directories."""
+    lines = []
+    for arm, metrics in (
+        ("with_retrieval", with_metrics),
+        ("without_retrieval", without_metrics),
+    ):
+        lines.append(arm)
+        lines.append("retrieval_events 0")
+        for metric in METRIC_HEADINGS:
+            lines.append(f"{metric} {metrics[metric]}")
+    lines.append("commissioning_procedure")
+    lines.append(COMMISSIONING_PROCEDURE)
+    print("\n".join(lines))
 
-    metric_values = _metric_values(available_columns)
-    _print_report(retrieval_events, metric_values)
+
+def main(argv=None):
+    """Entry point. Returns 0 on success.
+
+    With no options the default empty-state DB report is printed exactly as
+    before. With --with-run/--without-run the two arms are rendered from
+    collect_run_metrics for the supplied run directories.
+    """
+    parser = argparse.ArgumentParser(description="Knowledge evaluation harness.")
+    parser.add_argument("--with-run", type=Path, default=None)
+    parser.add_argument("--without-run", type=Path, default=None)
+    args = parser.parse_args([] if argv is None else argv)
+
+    if args.with_run is None and args.without_run is None:
+        db_path = config.get_db_path()
+        conn = _open_readonly(db_path)
+        try:
+            retrieval_events = _count_retrieval_events(conn)
+            available_columns = _available_execution_columns(conn)
+        finally:
+            if conn is not None:
+                conn.close()
+        metric_values = _metric_values(available_columns)
+        _print_report(retrieval_events, metric_values)
+        return 0
+
+    zero_metrics = {metric: 0 for metric in METRIC_HEADINGS}
+    with_metrics = (
+        collect_run_metrics(args.with_run)
+        if args.with_run is not None
+        else zero_metrics
+    )
+    without_metrics = (
+        collect_run_metrics(args.without_run)
+        if args.without_run is not None
+        else zero_metrics
+    )
+    _print_run_report(with_metrics, without_metrics)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
