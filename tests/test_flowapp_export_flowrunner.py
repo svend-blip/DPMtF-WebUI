@@ -322,9 +322,10 @@ def test_governance_carries_the_flowrunner_execution_context(tmp_path, monkeypat
         assert text.startswith("## FlowRunner execution context")
         assert "bridge_broker.py" in text and "DPMtF bridge directory" in text
         assert config.get_bridge_dir() in text
-        assert ".flowrunner/" in text
-    assert "You are the first step" in first and ".flowrunner/d.md" in first and "`i`" in first
-    assert "previous step (`d`)" in second and ".flowrunner/i.md" in second and "last step" in second
+        assert ".flowrunner/<family>/runs/NNN/" in text and "STEP INPUT" in text
+    assert "You are the decomposer" in first and "handoffs/NNN-<step>.md" in first and "END-REPORT.md" in first
+    assert "You are the implementer" in second and "results/NNN-<step>.md" in second
+    assert desc["app"]["family"] == "2000"
 
 
 def test_execution_context_addresses_the_role_by_name(tmp_path, monkeypatch):
@@ -344,6 +345,7 @@ def test_execution_context_addresses_the_role_by_name(tmp_path, monkeypatch):
              {"step_key": "r", "from_role": "2000-reviewer", "to_role": "2000-execution-decomposer", "sort_order": 3}]
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
     d, i, r = [st["governance"] for st in desc["flows"][0]["steps"]]
-    assert "You are the decomposer" in d and "you do not implement" in d and ".flowrunner/d.md" in d
-    assert "You are the implementer" in i and ".flowrunner/i.md" in i
-    assert "You are the reviewer" in r and "do not implement or fix" in r and ".flowrunner/r.md" in r
+    assert "You are the decomposer" in d and "you do not implement" in d and "handoffs/NNN-<step>.md" in d
+    assert "at most 12 tool calls" in d and "END-REPORT.md" in d
+    assert "You are the implementer" in i and "results/NNN-<step>.md" in i
+    assert "You are the reviewer" in r and "do not implement or fix" in r and "verdicts/NNN-<step>.md" in r

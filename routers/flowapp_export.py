@@ -256,6 +256,17 @@ def _flowapp_identifier(flow_key: str) -> str:
     return slug or "flowapp"
 
 
+def _flowapp_family(flow_key: str) -> str:
+    """Family number of a two-flow family key (``2000-02-ELOOP`` -> ``2000``).
+
+    Both flows of a family carry the same value, so FlowRunner keeps their
+    planning artefacts (drafts, promoted runs, handoffs, verdicts) in one tree
+    under ``<target-repo>/.flowrunner/<family>/``. Other keys yield "".
+    """
+    m = _FAMILY_FLOW_KEY.match(flow_key or "")
+    return m.group(1) if m else ""
+
+
 def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | None,
                         bridge_dir: str, from_role: str = "") -> str:
     """Execution-context notice prepended to every exported governance file.
@@ -264,64 +275,78 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
     bridge_broker, RUN-LEDGER, tmux, the flows directory). Under FlowRunner
     none of that exists — and when the target repository IS DPMtF-WebUI the
     scripts do exist, so a role following its file literally will probe the
-    live chain (observed 2026-09-11: an exported decomposer ran
-    bridge_broker.py --help and tmux ls inside the DPMtF checkout). The
-    notice puts those parts out of force and states the FlowRunner handoff
-    contract: files in <workspace>/.flowrunner/, finishing = done.
+    live chain (observed 2026-09-11). The notice puts those parts out of force
+    and states the FlowRunner contract (SCOPE-ADDENDUM-RUN-STRUCTURE): every
+    path the role reads or writes is named in its STEP INPUT, which FlowRunner
+    generates from the run directory under ``.flowrunner/<family>/runs/NNN/``;
+    finishing the turn is the completion signal. The role rules that used to
+    live in the instance task (one handoff per cycle, END-REPORT closes the
+    run, budget, no rehearsal, no commit) live here now.
     """
-    prev_line = (
-        f"- The previous step (`{prev_key}`) left its deliverable at "
-        f"`.flowrunner/{prev_key}.md`; read it first.\n"
-        if prev_key else
-        "- You are the first step: your input is the task text below and the repository itself.\n"
-    )
-    next_line = (
-        f"- Finishing your turn is the completion signal; the next step (`{next_key}`) "
-        f"starts automatically and reads `.flowrunner/{step_key}.md`.\n"
-        if next_key else
-        "- You are the last step: finishing your turn completes the run; your final message is the result.\n"
-    )
     role = (from_role or "").lower()
     if "decomposer" in role:
-        role_line = (
-            "- **You are the decomposer, addressed by name: you do not implement.** Your ONLY "
-            f"write is `.flowrunner/{step_key}.md` (the handoff). Any other file created or "
-            "changed under the repository root is a role breach that the reviewer rejects — a "
-            "strong model that 'just does the work' fails this run.\n"
+        role_block = (
+            "- **You are the decomposer, addressed by name: you do not implement.** Each turn "
+            "you write EXACTLY ONE file, at the path your STEP INPUT names: either the next "
+            "handoff (`handoffs/NNN-<step>.md`, one work package for the implementer, in your "
+            "governance's handoff format: role, task with concrete files and changes, scope "
+            "fence copied from the GOAL, acceptance criteria copied verbatim from the GOAL's "
+            "testgoals) or `END-REPORT.md` when every acceptance criterion of the GOAL is met "
+            "by the work already on the tree. Writing neither fails the run; writing anything "
+            "else in the repository is a role breach the reviewer rejects.\n"
+            "- On a later cycle read the previous verdict first; a REJECTED verdict means the "
+            "next handoff carries the corrections, not a rewrite of what passed.\n"
+            "- Budget: at most 12 tool calls; no pytest, no rehearsal of the criteria, no "
+            "exploration beyond the GOAL, CLAUDE.md, the previous verdict and the files the "
+            "fence names. Write the file, summarise it in your final message, stop.\n"
         )
     elif "review" in role:
-        role_line = (
+        role_block = (
             "- **You are the reviewer, addressed by name: you do not implement or fix.** Your "
-            f"ONLY write is `.flowrunner/{step_key}.md` (the verdict, with the evidence you "
-            "measured yourself); the repository stays as the implementer left it.\n"
+            "ONLY write is the verdict file your STEP INPUT names (`verdicts/NNN-<step>.md`): "
+            "APPROVED or REJECTED, with the evidence you measured yourself against the working "
+            "tree — never against the result's prose. The repository stays as the implementer "
+            "left it. After your turn the decomposer runs again and reads your verdict.\n"
         )
     elif "implement" in role:
-        role_line = (
+        role_block = (
             "- **You are the implementer, addressed by name:** you change exactly what the "
-            "handoff names, inside its scope fence, and record what you did in "
-            f"`.flowrunner/{step_key}.md`.\n"
+            "handoff names, inside its scope fence, run its acceptance criteria, and record "
+            "what you did with the measured evidence in the result file your STEP INPUT names "
+            "(`results/NNN-<step>.md`). A missing result file fails the run.\n"
+        )
+    elif "planning" in role or "supervisor" in role:
+        role_block = (
+            "- **You are the planning supervisor, addressed by name: you do not implement and "
+            "you do not promote.** You read `SCOPE.md` in the planning tree your STEP INPUT "
+            "names and write goal drafts as `goals/GOAL-DRAFT-NNN.md` (the next free number), "
+            "each sized for one execution run, with `> Depends on:` lines naming earlier "
+            "drafts and ```testgoals that parse. Questions for the Human go to `backlog.md`. "
+            "Promotion (`runs/NNN/GOAL.md`) is the Human's act in the FlowRunner desktop.\n"
         )
     else:
-        role_line = ""
+        role_block = ""
     return (
         "## FlowRunner execution context (prepended by the DPMtF exporter)\n\n"
         "You are running under **FlowRunner**, not under the DPMtF bridge. Everything in "
         "this file about the bridge does NOT apply and must not be attempted: no "
         "`dispatch.py`, no `bridge_broker.py`, no signal-send/signal-complete, no "
-        "materialize/promote-goal, no RUN-LEDGER or END-REPORT under a flows directory, "
-        "no bridge database tables, no bridge-related mcp-light tools, no tmux sessions, "
-        f"and never any path under the DPMtF bridge directory (`{bridge_dir}` on the "
-        "exporting machine; it does not exist elsewhere).\n\n"
+        "materialize/promote-goal, no bridge database tables, no bridge-related mcp-light "
+        "tools, no tmux sessions, and never any path under the DPMtF bridge directory "
+        f"(`{bridge_dir}` on the exporting machine; it does not exist elsewhere).\n\n"
         "- Your workspace is the target repository you were started in. Stay inside it: "
         "never read or modify other projects, other tools' sessions, or DPMtF's database "
         "(`databases/dpmtf.db`), even if the repository is DPMtF itself.\n"
-        f"{prev_line}"
-        f"{role_line}"
-        f"- Your deliverable is what you write into the workspace. Write your handoff / "
-        f"result / verdict to `.flowrunner/{step_key}.md` in the format this file "
-        f"prescribes, and summarise it in your final message.\n"
-        f"{next_line}"
-        "- Do not commit or push unless the task text explicitly grants it.\n\n"
+        "- **Every path you read or write is named in the STEP INPUT after the divider "
+        "below** — the GOAL, the run directory under `.flowrunner/<family>/runs/NNN/`, the "
+        "previous deliverables and your own deliverable. Use those paths exactly; never "
+        "invent `goals/`, `runs/`, `RUN-LEDGER.md` or `END-REPORT.md` locations of your own. "
+        "`RUN-LEDGER.md` is written by FlowRunner, not by you.\n"
+        f"{role_block}"
+        "- Finishing your turn is the completion signal: the next step starts automatically. "
+        "Summarise your deliverable in your final message.\n"
+        "- Do not commit or push unless the note in your STEP INPUT explicitly grants it. "
+        "Do not ask questions; state assumptions in your deliverable.\n\n"
         "---\n\n"
     )
 
@@ -442,6 +467,10 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             "identifier": _flowapp_identifier(flow_row["flow_key"]),
             "name": flow_row.get("name") or flow_row["flow_key"],
             "version": "1.0.0",
+            # The family groups the planning loop and the execution loop it
+            # feeds under one planning tree in the target repository
+            # (FlowRunner SCOPE-ADDENDUM-RUN-STRUCTURE); "" for other flows.
+            "family": _flowapp_family(flow_row["flow_key"]),
         },
         "schema_version": "1.0.0",
         "secrets": {"required": required_secrets, "optional": []},
