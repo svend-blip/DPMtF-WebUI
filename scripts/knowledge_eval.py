@@ -84,6 +84,25 @@ def _count_retrieval_events(conn):
         return 0
 
 
+def _count_run_retrieval_events(conn, run_dir):
+    """Return the number of knowledge_retrieval_log rows for a run directory.
+
+    The run directory's basename is used as the ``run_id``. The query is
+    read-only and parameterized; a missing connection, table, or database is
+    the zero state rather than a crash or a created file.
+    """
+    if conn is None:
+        return 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_retrieval_log WHERE run_id = ?",
+            (Path(run_dir).name,),
+        ).fetchone()
+        return int(row[0])
+    except sqlite3.OperationalError:
+        return 0
+
+
 def _available_execution_columns(conn):
     """Return the set of column names in the available execution-ish tables.
 
@@ -109,16 +128,18 @@ def _available_execution_columns(conn):
 
 
 def _metric_values(available_columns):
-    """Return the six §8 comparison metrics, zero in the empty state.
+    """Return only the §8 comparison metrics present in ``available_columns``.
 
     A metric is reported from an execution record only when a usable column
     exists AND the commissioned comparison defines how to aggregate and
     attribute it. In this checkout neither condition holds for any of the six,
-    so every value is 0. ``available_columns`` is the evidence for that
-    absence: it is computed from PRAGMA table_info over the execution-ish
-    tables and contains none of the six metric names here.
+    so every returned value is 0. ``available_columns`` is the evidence for
+    that absence: it is computed from PRAGMA table_info over the
+    execution-ish tables and contains none of the six metric names here.
+    Columns absent from ``available_columns`` are omitted from the returned
+    dict so callers can tell presence from a zero measurement.
     """
-    return {metric: 0 for metric in METRIC_HEADINGS}
+    return {metric: 0 for metric in METRIC_HEADINGS if metric in available_columns}
 
 
 def _print_report(retrieval_events, metric_values):
@@ -129,21 +150,21 @@ def _print_report(retrieval_events, metric_values):
         arm_events = retrieval_events if arm == "with_retrieval" else 0
         lines.append(f"retrieval_events {arm_events}")
         for metric in METRIC_HEADINGS:
-            lines.append(f"{metric} {metric_values[metric]}")
+            lines.append(f"{metric} {metric_values.get(metric, 0)}")
     lines.append("commissioning_procedure")
     lines.append(COMMISSIONING_PROCEDURE)
     print("\n".join(lines))
 
 
-def _print_run_report(with_metrics, without_metrics):
+def _print_run_report(with_metrics, without_metrics, with_events, without_events):
     """Print the comparison report from two measured run directories."""
     lines = []
-    for arm, metrics in (
-        ("with_retrieval", with_metrics),
-        ("without_retrieval", without_metrics),
+    for arm, metrics, events in (
+        ("with_retrieval", with_metrics, with_events),
+        ("without_retrieval", without_metrics, without_events),
     ):
         lines.append(arm)
-        lines.append("retrieval_events 0")
+        lines.append(f"retrieval_events {events}")
         for metric in METRIC_HEADINGS:
             lines.append(f"{metric} {metrics[metric]}")
     lines.append("commissioning_procedure")
@@ -187,7 +208,22 @@ def main(argv=None):
         if args.without_run is not None
         else zero_metrics
     )
-    _print_run_report(with_metrics, without_metrics)
+    conn = _open_readonly(config.get_db_path())
+    try:
+        with_events = (
+            _count_run_retrieval_events(conn, args.with_run)
+            if args.with_run is not None
+            else 0
+        )
+        without_events = (
+            _count_run_retrieval_events(conn, args.without_run)
+            if args.without_run is not None
+            else 0
+        )
+    finally:
+        if conn is not None:
+            conn.close()
+    _print_run_report(with_metrics, without_metrics, with_events, without_events)
     return 0
 
 

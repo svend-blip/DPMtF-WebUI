@@ -176,3 +176,56 @@ def test_missing_db_file_yields_empty_report(tmp_path, monkeypatch, capsys):
     assert "without_retrieval\nretrieval_events 0" in out
     for metric in METRIC_HEADINGS:
         assert f"{metric} 0" in out
+
+
+def test_retrieval_events_are_counted_from_the_log_table(temp_db, tmp_path, capsys):
+    with_dir = tmp_path / "014"
+    without_dir = tmp_path / "013"
+    with_dir.mkdir()
+    without_dir.mkdir()
+
+    conn = sqlite3.connect(temp_db)
+    try:
+        conn.execute(
+            "INSERT INTO knowledge_retrieval_log "
+            "(provider, scope, query, result_count, sources, "
+            " retrieved_token_count, retrieval_duration_ms, "
+            " agent_role, run_id, handoff_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "test-provider",
+                "test-scope",
+                "query 1",
+                1,
+                "[]",
+                10,
+                5,
+                "implementer",
+                "014",
+                "handoff-1",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert (
+        knowledge_eval.main(
+            ["--with-run", str(with_dir), "--without-run", str(without_dir)]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "with_retrieval\nretrieval_events 1" in out
+    assert "without_retrieval\nretrieval_events 0" in out
+
+
+def test_metric_values_honor_available_columns():
+    assert knowledge_eval._metric_values(set()) == {}
+    assert knowledge_eval._metric_values({"tool_calls", "tokens"}) == {
+        "tool_calls": 0,
+        "tokens": 0,
+    }
+    assert knowledge_eval._metric_values(set(METRIC_HEADINGS)) == {
+        metric: 0 for metric in METRIC_HEADINGS
+    }
