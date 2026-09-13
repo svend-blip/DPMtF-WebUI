@@ -36,13 +36,16 @@ async def search_knowledge(
     agent_role: str | None = None,
     run_id: str | None = None,
     handoff_id: str | None = None,
+    flow_key: str | None = None,
 ):
     """Search the configured knowledge provider and record the retrieval.
 
     Disabled mode (``knowledge.enabled`` false, or configured provider
     ``none``) returns the stable disabled envelope and writes no log row.
     Enabled mode resolves the configured provider, searches it, and
-    appends one ``knowledge_retrieval_log`` row. ``top_k`` and
+    appends one ``knowledge_retrieval_log`` row. The optional ``flow_key`` is
+    passed to the scope guard for grant matching and is not recorded in the
+    retrieval log. ``top_k`` and
     ``token_budget`` fall back to the configured values and are then
     clamped to the configured ceilings, so a caller may lower them but
     never raise them; the returned list is still defensively truncated
@@ -74,7 +77,7 @@ async def search_knowledge(
         scope_guard.require_scope_access(
             scope,
             agent_role=agent_role,
-            flow_key=None,
+            flow_key=flow_key,
         )
     except scope_guard.ScopeAccessDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

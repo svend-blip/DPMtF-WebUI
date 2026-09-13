@@ -136,7 +136,7 @@ def _load_knowledge_fragment(filename):
     return result
 
 
-def _append_retrieval_block(lines, query, scope, agent_role, run_id, handoff_id):
+def _append_retrieval_block(lines, query, scope, agent_role, run_id, handoff_id, flow_key: str | None = None):
     """Append the supplemental retrieval block below every authoritative section.
 
     Guarded by config.get_knowledge_enabled() so disabled mode never calls
@@ -147,7 +147,10 @@ def _append_retrieval_block(lines, query, scope, agent_role, run_id, handoff_id)
     if not config.get_knowledge_enabled():
         return
     try:
-        block = retrieval.retrieve_for_context(query, scope, agent_role, run_id, handoff_id)
+        if flow_key:
+            block = retrieval.retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key)
+        else:
+            block = retrieval.retrieve_for_context(query, scope, agent_role, run_id, handoff_id)
     except Exception as exc:
         logger.error("knowledge retrieval failed for flow %s: %s", scope, exc)
         return
@@ -390,6 +393,7 @@ async def compile_prompt(request: Request):
             agent_role=role_name,
             run_id="",
             handoff_id=handoff_id,
+            flow_key=flow_key,
         )
 
         prompt = "\n".join(lines)
@@ -517,6 +521,7 @@ async def compile_prompt(request: Request):
         agent_role=role_name,
         run_id="",
         handoff_id=handoff_id,
+        flow_key=flow_key,
     )
 
     prompt = "\n".join(lines)

@@ -11,8 +11,12 @@ The rule is small and deliberately conservative:
   and need no grant.
 * Internal scopes (``"dpmtf"`` and anything beginning ``"dpmtf-"``) default to
   denied. They are DPMtF-internal development memory, and a caller may read
-  them only when the Human has recorded an explicit grant row for the exact
-  triple in the ``knowledge_scope_grants`` table.
+  them only when the Human has recorded an explicit grant row in the
+  ``knowledge_scope_grants`` table.
+* A grant row matches ``scope`` and ``agent_role`` exactly. Its ``flow_key``
+  is a wildcard when NULL (it matches any caller flow) and an exact filter
+  when not NULL (it matches only that flow). Absence of any matching grant
+  still denies.
 * A missing or unreadable database is treated as "no grants": internal scopes
   are denied and the guard never creates or writes a database file.
 """
@@ -67,9 +71,12 @@ def can_access_scope(scope, *, agent_role=None, flow_key=None, db_path=None) -> 
     """Return True when the (scope, agent_role, flow_key) triple may be read.
 
     Non-internal scopes are always allowed, without touching the database.
-    Internal scopes require an explicit, exact-match grant row in
-    ``knowledge_scope_grants``; a missing or unreadable database means no
-    grants exist, so access is denied and no database file is ever created.
+    Internal scopes require an explicit grant row in ``knowledge_scope_grants``
+    matching ``scope`` and ``agent_role`` exactly; a grant row whose
+    ``flow_key`` is NULL is a wildcard that matches any caller flow, while a
+    non-NULL grant ``flow_key`` matches only that flow. A missing or
+    unreadable database means no grants exist, so access is denied and no
+    database file is ever created.
     """
     if not is_internal_scope(scope):
         return True
@@ -86,7 +93,8 @@ def can_access_scope(scope, *, agent_role=None, flow_key=None, db_path=None) -> 
         conn = sqlite3.connect(db_uri + "?mode=ro", uri=True)
         row = conn.execute(
             "SELECT 1 FROM knowledge_scope_grants"
-            " WHERE scope = ? AND agent_role = ? AND flow_key = ?"
+            " WHERE scope = ? AND agent_role = ?"
+            " AND (flow_key = ? OR flow_key IS NULL)"
             " LIMIT 1",
             (scope, agent_role, flow_key),
         ).fetchone()

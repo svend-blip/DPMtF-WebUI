@@ -4,7 +4,9 @@ These tests prove the guard's exact-match contract and the two call sites'
 wiring:
 
 * internal scopes default to deny without an explicit grant;
-* an exact ``(scope, agent_role, flow_key)`` grant allows;
+* ``scope`` and ``agent_role`` match exactly; a grant row whose ``flow_key``
+  is NULL is a wildcard on the flow dimension only and matches any caller
+  flow, while a non-NULL grant ``flow_key`` matches only that flow;
 * a grant recorded for another role does not allow;
 * non-internal scopes allow without any database access;
 * the enabled search endpoint returns 403 for a denied internal scope and
@@ -13,8 +15,10 @@ wiring:
   BEFORE provider resolution;
 * disabled mode returns the unchanged disabled envelope / ``None`` and never
   consults the guard or a provider;
-* a stored ``(scope, NULL, NULL)`` grant does NOT authorize a ``None`` /
-  ``None`` caller (SQLite ``NULL = ?`` never matches; default-deny).
+* a grant row whose ``agent_role`` is NULL does NOT authorize a
+  ``None``-role caller, even though the NULL ``flow_key`` wildcard would
+  otherwise relax the flow dimension (SQLite ``NULL = ?`` never matches;
+  default-deny).
 
 The file is provider-neutral: it imports only the neutral service layer and
 the guard, never a concrete provider, and ``sys.dont_write_bytecode`` is set
@@ -195,6 +199,10 @@ def test_disabled_mode_leaves_guard_unconsulted(
 
 
 def test_stored_null_grant_does_not_authorize_null_caller(knowledge_db):
+    # A grant whose agent_role is NULL authorizes no caller, even one that
+    # names no role: SQLite ``NULL = ?`` never matches for the role column,
+    # and the ``flow_key IS NULL`` wildcard only relaxes the flow dimension —
+    # never scope or agent_role.
     _insert_grant(knowledge_db, "dpmtf-webui", None, None)
     assert scope_guard.can_access_scope(
         "dpmtf-webui",
@@ -202,3 +210,109 @@ def test_stored_null_grant_does_not_authorize_null_caller(knowledge_db):
         flow_key=None,
         db_path=str(knowledge_db),
     ) is False
+
+    # Contrast: the same NULL flow_key is a wildcard once agent_role matches
+    # exactly, so this grant authorizes the same caller flow of ``None``.
+    _insert_grant(knowledge_db, "dpmtf-webui", "flow-app", None)
+    assert scope_guard.can_access_scope(
+        "dpmtf-webui",
+        agent_role="flow-app",
+        flow_key=None,
+        db_path=str(knowledge_db),
+    ) is True
+
+
+def test_wildcard_grant_matches_any_flow(knowledge_db, tmp_path):
+    _insert_grant(knowledge_db, "dpmtf-webui", "flow-app", None)
+    assert scope_guard.can_access_scope(
+        "dpmtf-webui",
+        agent_role="flow-app",
+        flow_key="2000",
+        db_path=str(knowledge_db),
+    ) is True
+    assert scope_guard.can_access_scope(
+        "dpmtf-webui",
+        agent_role="flow-app",
+        flow_key="2001",
+        db_path=str(knowledge_db),
+    ) is True
+
+    # A non-NULL grant flow_key stays exact: use a separate DB so the
+    # wildcard row above cannot keep the door open for the other flow.
+    exact_db = tmp_path / "exact_grant.db"
+    _build_knowledge_db(exact_db)
+    _insert_grant(exact_db, "dpmtf-webui", "flow-app", "2000")
+    assert scope_guard.can_access_scope(
+        "dpmtf-webui",
+        agent_role="flow-app",
+        flow_key="2000",
+        db_path=str(exact_db),
+    ) is True
+    assert scope_guard.can_access_scope(
+        "dpmtf-webui",
+        agent_role="flow-app",
+        flow_key="2001",
+        db_path=str(exact_db),
+    ) is False
+
+
+def test_unauthorized_internal_scope_is_still_denied(knowledge_db):
+    _insert_grant(knowledge_db, "dpmtf-webui", "flow-app", "2000")
+    assert scope_guard.can_access_scope(
+        "dpmtf-webui",
+        agent_role="flow-app",
+        flow_key="2001",
+        db_path=str(knowledge_db),
+    ) is False
+
+
+def test_authorized_internal_search_returns_results(
+    client, knowledge_db, monkeypatch
+):
+    _insert_grant(knowledge_db, "dpmtf-webui", "flow-app", None)
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 3)
+    monkeypatch.setattr(
+        config, "get_knowledge_max_context_tokens", lambda: 12000
+    )
+
+    class _StubProvider:
+        def __init__(self):
+            self.results = [{"path": "notes.md", "content": "alpha beta"}]
+
+        def search(self, query, scope=None, top_k=None, token_budget=None):
+            return list(self.results)
+
+    monkeypatch.setattr(
+        knowledge_search, "resolve_provider", lambda name: _StubProvider
+    )
+
+    response = client.get(
+        "/api/knowledge/search",
+        params={
+            "q": "x",
+            "scope": "dpmtf-webui",
+            "agent_role": "flow-app",
+            "flow_key": "2000",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["provider"] == "stub"
+    assert body["results"] == [{"path": "notes.md", "content": "alpha beta"}]
+    assert body["bounded"] is True
+
+    conn = sqlite3.connect(str(knowledge_db))
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT scope, result_count FROM knowledge_retrieval_log"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert len(rows) == 1
+    assert rows[0]["scope"] == "dpmtf-webui"
+    assert rows[0]["result_count"] == 1

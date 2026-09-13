@@ -62,7 +62,7 @@ def _record_retrieval(
         )
 
 
-def retrieve_for_context(query, scope, agent_role, run_id, handoff_id):
+def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key: str | None = None):
     """Return a bounded, marked supplemental knowledge block, or None when disabled.
 
     The returned block is plain en-US text. It is supplemental context only:
@@ -80,6 +80,11 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id):
     ``retrieval_log.record_retrieval`` carrying ``agent_role``, ``run_id``,
     and ``handoff_id``. Logging failures are logged at ERROR and never break
     compilation.
+
+    ``flow_key`` is optional and only used for scope-grant matching: a grant
+    row whose ``flow_key`` is NULL is a wildcard that matches any caller flow,
+    while a non-NULL grant ``flow_key`` matches only that flow. ``agent_role``
+    and ``scope`` still match exactly, and absence of any grant still denies.
     """
     if not config.get_knowledge_enabled():
         return None
@@ -95,7 +100,7 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id):
         scope_guard.require_scope_access(
             scope,
             agent_role=agent_role,
-            flow_key=None,
+            flow_key=flow_key,
         )
     except scope_guard.ScopeAccessDenied:
         return None
