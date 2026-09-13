@@ -74,6 +74,16 @@ def _tripwire(_name):
     raise AssertionError("resolve_provider must not be called on this path")
 
 
+class IndexRecordingProvider:
+    """Provider stand-in with an ``index`` call recorder."""
+
+    def __init__(self):
+        self.index_calls = []
+
+    def index(self, source):
+        self.index_calls.append(source)
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 
@@ -107,6 +117,15 @@ def knowledge_client(knowledge_db):
         mp.undo()
 
 
+@pytest.fixture()
+def knowledge_index_dir(tmp_path, monkeypatch):
+    """Point the index dir at a fresh temp directory for one test."""
+    index_dir = tmp_path / "knowledge_index"
+    index_dir.mkdir()
+    monkeypatch.setattr(config, "get_knowledge_index_dir", lambda: str(index_dir))
+    return index_dir
+
+
 @pytest.fixture(autouse=True)
 def _clean_retrieval_log(knowledge_db):
     """Start every test with an empty append-only log."""
@@ -137,6 +156,20 @@ def _stub_config(monkeypatch, *, enabled, provider, top_k, token_budget):
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: top_k)
     monkeypatch.setattr(
         config, "get_knowledge_max_context_tokens", lambda: token_budget
+    )
+
+
+def _write_manifest_record(path, scope, rel_path, content):
+    """Write one JSONL manifest record in the indexer's key set."""
+    path.write_text(
+        json.dumps({
+            "scope": scope,
+            "path": rel_path,
+            "content": content,
+            "size_bytes": len(content.encode("utf-8")),
+            "indexed_at": "2026-09-12T00:00:00+00:00",
+        }, ensure_ascii=False) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -397,3 +430,104 @@ def test_connect_failure_is_a_logged_500(knowledge_client, knowledge_db, monkeyp
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to record knowledge retrieval"
     assert _log_rows(knowledge_db) == []
+
+
+# ── GOAL-DRAFT-021: POST /api/knowledge/refresh ─────────────────────────
+
+
+def test_refresh_rejects_missing_repo_path(
+    knowledge_client, knowledge_db, knowledge_index_dir, tmp_path, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+    monkeypatch.setattr(knowledge_search, "resolve_provider", _tripwire)
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": str(tmp_path / "does-not-exist")},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "repo_path must be an existing directory"
+
+
+def test_refresh_noop_when_manifest_unchanged(
+    knowledge_client, knowledge_db, knowledge_index_dir, tmp_path, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("hello", encoding="utf-8")
+
+    manifest = knowledge_index_dir / "s.jsonl"
+    _write_manifest_record(manifest, "s", "a.txt", "hello")
+
+    provider = IndexRecordingProvider()
+    monkeypatch.setattr(
+        knowledge_search, "resolve_provider", lambda name: _factory_returning(provider)
+    )
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": str(repo)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "noop",
+        "manifest": str(manifest.resolve()),
+    }
+    assert provider.index_calls == []
+
+
+def test_refresh_reindexes_when_manifest_changed(
+    knowledge_client, knowledge_db, knowledge_index_dir, tmp_path, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("new", encoding="utf-8")
+
+    manifest = knowledge_index_dir / "s.jsonl"
+    _write_manifest_record(manifest, "s", "a.txt", "old")
+
+    provider = IndexRecordingProvider()
+    monkeypatch.setattr(
+        knowledge_search, "resolve_provider", lambda name: _factory_returning(provider)
+    )
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": str(repo)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "reindexed",
+        "documents": 1,
+        "manifest": str(manifest.resolve()),
+    }
+    assert provider.index_calls == [str(manifest.resolve())]
+
+    conn = sqlite3.connect(knowledge_db)
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT provider, document_count, status, location "
+            "FROM knowledge_indexes WHERE scope = ?",
+            ("s",),
+        ).fetchone()
+        assert row is not None
+        assert row["provider"] == "stub"
+        assert row["document_count"] == 1
+        assert row["status"] == "changed"
+        assert row["location"] == str(manifest.resolve())
+    finally:
+        conn.close()

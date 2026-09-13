@@ -63,3 +63,24 @@ file demonstrates the mechanism and satisfies TG3 rather than newly
 excluding trees the defaults already exclude.
 
 The `.knowledgeignore` control file itself is excluded from indexing by default (it is in `_DEFAULT_EXCLUDED_NAMES`), so a repository scan never emits the control file as a document.
+
+## Refreshing an index
+
+`POST /api/knowledge/refresh` re-runs the indexer and the configured provider
+for one scope. The body is `{"scope": "<name>", "repo_path": "<existing dir>"}`.
+
+When knowledge is disabled the endpoint returns the search endpoint's disabled
+envelope (`enabled: false`, `results: []`, `bounded: true`) without touching
+the indexer, provider, or database.
+
+Otherwise it compares the repository against the existing manifest first. An
+unchanged repository returns `{"status": "noop", "manifest": "<index_dir>/<scope>.jsonl"}`
+without calling the provider. A changed or missing manifest re-indexes and
+returns `{"status": "reindexed", "documents": N, "manifest": "<index_dir>/<scope>.jsonl"}`.
+The manifest lives under `config.get_knowledge_index_dir()`.
+
+curl shape:
+
+    curl -sS -X POST http://127.0.0.1:8000/api/knowledge/refresh \
+      -H 'Content-Type: application/json' \
+      -d '{"scope": "dpmtf-webui", "repo_path": "/absolute/path/to/repo"}'

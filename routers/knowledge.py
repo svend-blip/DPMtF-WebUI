@@ -11,12 +11,18 @@ provider can never make the endpoint exceed the configured result bound.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 import config
+from knowledge import indexer as knowledge_indexer
+from knowledge import maintenance as knowledge_maintenance
 from knowledge import search as knowledge_search
 from knowledge import retrieval_log
 from knowledge import scope_guard
@@ -25,6 +31,48 @@ from knowledge import scope_guard
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
 logger = logging.getLogger(__name__)
+
+
+class RefreshRequest(BaseModel):
+    """Body for POST /api/knowledge/refresh."""
+
+    scope: str
+    repo_path: str
+
+
+def _stderr_from_system_exit(exc: SystemExit) -> str:
+    """Return the error text a ``_fail`` call printed before ``SystemExit``.
+
+    ``knowledge.maintenance`` and ``knowledge.indexer`` report fatal errors by
+    printing to stderr and then raising ``SystemExit(1)``. The refresh
+    endpoint turns that into an HTTP 400 with the captured message instead of
+    letting the traceback (or an empty detail) reach the client.
+    """
+    try:
+        message = str(exc)
+    except Exception:
+        message = ""
+    if message:
+        return message
+    return "operation failed"
+
+
+def _run_capturing_stderr(func, *args):
+    """Run ``func`` with stderr captured and return ``(ok, message)``.
+
+    ``message`` is the captured stderr (stripped) on failure and the
+    captured stderr (possibly empty, e.g. the indexer's ``indexed N
+    document(s)`` report) on success.
+    """
+    stream = io.StringIO()
+    with contextlib.redirect_stderr(stream):
+        try:
+            result = func(*args)
+        except SystemExit as exc:
+            captured = stream.getvalue().strip()
+            return False, captured or _stderr_from_system_exit(exc)
+    captured = stream.getvalue().strip()
+    return True, (result, captured)
 
 
 @router.get("/search")
@@ -115,4 +163,131 @@ async def search_knowledge(
         "provider": provider_key,
         "results": results,
         "bounded": True,
+    }
+
+
+@router.post("/refresh")
+async def refresh_knowledge(body: RefreshRequest):
+    """Re-index a scope when its repository changed since the last index.
+
+    Maintenance-only endpoint: it performs no scope-guard check and writes no
+    ``knowledge_retrieval_log`` row. The existing manifest is compared before
+    any new manifest is written, so a ``noop`` plan never touches the
+    provider or the ``knowledge_indexes`` table.
+    """
+    provider_key = config.get_knowledge_provider()
+
+    # Disabled short-circuit first: mirror the search endpoint's envelope and
+    # do no validation, no indexer call, no provider call, no DB write.
+    if not config.get_knowledge_enabled() or provider_key == "none":
+        return {
+            "enabled": False,
+            "provider": provider_key,
+            "results": [],
+            "bounded": True,
+        }
+
+    repo_path = Path(body.repo_path).expanduser().resolve()
+    if not repo_path.exists() or not repo_path.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail="repo_path must be an existing directory",
+        )
+
+    scope = body.scope.strip()
+    if not scope:
+        raise HTTPException(status_code=400, detail="scope must not be empty")
+
+    index_dir = Path(config.get_knowledge_index_dir())
+    try:
+        index_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"cannot create index dir: {exc}"
+        ) from exc
+
+    manifest_path = (index_dir / f"{scope}.jsonl").resolve()
+    if manifest_path.is_relative_to(repo_path):
+        raise HTTPException(
+            status_code=400,
+            detail="manifest must be outside repo_path",
+        )
+
+    # Detect against the existing manifest BEFORE any new manifest is written.
+    # The GOAL's prose order would compare the repo against a manifest the
+    # indexer just wrote, which can only ever be ``noop``.
+    try:
+        ok, message = _run_capturing_stderr(
+            knowledge_maintenance.detect_changes,
+            str(repo_path),
+            scope,
+            str(manifest_path),
+        )
+    except knowledge_indexer.RepoExclusionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"cannot compare manifest: {exc}"
+        ) from exc
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    plan, _detect_stderr = message
+
+    if plan.status == "noop":
+        return {
+            "status": "noop",
+            "manifest": str(manifest_path),
+        }
+
+    try:
+        ok, message = _run_capturing_stderr(
+            knowledge_indexer.main,
+            ["--repo", str(repo_path), "--scope", scope, "--out", str(manifest_path)],
+        )
+    except knowledge_indexer.RepoExclusionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SystemExit as exc:
+        raise HTTPException(status_code=400, detail=str(exc) or "indexing failed") from exc
+    if not ok:
+        raise HTTPException(status_code=400, detail=message or "indexing failed")
+
+    try:
+        with manifest_path.open("r", encoding="utf-8") as handle:
+            document_count = sum(1 for line in handle if line.strip())
+    except OSError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"cannot read manifest: {exc}"
+        ) from exc
+
+    try:
+        provider_cls = knowledge_search.resolve_provider(provider_key)
+        provider = provider_cls()
+        provider.index(str(manifest_path))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"provider rejected the index: {exc}",
+        ) from exc
+
+    try:
+        knowledge_maintenance.record_index(
+            scope,
+            provider_key,
+            str(manifest_path),
+            document_count,
+            plan.status,
+        )
+    except Exception as exc:
+        detail = str(exc) or "failed to record index"
+        raise HTTPException(status_code=400, detail=detail) from exc
+    except SystemExit as exc:
+        detail = str(exc) or "failed to record index"
+        raise HTTPException(status_code=400, detail=detail) from exc
+
+    return {
+        "status": "reindexed",
+        "documents": document_count,
+        "manifest": str(manifest_path),
     }

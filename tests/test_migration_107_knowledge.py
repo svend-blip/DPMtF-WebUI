@@ -17,11 +17,16 @@ the migration under test is applied to it by ``scripts/init_db.py``, not here.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import sqlite3
 import sys
 from pathlib import Path
+
+# First statements, before any project import: keep this test run from
+# writing new __pycache__/ entries inside the repository.
+sys.dont_write_bytecode = True
 
 import pytest
 
@@ -30,6 +35,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import migrate  # noqa: E402
+import config  # noqa: E402
+import knowledge.maintenance as maintenance  # noqa: E402
 
 MIGRATION_NAME = "107_knowledge_tables.sql"
 MIGRATION_PATH = PROJECT_ROOT / "scripts" / "db" / MIGRATION_NAME
@@ -276,7 +283,7 @@ def test_reapply_preserves_existing_rows(fresh_db):
         conn.execute(
             "INSERT INTO knowledge_indexes (scope, provider, location, "
             "document_count, status) VALUES (?, ?, ?, ?, ?)",
-            ("dpmtf-webui", "none", "knowledge_index/dpmtf-webui", 3, "ready"),
+            ("dpmtf-webui", "none", "knowledge_index/dpmtf-webui", 3, "missing"),
         )
         conn.execute(
             "INSERT INTO knowledge_exclusions (scope, pattern, kind, enabled) "
@@ -306,7 +313,7 @@ def test_reapply_preserves_existing_rows(fresh_db):
         assert index_row is not None, "re-apply dropped the index row"
         assert index_row["provider"] == "none"
         assert index_row["document_count"] == 3
-        assert index_row["status"] == "ready"
+        assert index_row["status"] == "missing"
         assert conn.execute(
             "SELECT COUNT(*) FROM knowledge_exclusions").fetchone()[0] == 1
         assert conn.execute(
@@ -357,26 +364,27 @@ def test_index_scope_is_unique(fresh_db):
     conn = _connect(fresh_db)
     try:
         conn.execute(
-            "INSERT INTO knowledge_indexes (scope, provider) VALUES (?, ?)",
-            ("harness-allocator", "none"),
+            "INSERT INTO knowledge_indexes (scope, provider, status) VALUES (?, ?, ?)",
+            ("harness-allocator", "none", "missing"),
         )
         conn.commit()
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
-                "INSERT INTO knowledge_indexes (scope, provider) VALUES (?, ?)",
-                ("harness-allocator", "none"),
+                "INSERT INTO knowledge_indexes (scope, provider, status) VALUES (?, ?, ?)",
+                ("harness-allocator", "none", "missing"),
             )
     finally:
         conn.close()
 
 
 def test_index_defaults_are_usable(fresh_db):
-    """A provider may register a scope without knowing counts or paths yet."""
+    """A provider may register a scope with an explicit lifecycle status while
+    location, document_count, and updated_at still default."""
     conn = _connect(fresh_db)
     try:
         conn.execute(
-            "INSERT INTO knowledge_indexes (scope, provider) VALUES (?, ?)",
-            ("flowrunner", "none"),
+            "INSERT INTO knowledge_indexes (scope, provider, status) VALUES (?, ?, ?)",
+            ("flowrunner", "none", "missing"),
         )
         conn.commit()
         row = conn.execute(
@@ -386,7 +394,7 @@ def test_index_defaults_are_usable(fresh_db):
         ).fetchone()
         assert row["location"] == ""
         assert row["document_count"] == 0
-        assert row["status"] == "unknown"
+        assert row["status"] == "missing"
         assert row["updated_at"], "updated_at must default to a timestamp"
     finally:
         conn.close()
@@ -574,3 +582,68 @@ def test_existing_schema_is_untouched(fresh_db):
     finally:
         conn.close()
     assert before <= after, f"migration removed tables: {before - after}"
+
+
+# ── GOAL-DRAFT-021: 110 status constraint ────────────────────────────────
+
+
+def test_unknown_status_is_rejected_by_trigger(fresh_db):
+    conn = _connect(fresh_db)
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO knowledge_indexes (scope, provider, status) "
+                "VALUES (?, ?, ?)",
+                ("unknown-status", "none", "unknown"),
+            )
+    finally:
+        conn.close()
+
+
+def test_cli_record_index_noop_is_allowed_on_migrated_db(
+    fresh_db, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(config, "get_db_path", lambda: fresh_db)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("hello", encoding="utf-8")
+
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        json.dumps({
+            "scope": "cli-noop",
+            "path": "a.txt",
+            "content": "hello",
+            "size_bytes": 5,
+            "indexed_at": "2026-09-12T00:00:00+00:00",
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    rc = maintenance.main([
+        "--repo", str(repo),
+        "--scope", "cli-noop",
+        "--manifest", str(manifest),
+        "--record-index",
+        "--provider", "none",
+        "--location", "cli-noop-index",
+        "--document-count", "1",
+    ])
+
+    assert rc == 0
+    assert "noop" in capsys.readouterr().out
+
+    conn = _connect(fresh_db)
+    try:
+        row = conn.execute(
+            "SELECT provider, document_count, status FROM knowledge_indexes "
+            "WHERE scope = ?",
+            ("cli-noop",),
+        ).fetchone()
+        assert row is not None
+        assert row["provider"] == "none"
+        assert row["document_count"] == 1
+        assert row["status"] == "noop"
+    finally:
+        conn.close()
