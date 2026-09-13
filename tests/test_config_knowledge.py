@@ -17,11 +17,19 @@ sys.path.insert(0, str(PROJECT_ROOT))
 import config  # noqa: E402
 
 
-def test_knowledge_disabled_by_default():
+def test_knowledge_disabled_by_default(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
     assert config.get_knowledge_enabled() is False
 
 
-def test_provider_defaults_to_none():
+def test_provider_defaults_to_none(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
     assert config.get_knowledge_provider() == "none"
 
 

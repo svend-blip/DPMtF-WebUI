@@ -31,10 +31,34 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from knowledge.provider import KnowledgeProvider  # noqa: E402
+from knowledge.provider import KnowledgeProvider, ProviderNotReady  # noqa: E402
 from knowledge.leann_provider import LeannProvider  # noqa: E402
 
 _LEANN_AVAILABLE = importlib.util.find_spec("leann") is not None
+
+
+def _fake_torch(ready: bool) -> object:
+    """Return a torch stand-in whose CUDA state is fixed for the test."""
+    import types
+
+    try:
+        import config as _config
+
+        min_mib = _config.get_knowledge_min_free_vram_mib()
+    except Exception:
+        min_mib = 4096
+
+    class _Cuda:
+        def is_available(self):
+            return ready
+
+        def mem_get_info(self):
+            free_bytes = min_mib * 1024 * 1024
+            if ready:
+                return (free_bytes, free_bytes * 4)
+            return (0, free_bytes * 4)
+
+    return types.SimpleNamespace(cuda=_Cuda())
 
 
 def _write_manifest(path: Path, records: list[dict]) -> None:
@@ -72,6 +96,7 @@ def test_interface_conformance_without_leann(monkeypatch, tmp_path):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _blocked_import)
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(True))
     try:
         module = importlib.import_module("knowledge.leann_provider")
         assert "leann" not in sys.modules
@@ -158,6 +183,7 @@ def test_live_index_search_roundtrip(monkeypatch, tmp_path):
         return np.zeros((len(texts), 8), dtype=np.float32)
 
     monkeypatch.setattr(leann_embedding, "compute_embeddings", _offline_embeddings)
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(True))
 
     records = [
         {
@@ -211,3 +237,31 @@ def test_live_index_search_roundtrip(monkeypatch, tmp_path):
     assert scoped
     assert {item["scope"] for item in scoped} == {"repoB"}
     assert {item["path"] for item in scoped} == {"b/three.md"}
+
+
+def test_live_roundtrip_is_hermetic_to_gpu_state(monkeypatch, tmp_path):
+    """A not-ready GPU must stop index() before any LEANN object exists.
+
+    ``preflight()`` is the first statement of ``index()``, so a CUDA
+    stand-in reporting ``is_available() == False`` must raise
+    ``ProviderNotReady`` before ``_import_leann`` — and therefore before any
+    ``LeannBuilder``, ``LeannSearcher`` or ``compute_embeddings`` call — can
+    be reached.
+    """
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(
+        manifest,
+        [{"scope": "s", "path": "p.md", "content": "hello world"}],
+    )
+
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(False))
+
+    def _no_leann_import():
+        raise AssertionError("LEANN import must not happen before preflight")
+
+    monkeypatch.setattr(
+        "knowledge.leann_provider._import_leann", _no_leann_import
+    )
+
+    with pytest.raises(ProviderNotReady):
+        LeannProvider().index(str(manifest))

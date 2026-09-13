@@ -281,6 +281,9 @@ def test_authorized_internal_search_returns_results(
         def __init__(self):
             self.results = [{"path": "notes.md", "content": "alpha beta"}]
 
+        def preflight(self):
+            return None
+
         def search(self, query, scope=None, top_k=None, token_budget=None):
             return list(self.results)
 
