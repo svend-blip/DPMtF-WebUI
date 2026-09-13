@@ -21,6 +21,7 @@ import config
 from knowledge import retrieval_log
 from knowledge import scope_guard
 from knowledge.search import resolve_provider
+from knowledge.provider import ProviderNotReady
 
 __all__ = ["retrieve_for_context"]
 
@@ -109,6 +110,12 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
     # imports or names any concrete provider.
     provider_cls = resolve_provider(provider_key)
     provider = provider_cls()
+    try:
+        provider.preflight()
+    except ProviderNotReady as exc:
+        logger.error("knowledge provider not ready for scope %s: %s", scope, exc)
+        return None
+
     started = time.perf_counter()
     results = provider.search(
         query,

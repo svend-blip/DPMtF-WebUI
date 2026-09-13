@@ -297,6 +297,15 @@ def get_knowledge_max_document_chars() -> int:
     return _config.getint("knowledge", "max_document_chars", fallback=20000)
 
 
+def get_knowledge_min_free_vram_mib() -> int:
+    """Minimum free GPU memory in MiB before knowledge retrieval may run.
+
+    LEANN recomputes passage embeddings on every search, so retrieval must
+    not run while a resident local model holds the GPU. Fallback 4096.
+    """
+    return _config.getint("knowledge", "min_free_vram_mib", fallback=4096)
+
+
 def get_knowledge_scope() -> str:
     """Scope of this checkout's own knowledge (dpmtf-webui default)."""
     return _config.get("knowledge", "scope", fallback="dpmtf-webui")

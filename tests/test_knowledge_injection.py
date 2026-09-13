@@ -9,6 +9,7 @@ import pytest
 import config
 import knowledge.retrieval as retrieval
 from knowledge.retrieval import retrieve_for_context
+from knowledge.provider import ProviderNotReady
 
 
 COMPILE_BODY = {
@@ -163,6 +164,9 @@ def test_enabled_none_block_leaves_prompt_byte_identical(client, monkeypatch):
 
 def test_token_budget_measured_on_rendered_block(monkeypatch):
     class StubProvider:
+        def preflight(self) -> None:
+            return None
+
         def search(self, query, scope=None, top_k=2, token_budget=40):
             # 3 oversized items; the service must truncate/trim to fit.
             return [
@@ -185,6 +189,9 @@ def test_token_budget_measured_on_rendered_block(monkeypatch):
 
 def test_empty_results_return_none(monkeypatch):
     class StubProvider:
+        def preflight(self) -> None:
+            return None
+
         def search(self, query, scope=None, top_k=8, token_budget=100):
             return []
 
@@ -208,6 +215,9 @@ def test_compile_records_one_retrieval_row(client, monkeypatch, tmp_path):
     stub_results = [{"path": "a.md", "content": "alpha beta gamma"}]
 
     class StubProvider:
+        def preflight(self) -> None:
+            return None
+
         def search(self, query, scope=None, top_k=None, token_budget=None):
             return list(stub_results)
 
@@ -353,6 +363,9 @@ def test_compile_queries_the_configured_scope_not_the_flow_key(client, seed_db, 
     search_seen = {}
 
     class StubProvider:
+        def preflight(self) -> None:
+            return None
+
         def search(self, query, scope=None, top_k=None, token_budget=None):
             search_seen["scope"] = scope
             return [{"path": "a.md", "content": "alpha beta gamma"}]
@@ -368,3 +381,40 @@ def test_compile_queries_the_configured_scope_not_the_flow_key(client, seed_db, 
     # Half 2: the flow key still reaches require_scope_access (run 019 contract).
     assert guard_seen["scope"] == "dpmtf-webui"
     assert guard_seen["flow_key"] == "test_flow"
+
+
+def test_retrieval_returns_none_and_logs_error_when_provider_not_ready(
+    monkeypatch, caplog
+):
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    # ``dpmtf-webui`` is an internal scope; bypass the grant DB so the test
+    # reaches provider.preflight() and pins the ProviderNotReady path only.
+    monkeypatch.setattr(
+        retrieval.scope_guard, "require_scope_access", lambda *a, **k: None
+    )
+
+    called = []
+    monkeypatch.setattr(
+        retrieval.retrieval_log, "record_retrieval", lambda **k: called.append(1)
+    )
+
+    class NotReadyProvider:
+        def preflight(self) -> None:
+            raise ProviderNotReady(
+                "knowledge provider not ready: no CUDA device is available"
+            )
+
+        def search(self, *args, **kwargs):
+            raise AssertionError("search must not run when preflight fails")
+
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: NotReadyProvider)
+
+    with caplog.at_level("ERROR", logger="knowledge.retrieval"):
+        result = retrieve_for_context("q", "dpmtf-webui", "a", "r", "h")
+
+    assert result is None
+    assert called == []  # no knowledge_retrieval_log row was written
+    assert "not ready" in caplog.text

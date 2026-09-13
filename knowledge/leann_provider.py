@@ -13,7 +13,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from knowledge.provider import KnowledgeProvider
+import config
+
+from knowledge.provider import KnowledgeProvider, ProviderNotReady
 
 __all__ = ["LeannProvider"]
 
@@ -94,6 +96,22 @@ class LeannProvider(KnowledgeProvider):
 
     # ── KnowledgeProvider interface ────────────────────────────────────
 
+    def preflight(self) -> None:
+        """Refuse to run when the GPU is absent or too busy for LEANN."""
+        import torch  # lazy: never at module scope
+        if not torch.cuda.is_available():
+            raise ProviderNotReady(
+                "knowledge provider not ready: no CUDA device is available"
+            )
+        free_mib = torch.cuda.mem_get_info()[0] // (1024 * 1024)
+        min_mib = config.get_knowledge_min_free_vram_mib()
+        if free_mib < min_mib:
+            raise ProviderNotReady(
+                "knowledge provider not ready: free GPU memory "
+                f"{free_mib} MiB is below the configured minimum {min_mib} MiB"
+            )
+        return None
+
     def index(self, source: str) -> None:
         """Index the JSONL manifest at ``source`` into a LEANN store.
 
@@ -101,6 +119,7 @@ class LeannProvider(KnowledgeProvider):
         repository) and each record's ``content`` is handed to LEANN's
         builder with ``scope`` and ``path`` kept in the passage metadata.
         """
+        self.preflight()
         records = self._read_manifest(source)
         leann = _import_leann()
         builder = self._new_builder(leann)
@@ -203,6 +222,7 @@ class LeannProvider(KnowledgeProvider):
         equality matches; entries whose value is already a mapping are passed
         through to LEANN's ``metadata_filters`` operator syntax unchanged.
         """
+        self.preflight()
         if self._index_path is None:
             raise RuntimeError(
                 "no LEANN index is available: call index() before search() "

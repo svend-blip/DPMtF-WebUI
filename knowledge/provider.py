@@ -11,8 +11,16 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
+class ProviderNotReady(Exception):
+    """Raised when a knowledge provider cannot run safely right now."""
+
+
 class KnowledgeProvider(ABC):
     """Abstract interface for a knowledge retrieval backend."""
+
+    def preflight(self) -> None:
+        """Check provider readiness; default providers are always ready."""
+        return None
 
     @abstractmethod
     def index(self, source: str) -> None:

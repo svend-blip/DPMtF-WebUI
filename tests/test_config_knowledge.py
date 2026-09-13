@@ -70,3 +70,7 @@ def test_knowledge_scope_getter_default(monkeypatch):
     monkeypatch.setattr(config, "_config", parser)
 
     assert config.get_knowledge_scope() == "dpmtf-webui"
+
+
+def test_min_free_vram_mib_default():
+    assert config.get_knowledge_min_free_vram_mib() == 4096

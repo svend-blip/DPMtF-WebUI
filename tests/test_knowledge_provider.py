@@ -11,10 +11,17 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from knowledge.provider import KnowledgeProvider, NoneProvider  # noqa: E402
+from knowledge.provider import (  # noqa: E402
+    KnowledgeProvider,
+    NoneProvider,
+    ProviderNotReady,
+)
+from knowledge.leann_provider import LeannProvider  # noqa: E402
 
 
 def test_knowledge_provider_is_abstract():
@@ -80,3 +87,56 @@ def test_leann_loader_uses_the_configured_index_dir(monkeypatch, tmp_path):
     provider = loader()
     assert isinstance(provider, FakeLeann)
     assert provider.index_path == str(tmp_path / "idx" / "custom-scope.leann")
+
+
+def test_preflight_default_is_ready():
+    assert NoneProvider().preflight() is None
+
+
+def test_leann_preflight_rejects_when_no_cuda(monkeypatch):
+    fake_torch = types.ModuleType("torch")
+    fake_torch.cuda = types.SimpleNamespace(
+        is_available=lambda: False,
+        mem_get_info=lambda: (0, 0),
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    provider = LeannProvider(index_path="/nonexistent/x.leann")
+    with pytest.raises(ProviderNotReady) as exc_info:
+        provider.preflight()
+    assert "no CUDA device is available" in str(exc_info.value)
+    assert "leann" not in sys.modules
+
+
+def test_leann_preflight_rejects_when_free_vram_below_threshold(monkeypatch):
+    fake_torch = types.ModuleType("torch")
+    fake_torch.cuda = types.SimpleNamespace(
+        is_available=lambda: True,
+        mem_get_info=lambda: (638 * 1024 * 1024, 8 * 1024**3),  # 638 MiB free
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(
+        "config.get_knowledge_min_free_vram_mib", lambda: 4096
+    )
+
+    provider = LeannProvider(index_path="/nonexistent/x.leann")
+    with pytest.raises(ProviderNotReady) as exc_info:
+        provider.preflight()
+    assert "below the configured minimum" in str(exc_info.value)
+    assert "leann" not in sys.modules
+
+
+def test_leann_preflight_passes_when_free_vram_sufficient(monkeypatch):
+    fake_torch = types.ModuleType("torch")
+    fake_torch.cuda = types.SimpleNamespace(
+        is_available=lambda: True,
+        mem_get_info=lambda: (8192 * 1024 * 1024, 16 * 1024**3),  # 8192 MiB free
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(
+        "config.get_knowledge_min_free_vram_mib", lambda: 4096
+    )
+
+    provider = LeannProvider(index_path="/nonexistent/x.leann")
+    assert provider.preflight() is None
+    assert "leann" not in sys.modules

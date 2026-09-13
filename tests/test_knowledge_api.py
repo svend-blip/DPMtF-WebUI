@@ -32,6 +32,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 import app  # noqa: E402
 import config  # noqa: E402
 from knowledge import search as knowledge_search  # noqa: E402
+from knowledge.provider import ProviderNotReady  # noqa: E402
 
 
 # ── Stub provider (enabled-path tests) ────────────────────────────────
@@ -43,6 +44,9 @@ class StubProvider:
     def __init__(self, results):
         self.results = list(results)
         self.calls = []
+
+    def preflight(self) -> None:
+        return None
 
     def search(self, query, scope=None, top_k=None, token_budget=None):
         self.calls.append(
@@ -79,6 +83,27 @@ class IndexRecordingProvider:
 
     def __init__(self):
         self.index_calls = []
+
+    def preflight(self) -> None:
+        return None
+
+    def index(self, source):
+        self.index_calls.append(source)
+
+
+class NotReadyProvider:
+    """Provider whose preflight fails and whose other methods tripwire."""
+
+    def __init__(self):
+        self.index_calls = []
+
+    def preflight(self) -> None:
+        raise ProviderNotReady(
+            "knowledge provider not ready: no CUDA device is available"
+        )
+
+    def search(self, *args, **kwargs):
+        raise AssertionError("search must not run when preflight fails")
 
     def index(self, source):
         self.index_calls.append(source)
@@ -531,3 +556,92 @@ def test_refresh_reindexes_when_manifest_changed(
         assert row["location"] == str(manifest.resolve())
     finally:
         conn.close()
+
+
+def test_search_returns_503_when_provider_not_ready(
+    knowledge_client, knowledge_db, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+    provider = NotReadyProvider()
+    monkeypatch.setattr(
+        knowledge_search, "resolve_provider",
+        lambda name: _factory_returning(provider),
+    )
+
+    response = knowledge_client.get(
+        "/api/knowledge/search", params={"q": "anything"}
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "knowledge provider not ready: no CUDA device is available"
+    )
+    assert _log_rows(knowledge_db) == []
+
+
+def test_refresh_returns_503_when_provider_not_ready(
+    knowledge_client, knowledge_db, knowledge_index_dir, tmp_path, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("new", encoding="utf-8")
+
+    manifest = knowledge_index_dir / "s.jsonl"
+    _write_manifest_record(manifest, "s", "a.txt", "old")  # changed -> reaches preflight
+
+    provider = NotReadyProvider()
+    monkeypatch.setattr(
+        knowledge_search, "resolve_provider",
+        lambda name: _factory_returning(provider),
+    )
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": str(repo)},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "knowledge provider not ready: no CUDA device is available"
+    )
+    assert provider.index_calls == []
+
+
+def test_refresh_preflights_before_indexing(
+    knowledge_client, knowledge_db, knowledge_index_dir, tmp_path, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("new", encoding="utf-8")
+
+    manifest = knowledge_index_dir / "s.jsonl"
+    _write_manifest_record(manifest, "s", "a.txt", "old")
+    # Pin the pre-refresh bytes so "unchanged" is a content assertion.
+    manifest_bytes_before = manifest.read_bytes()
+
+    provider = NotReadyProvider()
+    monkeypatch.setattr(
+        knowledge_search, "resolve_provider",
+        lambda name: _factory_returning(provider),
+    )
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": str(repo)},
+    )
+
+    assert response.status_code == 503
+    assert provider.index_calls == []
+    # The GOAL reviewer duty: a preflight failure must leave the existing
+    # manifest byte-identical (content, not just "the indexer mock was not called").
+    assert manifest.read_bytes() == manifest_bytes_before

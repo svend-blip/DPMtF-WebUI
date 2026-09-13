@@ -84,3 +84,37 @@ curl shape:
     curl -sS -X POST http://127.0.0.1:8000/api/knowledge/refresh \
       -H 'Content-Type: application/json' \
       -d '{"scope": "dpmtf-webui", "repo_path": "/absolute/path/to/repo"}'
+
+## GPU requirement
+
+LEANN stores a pruned index and recomputes passage embeddings at search
+time through its embedding server. Retrieval therefore needs a free GPU:
+the LEANN call path does its embedding work on the GPU at query time, not
+only during indexing.
+
+Measured on 2026-09-13: with the GPU held by a resident local model and
+CUDA hidden from the process, a 649-document index build did not finish in
+10 minutes (8 seconds on the GPU the day before), and three of three
+searches against a warm server aborted with `SIGABRT` on the compiled-in
+30-second ZMQ timeout (`distance batch fetch failed ... expected=13`).
+A `SIGABRT` inside a provider call kills the whole process that made it —
+for the API that is the uvicorn worker, for the Prompt Compiler that is a
+dispatch.
+
+The readiness contract is provider-neutral. `[knowledge]
+min_free_vram_mib` (default `4096`) is read by
+`config.get_knowledge_min_free_vram_mib()` and enforced by
+`KnowledgeProvider.preflight()` before any provider call. When
+`preflight()` raises `ProviderNotReady`:
+
+- `GET /api/knowledge/search` and `POST /api/knowledge/refresh` both
+  return HTTP 503 with the readiness reason as the detail.
+- In `refresh`, the provider is resolved and preflighted before the
+  indexer runs and before the manifest is rewritten, so a busy GPU costs
+  no repository scan and overwrites nothing.
+- The Prompt Compiler path (`retrieve_for_context`) logs the reason at
+  ERROR, writes no `knowledge_retrieval_log` row, and returns `None` so
+  the compiled context stays byte-for-byte unchanged.
+
+Operator rule: never set `enabled = true` while a resident local model
+(FreeToken, Ollama, llama.cpp) holds the GPU.

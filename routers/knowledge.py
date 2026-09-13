@@ -26,6 +26,7 @@ from knowledge import maintenance as knowledge_maintenance
 from knowledge import search as knowledge_search
 from knowledge import retrieval_log
 from knowledge import scope_guard
+from knowledge.provider import ProviderNotReady
 
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -132,6 +133,11 @@ async def search_knowledge(
 
     provider_cls = knowledge_search.resolve_provider(provider_key)
     provider = provider_cls()
+
+    try:
+        provider.preflight()
+    except ProviderNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     start = time.perf_counter()
     results = provider.search(
@@ -240,6 +246,19 @@ async def refresh_knowledge(body: RefreshRequest):
         }
 
     try:
+        provider_cls = knowledge_search.resolve_provider(provider_key)
+        provider = provider_cls()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400, detail=f"cannot resolve provider: {exc}"
+        ) from exc
+
+    try:
+        provider.preflight()
+    except ProviderNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
         ok, message = _run_capturing_stderr(
             knowledge_indexer.main,
             ["--repo", str(repo_path), "--scope", scope, "--out", str(manifest_path)],
@@ -262,8 +281,6 @@ async def refresh_knowledge(body: RefreshRequest):
         ) from exc
 
     try:
-        provider_cls = knowledge_search.resolve_provider(provider_key)
-        provider = provider_cls()
         provider.index(str(manifest_path))
     except Exception as exc:
         raise HTTPException(
