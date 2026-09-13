@@ -25,6 +25,23 @@ def _create_retrieval_log_db(tmp_path):
     conn = sqlite3.connect(db)
     conn.execute(
         """
+        CREATE TABLE knowledge_scope_grants (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            agent_role TEXT,
+            flow_key TEXT,
+            granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (scope, agent_role, flow_key)
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO knowledge_scope_grants (scope, agent_role, flow_key)"
+        " VALUES (?, ?, ?)",
+        ("dpmtf-webui", "Implementor", None),
+    )
+    conn.execute(
+        """
         CREATE TABLE knowledge_retrieval_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             provider TEXT NOT NULL,
@@ -203,7 +220,7 @@ def test_compile_records_one_retrieval_row(client, monkeypatch, tmp_path):
     assert len(rows) == 1
     row = rows[0]
     assert row["provider"] == "stub"
-    assert row["scope"] == ""
+    assert row["scope"] == "dpmtf-webui"
     assert row["query"] == "Implement the requested change."
     assert row["result_count"] == 1
     assert row["retrieved_token_count"] == 3
@@ -291,3 +308,63 @@ def test_flow_branch_disabled_is_byte_identical(client, seed_db, monkeypatch):
     assert enabled_prompt == disabled_prompt
     assert "<supplemental_knowledge>" not in enabled_prompt
     assert "<supplemental_knowledge>" not in disabled_prompt
+
+
+def test_compile_queries_the_configured_scope_not_the_flow_key(client, seed_db, monkeypatch):
+    conn = sqlite3.connect(seed_db)
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO bridge_flow_steps "
+            "(flow_key, step_key, from_role, to_role, deliverable_dir, sort_order, is_active) "
+            "VALUES ('test_flow', 'step1', 'architect', 'implementer', '', 1, 1)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    payload = {
+        "deployment_strategy": "standard",
+        "target_project": "test-project",
+        "flow_key": "test_flow",
+        "step_key": "step1",
+        "goal": "Do the thing.",
+        "scope_gate_confirmed": True,
+    }
+
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+
+    guard_seen = {}
+
+    def _record_guard(scope, agent_role=None, flow_key=None):
+        guard_seen["scope"] = scope
+        guard_seen["agent_role"] = agent_role
+        guard_seen["flow_key"] = flow_key
+
+    monkeypatch.setattr(
+        retrieval.scope_guard, "require_scope_access", _record_guard
+    )
+    # Keep the seed_db clean: it has no knowledge_retrieval_log table, and the
+    # log write is not what this test pins.
+    monkeypatch.setattr(retrieval, "_record_retrieval", lambda *a, **k: None)
+
+    search_seen = {}
+
+    class StubProvider:
+        def search(self, query, scope=None, top_k=None, token_budget=None):
+            search_seen["scope"] = scope
+            return [{"path": "a.md", "content": "alpha beta gamma"}]
+
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+
+    resp = client.post("/api/prompt-compiler/compile", json=payload)
+    assert resp.status_code == 200
+
+    # Half 1: the search scope is the configured scope, not the flow key.
+    assert search_seen["scope"] == "dpmtf-webui"
+    assert search_seen["scope"] != "test_flow"
+    # Half 2: the flow key still reaches require_scope_access (run 019 contract).
+    assert guard_seen["scope"] == "dpmtf-webui"
+    assert guard_seen["flow_key"] == "test_flow"

@@ -389,7 +389,7 @@ async def compile_prompt(request: Request):
         _append_retrieval_block(
             lines,
             query=goal,
-            scope=flow_key or "",
+            scope=config.get_knowledge_scope(),
             agent_role=role_name,
             run_id="",
             handoff_id=handoff_id,
@@ -517,7 +517,7 @@ async def compile_prompt(request: Request):
     _append_retrieval_block(
         lines,
         query=goal,
-        scope=flow_key or "",
+        scope=config.get_knowledge_scope(),
         agent_role=role_name,
         run_id="",
         handoff_id=handoff_id,

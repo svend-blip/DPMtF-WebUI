@@ -297,15 +297,25 @@ def get_knowledge_max_document_chars() -> int:
     return _config.getint("knowledge", "max_document_chars", fallback=20000)
 
 
-def get_knowledge_index_dir() -> str:
-    """Knowledge index directory. Resolved absolute from the project root.
+def get_knowledge_scope() -> str:
+    """Scope of this checkout's own knowledge (dpmtf-webui default)."""
+    return _config.get("knowledge", "scope", fallback="dpmtf-webui")
 
-    The configured value is relative to this file's directory, so the
-    answer does not depend on the caller's working directory. An absolute
-    value in the .ini is returned unchanged.
+
+def get_knowledge_index_dir() -> str:
+    """Knowledge index directory, resolved outside the repository.
+
+    The default is ``.local/share/dpmtf/knowledge_index`` relative to
+    ``Path.home()`` (i.e. ``~/.local/share/dpmtf/knowledge_index``). An
+    absolute value in the .ini is returned unchanged; a relative value is
+    resolved against ``Path.home()``, never against the repository.
     """
-    configured = _config.get("knowledge", "index_dir", fallback="knowledge_index")
-    return str((Path(__file__).resolve().parent / configured).resolve())
+    configured = _config.get(
+        "knowledge", "index_dir", fallback=".local/share/dpmtf/knowledge_index"
+    )
+    if Path(configured).is_absolute():
+        return str(Path(configured).resolve())
+    return str((Path.home() / configured).resolve())
 
 
 # ── Bridge session names (env vars with defaults) ───────────────

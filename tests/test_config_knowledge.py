@@ -34,10 +34,10 @@ def test_knowledge_max_document_chars_default():
     assert config.get_knowledge_max_document_chars() == 20000
 
 
-def test_index_dir_is_absolute_and_inside_project():
+def test_index_dir_is_absolute_and_outside_project():
     path = config.get_knowledge_index_dir()
     assert os.path.isabs(path)
-    assert Path(path).parent == PROJECT_ROOT
+    assert not path.startswith(str(PROJECT_ROOT))
 
 
 def test_getters_fall_back_safely_when_section_absent(monkeypatch):
@@ -51,3 +51,22 @@ def test_getters_fall_back_safely_when_section_absent(monkeypatch):
     assert config.get_knowledge_max_context_tokens() == 12000
     assert config.get_knowledge_max_document_chars() == 20000
     assert os.path.isabs(config.get_knowledge_index_dir())
+
+
+def test_index_dir_default_is_outside_the_repository(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
+    path = config.get_knowledge_index_dir()
+    assert os.path.isabs(path)
+    assert not path.startswith(str(PROJECT_ROOT))
+    assert path.endswith(os.path.join(".local", "share", "dpmtf", "knowledge_index"))
+
+
+def test_knowledge_scope_getter_default(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
+    assert config.get_knowledge_scope() == "dpmtf-webui"

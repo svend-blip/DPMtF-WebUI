@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+import types
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -51,3 +52,31 @@ def test_none_provider_maintenance_methods_do_not_raise():
     assert provider.index("source") is None
     assert provider.update("source") is None
     assert provider.remove("source") is None
+
+
+def test_leann_loader_uses_the_configured_index_dir(monkeypatch, tmp_path):
+    import knowledge.search as knowledge_search
+
+    class FakeLeann:
+        def __init__(self, index_path=None):
+            self.index_path = index_path
+
+    fake_module = types.ModuleType("knowledge.leann_provider")
+    fake_module.LeannProvider = FakeLeann
+    monkeypatch.setitem(sys.modules, "knowledge.leann_provider", fake_module)
+
+    monkeypatch.setattr(
+        knowledge_search.config,
+        "get_knowledge_index_dir",
+        lambda: str(tmp_path / "idx"),
+    )
+    monkeypatch.setattr(
+        knowledge_search.config,
+        "get_knowledge_scope",
+        lambda: "custom-scope",
+    )
+
+    loader = knowledge_search._load_leann_provider()
+    provider = loader()
+    assert isinstance(provider, FakeLeann)
+    assert provider.index_path == str(tmp_path / "idx" / "custom-scope.leann")

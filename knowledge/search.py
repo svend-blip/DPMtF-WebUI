@@ -12,30 +12,38 @@ contract: a misconfigured provider key must not take the API down.
 
 from __future__ import annotations
 
+import functools
+from pathlib import Path
 from typing import Callable
 
+import config
 from knowledge.provider import KnowledgeProvider, NoneProvider
 
 __all__ = ["PROVIDER_LOADERS", "resolve_provider"]
 
 
-def _load_leann_provider() -> type[KnowledgeProvider]:
-    """Import and return the LEANN-backed provider class on first use."""
+def _load_leann_provider() -> Callable[[], KnowledgeProvider]:
+    """Return a LeannProvider factory bound to the configured index path."""
     from knowledge.leann_provider import LeannProvider
 
-    return LeannProvider
+    index_path = (
+        Path(config.get_knowledge_index_dir())
+        / f"{config.get_knowledge_scope()}.leann"
+    )
+    return functools.partial(LeannProvider, index_path=str(index_path))
 
 
-# Maps a configured provider key to a zero-argument loader returning the
-# provider class. Loaders (rather than already-imported classes) keep the
-# LEANN import lazy: importing this module must not import leann_provider.
-PROVIDER_LOADERS: dict[str, Callable[[], type[KnowledgeProvider]]] = {
+# Maps a configured provider key to a zero-argument loader returning a
+# provider class or a bound factory (the leann loader binds index_path).
+# Loaders (rather than already-imported classes) keep the LEANN import lazy:
+# importing this module must not import leann_provider.
+PROVIDER_LOADERS: dict[str, Callable[[], KnowledgeProvider]] = {
     "none": lambda: NoneProvider,
     "leann": _load_leann_provider,
 }
 
 
-def resolve_provider(name: str) -> type[KnowledgeProvider]:
+def resolve_provider(name: str) -> Callable[[], KnowledgeProvider]:
     """Return the provider class for a configured provider key.
 
     ``"none"`` resolves to the no-op provider, and any unknown key also
