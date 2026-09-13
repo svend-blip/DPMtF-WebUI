@@ -10,6 +10,9 @@ getter so the indexer reads the fixture instead of the live store.
 import json
 import sqlite3
 
+import pytest
+
+import config
 from knowledge import indexer
 
 _EXCLUSION_SCHEMA = """
@@ -352,3 +355,27 @@ def test_knowledgeignore_and_db_rows_are_merged(tmp_path, monkeypatch):
 
     paths = {record["path"] for record in _read_manifest(out)}
     assert paths == {"keep.txt"}
+
+
+def test_cli_repo_exclusion_error_is_clean_not_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    """A failed exclusion load exits 1 with one clean error line, no traceback."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.txt").write_text("x\n", encoding="utf-8")
+    out = tmp_path / "manifest.jsonl"
+
+    monkeypatch.setattr(
+        config, "get_db_path", lambda: str(tmp_path / "missing.db")
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "knowledge.indexer: error:" in captured.err
+    assert "Traceback" not in captured.err

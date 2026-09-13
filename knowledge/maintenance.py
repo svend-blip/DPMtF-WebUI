@@ -153,6 +153,11 @@ def record_index(scope, provider, location, document_count, status) -> None:
         _fail("document_count must be >= 0")
 
     db_path = config.get_db_path()
+    if not Path(db_path).exists():
+        _fail(
+            f"knowledge database does not exist at {db_path}; "
+            "refusing to create it"
+        )
     try:
         conn = sqlite3.connect(db_path)
     except sqlite3.Error as exc:
@@ -278,7 +283,10 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         _fail("missing required argument(s): " + ", ".join(missing))
 
-    plan = detect_changes(args.repo, args.scope, args.manifest)
+    try:
+        plan = detect_changes(args.repo, args.scope, args.manifest)
+    except (indexer.RepoExclusionError, OSError) as exc:
+        _fail(str(exc))
 
     if args.record_index:
         if (

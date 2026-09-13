@@ -101,6 +101,22 @@ def test_rejected_counted_once_per_file_not_per_occurrence(tmp_path):
     assert metrics["rework"] == 0
 
 
+def test_approved_verdict_with_fenced_rejected_quote_counts_zero(tmp_path):
+    verdicts = tmp_path / "verdicts"
+    verdicts.mkdir()
+    (verdicts / "001.md").write_text(
+        "**Status:** APPROVED\n"
+        "\n"
+        "```\n"
+        "**Status:** REJECTED\n"
+        "```\n",
+        encoding="utf-8",
+    )
+    metrics = collect_run_metrics(tmp_path)
+    assert metrics["review_failures"] == 0
+    assert metrics["rework"] == 0
+
+
 def test_metrics_json_supplies_tool_calls_and_tokens(tmp_path):
     (tmp_path / "metrics.json").write_text(
         json.dumps({"tool_calls": 7, "tokens": 1234}), encoding="utf-8"

@@ -20,6 +20,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -365,3 +366,82 @@ def test_probe_supported_methods_report_true(monkeypatch):
         "update_supported": True,
         "remove_supported": True,
     }
+
+
+def test_cli_repo_exclusion_error_is_clean_not_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    """A repo-exclusion load failure exits 1 with a clean maintenance error."""
+    repo = _write_repo(tmp_path, {"a.txt": "x"})
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(manifest, [_record("test", "a.txt", "x")])
+
+    monkeypatch.setattr(
+        config, "get_db_path", lambda: str(tmp_path / "missing.db")
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        maintenance.main(
+            [
+                "--repo",
+                str(repo),
+                "--scope",
+                "test",
+                "--manifest",
+                str(manifest),
+            ]
+        )
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "knowledge.maintenance: error:" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_unreadable_manifest_is_clean_not_traceback(
+    tmp_path, monkeypatch, capsys
+):
+    """An unreadable existing manifest exits 1 with a clean error, no traceback."""
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores file permissions; clean-error path untestable")
+
+    repo = _write_repo(tmp_path, {"a.txt": "x"})
+    manifest = tmp_path / "manifest.jsonl"
+    _write_manifest(manifest, [_record("test", "a.txt", "x")])
+
+    manifest.chmod(0)
+    try:
+        with pytest.raises(SystemExit) as excinfo:
+            maintenance.main(
+                [
+                    "--repo",
+                    str(repo),
+                    "--scope",
+                    "test",
+                    "--manifest",
+                    str(manifest),
+                ]
+            )
+
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert "knowledge.maintenance: error:" in captured.err
+        assert "Traceback" not in captured.err
+    finally:
+        manifest.chmod(0o644)
+
+
+def test_record_index_missing_db_fails_without_creating_file(
+    tmp_path, monkeypatch, capsys
+):
+    """A missing DB path fails via _fail and must not create a database file."""
+    missing_db = tmp_path / "missing.db"
+    monkeypatch.setattr(config, "get_db_path", lambda: str(missing_db))
+
+    with pytest.raises(SystemExit) as excinfo:
+        maintenance.record_index("scope-a", "prov1", "/loc1", 3, "noop")
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "knowledge.maintenance: error:" in captured.err
+    assert not missing_db.exists()

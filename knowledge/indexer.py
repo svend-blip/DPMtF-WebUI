@@ -368,7 +368,10 @@ def main(argv: list[str] | None = None) -> int:
             "the scanned repository"
         )
 
-    exclusions = _load_repo_exclusions(args.scope)
+    try:
+        exclusions = _load_repo_exclusions(args.scope)
+    except RepoExclusionError as exc:
+        _fail(str(exc))
     knowledgeignore_patterns = _load_knowledgeignore(repo_path)
 
     count = 0

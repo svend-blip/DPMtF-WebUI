@@ -30,10 +30,10 @@ _CYCLE1_MARKER = "cycle 1: result written"
 
 _CORRECTIVE_HANDOFF_RE = re.compile(r"cycle\s+(\d+):\s*handoff")
 
-# A whole-line REJECTED status declaration. Verdict files use markdown bold
-# (``**Status:** REJECTED``), so markdown asterisks are removed from each
-# line before this pattern is applied.
-_REJECTED_LINE_RE = re.compile(r"^Status:\s*REJECTED$")
+# A whole-line status declaration. Verdict files use markdown bold
+# (``**Status:** APPROVED`` / ``**Status:** REJECTED``), so markdown
+# asterisks are removed from each line before this pattern is applied.
+_STATUS_LINE_RE = re.compile(r"^Status:\s*(APPROVED|REJECTED)$")
 
 
 def _parse_timestamp(text: str) -> datetime:
@@ -112,22 +112,32 @@ def _first_cycle1_timestamp(ledger_text: str) -> datetime | None:
     return None
 
 
-def _line_declares_rejected(line: str) -> bool:
-    """Return True when line is a REJECTED status declaration.
+def _first_status_declaration(text: str) -> str | None:
+    """Return the first whole-line status declaration in ``text``.
 
-    Verdict files in this repository use ``**Status:** REJECTED`` (markdown
-    bold), so the bare literal ``Status: REJECTED`` never occurs on a real
-    status line. This normalizer removes ``*`` characters and trims the line,
-    then requires the whole remaining line to be a status declaration; an
-    inline quote inside evidence prose does not match.
+    Lines are considered in document order. The first line whose
+    normalized form matches ``^Status: (APPROVED|REJECTED)$`` supplies
+    the verdict's own status; once found, later status-shaped lines are
+    ignored. Return the status string (``"APPROVED"`` or
+    ``"REJECTED"``), or ``None`` when no such line exists.
     """
-    normalized = line.replace("*", "").strip()
-    return _REJECTED_LINE_RE.match(normalized) is not None
+    for line in text.splitlines():
+        normalized = line.replace("*", "").strip()
+        match = _STATUS_LINE_RE.match(normalized)
+        if match is not None:
+            return match.group(1)
+    return None
 
 
 def _count_rejected_verdicts(run_path: Path) -> int:
-    """Count verdict files in ``verdicts/`` whose text contains a REJECTED
-    status line (markdown bold tolerated), not any inline mention.
+    """Count verdict files whose first status declaration is ``REJECTED``.
+
+    Only the first whole-line status declaration in document order is the
+    verdict's own status; later status-shaped lines (including a fenced
+    evidence block quoting ``**Status:** REJECTED``) are ignored for the
+    rejection count. A file whose first declaration is ``REJECTED``
+    contributes 1, ``APPROVED`` contributes 0, and no declaration
+    contributes 0.
     """
     verdicts_dir = run_path.joinpath("verdicts")
     try:
@@ -141,7 +151,7 @@ def _count_rejected_verdicts(run_path: Path) -> int:
             text = verdict_file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        if any(_line_declares_rejected(line) for line in text.splitlines()):
+        if _first_status_declaration(text) == "REJECTED":
             rejected += 1
     return rejected
 
