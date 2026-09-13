@@ -51,6 +51,7 @@ from dispatch import build_step_payload  # noqa: E402
 
 import config  # noqa: E402
 from knowledge import retrieval  # noqa: E402
+from knowledge import scopes  # noqa: E402
 from routers.shared import get_db_path  # noqa: E402
 
 
@@ -389,7 +390,7 @@ async def compile_prompt(request: Request):
         _append_retrieval_block(
             lines,
             query=goal,
-            scope=config.get_knowledge_scope(),
+            scope=scopes.scope_for_flow(flow_key),
             agent_role=role_name,
             run_id="",
             handoff_id=handoff_id,
@@ -517,7 +518,7 @@ async def compile_prompt(request: Request):
     _append_retrieval_block(
         lines,
         query=goal,
-        scope=config.get_knowledge_scope(),
+        scope=scopes.scope_for_flow(flow_key),
         agent_role=role_name,
         run_id="",
         handoff_id=handoff_id,

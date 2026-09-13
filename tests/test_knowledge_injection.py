@@ -383,6 +383,84 @@ def test_compile_queries_the_configured_scope_not_the_flow_key(client, seed_db, 
     assert guard_seen["flow_key"] == "test_flow"
 
 
+def test_compile_queries_the_target_project_scope_for_a_foreign_flow(
+    client, seed_db, monkeypatch, tmp_path
+):
+    foreign_dir = tmp_path / "FooProj"
+    foreign_dir.mkdir()
+
+    conn = sqlite3.connect(seed_db)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO bridge_flows "
+            "(flow_key, name, target_project_path) "
+            "VALUES ('foreign_flow', 'Foreign Flow', ?)",
+            (str(foreign_dir),),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO bridge_flow_steps "
+            "(flow_key, step_key, from_role, to_role, deliverable_dir, "
+            " sort_order, is_active) "
+            "VALUES ('foreign_flow', 'step1', 'architect', 'implementer', '', 1, 1)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    payload = {
+        "deployment_strategy": "standard",
+        "target_project": "test-project",
+        "flow_key": "foreign_flow",
+        "step_key": "step1",
+        "goal": "Do the thing.",
+        "scope_gate_confirmed": True,
+    }
+
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+
+    guard_seen = {}
+
+    def _record_guard(scope, agent_role=None, flow_key=None):
+        guard_seen["scope"] = scope
+        guard_seen["agent_role"] = agent_role
+        guard_seen["flow_key"] = flow_key
+
+    monkeypatch.setattr(
+        retrieval.scope_guard, "require_scope_access", _record_guard
+    )
+    # The temp DB has no knowledge_retrieval_log table; the log write is not
+    # what this test pins.
+    monkeypatch.setattr(retrieval, "_record_retrieval", lambda *a, **k: None)
+
+    search_seen = {}
+
+    class StubProvider:
+        def preflight(self) -> None:
+            return None
+
+        def search(self, query, scope=None, top_k=None, token_budget=None):
+            search_seen["scope"] = scope
+            return [{"path": "a.md", "content": "alpha beta gamma"}]
+
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+
+    resp = client.post("/api/prompt-compiler/compile", json=payload)
+    assert resp.status_code == 200
+
+    # Half 1: the search scope is the slug of the flow's target, not the
+    # checkout's configured scope and not the flow key.
+    assert search_seen["scope"] == "fooproj"
+    assert search_seen["scope"] != "dpmtf-webui"
+    assert search_seen["scope"] != "foreign_flow"
+    # Half 2: the flow key still reaches require_scope_access (run 019
+    # contract), and the guard receives the same foreign scope.
+    assert guard_seen["scope"] == "fooproj"
+    assert guard_seen["flow_key"] == "foreign_flow"
+
+
 def test_retrieval_returns_none_and_logs_error_when_provider_not_ready(
     monkeypatch, caplog
 ):
