@@ -176,11 +176,20 @@ def _check_compile_prompt(step: dict, prompt: str) -> None:
     """Assert the supplemental block, its position, and the log row."""
     name = step["name"]
 
-    last_constraint = prompt.rfind("</constraint>")
+    # The retrieved passages may quote these tags literally (this script is
+    # itself indexed in the Father scope and answers its own query), so the
+    # position check looks only at the prompt outside the block: the block
+    # runs from its first opening tag to its last closing tag.
     block_pos = prompt.find("<supplemental_knowledge>")
+    block_end = prompt.rfind("</supplemental_knowledge>")
+    outside = prompt[:block_pos] if block_pos != -1 else prompt
+    if block_pos != -1 and block_end != -1:
+        outside += prompt[block_end + len("</supplemental_knowledge>"):]
+    last_constraint = outside.rfind("</constraint>")
     _check(
         last_constraint != -1
         and block_pos != -1
+        and block_end > block_pos
         and block_pos > last_constraint,
         f"compile-block-position:{name}",
         "<supplemental_knowledge> not found after the last </constraint>",
