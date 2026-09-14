@@ -85,9 +85,6 @@ validation:
     - "001"
     - "002"
   testgoals: "7/7 green"
-    - "TG5"
-    - "TG6"
-    - "TG7"
 confidence: high
 supersedes: []
 admitted_by: pending
