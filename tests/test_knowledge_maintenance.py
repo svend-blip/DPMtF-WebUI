@@ -28,6 +28,7 @@ import pytest
 
 import config
 import knowledge.maintenance as maintenance
+from knowledge.provider import ProviderNotReady
 
 
 _SCHEMA_PATH = (
@@ -445,3 +446,155 @@ def test_record_index_missing_db_fails_without_creating_file(
     captured = capsys.readouterr()
     assert "knowledge.maintenance: error:" in captured.err
     assert not missing_db.exists()
+
+
+# ── GOAL-DRAFT-027: refresh_scope ─────────────────────────────────────────
+
+
+class _RecordingProvider:
+    """Stub provider whose ``index`` calls are recorded on the instance."""
+
+    def __init__(self):
+        self.index_calls = []
+
+    def preflight(self):
+        return None
+
+    def index(self, source):
+        self.index_calls.append(source)
+
+
+class _NotReadyProvider:
+    """Stub provider whose preflight fails and whose ``index`` must not run."""
+
+    def __init__(self):
+        self.index_calls = []
+
+    def preflight(self):
+        raise ProviderNotReady("knowledge provider not ready")
+
+    def index(self, source):
+        self.index_calls.append(source)
+
+
+def test_refresh_scope_noop_leaves_manifest_and_registry_untouched(
+    knowledge_db, tmp_path, monkeypatch
+):
+    index_dir = tmp_path / "index"
+    index_dir.mkdir()
+    monkeypatch.setattr(config, "get_knowledge_index_dir", lambda: str(index_dir))
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+
+    provider = _RecordingProvider()
+    monkeypatch.setattr(
+        maintenance.search, "resolve_provider", lambda key: (lambda: provider)
+    )
+
+    repo = _write_repo(tmp_path, {"a.txt": "hello"})
+    manifest = index_dir / "test.jsonl"
+    _write_manifest(manifest, [_record("test", "a.txt", "hello")])
+    manifest_before = manifest.read_bytes()
+
+    result = maintenance.refresh_scope("test", str(repo))
+
+    assert result == {"status": "noop", "manifest": str(manifest.resolve())}
+    assert manifest.read_bytes() == manifest_before
+    assert provider.index_calls == []
+
+    conn = sqlite3.connect(knowledge_db)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_indexes WHERE scope = ?", ("test",)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0
+
+
+def test_refresh_scope_reindexes_and_records_the_index(
+    knowledge_db, tmp_path, monkeypatch
+):
+    index_dir = tmp_path / "index"
+    index_dir.mkdir()
+    monkeypatch.setattr(config, "get_knowledge_index_dir", lambda: str(index_dir))
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+
+    provider = _RecordingProvider()
+    monkeypatch.setattr(
+        maintenance.search, "resolve_provider", lambda key: (lambda: provider)
+    )
+
+    repo = _write_repo(tmp_path, {"a.txt": "new"})
+    manifest = index_dir / "test.jsonl"
+    _write_manifest(manifest, [_record("test", "a.txt", "old")])
+
+    result = maintenance.refresh_scope("test", str(repo))
+
+    assert result == {
+        "status": "reindexed",
+        "documents": 1,
+        "manifest": str(manifest.resolve()),
+    }
+    assert provider.index_calls == [str(manifest.resolve())]
+
+    records = [
+        json.loads(line)
+        for line in manifest.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert len(records) == 1
+    assert records[0]["content"] == "new"
+
+    conn = sqlite3.connect(knowledge_db)
+    try:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT provider, location, document_count, status "
+            "FROM knowledge_indexes WHERE scope = ?",
+            ("test",),
+        ).fetchone()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_indexes WHERE scope = ?", ("test",)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert count == 1
+    assert row["provider"] == "stub"
+    assert row["location"] == str(manifest.resolve())
+    assert row["document_count"] == 1
+    assert row["status"] == "changed"
+
+
+def test_refresh_scope_preflights_before_the_indexer_runs(
+    knowledge_db, tmp_path, monkeypatch
+):
+    index_dir = tmp_path / "index"
+    index_dir.mkdir()
+    monkeypatch.setattr(config, "get_knowledge_index_dir", lambda: str(index_dir))
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+
+    provider = _NotReadyProvider()
+    monkeypatch.setattr(
+        maintenance.search, "resolve_provider", lambda key: (lambda: provider)
+    )
+
+    repo = _write_repo(tmp_path, {"a.txt": "new"})
+    manifest = index_dir / "test.jsonl"
+    _write_manifest(manifest, [_record("test", "a.txt", "old")])
+    manifest_before = manifest.read_bytes()
+
+    with pytest.raises(ProviderNotReady):
+        maintenance.refresh_scope("test", str(repo))
+
+    assert provider.index_calls == []
+    assert manifest.read_bytes() == manifest_before
+
+    conn = sqlite3.connect(knowledge_db)
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_indexes WHERE scope = ?", ("test",)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    assert count == 0

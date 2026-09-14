@@ -177,9 +177,9 @@ async def refresh_knowledge(body: RefreshRequest):
     """Re-index a scope when its repository changed since the last index.
 
     Maintenance-only endpoint: it performs no scope-guard check and writes no
-    ``knowledge_retrieval_log`` row. The existing manifest is compared before
-    any new manifest is written, so a ``noop`` plan never touches the
-    provider or the ``knowledge_indexes`` table.
+    ``knowledge_retrieval_log`` row. Validation and HTTP mapping stay here;
+    the detect/index/provider/record work is delegated to
+    ``knowledge.maintenance.refresh_scope``.
     """
     provider_key = config.get_knowledge_provider()
 
@@ -219,92 +219,22 @@ async def refresh_knowledge(body: RefreshRequest):
             detail="manifest must be outside repo_path",
         )
 
-    # Detect against the existing manifest BEFORE any new manifest is written.
-    # The GOAL's prose order would compare the repo against a manifest the
-    # indexer just wrote, which can only ever be ``noop``.
     try:
         ok, message = _run_capturing_stderr(
-            knowledge_maintenance.detect_changes,
-            str(repo_path),
-            scope,
-            str(manifest_path),
+            lambda: knowledge_maintenance.refresh_scope(scope, str(repo_path))
         )
+    except ProviderNotReady as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except knowledge_indexer.RepoExclusionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=400, detail=f"cannot compare manifest: {exc}"
+            status_code=400, detail=f"refresh failed: {exc}"
         ) from exc
     if not ok:
         raise HTTPException(status_code=400, detail=message)
-    plan, _detect_stderr = message
 
-    if plan.status == "noop":
-        return {
-            "status": "noop",
-            "manifest": str(manifest_path),
-        }
-
-    try:
-        provider_cls = knowledge_search.resolve_provider(provider_key)
-        provider = provider_cls()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400, detail=f"cannot resolve provider: {exc}"
-        ) from exc
-
-    try:
-        provider.preflight()
-    except ProviderNotReady as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    try:
-        ok, message = _run_capturing_stderr(
-            knowledge_indexer.main,
-            ["--repo", str(repo_path), "--scope", scope, "--out", str(manifest_path)],
-        )
-    except knowledge_indexer.RepoExclusionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except SystemExit as exc:
-        raise HTTPException(status_code=400, detail=str(exc) or "indexing failed") from exc
-    if not ok:
-        raise HTTPException(status_code=400, detail=message or "indexing failed")
-
-    try:
-        with manifest_path.open("r", encoding="utf-8") as handle:
-            document_count = sum(1 for line in handle if line.strip())
-    except OSError as exc:
-        raise HTTPException(
-            status_code=400, detail=f"cannot read manifest: {exc}"
-        ) from exc
-
-    try:
-        provider.index(str(manifest_path))
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"provider rejected the index: {exc}",
-        ) from exc
-
-    try:
-        knowledge_maintenance.record_index(
-            scope,
-            provider_key,
-            str(manifest_path),
-            document_count,
-            plan.status,
-        )
-    except Exception as exc:
-        detail = str(exc) or "failed to record index"
-        raise HTTPException(status_code=400, detail=detail) from exc
-    except SystemExit as exc:
-        detail = str(exc) or "failed to record index"
-        raise HTTPException(status_code=400, detail=detail) from exc
-
-    return {
-        "status": "reindexed",
-        "documents": document_count,
-        "manifest": str(manifest_path),
-    }
+    result, _captured_stderr = message
+    return result

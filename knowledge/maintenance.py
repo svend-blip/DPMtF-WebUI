@@ -236,6 +236,64 @@ def probe_provider_capabilities(provider_key, db_path=None) -> dict:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def refresh_scope(scope: str, repo_path: str) -> dict:
+    """Run one full refresh cycle for a repository scope.
+
+    Order is the contract (GOAL item 1, read in this order by the reviewer):
+    resolve the configured provider and preflight it, create the index dir and
+    compute the manifest path, detect changes against the existing manifest,
+    return a noop result without touching the indexer/provider/registry when
+    nothing changed, otherwise run the indexer, count the manifest lines, let
+    the provider index the new manifest, and record one ``knowledge_indexes``
+    row.
+
+    Exceptions are never caught into a return value here: ``ProviderNotReady``,
+    ``RepoExclusionError``, ``OSError``, and the ``SystemExit`` raised by
+    ``_fail`` all propagate unchanged to the caller.
+    """
+    provider_key = config.get_knowledge_provider()
+    provider_cls = search.resolve_provider(provider_key)
+    provider = provider_cls()
+
+    # Preflight before any detection so a busy/unready provider costs no scan.
+    provider.preflight()
+
+    index_dir = Path(config.get_knowledge_index_dir())
+    index_dir.mkdir(parents=True, exist_ok=True)
+
+    manifest_path = (index_dir / f"{scope}.jsonl").resolve()
+    if manifest_path.is_relative_to(Path(repo_path).resolve()):
+        _fail("manifest must be outside repo_path")
+
+    plan = detect_changes(repo_path, scope, str(manifest_path))
+
+    if plan.status == "noop":
+        return {"status": "noop", "manifest": str(manifest_path)}
+
+    indexer.main(
+        ["--repo", str(repo_path), "--scope", scope, "--out", str(manifest_path)]
+    )
+
+    with manifest_path.open("r", encoding="utf-8") as handle:
+        document_count = sum(1 for line in handle if line.strip())
+
+    provider.index(str(manifest_path))
+
+    record_index(
+        scope,
+        provider_key,
+        str(manifest_path),
+        document_count,
+        plan.status,
+    )
+
+    return {
+        "status": "reindexed",
+        "documents": document_count,
+        "manifest": str(manifest_path),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(

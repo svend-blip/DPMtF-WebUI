@@ -645,3 +645,33 @@ def test_refresh_preflights_before_indexing(
     # The GOAL reviewer duty: a preflight failure must leave the existing
     # manifest byte-identical (content, not just "the indexer mock was not called").
     assert manifest.read_bytes() == manifest_bytes_before
+
+
+def test_refresh_endpoint_delegates_to_refresh_scope(
+    knowledge_client, knowledge_db, knowledge_index_dir, tmp_path, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    calls = []
+
+    def fake_refresh_scope(scope, repo_path):
+        calls.append((scope, repo_path))
+        return {"status": "noop", "manifest": "/tmp/fake"}
+
+    monkeypatch.setattr(
+        "knowledge.maintenance.refresh_scope", fake_refresh_scope
+    )
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": str(repo)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "noop", "manifest": "/tmp/fake"}
+    assert calls == [("s", str(Path(repo).resolve()))]

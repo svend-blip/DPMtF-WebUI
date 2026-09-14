@@ -85,12 +85,32 @@ curl shape:
       -H 'Content-Type: application/json' \
       -d '{"scope": "dpmtf-webui", "repo_path": "/absolute/path/to/repo"}'
 
+### Ecosystem refresh script
+
+`scripts/knowledge_refresh_ecosystem.py` refreshes every repository the flows
+target in one run. It reads every distinct non-empty
+`bridge_flows.target_project_path` from the configured database, adds Father
+(`config.get_project_root()`), derives each target's scope through
+`knowledge.scopes.scope_for_target` (Father keeps its configured scope), skips
+targets that no longer exist on disk, and calls
+`knowledge.maintenance.refresh_scope` for each existing target. It prints one
+tab-separated line per existing target (`<scope>\t<status>\t<documents>`), with
+missing-target and per-target failure lines on stderr. `--dry-run` lists the
+targets and scopes without touching anything. The exit code is 0 only when
+every existing target refreshed or was a noop, and 1 when any target failed.
+
 ## GPU requirement
 
 LEANN stores a pruned index and recomputes passage embeddings at search
 time through its embedding server. Retrieval therefore needs a free GPU:
 the LEANN call path does its embedding work on the GPU at query time, not
 only during indexing.
+
+> LEANN's search spawns a detached embedding server that inherits the
+> caller's stdout/stderr, so a harness that captures a searching
+> process's output must redirect it to /dev/null or it waits forever —
+> measured in run 024, gate TG7 timed out after 900 s while the same
+> command in a shell answered in seconds.
 
 Measured on 2026-09-13: with the GPU held by a resident local model and
 CUDA hidden from the process, a 649-document index build did not finish in
