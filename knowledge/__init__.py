@@ -1,9 +1,7 @@
 """Provider-neutral knowledge package.
 
-The knowledge layer is disabled by default; the default provider is the
-no-op ``NoneProvider``.
+DPMtF is a client of the standalone knowledge service. This package holds
+the service client, the compiler-side retrieval path, scope resolution,
+retrieval logging and run metrics. No provider, indexer, maintenance
+routine or scope guard lives here.
 """
-
-from knowledge.provider import KnowledgeProvider, NoneProvider
-
-__all__ = ["KnowledgeProvider", "NoneProvider"]

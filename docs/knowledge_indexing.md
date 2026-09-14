@@ -1,187 +1,82 @@
-# Knowledge Indexing
+# Knowledge Retrieval
 
-This file documents the default exclusions and the document size cap applied
-by `knowledge/indexer.py`.
+DPMtF is a client of the standalone knowledge service. DPMtF keeps only its
+client: retrieval, refresh, indexing, grants and the scope guard all live in
+the service, not in this checkout.
 
-## Default directory-name exclusions
+## The service
 
-`logs`, `jobs`, `.flowrunner`, `.pytest_cache`, `.playwright-mcp`,
-`.superpowers`, `.ruff_cache`, `.mypy_cache`, `.claude`, `knowledge_index`,
-`dist`, `build`, `exports`, `backups`.
+The service runs as the systemd user unit `knowledge-service.service` at
+`http://127.0.0.1:9140`. Its contract endpoints are `/v1/search`,
+`/v1/refresh`, `/v1/scopes`, `/v1/scope-for-path`, and `/v1/health`.
 
-## Prefix exclusion
+## Configuration
 
-Any directory or file whose name starts with `.aider` is excluded
-(`_DEFAULT_EXCLUDED_PREFIXES`).
+The `[knowledge]` section of `dpmtf.ini` carries these keys, all read by
+`config.py`:
 
-## Default suffix exclusions
-
-`.log`, `.jsonl`, `.bak`, `.tar`, `.gz`, `.zip`, `.whl`, `.parquet`,
-`.leann`, `.idx`.
-
-## Document size cap
-
-`config.get_knowledge_max_document_chars()` reads
-`[knowledge] max_document_chars` from `dpmtf.ini` and defaults to `20000`
-when the key or section is absent. When a document's content is longer than
-the cap, the indexer truncates `content` to that many characters and sets
-`"truncated": true` on the emitted record; the key is absent otherwise.
-`size_bytes` always keeps the real, pre-truncation file size. The CLI flag
-`--max-document-chars N` overrides the configured value for one run; a
-non-positive `N` is rejected with exit 1 before any manifest is written.
-
-## Maintenance-loop consequence
-
-`knowledge/maintenance.py` compares each freshly walked document against the
-manifest's **capped** `content` — the same prefix the indexer stores — so
-change detection sees exactly what the index holds. A document over the cap
-is reported `changed` only when its stored prefix differs; a change that
-lies beyond the cap is invisible to change detection by design.
-
-## Repository-specific exclusions
-
-The indexer reads `<repo>/.knowledgeignore` when it is present; a missing
-file is not an error. One pattern per line; `#` comments and blank lines
-are ignored; a trailing `/` marks a directory pattern.
-
-Patterns are matched with `fnmatch` against both the repository-relative
-path and the basename, so `*.tmp` matches at any depth and `data/` prunes
-the directory during the walk. Directory patterns apply only to
-directories; file patterns apply only to files.
-
-File rules are merged with the `knowledge_exclusions` rows for the
-requested scope; neither replaces the other. Default exclusions are
-applied first, and a file or directory is skipped when any default
-exclusion, DB row, or `.knowledgeignore` rule matches. A
-present-but-unreadable or non-UTF-8 `.knowledgeignore` aborts the run
-(exit 1, no silent skip).
-
-This repository ships `.knowledgeignore` with `jobs/`, `logs/`,
-`.flowrunner/`, `databases/*.bak`, `knowledge_index/`, and `*.pyc`. The
-first five are already covered by the default exclusions, so the shipped
-file demonstrates the mechanism and satisfies TG3 rather than newly
-excluding trees the defaults already exclude.
-
-The `.knowledgeignore` control file itself is excluded from indexing by default (it is in `_DEFAULT_EXCLUDED_NAMES`), so a repository scan never emits the control file as a document.
-
-## Refreshing an index
-
-`POST /api/knowledge/refresh` re-runs the indexer and the configured provider
-for one scope. The body is `{"scope": "<name>", "repo_path": "<existing dir>"}`.
-
-When knowledge is disabled the endpoint returns the search endpoint's disabled
-envelope (`enabled: false`, `results: []`, `bounded: true`) without touching
-the indexer, provider, or database.
-
-Otherwise it compares the repository against the existing manifest first. An
-unchanged repository returns `{"status": "noop", "manifest": "<index_dir>/<scope>.jsonl"}`
-without calling the provider. A changed or missing manifest re-indexes and
-returns `{"status": "reindexed", "documents": N, "manifest": "<index_dir>/<scope>.jsonl"}`.
-The manifest lives under `config.get_knowledge_index_dir()`.
-
-curl shape:
-
-    curl -sS -X POST http://127.0.0.1:8000/api/knowledge/refresh \
-      -H 'Content-Type: application/json' \
-      -d '{"scope": "dpmtf-webui", "repo_path": "/absolute/path/to/repo"}'
-
-### Ecosystem refresh script
-
-`scripts/knowledge_refresh_ecosystem.py` refreshes every repository the flows
-target in one run. It reads every distinct non-empty
-`bridge_flows.target_project_path` from the configured database, adds Father
-(`config.get_project_root()`), derives each target's scope through
-`knowledge.scopes.scope_for_target` (Father keeps its configured scope), skips
-targets that no longer exist on disk, and calls
-`knowledge.maintenance.refresh_scope` for each existing target. It prints one
-tab-separated line per existing target (`<scope>\t<status>\t<documents>`), with
-missing-target and per-target failure lines on stderr. `--dry-run` lists the
-targets and scopes without touching anything. The exit code is 0 only when
-every existing target refreshed or was a noop, and 1 when any target failed.
-
-## GPU requirement
-
-Retrieval still needs a free GPU: the LEANN call path does its embedding
-work on the GPU at query time, not only during indexing.
-
-The new default is daemon-free. `[knowledge] leann_use_daemon` is `false`,
-read by `config.get_knowledge_leann_use_daemon()` and forwarded to
-`LeannSearcher` as `use_daemon=False`. In this mode no
-`hnsw_embedding_server` daemon is spawned and nothing stays resident after
-the search.
-
-Measured 2026-09-14 on the `dpmtf-webui` store (656 passages, free GPU):
-
-| mode | per search | resident afterwards |
+| key | meaning | default |
 |---|---|---|
-| daemon (today) | 7.1 s cold, 1.0 s warm | daemon 1.6–2.2 GB, 900 s TTL |
-| `use_daemon=False` | 8.3–9.3 s every time | nothing |
+| `enabled` | master switch for knowledge retrieval | `false` |
+| `scope` | scope of this checkout's own knowledge | `dpmtf-webui` |
+| `top_k` | number of results returned per search | `8` |
+| `max_context_tokens` | token budget for the injected knowledge block | `12000` |
+| `max_document_chars` | maximum characters kept from one document | `20000` |
+| `service_url` | base URL of the standalone knowledge service | `http://127.0.0.1:9140` |
 
-Same top-3 results on three queries. One retrieval per dispatch makes
-9 seconds acceptable, so the daemon's failure modes are not worth the
-warm-cache speedup.
+When the service requires a token, set the `KNOWLEDGE_SERVICE_TOKEN`
+environment variable; `config.get_knowledge_service_token()` reads it, and
+the client sends it as the `X-Knowledge-Token` header whenever it is
+non-empty.
 
-### When the daemon is switched on
+## Client paths
 
-When `leann_use_daemon = true`, redirect a searching process's stdout/stderr
-to `/dev/null` or the harness that captures it waits forever (run 024, gate TG7
-timed out after 900 s).
+- `knowledge/service_client.py` is the only module in DPMtF that talks to
+  the service. It is stdlib-only and every public function returns
+  `(status, payload)` without raising; a transport failure returns
+  `(0, {"detail": <text>})`.
+- `knowledge/retrieval.py` is the single entry point the Prompt Compiler
+  calls (`retrieve_for_context`). When `enabled` is false it returns `None`
+  before the service is called, so the compiled context stays byte-for-byte
+  unchanged.
+- `routers/knowledge.py` exposes `GET /api/knowledge/search` and
+  `POST /api/knowledge/refresh`. Both are pure proxies: they forward to the
+  service and pass its HTTP status and body back unchanged. A transport
+  failure (status 0) becomes a `502`.
 
-Measured 2026-09-13: with the GPU held by a resident local model, a
-649-document build did not finish in 10 minutes and three of three searches
-against a warm server aborted with `SIGABRT` on the compiled-in 30-second ZMQ
-timeout. A `SIGABRT` inside a provider call kills the whole calling process
-(uvicorn worker / a dispatch).
+## Local responsibilities DPMtF keeps
 
-> The stdout/stderr-inheritance note about a harness that captures a
-> searching process hanging forever applies only when the daemon is
-> switched on (`leann_use_daemon = true`), not in the default
-> `use_daemon=False` mode.
+Two responsibilities stay in this checkout; everything else is the
+service's.
 
-The readiness contract is provider-neutral. `[knowledge]
-min_free_vram_mib` (default `4096`) is read by
-`config.get_knowledge_min_free_vram_mib()` and enforced by
-`KnowledgeProvider.preflight()` before any provider call. When
-`preflight()` raises `ProviderNotReady`:
+### Compiler log row
 
-- `GET /api/knowledge/search` and `POST /api/knowledge/refresh` both
-  return HTTP 503 with the readiness reason as the detail.
-- In `refresh`, the provider is resolved and preflighted before the
-  indexer runs and before the manifest is rewritten, so a busy GPU costs
-  no repository scan and overwrites nothing.
-- The Prompt Compiler path (`retrieve_for_context`) logs the reason at
-  ERROR, writes no `knowledge_retrieval_log` row, and returns `None` so
-  the compiled context stays byte-for-byte unchanged.
+Every retrieval that reaches the service writes one local
+`knowledge_retrieval_log` row through `knowledge/retrieval_log.py`
+(`record_retrieval`, parameterized SQL only). The row records provider
+`service:<provider>`, the resolved scope, the query, result count and token
+count, duration, and the agent/run/handoff ids, plus the `flow_key` so the
+local audit trail can be joined to the flow that triggered the retrieval.
+Logging failures are reported and never break compilation.
 
-Operator rule: never set `enabled = true` while a resident local model
-(FreeToken, Ollama, llama.cpp) holds the GPU.
+### Slug rule
 
-The gate on this host is a measured coexistence budget, not a guess. On the
-32.6 GB card, a resident FreeToken (131k KV) holds 25.8 GB, a resident
-gemma3:4b at 8k context holds 2.7 GB, and an in-process LEANN search peaks
-at +2.4 GB and completes with 3.1 GB free. The new gate is 2500 MiB. The
-gate is set from a measured peak; it is never lowered just to make a
-refusal go away.
+`knowledge/scopes.py` keeps the compiler's deterministic scope binding
+locally as one pure function with no network access. `scope_for_target`
+returns the lowercased final directory name with trailing slashes stripped
+(`/home/x/FlowRunner/` → `flowrunner`); an empty result falls back to the
+configured scope. The duplication with the service's `/v1/scope-for-path`
+endpoint is accepted and documented; the local copy exists so scope
+resolution works at compile time without a service round-trip.
 
-## Service mode
+## Grants
 
-When `[knowledge] mode = service`, DPMtF becomes a client of the standalone
-knowledge service instead of searching in-process. The service runs as the
-systemd user unit `knowledge-service.service` at `http://127.0.0.1:9140`
-(contract endpoints `/v1/search`, `/v1/refresh`, `/v1/scopes`,
-`/v1/scope-for-path`, `/v1/health`).
+Service access grants are managed with the service's own CLI,
+`knowledge_service.cli grant|revoke` — not with DPMtF migrations.
 
-The ini keys that select this mode are:
+## Refresh
 
-- `[knowledge] mode` — `service` or `local`; fallback `local`.
-- `[knowledge] service_url` — fallback `http://127.0.0.1:9140`.
-
-The service owns the grants and scope guard in this mode. DPMtF still keeps
-two local responsibilities: scope binding per flow (the Prompt Compiler
-still passes the resolved `scope` and `flow_key` to the service), and the
-compiler's own `knowledge_retrieval_log` row, which is written locally with
-provider `service:<provider>` and the flow key so DPMtF's run metrics and
-smoke test keep working unchanged.
-
-Grants are now managed with the service's CLI
-(`knowledge_service.cli grant|revoke`), not by DPMtF migrations.
+`POST /api/knowledge/refresh` forwards `{"scope": "<name>",
+"repo_path": "<existing dir>"}` to the service. The service owns the refresh
+work and its response is passed back to the caller unchanged; the service's
+daily timer replaces the former ecosystem refresh script.

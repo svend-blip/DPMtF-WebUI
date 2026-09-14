@@ -1,14 +1,15 @@
-"""Provider-neutral retrieval entry point for the Prompt Compiler.
+"""Client-side retrieval entry point for the Prompt Compiler.
 
-This module is the single place the Prompt Compiler calls when it needs a
+DPMtF keeps only its client: every retrieval goes through
+``knowledge.service_client`` and the standalone knowledge service. This
+module is the single place the Prompt Compiler calls when it needs a
 bounded, clearly marked supplemental knowledge block for the compiled agent
-context. It knows nothing about concrete providers: provider resolution
-happens exclusively through ``knowledge.search``, and the rendered block is
-plain en-US text that never overrides the authoritative context.
+context. DPMtF holds no provider, indexer, maintenance routine or scope
+guard of its own.
 
-The knowledge layer is disabled by default and the default provider is
-``none`` (a no-op). When retrieval is disabled this module returns ``None``
-before any provider is resolved or called, so the compiled context remains
+The rendered block is plain en-US text that never overrides the
+authoritative context. When retrieval is disabled this module returns
+``None`` before the service is called, so the compiled context remains
 byte-for-byte unchanged.
 """
 
@@ -19,10 +20,7 @@ import time
 
 import config
 from knowledge import retrieval_log
-from knowledge import scope_guard
 from knowledge import service_client
-from knowledge.search import resolve_provider
-from knowledge.provider import ProviderNotReady
 
 __all__ = ["retrieve_for_context"]
 
@@ -66,15 +64,16 @@ def _record_retrieval(
 
 
 def _retrieve_from_service(
-    query, scope, provider_key, top_k, token_budget,
+    query, scope, top_k, token_budget,
     agent_role, run_id, handoff_id, flow_key,
 ):
-    """Retrieve from the standalone knowledge service; never touch local code.
+    """Retrieve from the standalone knowledge service.
 
     Service mode delegates the whole retrieval to ``knowledge.service_client``
-    and therefore never calls ``scope_guard.require_scope_access``,
-    ``resolve_provider``, any provider class, or any provider method. The
-    service owns the grants and scope guard in this mode.
+    and therefore never calls any provider class or method. The service owns
+    the grants and scope guard. A 403 leaves the compiled context unchanged
+    and writes no local log row; any other non-200 status is one ERROR log
+    line and an unchanged context.
     """
     started = time.perf_counter()
     status, payload = service_client.search(
@@ -104,7 +103,7 @@ def _retrieve_from_service(
     results = results[:top_k]
 
     _record_retrieval(
-        provider=f"service:{payload.get('provider') or provider_key}",
+        provider=f"service:{payload.get('provider') or 'service'}",
         scope=scope,
         query=query,
         results=results,
@@ -129,94 +128,36 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
     current handoff, and WORK 2 places it below the authoritative sections of
     the compiled context.
 
-    Disabled mode (``knowledge.enabled`` false, or the configured provider is
-    ``none``) returns ``None`` before any provider is resolved, instantiated,
-    or called, so no retrieval work happens and the compiled context stays
-    byte-for-byte unchanged. Disabled mode never raises.
+    Disabled mode (``knowledge.enabled`` false) returns ``None`` before the
+    service is called, so no retrieval work happens and the compiled context
+    stays byte-for-byte unchanged. Disabled mode never raises.
 
-    Every call that reaches a provider — including a call that returns zero
+    Every call that reaches the service — including a call that returns zero
     results — writes exactly one ``knowledge_retrieval_log`` row through
     ``retrieval_log.record_retrieval`` carrying ``agent_role``, ``run_id``,
-    and ``handoff_id``. Logging failures are logged at ERROR and never break
-    compilation.
+    ``handoff_id`` and ``flow_key``. Logging failures are logged at ERROR and
+    never break compilation.
 
-    ``flow_key`` is optional; it is used for scope-grant matching and is
-    recorded in the ``knowledge_retrieval_log`` row: a grant
-    row whose ``flow_key`` is NULL is a wildcard that matches any caller flow,
-    while a non-NULL grant ``flow_key`` matches only that flow. ``agent_role``
-    and ``scope`` still match exactly, and absence of any grant still denies.
+    ``flow_key`` is optional; it is recorded in the local
+    ``knowledge_retrieval_log`` row so the local audit trail can be joined to
+    the flow that triggered the retrieval.
     """
     if not config.get_knowledge_enabled():
-        return None
-
-    provider_key = config.get_knowledge_provider()
-    if provider_key == "none":
         return None
 
     top_k = config.get_knowledge_top_k()
     token_budget = config.get_knowledge_max_context_tokens()
 
-    if config.get_knowledge_mode() == "service":
-        return _retrieve_from_service(
-            query=query,
-            scope=scope,
-            provider_key=provider_key,
-            top_k=top_k,
-            token_budget=token_budget,
-            agent_role=agent_role,
-            run_id=run_id,
-            handoff_id=handoff_id,
-            flow_key=flow_key,
-        )
-
-    try:
-        scope_guard.require_scope_access(
-            scope,
-            agent_role=agent_role,
-            flow_key=flow_key,
-        )
-    except scope_guard.ScopeAccessDenied:
-        return None
-
-    # Resolve through the provider-neutral service only. This module never
-    # imports or names any concrete provider.
-    provider_cls = resolve_provider(provider_key, scope=scope)
-    provider = provider_cls()
-    try:
-        provider.preflight()
-    except ProviderNotReady as exc:
-        logger.error("knowledge provider not ready for scope %s: %s", scope, exc)
-        return None
-
-    started = time.perf_counter()
-    results = provider.search(
-        query,
+    return _retrieve_from_service(
+        query=query,
         scope=scope,
         top_k=top_k,
         token_budget=token_budget,
-    )
-    duration_ms = int((time.perf_counter() - started) * 1000)
-
-    # Defensive bound: a misbehaving provider must not exceed the configured
-    # result count.
-    results = results[:top_k]
-
-    _record_retrieval(
-        provider=provider_key,
-        scope=scope,
-        query=query,
-        results=results,
-        duration_ms=duration_ms,
         agent_role=agent_role,
         run_id=run_id,
         handoff_id=handoff_id,
         flow_key=flow_key,
     )
-
-    if not results:
-        return None
-
-    return _fit_block_to_budget(results, token_budget)
 
 
 def _render_block(results):
@@ -239,7 +180,7 @@ def _fit_block_to_budget(results, token_budget):
 
     The budget is measured on the injected block itself with the same
     whitespace-split proxy used elsewhere in the knowledge layer
-    (``len(block.split())``) — never assumed from the provider's own
+    (``len(block.split())``) — never assumed from the service's own
     accounting. If a single first result still exceeds the budget, that
     result's ``content`` is truncated to the remaining budget; if even the
     block wrapper alone exceeds the budget, ``None`` is returned so the

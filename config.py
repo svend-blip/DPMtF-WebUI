@@ -277,11 +277,6 @@ def get_knowledge_enabled() -> bool:
     return _config.getboolean("knowledge", "enabled", fallback=False)
 
 
-def get_knowledge_provider() -> str:
-    """Knowledge provider key. ``none`` (no-op) by default."""
-    return _config.get("knowledge", "provider", fallback="none")
-
-
 def get_knowledge_top_k() -> int:
     """Default number of retrieval results to return."""
     return _config.getint("knowledge", "top_k", fallback=8)
@@ -297,49 +292,9 @@ def get_knowledge_max_document_chars() -> int:
     return _config.getint("knowledge", "max_document_chars", fallback=20000)
 
 
-def get_knowledge_min_free_vram_mib() -> int:
-    """Minimum free GPU memory in MiB before knowledge retrieval may run.
-
-    LEANN recomputes passage embeddings on every search, so retrieval must
-    not run while a resident local model holds the GPU. Fallback 4096.
-    """
-    return _config.getint("knowledge", "min_free_vram_mib", fallback=4096)
-
-
 def get_knowledge_scope() -> str:
     """Scope of this checkout's own knowledge (dpmtf-webui default)."""
     return _config.get("knowledge", "scope", fallback="dpmtf-webui")
-
-
-def get_knowledge_index_dir() -> str:
-    """Knowledge index directory, resolved outside the repository.
-
-    The default is ``.local/share/dpmtf/knowledge_index`` relative to
-    ``Path.home()`` (i.e. ``~/.local/share/dpmtf/knowledge_index``). An
-    absolute value in the .ini is returned unchanged; a relative value is
-    resolved against ``Path.home()``, never against the repository.
-    """
-    configured = _config.get(
-        "knowledge", "index_dir", fallback=".local/share/dpmtf/knowledge_index"
-    )
-    if Path(configured).is_absolute():
-        return str(Path(configured).resolve())
-    return str((Path.home() / configured).resolve())
-
-
-def get_knowledge_leann_use_daemon() -> bool:
-    """Whether LEANN should spawn the hnsw_embedding_server daemon.
-
-    False by default: in-process search keeps no daemon resident, so a
-    searching process cannot be hung by inherited stdout/stderr, VRAM, or a
-    ZMQ timeout. The daemon remains an explicit opt-in.
-    """
-    return _config.getboolean("knowledge", "leann_use_daemon", fallback=False)
-
-
-def get_knowledge_mode() -> str:
-    """Knowledge mode: ``service`` or ``local``. ``local`` by default."""
-    return _config.get("knowledge", "mode", fallback="local")
 
 
 def get_knowledge_service_url() -> str:

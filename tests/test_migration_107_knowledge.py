@@ -17,7 +17,6 @@ the migration under test is applied to it by ``scripts/init_db.py``, not here.
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import sqlite3
@@ -35,8 +34,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
 import migrate  # noqa: E402
-import config  # noqa: E402
-import knowledge.maintenance as maintenance  # noqa: E402
 
 MIGRATION_NAME = "107_knowledge_tables.sql"
 MIGRATION_PATH = PROJECT_ROOT / "scripts" / "db" / MIGRATION_NAME
@@ -600,50 +597,3 @@ def test_unknown_status_is_rejected_by_trigger(fresh_db):
         conn.close()
 
 
-def test_cli_record_index_noop_is_allowed_on_migrated_db(
-    fresh_db, tmp_path, monkeypatch, capsys
-):
-    monkeypatch.setattr(config, "get_db_path", lambda: fresh_db)
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "a.txt").write_text("hello", encoding="utf-8")
-
-    manifest = tmp_path / "manifest.jsonl"
-    manifest.write_text(
-        json.dumps({
-            "scope": "cli-noop",
-            "path": "a.txt",
-            "content": "hello",
-            "size_bytes": 5,
-            "indexed_at": "2026-09-12T00:00:00+00:00",
-        }) + "\n",
-        encoding="utf-8",
-    )
-
-    rc = maintenance.main([
-        "--repo", str(repo),
-        "--scope", "cli-noop",
-        "--manifest", str(manifest),
-        "--record-index",
-        "--provider", "none",
-        "--location", "cli-noop-index",
-        "--document-count", "1",
-    ])
-
-    assert rc == 0
-    assert "noop" in capsys.readouterr().out
-
-    conn = _connect(fresh_db)
-    try:
-        row = conn.execute(
-            "SELECT provider, document_count, status FROM knowledge_indexes "
-            "WHERE scope = ?",
-            ("cli-noop",),
-        ).fetchone()
-        assert row is not None
-        assert row["provider"] == "none"
-        assert row["document_count"] == 1
-        assert row["status"] == "noop"
-    finally:
-        conn.close()
