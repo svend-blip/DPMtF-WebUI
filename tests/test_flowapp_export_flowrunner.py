@@ -464,3 +464,61 @@ def test_other_steps_do_not_carry_the_schema(tmp_path, monkeypatch):
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
     for step in desc["flows"][0]["steps"]:
         assert "Learning artifact schema (bundled" not in step["governance"]
+
+
+def test_description_declares_the_knowledge_service_when_enabled(tmp_path, monkeypatch):
+    # GOAL-DRAFT-042: when knowledge is enabled the FlowApp declares the
+    # service as a provider by env NAME (never the URL), and that name is an
+    # optional secret the receiving operator can type.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+
+    assert desc["knowledge"] == {
+        "enabled": True,
+        "providers": {
+            "project": {
+                "type": "http",
+                "endpoint_env": "KNOWLEDGE_SERVICE_URL",
+            }
+        },
+    }
+    assert "KNOWLEDGE_SERVICE_URL" in desc["secrets"]["optional"]
+    assert "KNOWLEDGE_SERVICE_URL" not in desc["secrets"]["required"]
+    # the env NAME travels; the service URL never leaks into the description
+    serialized = json.dumps(desc)
+    assert "9140" not in serialized
+    assert "127.0.0.1" not in serialized
+
+
+def test_description_has_no_knowledge_block_when_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+
+    assert "knowledge" not in desc
+    assert "KNOWLEDGE_SERVICE_URL" not in desc["secrets"]["optional"]

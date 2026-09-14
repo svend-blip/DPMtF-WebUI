@@ -510,7 +510,14 @@ def _to_flowrunner_description(flow_row, steps, db_path):
     required_secrets = sorted(
         {m["api_key_env"] for m in models.values() if m.get("api_key_env")})
 
-    return {
+    # GOAL-DRAFT-042: when the knowledge service is enabled, the FlowApp
+    # declares it as a provider. `endpoint_env` is the NAME the operator
+    # types into `flowrunner secrets check` on the machine that runs the
+    # FlowApp — never the service URL, which stays out of the export.
+    knowledge_enabled = config.get_knowledge_enabled()
+    optional_secrets = ["KNOWLEDGE_SERVICE_URL"] if knowledge_enabled else []
+
+    description = {
         "app": {
             "identifier": _flowapp_identifier(flow_row["flow_key"]),
             "name": flow_row.get("name") or flow_row["flow_key"],
@@ -521,12 +528,26 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             "family": _flowapp_family(flow_row["flow_key"]),
         },
         "schema_version": "1.0.0",
-        "secrets": {"required": required_secrets, "optional": []},
+        "secrets": {
+            "required": required_secrets,
+            "optional": optional_secrets,
+        },
         "runtime": {"permissions": ["read_only", "workspace_write", "full_access"]},
         "models": list(models.values()),
         "harnesses": list(harnesses.values()),
         "flows": [{"name": "main", "entry": agent_steps[0]["step_key"], "steps": flow_steps}],
     }
+    if knowledge_enabled:
+        description["knowledge"] = {
+            "enabled": True,
+            "providers": {
+                "project": {
+                    "type": "http",
+                    "endpoint_env": "KNOWLEDGE_SERVICE_URL",
+                }
+            },
+        }
+    return description
 
 
 @router.get("/capability")

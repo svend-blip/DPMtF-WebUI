@@ -29,6 +29,13 @@ environment variable; `config.get_knowledge_service_token()` reads it, and
 the client sends it as the `X-Knowledge-Token` header whenever it is
 non-empty.
 
+## Service mode
+
+The FlowApp export declares the knowledge service as a provider (the
+operator supplies the env name `KNOWLEDGE_SERVICE_URL`, never the URL), and
+FlowRunner's preflight probes the service's health (`GET <url>/v1/health` for
+the `http` provider type) while the harness sees `KNOWLEDGE_PROJECT_URL`.
+
 ## Client paths
 
 - `knowledge/service_client.py` is the only module in DPMtF that talks to
