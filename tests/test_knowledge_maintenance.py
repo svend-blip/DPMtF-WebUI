@@ -318,7 +318,7 @@ def test_probe_not_implemented_reports_unsupported(monkeypatch):
             raise NotImplementedError
 
     monkeypatch.setattr(
-        maintenance.search, "resolve_provider", lambda key: StubProvider
+        maintenance.search, "resolve_provider", lambda key, scope=None: StubProvider
     )
 
     assert maintenance.probe_provider_capabilities("stub") == {
@@ -340,7 +340,7 @@ def test_probe_other_exception_propagates(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        maintenance.search, "resolve_provider", lambda key: BrokenProvider
+        maintenance.search, "resolve_provider", lambda key, scope=None: BrokenProvider
     )
 
     with pytest.raises(RuntimeError, match="boom"):
@@ -359,7 +359,7 @@ def test_probe_supported_methods_report_true(monkeypatch):
             return None
 
     monkeypatch.setattr(
-        maintenance.search, "resolve_provider", lambda key: SupportedProvider
+        maintenance.search, "resolve_provider", lambda key, scope=None: SupportedProvider
     )
 
     assert maintenance.probe_provider_capabilities("supported") == {
@@ -487,7 +487,7 @@ def test_refresh_scope_noop_leaves_manifest_and_registry_untouched(
 
     provider = _RecordingProvider()
     monkeypatch.setattr(
-        maintenance.search, "resolve_provider", lambda key: (lambda: provider)
+        maintenance.search, "resolve_provider", lambda key, scope=None: (lambda: provider)
     )
 
     repo = _write_repo(tmp_path, {"a.txt": "hello"})
@@ -521,7 +521,7 @@ def test_refresh_scope_reindexes_and_records_the_index(
 
     provider = _RecordingProvider()
     monkeypatch.setattr(
-        maintenance.search, "resolve_provider", lambda key: (lambda: provider)
+        maintenance.search, "resolve_provider", lambda key, scope=None: (lambda: provider)
     )
 
     repo = _write_repo(tmp_path, {"a.txt": "new"})
@@ -576,7 +576,7 @@ def test_refresh_scope_preflights_before_the_indexer_runs(
 
     provider = _NotReadyProvider()
     monkeypatch.setattr(
-        maintenance.search, "resolve_provider", lambda key: (lambda: provider)
+        maintenance.search, "resolve_provider", lambda key, scope=None: (lambda: provider)
     )
 
     repo = _write_repo(tmp_path, {"a.txt": "new"})
@@ -598,3 +598,31 @@ def test_refresh_scope_preflights_before_the_indexer_runs(
     finally:
         conn.close()
     assert count == 0
+
+
+def test_refresh_scope_resolves_the_provider_for_its_own_scope(
+    knowledge_db, tmp_path, monkeypatch
+):
+    index_dir = tmp_path / "index"
+    index_dir.mkdir()
+    monkeypatch.setattr(config, "get_knowledge_index_dir", lambda: str(index_dir))
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+
+    resolve_calls = []
+    provider = _RecordingProvider()
+
+    def _spy_resolve(key, scope=None):
+        resolve_calls.append((key, scope))
+        return lambda: provider
+
+    monkeypatch.setattr(maintenance.search, "resolve_provider", _spy_resolve)
+
+    repo = _write_repo(tmp_path, {"a.txt": "hello"})
+    manifest = index_dir / "target-scope.jsonl"
+    _write_manifest(manifest, [_record("target-scope", "a.txt", "hello")])
+
+    result = maintenance.refresh_scope("target-scope", str(repo))
+
+    assert result == {"status": "noop", "manifest": str(manifest.resolve())}
+    assert resolve_calls == [("stub", "target-scope")]
+    assert provider.index_calls == []

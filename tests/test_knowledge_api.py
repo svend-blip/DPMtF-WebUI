@@ -73,7 +73,7 @@ def _factory_returning(instance):
     return factory
 
 
-def _tripwire(_name):
+def _tripwire(_name, scope=None):
     """Resolve-provider stand-in for no-provider-resolved paths."""
     raise AssertionError("resolve_provider must not be called on this path")
 
@@ -263,7 +263,7 @@ def test_enabled_stub_budget_and_log_row(knowledge_client, knowledge_db, monkeyp
     )
     stub = StubProvider(items)
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(stub)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(stub)
     )
 
     response = knowledge_client.get("/api/knowledge/search", params={"q": "where is knowledge"})
@@ -311,7 +311,7 @@ def test_budget_and_scope_pass_through(knowledge_client, knowledge_db, monkeypat
     )
     stub = StubProvider(items)
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(stub)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(stub)
     )
 
     response = knowledge_client.get(
@@ -354,7 +354,7 @@ def test_caller_bounds_clamped_to_config_ceiling(
         {"path": f"p{i}", "content": "one two"} for i in range(50)
     )
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(stub)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(stub)
     )
 
     response = knowledge_client.get(
@@ -387,7 +387,7 @@ def test_nonpositive_bounds_clamped_to_one(
         {"path": f"p{i}", "content": "one two"} for i in range(4)
     )
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(stub)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(stub)
     )
 
     response = knowledge_client.get(
@@ -440,7 +440,7 @@ def test_connect_failure_is_a_logged_500(knowledge_client, knowledge_db, monkeyp
     )
     stub = StubProvider([{"path": "p1", "content": "one two"}])
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(stub)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(stub)
     )
     missing_dir = (
         Path(tempfile.gettempdir())
@@ -493,7 +493,7 @@ def test_refresh_noop_when_manifest_unchanged(
 
     provider = IndexRecordingProvider()
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(provider)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(provider)
     )
 
     response = knowledge_client.post(
@@ -525,7 +525,7 @@ def test_refresh_reindexes_when_manifest_changed(
 
     provider = IndexRecordingProvider()
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _factory_returning(provider)
+        knowledge_search, "resolve_provider", lambda name, scope=None: _factory_returning(provider)
     )
 
     response = knowledge_client.post(
@@ -567,7 +567,7 @@ def test_search_returns_503_when_provider_not_ready(
     provider = NotReadyProvider()
     monkeypatch.setattr(
         knowledge_search, "resolve_provider",
-        lambda name: _factory_returning(provider),
+        lambda name, scope=None: _factory_returning(provider),
     )
 
     response = knowledge_client.get(
@@ -598,7 +598,7 @@ def test_refresh_returns_503_when_provider_not_ready(
     provider = NotReadyProvider()
     monkeypatch.setattr(
         knowledge_search, "resolve_provider",
-        lambda name: _factory_returning(provider),
+        lambda name, scope=None: _factory_returning(provider),
     )
 
     response = knowledge_client.post(
@@ -632,7 +632,7 @@ def test_refresh_preflights_before_indexing(
     provider = NotReadyProvider()
     monkeypatch.setattr(
         knowledge_search, "resolve_provider",
-        lambda name: _factory_returning(provider),
+        lambda name, scope=None: _factory_returning(provider),
     )
 
     response = knowledge_client.post(
@@ -675,3 +675,36 @@ def test_refresh_endpoint_delegates_to_refresh_scope(
     assert response.status_code == 200
     assert response.json() == {"status": "noop", "manifest": "/tmp/fake"}
     assert calls == [("s", str(Path(repo).resolve()))]
+
+
+def test_search_endpoint_resolves_the_provider_for_the_requested_scope(
+    knowledge_client, knowledge_db, monkeypatch
+):
+    _stub_config(
+        monkeypatch, enabled=True, provider="stub", top_k=3, token_budget=12000
+    )
+
+    resolve_calls = []
+    stub = StubProvider([{"path": "p1", "content": "one two"}])
+
+    def _spy_resolve(name, scope=None):
+        resolve_calls.append((name, scope))
+        return _factory_returning(stub)
+
+    monkeypatch.setattr(knowledge_search, "resolve_provider", _spy_resolve)
+
+    response = knowledge_client.get(
+        "/api/knowledge/search",
+        params={"q": "anything", "scope": "flowrunner"},
+    )
+
+    assert response.status_code == 200
+    assert resolve_calls == [("stub", "flowrunner")]
+    assert stub.calls == [
+        {
+            "query": "anything",
+            "scope": "flowrunner",
+            "top_k": 3,
+            "token_budget": 12000,
+        }
+    ]

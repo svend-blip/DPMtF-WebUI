@@ -108,7 +108,7 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
 
     # Resolve through the provider-neutral service only. This module never
     # imports or names any concrete provider.
-    provider_cls = resolve_provider(provider_key)
+    provider_cls = resolve_provider(provider_key, scope=scope)
     provider = provider_cls()
     try:
         provider.preflight()

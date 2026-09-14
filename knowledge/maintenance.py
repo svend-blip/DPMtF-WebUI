@@ -252,7 +252,7 @@ def refresh_scope(scope: str, repo_path: str) -> dict:
     ``_fail`` all propagate unchanged to the caller.
     """
     provider_key = config.get_knowledge_provider()
-    provider_cls = search.resolve_provider(provider_key)
+    provider_cls = search.resolve_provider(provider_key, scope=scope)
     provider = provider_cls()
 
     # Preflight before any detection so a busy/unready provider costs no scan.

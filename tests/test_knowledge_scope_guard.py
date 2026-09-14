@@ -288,7 +288,7 @@ def test_authorized_internal_search_returns_results(
             return list(self.results)
 
     monkeypatch.setattr(
-        knowledge_search, "resolve_provider", lambda name: _StubProvider
+        knowledge_search, "resolve_provider", lambda name, scope=None: _StubProvider
     )
 
     response = client.get(

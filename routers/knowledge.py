@@ -131,7 +131,7 @@ async def search_knowledge(
     except scope_guard.ScopeAccessDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    provider_cls = knowledge_search.resolve_provider(provider_key)
+    provider_cls = knowledge_search.resolve_provider(provider_key, scope=scope)
     provider = provider_cls()
 
     try:

@@ -22,13 +22,18 @@ from knowledge.provider import KnowledgeProvider, NoneProvider
 __all__ = ["PROVIDER_LOADERS", "resolve_provider"]
 
 
-def _load_leann_provider() -> Callable[[], KnowledgeProvider]:
-    """Return a LeannProvider factory bound to the configured index path."""
+def _load_leann_provider(scope: str | None = None) -> Callable[[], KnowledgeProvider]:
+    """Return a LeannProvider factory bound to the requested scope's index path.
+
+    A given ``scope`` wins; when no scope is given the configured knowledge
+    scope is the fallback, so the loader never silently binds a foreign
+    scope's store to the configured one.
+    """
     from knowledge.leann_provider import LeannProvider
 
     index_path = (
         Path(config.get_knowledge_index_dir())
-        / f"{config.get_knowledge_scope()}.leann"
+        / f"{scope or config.get_knowledge_scope()}.leann"
     )
     return functools.partial(LeannProvider, index_path=str(index_path))
 
@@ -43,13 +48,21 @@ PROVIDER_LOADERS: dict[str, Callable[[], KnowledgeProvider]] = {
 }
 
 
-def resolve_provider(name: str) -> Callable[[], KnowledgeProvider]:
+def resolve_provider(name: str, scope: str | None = None) -> Callable[[], KnowledgeProvider]:
     """Return the provider class for a configured provider key.
 
     ``"none"`` resolves to the no-op provider, and any unknown key also
-    resolves to it, so a misconfigured provider key can never raise.
+    resolves to it, so a misconfigured provider key can never raise. Only
+    ``"leann"`` receives ``scope``; the no-op provider, any unknown key, and
+    any other registered loader ignore it. Registered non-``none`` loaders are
+    still honoured so callers that temporarily extend ``PROVIDER_LOADERS``
+    (the deterministic success gate) keep resolving through this function.
     """
-    loader = PROVIDER_LOADERS.get(name)
-    if loader is None:
+    if name == "leann":
+        return _load_leann_provider(scope)
+    if name == "none":
         return NoneProvider
-    return loader()
+    loader = PROVIDER_LOADERS.get(name)
+    if loader is not None:
+        return loader()
+    return NoneProvider

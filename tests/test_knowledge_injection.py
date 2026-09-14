@@ -178,7 +178,7 @@ def test_token_budget_measured_on_rendered_block(monkeypatch):
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 2)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 40)
-    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
     block = retrieve_for_context("q", "s", "a", "r", "h")
     assert block is not None
@@ -199,7 +199,7 @@ def test_empty_results_return_none(monkeypatch):
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 100)
-    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
     assert retrieve_for_context("q", "s", "a", "r", "h") is None
 
@@ -221,7 +221,7 @@ def test_compile_records_one_retrieval_row(client, monkeypatch, tmp_path):
         def search(self, query, scope=None, top_k=None, token_budget=None):
             return list(stub_results)
 
-    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
     resp = client.post("/api/prompt-compiler/compile", json=COMPILE_BODY)
     assert resp.status_code == 200
@@ -370,7 +370,7 @@ def test_compile_queries_the_configured_scope_not_the_flow_key(client, seed_db, 
             search_seen["scope"] = scope
             return [{"path": "a.md", "content": "alpha beta gamma"}]
 
-    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
     resp = client.post("/api/prompt-compiler/compile", json=payload)
     assert resp.status_code == 200
@@ -445,7 +445,7 @@ def test_compile_queries_the_target_project_scope_for_a_foreign_flow(
             search_seen["scope"] = scope
             return [{"path": "a.md", "content": "alpha beta gamma"}]
 
-    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: StubProvider)
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
     resp = client.post("/api/prompt-compiler/compile", json=payload)
     assert resp.status_code == 200
@@ -488,7 +488,7 @@ def test_retrieval_returns_none_and_logs_error_when_provider_not_ready(
         def search(self, *args, **kwargs):
             raise AssertionError("search must not run when preflight fails")
 
-    monkeypatch.setattr(retrieval, "resolve_provider", lambda key: NotReadyProvider)
+    monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: NotReadyProvider)
 
     with caplog.at_level("ERROR", logger="knowledge.retrieval"):
         result = retrieve_for_context("q", "dpmtf-webui", "a", "r", "h")
@@ -496,3 +496,40 @@ def test_retrieval_returns_none_and_logs_error_when_provider_not_ready(
     assert result is None
     assert called == []  # no knowledge_retrieval_log row was written
     assert "not ready" in caplog.text
+
+
+def test_retrieval_resolves_the_provider_for_the_requested_scope(monkeypatch):
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    monkeypatch.setattr(
+        retrieval.scope_guard, "require_scope_access", lambda *a, **k: None
+    )
+    monkeypatch.setattr(retrieval, "_record_retrieval", lambda *a, **k: None)
+
+    resolve_calls = []
+
+    class StubProvider:
+        def preflight(self) -> None:
+            return None
+
+        def search(self, query, scope=None, top_k=None, token_budget=None):
+            return [{"path": "docs/a.md", "content": "alpha beta gamma"}]
+
+    def _spy_resolve(key, scope=None):
+        resolve_calls.append((key, scope))
+        return StubProvider
+
+    monkeypatch.setattr(retrieval, "resolve_provider", _spy_resolve)
+
+    block = retrieve_for_context(
+        "How is a FlowApp exported and imported?",
+        "flowrunner",
+        "9000-implementer",
+        "",
+        "run-029",
+    )
+
+    assert block is not None
+    assert resolve_calls == [("stub", "flowrunner")]

@@ -61,6 +61,9 @@ matching `knowledge_scope_grants` row. Every other derived scope
 (`flowrunner`, `ai_advisoryboard`, `simple-harness`, `trade-ui`, …) is
 non-internal and is public under the existing guard, so it needs no grant.
 
+Index layout invariant: one LEANN store per scope, named `<scope>.leann`
+under the configured index directory.
+
 Current `bridge_flows` targets and their derived scopes (read from the live
 database at write time):
 
