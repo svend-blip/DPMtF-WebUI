@@ -136,6 +136,9 @@ number (`goals/7-GOAL-DRAFT.md`).
         repository. A count cannot read; where the question is what a text
         means, hand it to the reviewer's duties.
   - [ ] Dependencies on other Runs and on D-decisions are stated in the header.
+  - [ ] The header carries the GOAL-DRAFT learning convention:
+        `> Learning: experience` (the default when the line is absent) or
+        `> Learning: none`.
 - Several rounds are allowed: revise an un-promoted draft in place, or deliver
   a new id. A promoted contract is immutable; corrections go into a later Run.
 - May never: promote; write under `runs/`; allocate ELOOP ids; touch
@@ -242,6 +245,12 @@ suite that regenerates an evidence file is a tree change).
         `planning/PLOOP-BACKLOG.md`.
   - [ ] Pick the next Run: the lowest promoted, unopened Run whose
         dependencies are closed and whose D-decisions are recorded.
+  - [ ] Read the run's `LEARNING-DRAFT.yaml`; set `admitted_by`; run the
+        service's `learning validate` then `learning admit` with the service's
+        CLI from the service's own interpreter.
+  - [ ] One ledger line in the family backlog for every admission, edit,
+        rejection, retraction or supersede.
+  - [ ] `> Learning: none` on a GOAL header is the opt-out.
 - Exit: next Run found → Phase 5a. None promoted → Phase 3, or wait for the
   Human. Human decision outstanding on the next Run → park it (rung 8) and
   report.
@@ -489,6 +498,7 @@ Ledger entry shapes, one per action, timestamp in UTC:
 - `## {ts} — handoff N <APPROVED|REJECTED>: measured <what>`
 - `## {ts} — Run NNN CLOSED — <outcome>; baseline <sha> committed/pushed (<cadence>)`
 - `## {ts} — PARKED — <reason>; open for the Human: <question>`
+- `- <ISO-8601> | learning <admitted|rejected|edited|retracted|superseded> | <family>/<run> | <evidence_level> | <note>`
 
 Ledger writes go through the broker (`bridge_broker.py materialize --type
 run-ledger`) where the broker is available; a host-side append is recorded as

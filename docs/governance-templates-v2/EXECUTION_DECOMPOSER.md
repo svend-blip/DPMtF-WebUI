@@ -73,6 +73,20 @@ produces dispatchable work.
   criterion is green or ruled; an unmeasured criterion is not green
   (Run 012, TG4: the report said SUCCESS on a criterion nobody had run).
 
+## Learning Draft at Closure
+
+In the closing wake-up, after the END-REPORT is written, when the
+END-REPORT's Status is SUCCESS and the GOAL's header does not say
+`> Learning: none`, write `{artifact_root}/runs/{run}/LEARNING-DRAFT.yaml`
+per `docs/LEARNING-ARTIFACT.md`. Source the draft from the verdicts, the
+END-REPORT and the measured testgoals only.
+
+- A run closed BLOCKED or FAILED writes none.
+- The draft is a proposal — the supervisor admits, edits or rejects it.
+- The decomposer never calls the service and never edits the learning
+  directory.
+- Placeholders only, no absolute paths.
+
 ## Verdict wake-up — read the summary before the file
 
 A verdict wake-up now carries the verdict's summary and next action in the
