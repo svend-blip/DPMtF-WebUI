@@ -42,7 +42,7 @@ _NON_OVERRIDE_SENTENCE = (
 
 def _record_retrieval(
     provider, scope, query, results, duration_ms,
-    agent_role, run_id, handoff_id,
+    agent_role, run_id, handoff_id, flow_key: str | None = None,
 ):
     """Write one ``knowledge_retrieval_log`` row; never raise on failure."""
     try:
@@ -55,6 +55,7 @@ def _record_retrieval(
             agent_role=agent_role,
             run_id=run_id,
             handoff_id=handoff_id,
+            flow_key=flow_key,
         )
     except Exception as exc:
         logger.error(
@@ -82,7 +83,8 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
     and ``handoff_id``. Logging failures are logged at ERROR and never break
     compilation.
 
-    ``flow_key`` is optional and only used for scope-grant matching: a grant
+    ``flow_key`` is optional; it is used for scope-grant matching and is
+    recorded in the ``knowledge_retrieval_log`` row: a grant
     row whose ``flow_key`` is NULL is a wildcard that matches any caller flow,
     while a non-NULL grant ``flow_key`` matches only that flow. ``agent_role``
     and ``scope`` still match exactly, and absence of any grant still denies.
@@ -138,6 +140,7 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
         agent_role=agent_role,
         run_id=run_id,
         handoff_id=handoff_id,
+        flow_key=flow_key,
     )
 
     if not results:

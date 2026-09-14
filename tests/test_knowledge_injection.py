@@ -66,6 +66,21 @@ def _create_retrieval_log_db(tmp_path):
     return db
 
 
+def _create_retrieval_log_db_with_flow_key(tmp_path):
+    """Build the same schema plus the post-114 ``flow_key`` column."""
+    db = _create_retrieval_log_db(tmp_path)
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute(
+            "ALTER TABLE knowledge_retrieval_log "
+            "ADD COLUMN flow_key TEXT DEFAULT NULL"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return db
+
+
 def _fetch_log_rows(db_path):
     conn = sqlite3.connect(str(db_path))
     try:
@@ -249,6 +264,43 @@ def test_compile_records_one_retrieval_row(client, monkeypatch, tmp_path):
     assert second["result_count"] == 0
     assert second["sources"] == "[]"
     assert second["retrieved_token_count"] == 0
+
+
+def test_compile_records_the_flow_key_in_the_retrieval_row(
+    client, monkeypatch, tmp_path
+):
+    db = _create_retrieval_log_db_with_flow_key(tmp_path)
+    monkeypatch.setattr(config, "get_db_path", lambda: str(db))
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+
+    stub_results = [{"path": "a.md", "content": "alpha beta gamma"}]
+
+    class StubProvider:
+        def preflight(self) -> None:
+            return None
+
+        def search(self, query, scope=None, top_k=None, token_budget=None):
+            return list(stub_results)
+
+    monkeypatch.setattr(
+        retrieval, "resolve_provider", lambda key, scope=None: StubProvider
+    )
+
+    resp = client.post(
+        "/api/prompt-compiler/compile",
+        json={**COMPILE_BODY, "flow_key": "test_flow"},
+    )
+    assert resp.status_code == 200
+
+    rows = _fetch_log_rows(db)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["flow_key"] == "test_flow"
+    assert row["provider"] == "stub"
+    assert row["result_count"] == 1
 
 
 def test_provider_failure_leaves_prompt_byte_identical(client, monkeypatch):

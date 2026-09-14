@@ -117,9 +117,11 @@ def knowledge_db(tmp_path_factory):
     """Fresh temp SQLite file carrying only the knowledge schema."""
     db_path = tmp_path_factory.mktemp("knowledge_api") / "test_knowledge.db"
     schema_path = _PROJECT_ROOT / "scripts" / "db" / "107_knowledge_tables.sql"
+    migration_114 = _PROJECT_ROOT / "scripts" / "db" / "114_retrieval_log_flow_key.sql"
     conn = sqlite3.connect(str(db_path))
     try:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
+        conn.executescript(migration_114.read_text(encoding="utf-8"))
         conn.commit()
     finally:
         conn.close()
@@ -338,6 +340,34 @@ def test_budget_and_scope_pass_through(knowledge_client, knowledge_db, monkeypat
     assert len(rows) == 1
     assert rows[0]["scope"] == "repo-alpha"
     assert rows[0]["result_count"] == 2
+
+
+def test_search_endpoint_records_the_flow_key(
+    knowledge_client, knowledge_db, monkeypatch
+):
+    _stub_config(
+        monkeypatch,
+        enabled=True,
+        provider="stub",
+        top_k=3,
+        token_budget=12000,
+    )
+    stub = StubProvider([{"path": "p1", "content": "one two"}])
+    monkeypatch.setattr(
+        knowledge_search,
+        "resolve_provider",
+        lambda name, scope=None: _factory_returning(stub),
+    )
+
+    response = knowledge_client.get(
+        "/api/knowledge/search",
+        params={"q": "anything", "flow_key": "flow-abc"},
+    )
+
+    assert response.status_code == 200
+    rows = _log_rows(knowledge_db)
+    assert len(rows) == 1
+    assert rows[0]["flow_key"] == "flow-abc"
 
 
 def test_caller_bounds_clamped_to_config_ceiling(

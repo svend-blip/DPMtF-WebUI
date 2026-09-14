@@ -35,12 +35,19 @@ def record_retrieval(
     agent_role: str | None,
     run_id: str | None,
     handoff_id: str | None,
+    flow_key: str | None = None,
 ) -> None:
     """Append one ``knowledge_retrieval_log`` row for a real retrieval.
 
     Parameterized SQL only (``?`` placeholders, never string
     concatenation). A database failure is logged and surfaced to the
     caller as a 500 rather than swallowed silently.
+
+    ``flow_key`` is recorded only when the database has the column
+    (migration 114 onward). On a pre-114 schema the column is absent, so
+    the value is ignored and the row is written exactly as the pre-114
+    code wrote it; the presence of the column is detected once per
+    connection with ``PRAGMA table_info``.
     """
     sources = json.dumps([item["path"] for item in results])
     token_count = sum(len(item.get("content", "").split()) for item in results)
@@ -48,25 +55,52 @@ def record_retrieval(
     conn = None
     try:
         conn = sqlite3.connect(config.get_db_path())
-        conn.execute(
-            "INSERT INTO knowledge_retrieval_log "
-            "(provider, scope, query, result_count, sources, "
-            "retrieved_token_count, retrieval_duration_ms, "
-            "agent_role, run_id, handoff_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                provider,
-                scope or "",
-                query,
-                len(results),
-                sources,
-                token_count,
-                duration_ms,
-                agent_role,
-                run_id,
-                handoff_id,
-            ),
-        )
+        columns = {
+            row[1] for row in conn.execute(
+                "PRAGMA table_info(knowledge_retrieval_log)"
+            )
+        }
+        if "flow_key" in columns:
+            conn.execute(
+                "INSERT INTO knowledge_retrieval_log "
+                "(provider, scope, query, result_count, sources, "
+                "retrieved_token_count, retrieval_duration_ms, "
+                "agent_role, run_id, handoff_id, flow_key) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    provider,
+                    scope or "",
+                    query,
+                    len(results),
+                    sources,
+                    token_count,
+                    duration_ms,
+                    agent_role,
+                    run_id,
+                    handoff_id,
+                    flow_key,
+                ),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO knowledge_retrieval_log "
+                "(provider, scope, query, result_count, sources, "
+                "retrieved_token_count, retrieval_duration_ms, "
+                "agent_role, run_id, handoff_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    provider,
+                    scope or "",
+                    query,
+                    len(results),
+                    sources,
+                    token_count,
+                    duration_ms,
+                    agent_role,
+                    run_id,
+                    handoff_id,
+                ),
+            )
         conn.commit()
     except sqlite3.Error as exc:
         logger.error("knowledge retrieval log insert failed: %s", exc)
