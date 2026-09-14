@@ -20,6 +20,7 @@ import time
 import config
 from knowledge import retrieval_log
 from knowledge import scope_guard
+from knowledge import service_client
 from knowledge.search import resolve_provider
 from knowledge.provider import ProviderNotReady
 
@@ -64,6 +65,62 @@ def _record_retrieval(
         )
 
 
+def _retrieve_from_service(
+    query, scope, provider_key, top_k, token_budget,
+    agent_role, run_id, handoff_id, flow_key,
+):
+    """Retrieve from the standalone knowledge service; never touch local code.
+
+    Service mode delegates the whole retrieval to ``knowledge.service_client``
+    and therefore never calls ``scope_guard.require_scope_access``,
+    ``resolve_provider``, any provider class, or any provider method. The
+    service owns the grants and scope guard in this mode.
+    """
+    started = time.perf_counter()
+    status, payload = service_client.search(
+        query,
+        scope=scope,
+        top_k=top_k,
+        token_budget=token_budget,
+        agent_role=agent_role,
+        flow_key=flow_key,
+        run_id=run_id,
+        handoff_id=handoff_id,
+    )
+    duration_ms = int((time.perf_counter() - started) * 1000)
+
+    if status == 403:
+        return None
+
+    if status != 200:
+        detail = payload.get("detail") if isinstance(payload, dict) else payload
+        logger.error("knowledge service unavailable for scope %s: %s", scope, detail)
+        return None
+
+    if not payload or payload.get("enabled") is not True:
+        return None
+
+    results = list(payload.get("results") or [])
+    results = results[:top_k]
+
+    _record_retrieval(
+        provider=f"service:{payload.get('provider') or provider_key}",
+        scope=scope,
+        query=query,
+        results=results,
+        duration_ms=duration_ms,
+        agent_role=agent_role,
+        run_id=run_id,
+        handoff_id=handoff_id,
+        flow_key=flow_key,
+    )
+
+    if not results:
+        return None
+
+    return _fit_block_to_budget(results, token_budget)
+
+
 def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key: str | None = None):
     """Return a bounded, marked supplemental knowledge block, or None when disabled.
 
@@ -98,6 +155,19 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
 
     top_k = config.get_knowledge_top_k()
     token_budget = config.get_knowledge_max_context_tokens()
+
+    if config.get_knowledge_mode() == "service":
+        return _retrieve_from_service(
+            query=query,
+            scope=scope,
+            provider_key=provider_key,
+            top_k=top_k,
+            token_budget=token_budget,
+            agent_role=agent_role,
+            run_id=run_id,
+            handoff_id=handoff_id,
+            flow_key=flow_key,
+        )
 
     try:
         scope_guard.require_scope_access(

@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 import config
@@ -26,6 +27,7 @@ from knowledge import maintenance as knowledge_maintenance
 from knowledge import search as knowledge_search
 from knowledge import retrieval_log
 from knowledge import scope_guard
+from knowledge import service_client
 from knowledge.provider import ProviderNotReady
 
 
@@ -100,6 +102,28 @@ async def search_knowledge(
     never raise them; the returned list is still defensively truncated
     to ``top_k``.
     """
+    if config.get_knowledge_mode() == "service":
+        status, payload = service_client.search(
+            query=q,
+            scope=scope,
+            top_k=top_k,
+            token_budget=token_budget,
+            agent_role=agent_role,
+            flow_key=flow_key,
+            run_id=run_id,
+            handoff_id=handoff_id,
+        )
+        if status == 0:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    payload.get("detail")
+                    if isinstance(payload, dict)
+                    else str(payload)
+                ),
+            )
+        return JSONResponse(status_code=status, content=payload)
+
     provider_key = config.get_knowledge_provider()
 
     if not config.get_knowledge_enabled() or provider_key == "none":
@@ -182,6 +206,21 @@ async def refresh_knowledge(body: RefreshRequest):
     the detect/index/provider/record work is delegated to
     ``knowledge.maintenance.refresh_scope``.
     """
+    if config.get_knowledge_mode() == "service":
+        status, payload = service_client.refresh(
+            scope=body.scope, repo_path=body.repo_path
+        )
+        if status == 0:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    payload.get("detail")
+                    if isinstance(payload, dict)
+                    else str(payload)
+                ),
+            )
+        return JSONResponse(status_code=status, content=payload)
+
     provider_key = config.get_knowledge_provider()
 
     # Disabled short-circuit first: mirror the search endpoint's envelope and

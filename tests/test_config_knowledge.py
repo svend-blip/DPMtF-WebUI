@@ -102,3 +102,12 @@ def test_min_free_vram_mib_reads_the_ini_value(monkeypatch):
     monkeypatch.setattr(config, "_config", parser)
 
     assert config.get_knowledge_min_free_vram_mib() == 2500
+
+
+def test_knowledge_mode_defaults_to_local_and_service_url_has_a_default(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
+    assert config.get_knowledge_mode() == "local"
+    assert config.get_knowledge_service_url() == "http://127.0.0.1:9140"

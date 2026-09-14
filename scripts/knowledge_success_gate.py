@@ -13,6 +13,12 @@ The gate is read-only toward the repository. Every write it performs goes to a
 directory created with ``tempfile.mkdtemp()``, and that directory is removed in
 a ``finally:`` block. No component under test is modified, and the provider
 registry is only ever patched in memory and restored afterwards.
+
+The gate certifies the *local* retrieval path: every criterion that drives
+retrieval pins ``config.get_knowledge_mode`` to ``local``, so the result does
+not depend on the ``[knowledge] mode`` the installation ships with (``service``
+since run 035). The service path is certified by the knowledge service's own
+health route and ``scripts/knowledge_smoke_test.py``.
 """
 
 from __future__ import annotations
@@ -166,7 +172,7 @@ def criterion_2(tmp_db: str) -> tuple[str, bool]:
         lambda *args, **kwargs: None,
     ), patch("config.get_knowledge_enabled", return_value=True), patch(
         "config.get_knowledge_provider", return_value="gate_stub"
-    ), patch(
+    ), patch("config.get_knowledge_mode", return_value="local"), patch(
         "config.get_db_path", return_value=tmp_db
     ):
         client = TestClient(app.app)
@@ -183,7 +189,7 @@ def criterion_3(tmp_db: str) -> tuple[str, bool]:
         lambda *args, **kwargs: None,
     ), patch("config.get_knowledge_enabled", return_value=True), patch(
         "config.get_knowledge_provider", return_value="gate_stub"
-    ), patch(
+    ), patch("config.get_knowledge_mode", return_value="local"), patch(
         "config.get_db_path", return_value=tmp_db
     ):
         client = TestClient(app.app)
@@ -210,7 +216,7 @@ def criterion_4(tmp_db: str) -> tuple[str, bool]:
         lambda *args, **kwargs: None,
     ), patch("config.get_knowledge_enabled", return_value=True), patch(
         "config.get_knowledge_provider", return_value="gate_stub"
-    ), patch(
+    ), patch("config.get_knowledge_mode", return_value="local"), patch(
         "config.get_db_path", return_value=tmp_db
     ):
         client = TestClient(app.app)
@@ -235,7 +241,7 @@ def criterion_5() -> tuple[str, bool]:
 
         with patch("config.get_db_path", return_value=db_path), patch(
             "config.get_knowledge_enabled", return_value=False
-        ):
+        ), patch("config.get_knowledge_mode", return_value="local"):
             client = TestClient(app.app)
             response = client.get("/api/knowledge/search", params={"q": "anything"})
 

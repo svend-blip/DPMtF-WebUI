@@ -337,6 +337,23 @@ def get_knowledge_leann_use_daemon() -> bool:
     return _config.getboolean("knowledge", "leann_use_daemon", fallback=False)
 
 
+def get_knowledge_mode() -> str:
+    """Knowledge mode: ``service`` or ``local``. ``local`` by default."""
+    return _config.get("knowledge", "mode", fallback="local")
+
+
+def get_knowledge_service_url() -> str:
+    """Base URL of the standalone knowledge service."""
+    return _config.get(
+        "knowledge", "service_url", fallback="http://127.0.0.1:9140"
+    )
+
+
+def get_knowledge_service_token() -> str:
+    """Bearer token for the knowledge service; empty means no token header."""
+    return os.environ.get("KNOWLEDGE_SERVICE_TOKEN", "")
+
+
 # ── Bridge session names (env vars with defaults) ───────────────
 
 def get_review_session() -> str:

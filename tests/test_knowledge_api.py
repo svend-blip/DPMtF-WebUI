@@ -32,6 +32,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 import app  # noqa: E402
 import config  # noqa: E402
 from knowledge import search as knowledge_search  # noqa: E402
+from knowledge import service_client  # noqa: E402
 from knowledge.provider import ProviderNotReady  # noqa: E402
 
 
@@ -178,6 +179,7 @@ def _log_rows(knowledge_db):
 
 def _stub_config(monkeypatch, *, enabled, provider, top_k, token_budget):
     """Patch the four knowledge config getters used by the endpoint."""
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: enabled)
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: provider)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: top_k)
@@ -738,3 +740,82 @@ def test_search_endpoint_resolves_the_provider_for_the_requested_scope(
             "token_budget": 12000,
         }
     ]
+
+def test_service_mode_search_proxies_status_and_body(
+    knowledge_client, knowledge_db, monkeypatch
+):
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "service")
+    monkeypatch.setattr(
+        knowledge_search,
+        "resolve_provider",
+        lambda name, scope=None: (_ for _ in ()).throw(
+            AssertionError("local provider resolution used in service mode")
+        ),
+    )
+    monkeypatch.setattr(
+        "knowledge.scope_guard.require_scope_access",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("local scope guard used in service mode")
+        ),
+    )
+
+    seen = []
+
+    def fake_http(method, url, params_or_body, timeout):
+        seen.append((method, url, params_or_body, timeout))
+        if params_or_body.get("q") == "denied":
+            return (403, {"detail": "scope access denied"})
+        return (503, {"detail": "knowledge service not ready"})
+
+    monkeypatch.setattr(service_client, "_http", fake_http)
+
+    denied = knowledge_client.get(
+        "/api/knowledge/search",
+        params={"q": "denied", "scope": "s", "flow_key": "f"},
+    )
+    assert denied.status_code == 403
+    assert denied.json() == {"detail": "scope access denied"}
+
+    busy = knowledge_client.get(
+        "/api/knowledge/search",
+        params={"q": "busy", "scope": "s", "flow_key": "f"},
+    )
+    assert busy.status_code == 503
+    assert busy.json() == {"detail": "knowledge service not ready"}
+
+    assert seen[0][0] == "GET"
+    assert seen[0][2]["q"] == "denied"
+    assert seen[0][2]["scope"] == "s"
+    assert seen[0][2]["flow_key"] == "f"
+    assert _log_rows(knowledge_db) == []
+
+
+def test_service_mode_refresh_proxies_status_and_body(
+    knowledge_client, knowledge_db, monkeypatch
+):
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "service")
+    monkeypatch.setattr(
+        "knowledge.maintenance.refresh_scope",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("local refresh used in service mode")
+        ),
+    )
+
+    seen = []
+
+    def fake_http(method, url, params_or_body, timeout):
+        seen.append((method, url, params_or_body, timeout))
+        return (503, {"detail": "knowledge service not ready"})
+
+    monkeypatch.setattr(service_client, "_http", fake_http)
+
+    response = knowledge_client.post(
+        "/api/knowledge/refresh",
+        json={"scope": "s", "repo_path": "/tmp/some-repo"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "knowledge service not ready"}
+    assert seen[0][0] == "POST"
+    assert seen[0][2] == {"scope": "s", "repo_path": "/tmp/some-repo"}
+    assert _log_rows(knowledge_db) == []

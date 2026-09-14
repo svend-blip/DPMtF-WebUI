@@ -148,6 +148,7 @@ def test_search_endpoint_denies_internal_scope_before_provider(
     client, knowledge_db, monkeypatch, failing_resolver
 ):
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
 
     response = client.get(
@@ -163,6 +164,7 @@ def test_retrieval_returns_none_on_denial_before_provider(
     knowledge_db, monkeypatch, failing_resolver
 ):
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
 
     result = retrieval.retrieve_for_context(
@@ -176,6 +178,7 @@ def test_disabled_mode_leaves_guard_unconsulted(
     client, knowledge_db, monkeypatch, failing_resolver
 ):
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
 
     response = client.get(
@@ -271,6 +274,7 @@ def test_authorized_internal_search_returns_results(
 ):
     _insert_grant(knowledge_db, "dpmtf-webui", "flow-app", None)
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 3)
     monkeypatch.setattr(

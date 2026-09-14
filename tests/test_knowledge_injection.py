@@ -2,6 +2,7 @@ import sys
 
 sys.dont_write_bytecode = True
 
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -192,6 +193,7 @@ def test_token_budget_measured_on_rendered_block(monkeypatch):
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 2)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 40)
     monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
@@ -214,6 +216,7 @@ def test_empty_results_return_none(monkeypatch):
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 100)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(retrieval, "resolve_provider", lambda key, scope=None: StubProvider)
 
     assert retrieve_for_context("q", "s", "a", "r", "h") is None
@@ -226,6 +229,7 @@ def test_compile_records_one_retrieval_row(client, monkeypatch, tmp_path):
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
 
     stub_results = [{"path": "a.md", "content": "alpha beta gamma"}]
 
@@ -275,6 +279,7 @@ def test_compile_records_the_flow_key_in_the_retrieval_row(
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
 
     stub_results = [{"path": "a.md", "content": "alpha beta gamma"}]
 
@@ -397,6 +402,7 @@ def test_compile_queries_the_configured_scope_not_the_flow_key(client, seed_db, 
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
 
     guard_seen = {}
 
@@ -472,6 +478,7 @@ def test_compile_queries_the_target_project_scope_for_a_foreign_flow(
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
 
     guard_seen = {}
 
@@ -520,6 +527,7 @@ def test_retrieval_returns_none_and_logs_error_when_provider_not_ready(
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     # ``dpmtf-webui`` is an internal scope; bypass the grant DB so the test
     # reaches provider.preflight() and pins the ProviderNotReady path only.
     monkeypatch.setattr(
@@ -554,6 +562,7 @@ def test_retrieval_resolves_the_provider_for_the_requested_scope(monkeypatch):
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
     monkeypatch.setattr(config, "get_knowledge_provider", lambda: "stub")
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "local")
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
     monkeypatch.setattr(
         retrieval.scope_guard, "require_scope_access", lambda *a, **k: None
@@ -585,3 +594,103 @@ def test_retrieval_resolves_the_provider_for_the_requested_scope(monkeypatch):
 
     assert block is not None
     assert resolve_calls == [("stub", "flowrunner")]
+
+
+def test_service_mode_injects_the_block_and_writes_one_local_log_row(
+    monkeypatch, tmp_path
+):
+    db = _create_retrieval_log_db_with_flow_key(tmp_path)
+    monkeypatch.setattr(config, "get_db_path", lambda: str(db))
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "leann")
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "service")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+
+    def _local_provider_tripwire(*args, **kwargs):
+        raise AssertionError("local provider used")
+
+    def _local_guard_tripwire(*args, **kwargs):
+        raise AssertionError("local guard used")
+
+    monkeypatch.setattr(retrieval, "resolve_provider", _local_provider_tripwire)
+    monkeypatch.setattr(
+        retrieval.scope_guard, "require_scope_access", _local_guard_tripwire
+    )
+    monkeypatch.setattr(
+        retrieval.service_client,
+        "_http",
+        lambda *args, **kwargs: (
+            200,
+            {
+                "enabled": True,
+                "provider": "leann",
+                "results": [
+                    {"path": "a.md", "content": "alpha beta gamma", "score": 1.0}
+                ],
+                "bounded": True,
+            },
+        ),
+    )
+
+    block = retrieve_for_context("q", "s", "a", "r", "h", flow_key="test_flow")
+
+    assert block is not None
+    assert "<supplemental_knowledge>" in block
+    assert "source: a.md" in block
+
+    rows = _fetch_log_rows(db)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["provider"] == "service:leann"
+    assert row["flow_key"] == "test_flow"
+    assert row["result_count"] == 1
+    assert row["handoff_id"] == "h"
+
+
+def test_service_mode_denied_and_not_ready_leave_the_prompt_unchanged(
+    monkeypatch, caplog
+):
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_provider", lambda: "leann")
+    monkeypatch.setattr(config, "get_knowledge_mode", lambda: "service")
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
+
+    def _local_provider_tripwire(*args, **kwargs):
+        raise AssertionError("local provider used")
+
+    def _local_guard_tripwire(*args, **kwargs):
+        raise AssertionError("local guard used")
+
+    monkeypatch.setattr(retrieval, "resolve_provider", _local_provider_tripwire)
+    monkeypatch.setattr(
+        retrieval.scope_guard, "require_scope_access", _local_guard_tripwire
+    )
+
+    log_calls = []
+    monkeypatch.setattr(
+        retrieval.retrieval_log,
+        "record_retrieval",
+        lambda **kwargs: log_calls.append(kwargs) or None,
+    )
+
+    monkeypatch.setattr(
+        retrieval.service_client,
+        "_http",
+        lambda *args, **kwargs: (403, {"detail": "scope access denied"}),
+    )
+    assert retrieve_for_context("q", "s", "a", "r", "h") is None
+    assert log_calls == []
+
+    monkeypatch.setattr(
+        retrieval.service_client,
+        "_http",
+        lambda *args, **kwargs: (503, {"detail": "knowledge service not ready"}),
+    )
+    with caplog.at_level(logging.ERROR, logger="knowledge.retrieval"):
+        result = retrieve_for_context("q", "s", "a", "r", "h")
+
+    assert result is None
+    assert "not ready" in caplog.text
+    assert log_calls == []

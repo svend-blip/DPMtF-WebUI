@@ -162,3 +162,26 @@ gemma3:4b at 8k context holds 2.7 GB, and an in-process LEANN search peaks
 at +2.4 GB and completes with 3.1 GB free. The new gate is 2500 MiB. The
 gate is set from a measured peak; it is never lowered just to make a
 refusal go away.
+
+## Service mode
+
+When `[knowledge] mode = service`, DPMtF becomes a client of the standalone
+knowledge service instead of searching in-process. The service runs as the
+systemd user unit `knowledge-service.service` at `http://127.0.0.1:9140`
+(contract endpoints `/v1/search`, `/v1/refresh`, `/v1/scopes`,
+`/v1/scope-for-path`, `/v1/health`).
+
+The ini keys that select this mode are:
+
+- `[knowledge] mode` — `service` or `local`; fallback `local`.
+- `[knowledge] service_url` — fallback `http://127.0.0.1:9140`.
+
+The service owns the grants and scope guard in this mode. DPMtF still keeps
+two local responsibilities: scope binding per flow (the Prompt Compiler
+still passes the resolved `scope` and `flow_key` to the service), and the
+compiler's own `knowledge_retrieval_log` row, which is written locally with
+provider `service:<provider>` and the flow key so DPMtF's run metrics and
+smoke test keep working unchanged.
+
+Grants are now managed with the service's CLI
+(`knowledge_service.cli grant|revoke`), not by DPMtF migrations.
