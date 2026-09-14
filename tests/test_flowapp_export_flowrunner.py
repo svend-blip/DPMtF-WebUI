@@ -310,6 +310,7 @@ def test_governance_carries_the_flowrunner_execution_context(tmp_path, monkeypat
         lambda fk, sk, db: _facts("D.md" if sk == "d" else "I.md", "simple-harness", "cloud_x"))
     monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
     monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(fe, "_read_learning_artifact_schema", lambda: "# schema\n")
     flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
     steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
               "to_role": "2000-implementer", "sort_order": 1},
@@ -339,6 +340,7 @@ def test_execution_context_addresses_the_role_by_name(tmp_path, monkeypatch):
         lambda fk, sk, db: _facts({"d": "D.md", "i": "I.md", "r": "R.md"}[sk], "simple-harness", "cloud_x"))
     monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
     monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(fe, "_read_learning_artifact_schema", lambda: "# schema\n")
     flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
     steps = [{"step_key": "d", "from_role": "2000-execution-decomposer", "to_role": "2000-implementer", "sort_order": 1},
              {"step_key": "i", "from_role": "2000-implementer", "to_role": "2000-reviewer", "sort_order": 2},
@@ -349,3 +351,116 @@ def test_execution_context_addresses_the_role_by_name(tmp_path, monkeypatch):
     assert "at most 12 tool calls" in d and "END-REPORT.md" in d
     assert "You are the implementer" in i and "results/NNN-<step>.md" in i
     assert "You are the reviewer" in r and "do not implement or fix" in r and "verdicts/NNN-<step>.md" in r
+
+
+def test_decomposer_context_allows_the_learning_draft_at_success_closure(tmp_path, monkeypatch):
+    # GOAL-DRAFT-041: the pre-run 039 closure rule lets the decomposer write
+    # LEARNING-DRAFT.yaml at SUCCESS closure; the old FlowRunner context said
+    # "EXACTLY ONE file" and forbade the draft. The exported text must name
+    # the draft and drop the prohibition.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(fe, "_read_learning_artifact_schema", lambda: "# schema\n")
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    text = desc["flows"][0]["steps"][0]["governance"]
+    assert "LEARNING-DRAFT.yaml" in text
+    assert "Learning: none" in text
+    assert "you write EXACTLY ONE file" not in text
+    assert "EXACTLY ONE file" not in text
+
+
+def test_decomposer_governance_bundles_the_learning_artifact_schema(tmp_path, monkeypatch):
+    # GOAL-DRAFT-041: the decomposer step's exported governance must end with
+    # the bundled schema so a FlowApp on a foreign target still carries it.
+    schema = (
+        "topic: t\nscope: experience\nrepository: r\nfamily: 2000\nrun: 041\n"
+        "problem: p\napproach: a\nresult: r\nfailed_approaches: []\n"
+        "important_files:\n  - x\narchitecture_implications: i\n"
+        "validation:\n  evidence_level: tests\n  verdicts: []\n  testgoals: []\n"
+        "confidence: high\nsupersedes: []\nadmitted_by: pending\n"
+    )
+    schema_path = tmp_path / "LEARNING-ARTIFACT.md"
+    schema_path.write_text(schema, encoding="utf-8")
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(fe, "_learning_artifact_schema_path", lambda: str(schema_path))
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    text = desc["flows"][0]["steps"][0]["governance"]
+    assert "## Learning artifact schema (bundled from docs/LEARNING-ARTIFACT.md)" in text
+    for key in ("topic", "scope", "repository", "family", "run", "problem",
+                "approach", "result", "failed_approaches", "important_files",
+                "architecture_implications", "validation", "confidence",
+                "supersedes", "admitted_by"):
+        assert key in text
+    assert "admitted_by: pending" in text
+    assert text.rstrip().endswith(schema.rstrip())
+
+
+def test_missing_learning_artifact_schema_is_422(tmp_path, monkeypatch):
+    # GOAL-DRAFT-041: a missing schema document is a 422 like a missing
+    # governance file, and the detail names the document.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(
+        fe, "_learning_artifact_schema_path", lambda: str(tmp_path / "ABSENT.md"),
+    )
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+    with pytest.raises(HTTPException) as exc:
+        fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    assert exc.value.status_code == 422
+    assert "docs/LEARNING-ARTIFACT.md" in exc.value.detail
+
+
+def test_other_steps_do_not_carry_the_schema(tmp_path, monkeypatch):
+    # GOAL-DRAFT-041: only the decomposer's governance carries the bundled
+    # schema; implementer and reviewer texts stay unchanged in shape.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs",
+        lambda: _gov_dir(tmp_path, ["I.md", "R.md"]),
+    )
+    facts = {
+        "i": _facts("I.md", "simple-harness", "cloud_x"),
+        "r": _facts("R.md", "simple-harness", "cloud_y"),
+    }
+    monkeypatch.setattr(fe, "_resolve_execution_config", lambda fk, sk, db: facts[sk])
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [
+        {"step_key": "i", "from_role": "2000-implementer",
+         "to_role": "2000-reviewer", "sort_order": 1},
+        {"step_key": "r", "from_role": "2000-reviewer",
+         "to_role": "2000-execution-decomposer", "sort_order": 2},
+    ]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    for step in desc["flows"][0]["steps"]:
+        assert "Learning artifact schema (bundled" not in step["governance"]

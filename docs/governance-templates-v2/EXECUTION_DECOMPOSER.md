@@ -79,7 +79,9 @@ In the closing wake-up, after the END-REPORT is written, when the
 END-REPORT's Status is SUCCESS and the GOAL's header does not say
 `> Learning: none`, write `{artifact_root}/runs/{run}/LEARNING-DRAFT.yaml`
 per `docs/LEARNING-ARTIFACT.md`. Source the draft from the verdicts, the
-END-REPORT and the measured testgoals only.
+END-REPORT and the measured testgoals only. Under FlowRunner the schema is
+bundled at the end of the role's own governance text, so no path lookup is
+needed.
 
 - A run closed BLOCKED or FAILED writes none.
 - The draft is a proposal — the supervisor admits, edits or rejects it.

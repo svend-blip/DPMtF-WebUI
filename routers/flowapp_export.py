@@ -286,14 +286,18 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
     role = (from_role or "").lower()
     if "decomposer" in role:
         role_block = (
-            "- **You are the decomposer, addressed by name: you do not implement.** Each turn "
-            "you write EXACTLY ONE file, at the path your STEP INPUT names: either the next "
-            "handoff (`handoffs/NNN-<step>.md`, one work package for the implementer, in your "
-            "governance's handoff format: role, task with concrete files and changes, scope "
-            "fence copied from the GOAL, acceptance criteria copied verbatim from the GOAL's "
-            "testgoals) or `END-REPORT.md` when every acceptance criterion of the GOAL is met "
-            "by the work already on the tree. Writing neither fails the run; writing anything "
-            "else in the repository is a role breach the reviewer rejects.\n"
+            "- **You are the decomposer, addressed by name: you do not implement.** Each normal "
+            "cycle you write exactly one handoff (`handoffs/NNN-<step>.md`, one work package for "
+            "the implementer, in your governance's handoff format: role, task with concrete files "
+            "and changes, scope fence copied from the GOAL, acceptance criteria copied verbatim "
+            "from the GOAL's testgoals). The closing wake-up is the one turn that writes two "
+            "files: `END-REPORT.md`, and — when the END-REPORT's Status is `SUCCESS` and the "
+            "GOAL header does not say `> Learning: none` — also `LEARNING-DRAFT.yaml` beside it "
+            "in the run directory (`runs/NNN/LEARNING-DRAFT.yaml`). Nothing else, on either "
+            "turn. Writing neither fails the run; writing anything else in the repository is a "
+            "role breach the reviewer rejects, except those two named closure outputs. The draft "
+            "is a proposal the supervisor admits; the role never calls the knowledge service "
+            "from a FlowRunner run.\n"
             "- On a later cycle read the previous verdict first; a REJECTED verdict means the "
             "next handoff carries the corrections, not a rewrite of what passed.\n"
             "- Budget: at most 12 tool calls; no pytest, no rehearsal of the criteria, no "
@@ -349,6 +353,41 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         "Do not ask questions; state assumptions in your deliverable.\n\n"
         "---\n\n"
     )
+
+
+_LEARNING_ARTIFACT_FILENAME = "LEARNING-ARTIFACT.md"
+
+
+def _learning_artifact_schema_path() -> str:
+    """Resolved path to the learning-artifact schema document.
+
+    The schema lives at the repository root's ``docs/LEARNING-ARTIFACT.md``,
+    one directory above the configured governance dir. Resolved through
+    ``config.get_project_root()`` (never a hardcoded path), so the same code
+    works on any checkout that carries the document.
+    """
+    import config  # late import; sys.path set up by routers/bridge.py
+    return os.path.join(config.get_project_root(), "docs", _LEARNING_ARTIFACT_FILENAME)
+
+
+def _read_learning_artifact_schema() -> str:
+    """Verbatim content of docs/LEARNING-ARTIFACT.md for bundling.
+
+    A missing document is a 422 in the same style as the governance-file
+    422, naming the document, so an export never ships a decomposer whose
+    governance promises a schema the FlowApp does not carry.
+    """
+    path = _learning_artifact_schema_path()
+    if not os.path.isfile(path):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"learning artifact schema not found: "
+                f"docs/{_LEARNING_ARTIFACT_FILENAME}"
+            ),
+        )
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
 
 
 def _to_flowrunner_description(flow_row, steps, db_path):
@@ -434,6 +473,15 @@ def _to_flowrunner_description(flow_row, steps, db_path):
         next_key = agent_steps[i + 1]["step_key"] if i + 1 < len(agent_steps) else None
         gov_text = _flowrunner_context(step_key, prev_key, next_key, config.get_bridge_dir(),
                                        s.get("from_role", "")) + gov_text
+        if "decomposer" in (s.get("from_role") or "").lower():
+            # The decomposer's governance references the learning-artifact
+            # schema; bundle it so a FlowApp on a foreign target repository
+            # still carries the schema (GOAL-DRAFT-041).
+            gov_text = (
+                gov_text
+                + "\n\n## Learning artifact schema (bundled from docs/LEARNING-ARTIFACT.md)\n\n"
+                + _read_learning_artifact_schema()
+            )
         harness = facts.get("harness_source")
         if harness not in _FR_SUPPORTED_HARNESSES:
             raise HTTPException(
