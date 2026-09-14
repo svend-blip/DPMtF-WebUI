@@ -113,3 +113,8 @@ read this checkout's own internal `dpmtf-webui` knowledge.
 Foreign-targeted flows derive non-internal scopes from their own target
 (`ai_advisoryboard`, `flowrunner`, …) and therefore need no `dpmtf-webui`
 grant.
+
+Migration 113 adds the DeepSeek Harness grant `('dpmtf-webui', 'dsh', NULL)`:
+`flow_key` is NULL because a DSH session has no flow key — it sends its
+workspace as `flow_key` — so the grant is a wildcard-flow grant for the role
+`dsh` only.
