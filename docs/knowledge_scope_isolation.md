@@ -97,3 +97,19 @@ database at write time):
 | `supervisor` | — | `dpmtf-webui` |
 | `trade_cockpit_scoring_v001` | — | `dpmtf-webui` |
 | `trade_cockpit_simulation_v001` | — | `dpmtf-webui` |
+
+## Which roles hold the internal dpmtf-webui grant and why
+
+The operator grant `('dpmtf-webui', 'human', NULL)` is in place (run 024 /
+migration 111). Migration 112 adds one grant per active, non-`example`
+chain-role step whose flow targets Father, with no wildcard `flow_key` and no
+wildcard role: `('dpmtf-webui', <to_role>, <flow_key>)`.
+
+The compiler passes the step's `to_role` key as `agent_role`
+(`routers/prompt_compiler.py`, `role_name = to_role_key`), so the role key is
+the exact string the scope guard compares. The grant is what lets chain roles
+read this checkout's own internal `dpmtf-webui` knowledge.
+
+Foreign-targeted flows derive non-internal scopes from their own target
+(`ai_advisoryboard`, `flowrunner`, …) and therefore need no `dpmtf-webui`
+grant.
