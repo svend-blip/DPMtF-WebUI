@@ -34,8 +34,7 @@ VALUES (?, ?, ?);
 ## Superseded texts
 
 This document supersedes two out-of-fence passages: the exact-grant-triple
-wording in `docs/knowledge_layer_overview_with_retrieval.md` lines 238–241,
-and the "it is not a wildcard" comments in
+wording in `docs/knowledge_layer_overview.md`, and the "it is not a wildcard" comments in
 `scripts/db/109_knowledge_scope_grants.sql` lines 19/42/45.
 
 ## Ecosystem scopes
