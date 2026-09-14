@@ -29,7 +29,7 @@ The artifact carries exactly these fifteen keys, no more and no fewer:
 - `failed_approaches` — a list of approaches that were tried and did not
   work; empty when none are recorded.
 - `important_files` — repository-relative paths with forward slashes.
-- `architecture_implications` — what future work must keep true.
+- `architecture_implications` — what future work must keep true. Always a YAML list, one entry per implication, even when there is exactly one (a bare string is a schema violation).
 - `validation` — the validation block described below.
 - `confidence` — one of `high`, `medium`, `low`.
 - `supersedes` — a list of earlier artifacts, each written as
@@ -43,7 +43,7 @@ The `validation` block has exactly three keys:
 
 - `evidence_level` — one of the five admissible levels below.
 - `verdicts` — the run's verdict ids that carry the evidence.
-- `testgoals` — the testgoal ids the evidence was measured against.
+- `testgoals` — one string of the form `"<n>/<m> green"` (criteria measured green over criteria in the GOAL), never a list of ids.
 
 ## Evidence levels
 
@@ -77,17 +77,14 @@ important_files:
   - "knowledge/retrieval.py"
   - "knowledge/maintenance.py"
   - "routers/knowledge.py"
-architecture_implications: "One LEANN store per scope, named <scope>.leann, resolved at a single point in knowledge/search.py."
+architecture_implications:
+  - "One LEANN store per scope, named <scope>.leann, resolved at a single point in knowledge/search.py."
 validation:
   evidence_level: tests
   verdicts:
     - "001"
     - "002"
-  testgoals:
-    - "TG1"
-    - "TG2"
-    - "TG3"
-    - "TG4"
+  testgoals: "7/7 green"
     - "TG5"
     - "TG6"
     - "TG7"
