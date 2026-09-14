@@ -155,3 +155,10 @@ min_free_vram_mib` (default `4096`) is read by
 
 Operator rule: never set `enabled = true` while a resident local model
 (FreeToken, Ollama, llama.cpp) holds the GPU.
+
+The gate on this host is a measured coexistence budget, not a guess. On the
+32.6 GB card, a resident FreeToken (131k KV) holds 25.8 GB, a resident
+gemma3:4b at 8k context holds 2.7 GB, and an in-process LEANN search peaks
+at +2.4 GB and completes with 3.1 GB free. The new gate is 2500 MiB. The
+gate is set from a measured peak; it is never lowered just to make a
+refusal go away.

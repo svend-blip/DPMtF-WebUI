@@ -88,5 +88,17 @@ def test_leann_use_daemon_default_false(monkeypatch):
     assert config.get_knowledge_leann_use_daemon() is False
 
 
-def test_min_free_vram_mib_default():
+def test_min_free_vram_mib_default(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
     assert config.get_knowledge_min_free_vram_mib() == 4096
+
+
+def test_min_free_vram_mib_reads_the_ini_value(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({"knowledge": {"min_free_vram_mib": "2500"}})
+    monkeypatch.setattr(config, "_config", parser)
+
+    assert config.get_knowledge_min_free_vram_mib() == 2500
