@@ -265,3 +265,37 @@ def test_live_roundtrip_is_hermetic_to_gpu_state(monkeypatch, tmp_path):
 
     with pytest.raises(ProviderNotReady):
         LeannProvider().index(str(manifest))
+
+
+def test_search_forwards_use_daemon_to_the_searcher(monkeypatch, tmp_path):
+    import types
+
+    leann_provider_module = sys.modules["knowledge.leann_provider"]
+
+    fake_leann = types.ModuleType("leann")
+
+    class LeannSearcher:
+        last_kwargs = None
+
+        def __init__(self, index_path, **kwargs):
+            self.index_path = index_path
+            self.kwargs = dict(kwargs)
+            LeannSearcher.last_kwargs = self.kwargs
+
+        def search(self, query, top_k=None, metadata_filters=None):
+            return []
+
+        def cleanup(self):
+            return None
+
+    fake_leann.LeannSearcher = LeannSearcher
+    monkeypatch.setitem(sys.modules, "torch", _fake_torch(True))
+    monkeypatch.setattr(leann_provider_module, "_LEANN_MODULE", fake_leann)
+
+    provider = LeannProvider(
+        index_path=str(tmp_path / "fake.leann"),
+        searcher_kwargs={"use_daemon": False},
+    )
+    provider.search("query", top_k=1)
+
+    assert fake_leann.LeannSearcher.last_kwargs == {"use_daemon": False}

@@ -101,25 +101,42 @@ every existing target refreshed or was a noop, and 1 when any target failed.
 
 ## GPU requirement
 
-LEANN stores a pruned index and recomputes passage embeddings at search
-time through its embedding server. Retrieval therefore needs a free GPU:
-the LEANN call path does its embedding work on the GPU at query time, not
-only during indexing.
+Retrieval still needs a free GPU: the LEANN call path does its embedding
+work on the GPU at query time, not only during indexing.
 
-> LEANN's search spawns a detached embedding server that inherits the
-> caller's stdout/stderr, so a harness that captures a searching
-> process's output must redirect it to /dev/null or it waits forever —
-> measured in run 024, gate TG7 timed out after 900 s while the same
-> command in a shell answered in seconds.
+The new default is daemon-free. `[knowledge] leann_use_daemon` is `false`,
+read by `config.get_knowledge_leann_use_daemon()` and forwarded to
+`LeannSearcher` as `use_daemon=False`. In this mode no
+`hnsw_embedding_server` daemon is spawned and nothing stays resident after
+the search.
 
-Measured on 2026-09-13: with the GPU held by a resident local model and
-CUDA hidden from the process, a 649-document index build did not finish in
-10 minutes (8 seconds on the GPU the day before), and three of three
-searches against a warm server aborted with `SIGABRT` on the compiled-in
-30-second ZMQ timeout (`distance batch fetch failed ... expected=13`).
-A `SIGABRT` inside a provider call kills the whole process that made it —
-for the API that is the uvicorn worker, for the Prompt Compiler that is a
-dispatch.
+Measured 2026-09-14 on the `dpmtf-webui` store (656 passages, free GPU):
+
+| mode | per search | resident afterwards |
+|---|---|---|
+| daemon (today) | 7.1 s cold, 1.0 s warm | daemon 1.6–2.2 GB, 900 s TTL |
+| `use_daemon=False` | 8.3–9.3 s every time | nothing |
+
+Same top-3 results on three queries. One retrieval per dispatch makes
+9 seconds acceptable, so the daemon's failure modes are not worth the
+warm-cache speedup.
+
+### When the daemon is switched on
+
+When `leann_use_daemon = true`, redirect a searching process's stdout/stderr
+to `/dev/null` or the harness that captures it waits forever (run 024, gate TG7
+timed out after 900 s).
+
+Measured 2026-09-13: with the GPU held by a resident local model, a
+649-document build did not finish in 10 minutes and three of three searches
+against a warm server aborted with `SIGABRT` on the compiled-in 30-second ZMQ
+timeout. A `SIGABRT` inside a provider call kills the whole calling process
+(uvicorn worker / a dispatch).
+
+> The stdout/stderr-inheritance note about a harness that captures a
+> searching process hanging forever applies only when the daemon is
+> switched on (`leann_use_daemon = true`), not in the default
+> `use_daemon=False` mode.
 
 The readiness contract is provider-neutral. `[knowledge]
 min_free_vram_mib` (default `4096`) is read by

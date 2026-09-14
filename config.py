@@ -327,6 +327,16 @@ def get_knowledge_index_dir() -> str:
     return str((Path.home() / configured).resolve())
 
 
+def get_knowledge_leann_use_daemon() -> bool:
+    """Whether LEANN should spawn the hnsw_embedding_server daemon.
+
+    False by default: in-process search keeps no daemon resident, so a
+    searching process cannot be hung by inherited stdout/stderr, VRAM, or a
+    ZMQ timeout. The daemon remains an explicit opt-in.
+    """
+    return _config.getboolean("knowledge", "leann_use_daemon", fallback=False)
+
+
 # ── Bridge session names (env vars with defaults) ───────────────
 
 def get_review_session() -> str:

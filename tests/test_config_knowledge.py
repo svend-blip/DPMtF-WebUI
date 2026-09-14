@@ -80,5 +80,13 @@ def test_knowledge_scope_getter_default(monkeypatch):
     assert config.get_knowledge_scope() == "dpmtf-webui"
 
 
+def test_leann_use_daemon_default_false(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
+    assert config.get_knowledge_leann_use_daemon() is False
+
+
 def test_min_free_vram_mib_default():
     assert config.get_knowledge_min_free_vram_mib() == 4096

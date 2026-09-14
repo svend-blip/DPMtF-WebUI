@@ -65,8 +65,9 @@ def test_leann_loader_uses_the_configured_index_dir(monkeypatch, tmp_path):
     import knowledge.search as knowledge_search
 
     class FakeLeann:
-        def __init__(self, index_path=None):
+        def __init__(self, index_path=None, searcher_kwargs=None):
             self.index_path = index_path
+            self.searcher_kwargs = searcher_kwargs
 
     fake_module = types.ModuleType("knowledge.leann_provider")
     fake_module.LeannProvider = FakeLeann
@@ -95,8 +96,9 @@ def test_resolve_provider_binds_the_requested_scope_index_path(
     import knowledge.search as knowledge_search
 
     class FakeLeann:
-        def __init__(self, index_path=None):
+        def __init__(self, index_path=None, searcher_kwargs=None):
             self.index_path = index_path
+            self.searcher_kwargs = searcher_kwargs
 
     fake_module = types.ModuleType("knowledge.leann_provider")
     fake_module.LeannProvider = FakeLeann
@@ -125,8 +127,9 @@ def test_resolve_provider_without_scope_binds_the_configured_scope(
     import knowledge.search as knowledge_search
 
     class FakeLeann:
-        def __init__(self, index_path=None):
+        def __init__(self, index_path=None, searcher_kwargs=None):
             self.index_path = index_path
+            self.searcher_kwargs = searcher_kwargs
 
     fake_module = types.ModuleType("knowledge.leann_provider")
     fake_module.LeannProvider = FakeLeann
@@ -147,6 +150,39 @@ def test_resolve_provider_without_scope_binds_the_configured_scope(
     provider = factory()
     assert isinstance(provider, FakeLeann)
     assert provider.index_path == str(tmp_path / "idx" / "configured-scope.leann")
+
+
+def test_resolve_provider_binds_use_daemon_from_config(monkeypatch, tmp_path):
+    import knowledge.search as knowledge_search
+
+    class FakeLeann:
+        def __init__(self, index_path=None, searcher_kwargs=None):
+            self.index_path = index_path
+            self.searcher_kwargs = searcher_kwargs
+
+    fake_module = types.ModuleType("knowledge.leann_provider")
+    fake_module.LeannProvider = FakeLeann
+    monkeypatch.setitem(sys.modules, "knowledge.leann_provider", fake_module)
+
+    monkeypatch.setattr(
+        knowledge_search.config,
+        "get_knowledge_index_dir",
+        lambda: str(tmp_path / "idx"),
+    )
+    monkeypatch.setattr(
+        knowledge_search.config,
+        "get_knowledge_scope",
+        lambda: "configured-scope",
+    )
+    monkeypatch.setattr(
+        knowledge_search.config,
+        "get_knowledge_leann_use_daemon",
+        lambda: True,
+    )
+
+    factory = knowledge_search.resolve_provider("leann", scope="flowrunner")
+    provider = factory()
+    assert provider.searcher_kwargs == {"use_daemon": True}
 
 
 def test_preflight_default_is_ready():

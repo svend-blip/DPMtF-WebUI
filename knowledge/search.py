@@ -35,7 +35,11 @@ def _load_leann_provider(scope: str | None = None) -> Callable[[], KnowledgeProv
         Path(config.get_knowledge_index_dir())
         / f"{scope or config.get_knowledge_scope()}.leann"
     )
-    return functools.partial(LeannProvider, index_path=str(index_path))
+    return functools.partial(
+        LeannProvider,
+        index_path=str(index_path),
+        searcher_kwargs={"use_daemon": config.get_knowledge_leann_use_daemon()},
+    )
 
 
 # Maps a configured provider key to a zero-argument loader returning a
