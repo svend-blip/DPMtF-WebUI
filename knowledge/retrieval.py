@@ -38,6 +38,14 @@ _NON_OVERRIDE_SENTENCE = (
     "GOAL.md, governance, approved architecture, or the current handoff."
 )
 
+# Cross-repository retrieval searches the caller's repository scope plus the
+# two public learning scopes. The context budget is split 60 % to the
+# repository scope and 20 % to each learning scope; unused learning share
+# flows back to the repository scope.
+_LEARNING_SCOPES = ("ecosystem", "experience")
+_REPOSITORY_SHARE = 0.6
+_LEARNING_SHARE = 0.2
+
 
 def _record_retrieval(
     provider, scope, query, results, duration_ms,
@@ -63,17 +71,17 @@ def _record_retrieval(
         )
 
 
-def _retrieve_from_service(
+def _repository_results(
     query, scope, top_k, token_budget,
     agent_role, run_id, handoff_id, flow_key,
 ):
-    """Retrieve from the standalone knowledge service.
+    """Run the repository-scope search with today's exact behaviour.
 
-    Service mode delegates the whole retrieval to ``knowledge.service_client``
-    and therefore never calls any provider class or method. The service owns
-    the grants and scope guard. A 403 leaves the compiled context unchanged
-    and writes no local log row; any other non-200 status is one ERROR log
-    line and an unchanged context.
+    Returns the top_k-capped raw result list, or ``None`` when the repository
+    scope contributes nothing: 403, any other non-200 status, a disabled
+    service envelope, or an empty result list. A 403 writes no local log row;
+    a non-200 status writes one ERROR line and no log row; a 200 (including
+    an empty result list) writes exactly one local log row.
     """
     started = time.perf_counter()
     status, payload = service_client.search(
@@ -117,7 +125,151 @@ def _retrieve_from_service(
     if not results:
         return None
 
+    return results
+
+
+def _learning_results(
+    query, scope, top_k, token_budget,
+    agent_role, run_id, handoff_id, flow_key,
+):
+    """Run one learning-scope (ecosystem/experience) search.
+
+    Every learning-scope search writes exactly one local log row, so foreign
+    retrievals are always in the audit trail. 403, 404, a disabled envelope,
+    or an empty result list contribute nothing without an ERROR line; a 5xx
+    or a transport failure contributes nothing with exactly one ERROR line.
+    Never raises.
+    """
+    started = time.perf_counter()
+    status, payload = service_client.search(
+        query,
+        scope=scope,
+        top_k=top_k,
+        token_budget=token_budget,
+        agent_role=agent_role,
+        flow_key=flow_key,
+        run_id=run_id,
+        handoff_id=handoff_id,
+    )
+    duration_ms = int((time.perf_counter() - started) * 1000)
+
+    provider = "service"
+    results = []
+    if status == 200 and isinstance(payload, dict):
+        provider = payload.get("provider") or "service"
+        if payload.get("enabled") is True:
+            results = list(payload.get("results") or [])[:top_k]
+
+    _record_retrieval(
+        provider=f"service:{provider}",
+        scope=scope,
+        query=query,
+        results=results,
+        duration_ms=duration_ms,
+        agent_role=agent_role,
+        run_id=run_id,
+        handoff_id=handoff_id,
+        flow_key=flow_key,
+    )
+
+    if status in (403, 404):
+        return []
+
+    if status != 200:
+        detail = payload.get("detail") if isinstance(payload, dict) else payload
+        logger.error("knowledge service unavailable for scope %s: %s", scope, detail)
+        return []
+
+    if not payload or payload.get("enabled") is not True:
+        return []
+
+    if not results:
+        return []
+
+    return results
+
+
+def _retrieve_from_service(
+    query, scope, top_k, token_budget,
+    agent_role, run_id, handoff_id, flow_key,
+):
+    """Single-scope retrieval: today's repository-only behaviour."""
+    results = _repository_results(
+        query=query,
+        scope=scope,
+        top_k=top_k,
+        token_budget=token_budget,
+        agent_role=agent_role,
+        run_id=run_id,
+        handoff_id=handoff_id,
+        flow_key=flow_key,
+    )
+
+    if not results:
+        return None
+
     return _fit_block_to_budget(results, token_budget)
+
+
+def _retrieve_cross_repo(
+    query, scope, top_k, token_budget,
+    agent_role, run_id, handoff_id, flow_key,
+):
+    """Three-scope retrieval with the 60/20/20 split budget.
+
+    The two learning scopes are searched and fitted first so whatever they
+    leave unused can flow to the repository scope; the rendered block still
+    lists results in repository → ecosystem → experience order.
+    """
+    learning_budget = int(token_budget * _LEARNING_SHARE)
+    repository_budget = int(token_budget * _REPOSITORY_SHARE)
+
+    eco_results = _learning_results(
+        query=query,
+        scope="ecosystem",
+        top_k=top_k,
+        token_budget=learning_budget,
+        agent_role=agent_role,
+        run_id=run_id,
+        handoff_id=handoff_id,
+        flow_key=flow_key,
+    )
+    exp_results = _learning_results(
+        query=query,
+        scope="experience",
+        top_k=top_k,
+        token_budget=learning_budget,
+        agent_role=agent_role,
+        run_id=run_id,
+        handoff_id=handoff_id,
+        flow_key=flow_key,
+    )
+
+    eco_fitted, eco_used = _fit_scoped_results(eco_results, learning_budget, "ecosystem")
+    exp_fitted, exp_used = _fit_scoped_results(exp_results, learning_budget, "experience")
+
+    repository_budget += (learning_budget - eco_used) + (learning_budget - exp_used)
+
+    repo_results = _repository_results(
+        query=query,
+        scope=scope,
+        top_k=top_k,
+        token_budget=repository_budget,
+        agent_role=agent_role,
+        run_id=run_id,
+        handoff_id=handoff_id,
+        flow_key=flow_key,
+    )
+
+    repo_fitted = []
+    if repo_results:
+        repo_fitted, _ = _fit_scoped_results(repo_results, repository_budget, scope)
+
+    combined = repo_fitted + eco_fitted + exp_fitted
+    if not combined:
+        return None
+
+    return _render_block(combined)
 
 
 def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key: str | None = None):
@@ -131,6 +283,12 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
     Disabled mode (``knowledge.enabled`` false) returns ``None`` before the
     service is called, so no retrieval work happens and the compiled context
     stays byte-for-byte unchanged. Disabled mode never raises.
+
+    With ``knowledge.cross_repo`` true (the default), one call performs three
+    searches — the caller's repository ``scope`` plus the ``ecosystem`` and
+    ``experience`` learning scopes — and renders a single block whose results
+    appear in repository → ecosystem → experience order. Each search writes
+    exactly one ``knowledge_retrieval_log`` row.
 
     Every call that reaches the service — including a call that returns zero
     results — writes exactly one ``knowledge_retrieval_log`` row through
@@ -148,7 +306,19 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
     top_k = config.get_knowledge_top_k()
     token_budget = config.get_knowledge_max_context_tokens()
 
-    return _retrieve_from_service(
+    if not config.get_knowledge_cross_repo():
+        return _retrieve_from_service(
+            query=query,
+            scope=scope,
+            top_k=top_k,
+            token_budget=token_budget,
+            agent_role=agent_role,
+            run_id=run_id,
+            handoff_id=handoff_id,
+            flow_key=flow_key,
+        )
+
+    return _retrieve_cross_repo(
         query=query,
         scope=scope,
         top_k=top_k,
@@ -161,7 +331,12 @@ def retrieve_for_context(query, scope, agent_role, run_id, handoff_id, flow_key:
 
 
 def _render_block(results):
-    """Render the supplemental block for the given result items."""
+    """Render the supplemental block for the given result items.
+
+    Each item carries its ``source: <path>`` line first. When an item is
+    tagged with ``_scope`` (cross-repository retrieval), a second line
+    ``scope: <scope>`` follows the source line.
+    """
     lines = [
         _BLOCK_OPEN,
         _NON_OVERRIDE_SENTENCE,
@@ -169,10 +344,53 @@ def _render_block(results):
     for item in results:
         lines.append(_RESULT_OPEN)
         lines.append(f"source: {item['path']}")
+        if item.get("_scope"):
+            lines.append(f"scope: {item['_scope']}")
         lines.append(item["content"])
         lines.append(_RESULT_CLOSE)
     lines.append(_BLOCK_CLOSE)
     return "\n".join(lines)
+
+
+def _fit_results_to_budget(results, token_budget):
+    """Drop trailing results until the rendered block fits the token budget.
+
+    Returns the fitted result list, or ``None`` when nothing (not even the
+    block wrapper alone) fits. Uses the same whitespace-split proxy and
+    truncation semantics as ``_fit_block_to_budget``.
+    """
+    while results:
+        if len(_render_block(results).split()) <= token_budget:
+            return results
+
+        if len(results) == 1:
+            first = dict(results[0])
+            overhead = _render_block([{**first, "content": ""}])
+            remaining = token_budget - len(overhead.split())
+            if remaining < 0:
+                remaining = 0
+            first["content"] = " ".join(first["content"].split()[:remaining])
+            if len(_render_block([first]).split()) <= token_budget:
+                return [first]
+            return None
+
+        results = results[:-1]
+
+    return None
+
+
+def _fit_scoped_results(results, token_budget, scope):
+    """Tag results with a scope and fit them; return ``(fitted, used_tokens)``.
+
+    ``used_tokens`` is measured on the fitted block with the same
+    whitespace-split proxy used across the knowledge layer, so the caller can
+    hand the unused share of a learning scope to the repository scope.
+    """
+    tagged = [{**item, "_scope": scope} for item in results]
+    fitted = _fit_results_to_budget(tagged, token_budget)
+    if not fitted:
+        return [], 0
+    return fitted, len(_render_block(fitted).split())
 
 
 def _fit_block_to_budget(results, token_budget):
@@ -186,25 +404,7 @@ def _fit_block_to_budget(results, token_budget):
     block wrapper alone exceeds the budget, ``None`` is returned so the
     compiled context stays unchanged.
     """
-    while results:
-        block = _render_block(results)
-        if len(block.split()) <= token_budget:
-            return block
-
-        if len(results) == 1:
-            first = dict(results[0])
-            # Measure the wrapper + source line overhead for this one result
-            # with empty content, then give the content what is left.
-            overhead = _render_block([{**first, "content": ""}])
-            remaining = token_budget - len(overhead.split())
-            if remaining < 0:
-                remaining = 0
-            first["content"] = " ".join(first["content"].split()[:remaining])
-            block = _render_block([first])
-            if len(block.split()) <= token_budget:
-                return block
-            return None
-
-        results = results[:-1]
-
-    return None
+    fitted = _fit_results_to_budget(results, token_budget)
+    if fitted is None:
+        return None
+    return _render_block(fitted)

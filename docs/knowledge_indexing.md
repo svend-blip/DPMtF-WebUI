@@ -80,3 +80,30 @@ Service access grants are managed with the service's own CLI,
 "repo_path": "<existing dir>"}` to the service. The service owns the refresh
 work and its response is passed back to the caller unchanged; the service's
 daily timer replaces the former ecosystem refresh script.
+
+## Cross-repository retrieval
+
+When `[knowledge] cross_repo` is `true` (the default), one
+`retrieve_for_context` call performs three searches through the service:
+the caller's repository scope (the `scope` argument), then `ecosystem`, then
+`experience`. The context budget (`max_context_tokens`) is split 60 % to the
+repository scope and 20 % to each learning scope; the two learning scopes
+are searched and fitted first, and whatever they leave unused flows to the
+repository scope. `top_k` applies per scope.
+
+The three searches render into ONE `<supplemental_knowledge>` block, with
+results in repository → ecosystem → experience order. Each
+`<knowledge_result>` carries its `source: <path>` line first and a new
+second line `scope: <scope>`.
+
+Every search writes one local `knowledge_retrieval_log` row (provider
+`service:<provider>`, that search's scope), so foreign retrievals stay in
+the audit trail. A learning scope answering 403, 404, or an empty list
+contributes nothing and logs nothing beyond its row; a learning scope
+answering 5xx or a transport failure contributes nothing and logs one ERROR
+line — the repository results still inject. The repository scope's own
+behaviour is unchanged (403 contributes nothing, 5xx/transport failure logs
+one ERROR line, a disabled envelope contributes nothing).
+
+Set `cross_repo = false` to restrict retrieval to the current repository
+scope only.

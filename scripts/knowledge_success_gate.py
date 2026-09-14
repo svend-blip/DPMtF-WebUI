@@ -98,12 +98,13 @@ def _log_rows(db_path: str) -> int:
 def _fake_service_http(method, url, params_or_body, timeout):
     """Built-in fake service used when the gate owns the seam.
 
-    Search requests are served per criterion marker; anything else receives a
-    plain 200 envelope. No criterion reaches the network.
+    Search requests are served per criterion marker and per scope; anything
+    else receives a plain 200 envelope. No criterion reaches the network.
     """
     del method, url, timeout
     if isinstance(params_or_body, dict):
         query = params_or_body.get("q")
+        scope = params_or_body.get("scope")
         if query == _C1_QUERY:
             return (200, {
                 "enabled": False,
@@ -112,6 +113,13 @@ def _fake_service_http(method, url, params_or_body, timeout):
                 "bounded": True,
             })
         if query == _C5_QUERY:
+            if scope in ("ecosystem", "experience"):
+                return (200, {
+                    "enabled": True,
+                    "provider": "service",
+                    "results": [],
+                    "bounded": True,
+                })
             return (403, {"detail": "scope access denied"})
         if query == _C6_QUERY:
             return (0, {"detail": "connection refused"})
@@ -198,8 +206,7 @@ def criterion_3() -> tuple[str, bool]:
 
 
 def criterion_4() -> tuple[str, bool]:
-    """The block renderer respects top_k and the configured token budget."""
-    top_k = config.get_knowledge_top_k()
+    """One row per search, and the rendered block fits the token budget."""
     max_context_tokens = config.get_knowledge_max_context_tokens()
 
     tmp_dir, db_path = _make_temp_db()
@@ -207,14 +214,15 @@ def criterion_4() -> tuple[str, bool]:
         with patch("config.get_db_path", return_value=db_path):
             block = retrieval.retrieve_for_context(_C4_QUERY, "s", "a", "r", "h")
 
-        count = block.count("source: ") if block else 0
         token_count = len(block.split()) if block else 0
         ok = (
             block is not None
             and block.startswith("<supplemental_knowledge>")
-            and count <= top_k
+            and "scope: s" in block
+            and "scope: ecosystem" in block
+            and "scope: experience" in block
             and token_count <= max_context_tokens
-            and _log_rows(db_path) == 1
+            and _log_rows(db_path) == 3
         )
         return ("criterion_4", ok)
     finally:
@@ -222,20 +230,20 @@ def criterion_4() -> tuple[str, bool]:
 
 
 def criterion_5() -> tuple[str, bool]:
-    """A 403 leaves the prompt unchanged and writes no local log row."""
+    """A denied repository scope leaves the block empty; learning rows remain."""
     tmp_dir, db_path = _make_temp_db()
     try:
         with patch("config.get_db_path", return_value=db_path):
             block = retrieval.retrieve_for_context(_C5_QUERY, "s", "a", "r", "h")
 
-        ok = block is None and _log_rows(db_path) == 0
+        ok = block is None and _log_rows(db_path) == 2
         return ("criterion_5", ok)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def criterion_6() -> tuple[str, bool]:
-    """A transport failure is one ERROR log line and an unchanged prompt."""
+    """Every failed scope logs one ERROR line; no block is injected."""
     tmp_dir, db_path = _make_temp_db()
     handler = _RecordingHandler()
     logger = logging.getLogger("knowledge.retrieval")
@@ -250,8 +258,7 @@ def criterion_6() -> tuple[str, bool]:
     try:
         ok = (
             block is None
-            and len(errors) == 1
-            and _log_rows(db_path) == 0
+            and len(errors) == 3
         )
         return ("criterion_6", ok)
     finally:

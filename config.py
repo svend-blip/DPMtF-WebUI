@@ -277,6 +277,15 @@ def get_knowledge_enabled() -> bool:
     return _config.getboolean("knowledge", "enabled", fallback=False)
 
 
+def get_knowledge_cross_repo() -> bool:
+    """Whether retrieval also searches the ecosystem and experience scopes.
+
+    True by default: the repository scope is searched together with the two
+    non-repository learning scopes and the context budget is split 60/20/20.
+    """
+    return _config.getboolean("knowledge", "cross_repo", fallback=True)
+
+
 def get_knowledge_top_k() -> int:
     """Default number of retrieval results to return."""
     return _config.getint("knowledge", "top_k", fallback=8)

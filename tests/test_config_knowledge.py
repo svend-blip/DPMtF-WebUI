@@ -31,6 +31,14 @@ def test_retrieval_limits_have_defaults():
     assert config.get_knowledge_max_context_tokens() == 12000
 
 
+def test_knowledge_cross_repo_defaults_to_true(monkeypatch):
+    parser = configparser.ConfigParser()
+    parser.read_dict({})
+    monkeypatch.setattr(config, "_config", parser)
+
+    assert config.get_knowledge_cross_repo() is True
+
+
 def test_knowledge_max_document_chars_default():
     assert config.get_knowledge_max_document_chars() == 20000
 

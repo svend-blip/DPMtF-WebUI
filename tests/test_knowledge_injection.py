@@ -260,6 +260,7 @@ def test_retrieval_module_has_no_local_provider_path(monkeypatch, tmp_path):
     db = _create_retrieval_log_db_with_flow_key(tmp_path)
     monkeypatch.setattr(config, "get_db_path", lambda: str(db))
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
     monkeypatch.setattr(
@@ -308,6 +309,7 @@ def test_token_budget_measured_on_rendered_block(monkeypatch, tmp_path):
     db = _create_retrieval_log_db_with_flow_key(tmp_path)
     monkeypatch.setattr(config, "get_db_path", lambda: str(db))
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 2)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 40)
     monkeypatch.setattr(
@@ -338,6 +340,7 @@ def test_empty_results_return_none(monkeypatch, tmp_path):
     db = _create_retrieval_log_db_with_flow_key(tmp_path)
     monkeypatch.setattr(config, "get_db_path", lambda: str(db))
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 100)
     monkeypatch.setattr(
@@ -356,6 +359,7 @@ def test_compile_records_one_retrieval_row(client, monkeypatch, tmp_path):
     db = _create_retrieval_log_db_with_flow_key(tmp_path)
     monkeypatch.setattr(config, "get_db_path", lambda: str(db))
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
 
@@ -408,6 +412,7 @@ def test_compile_records_the_flow_key_in_the_retrieval_row(
     db = _create_retrieval_log_db_with_flow_key(tmp_path)
     monkeypatch.setattr(config, "get_db_path", lambda: str(db))
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
 
@@ -443,6 +448,7 @@ def test_service_denied_and_transport_failure_leave_the_prompt_unchanged(
     monkeypatch, caplog
 ):
     monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
     monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
     monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 1000)
 
@@ -472,3 +478,289 @@ def test_service_denied_and_transport_failure_leave_the_prompt_unchanged(
     assert result is None
     assert "not ready" in caplog.text
     assert log_calls == []
+
+
+# ── Cross-repository retrieval ─────────────────────────────────────────
+
+
+def test_cross_repo_searches_three_scopes_with_the_split_budget(
+    monkeypatch, tmp_path
+):
+    db = _create_retrieval_log_db_with_flow_key(tmp_path)
+    monkeypatch.setattr(config, "get_db_path", lambda: str(db))
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 12000)
+
+    repo_results = [{"path": "repo.md", "content": "repository alpha beta"}]
+    eco_results = [{"path": "eco.md", "content": "ecosystem alpha"}]
+    exp_results = [{"path": "exp.md", "content": "experience alpha"}]
+    payloads = {
+        "flowrunner": repo_results,
+        "ecosystem": eco_results,
+        "experience": exp_results,
+    }
+
+    calls = []
+
+    def fake_http(method, url, params_or_body, timeout):
+        scope = params_or_body["scope"]
+        calls.append((scope, params_or_body["token_budget"]))
+        return (
+            200,
+            {
+                "enabled": True,
+                "provider": "test",
+                "results": list(payloads[scope]),
+                "bounded": True,
+            },
+        )
+
+    monkeypatch.setattr(retrieval.service_client, "_http", fake_http)
+
+    block = retrieve_for_context(
+        "q", "flowrunner", "a", "r", "h", flow_key="test_flow"
+    )
+
+    assert block is not None
+    assert block.startswith("<supplemental_knowledge>")
+
+    # The two learning scopes are searched and fitted first; their unused
+    # budget flows to the repository scope, so the repository call's budget
+    # is 7200 plus whatever ecosystem and experience left unused.
+    assert [scope for scope, _ in calls] == [
+        "ecosystem",
+        "experience",
+        "flowrunner",
+    ]
+    assert calls[0][1] == 2400
+    assert calls[1][1] == 2400
+
+    def used_tokens(results, scope):
+        tagged = [{**item, "_scope": scope} for item in results]
+        return len(retrieval._render_block(tagged).split())
+
+    unused = (2400 - used_tokens(eco_results, "ecosystem")) + (
+        2400 - used_tokens(exp_results, "experience")
+    )
+    assert calls[2][1] == 7200 + unused
+
+    # One local log row per search, carrying each search's scope.
+    rows = _fetch_log_rows(db)
+    assert len(rows) == 3
+    assert [row["scope"] for row in rows] == [
+        "ecosystem",
+        "experience",
+        "flowrunner",
+    ]
+    assert all(row["provider"] == "service:test" for row in rows)
+    assert all(row["flow_key"] == "test_flow" for row in rows)
+
+    # One block; repository → ecosystem → experience; every result has scope.
+    assert block.count("<supplemental_knowledge>") == 1
+    assert "scope: flowrunner" in block
+    assert "scope: ecosystem" in block
+    assert "scope: experience" in block
+    assert block.index("source: repo.md") < block.index("source: eco.md")
+    assert block.index("source: eco.md") < block.index("source: exp.md")
+
+
+def test_cross_repo_false_searches_only_the_repository_scope(
+    monkeypatch, tmp_path
+):
+    db = _create_retrieval_log_db_with_flow_key(tmp_path)
+    monkeypatch.setattr(config, "get_db_path", lambda: str(db))
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: False)
+    monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+    monkeypatch.setattr(config, "get_knowledge_max_context_tokens", lambda: 5000)
+
+    calls = []
+
+    def fake_http(method, url, params_or_body, timeout):
+        calls.append((params_or_body["scope"], params_or_body["token_budget"]))
+        return (
+            200,
+            {
+                "enabled": True,
+                "provider": "test",
+                "results": [{"path": "repo.md", "content": "repository alpha"}],
+                "bounded": True,
+            },
+        )
+
+    monkeypatch.setattr(retrieval.service_client, "_http", fake_http)
+
+    block = retrieve_for_context("q", "flowrunner", "a", "r", "h")
+
+    assert block is not None
+    assert calls == [("flowrunner", 5000)]
+    assert "scope:" not in block
+    assert "source: repo.md" in block
+
+    rows = _fetch_log_rows(db)
+    assert len(rows) == 1
+    assert rows[0]["scope"] == "flowrunner"
+
+
+def test_learning_scope_failures_leave_the_repository_results(
+    monkeypatch, tmp_path, caplog
+):
+    repo_results = [{"path": "repo.md", "content": "repository alpha"}]
+    eco_results = [{"path": "eco.md", "content": "ecosystem alpha"}]
+    exp_results = [{"path": "exp.md", "content": "experience alpha"}]
+
+    def fresh_db(name):
+        directory = tmp_path / name
+        directory.mkdir()
+        return _create_retrieval_log_db_with_flow_key(directory)
+
+    def fake_http(responses):
+        def _call(method, url, params_or_body, timeout):
+            return responses[params_or_body["scope"]]
+
+        return _call
+
+    def configure(db):
+        monkeypatch.setattr(config, "get_db_path", lambda: str(db))
+        monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+        monkeypatch.setattr(config, "get_knowledge_cross_repo", lambda: True)
+        monkeypatch.setattr(config, "get_knowledge_top_k", lambda: 8)
+        monkeypatch.setattr(
+            config, "get_knowledge_max_context_tokens", lambda: 12000
+        )
+
+    # Scenario 1: experience answers 403 — no ERROR line, repository and
+    # ecosystem results still inject.
+    db = fresh_db("scenario1")
+    configure(db)
+    monkeypatch.setattr(
+        retrieval.service_client,
+        "_http",
+        fake_http(
+            {
+                "flowrunner": (
+                    200,
+                    {
+                        "enabled": True,
+                        "provider": "test",
+                        "results": list(repo_results),
+                        "bounded": True,
+                    },
+                ),
+                "ecosystem": (
+                    200,
+                    {
+                        "enabled": True,
+                        "provider": "test",
+                        "results": list(eco_results),
+                        "bounded": True,
+                    },
+                ),
+                "experience": (403, {"detail": "scope access denied"}),
+            }
+        ),
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="knowledge.retrieval"):
+        block = retrieve_for_context("q", "flowrunner", "a", "r", "h")
+
+    assert block is not None
+    assert "source: repo.md" in block
+    assert "source: eco.md" in block
+    assert "source: exp.md" not in block
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+    # Scenario 2: ecosystem suffers a transport failure (status 0) — exactly
+    # one ERROR line, repository and experience results still inject.
+    db = fresh_db("scenario2")
+    configure(db)
+    monkeypatch.setattr(
+        retrieval.service_client,
+        "_http",
+        fake_http(
+            {
+                "flowrunner": (
+                    200,
+                    {
+                        "enabled": True,
+                        "provider": "test",
+                        "results": list(repo_results),
+                        "bounded": True,
+                    },
+                ),
+                "ecosystem": (0, {"detail": "connection refused"}),
+                "experience": (
+                    200,
+                    {
+                        "enabled": True,
+                        "provider": "test",
+                        "results": list(exp_results),
+                        "bounded": True,
+                    },
+                ),
+            }
+        ),
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="knowledge.retrieval"):
+        block = retrieve_for_context("q", "flowrunner", "a", "r", "h")
+
+    assert block is not None
+    assert "source: repo.md" in block
+    assert "source: exp.md" in block
+    assert "source: eco.md" not in block
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert "connection refused" in errors[0].getMessage()
+
+    # Scenario 3: both learning scopes answer an empty list — repository
+    # results only, and still one local log row per search.
+    db = fresh_db("scenario3")
+    configure(db)
+    monkeypatch.setattr(
+        retrieval.service_client,
+        "_http",
+        fake_http(
+            {
+                "flowrunner": (
+                    200,
+                    {
+                        "enabled": True,
+                        "provider": "test",
+                        "results": list(repo_results),
+                        "bounded": True,
+                    },
+                ),
+                "ecosystem": (
+                    200,
+                    {"enabled": True, "provider": "test", "results": [], "bounded": True},
+                ),
+                "experience": (
+                    200,
+                    {"enabled": True, "provider": "test", "results": [], "bounded": True},
+                ),
+            }
+        ),
+    )
+
+    caplog.clear()
+    with caplog.at_level(logging.ERROR, logger="knowledge.retrieval"):
+        block = retrieve_for_context("q", "flowrunner", "a", "r", "h")
+
+    assert block is not None
+    assert "source: repo.md" in block
+    assert "source: eco.md" not in block
+    assert "source: exp.md" not in block
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+    rows = _fetch_log_rows(db)
+    assert len(rows) == 3
+    assert [row["scope"] for row in rows] == [
+        "ecosystem",
+        "experience",
+        "flowrunner",
+    ]
