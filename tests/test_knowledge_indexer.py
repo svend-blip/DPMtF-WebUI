@@ -379,3 +379,50 @@ def test_cli_repo_exclusion_error_is_clean_not_traceback(
     captured = capsys.readouterr()
     assert "knowledge.indexer: error:" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_cap_content_returns_prefix_and_truncated_flag():
+    """The shared helper returns the stored prefix and the truncated flag."""
+    assert indexer.cap_content("abcdef", 3) == ("abc", True)
+    assert indexer.cap_content("abc", 3) == ("abc", False)
+    assert indexer.cap_content("ab", 3) == ("ab", False)
+
+
+def test_indexer_writes_records_through_cap_content(tmp_path, monkeypatch):
+    """``main`` honours ``--max-document-chars`` and flags only capped records."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "big.txt").write_text("abcdef", encoding="utf-8")
+    (repo / "small.txt").write_text("ab", encoding="utf-8")
+
+    db = tmp_path / "fixture.db"
+    _create_fixture_db(db, [])
+    _patch_db(monkeypatch, db)
+
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            [
+                "--repo",
+                str(repo),
+                "--scope",
+                "test",
+                "--out",
+                str(out),
+                "--max-document-chars",
+                "5",
+            ]
+        )
+        == 0
+    )
+
+    by_path = {record["path"]: record for record in _read_manifest(out)}
+
+    big = by_path["big.txt"]
+    assert big["content"] == "abcde"
+    assert big["truncated"] is True
+    assert big["size_bytes"] == 6
+
+    small = by_path["small.txt"]
+    assert small["content"] == "ab"
+    assert "truncated" not in small

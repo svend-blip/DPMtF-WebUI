@@ -32,11 +32,11 @@ non-positive `N` is rejected with exit 1 before any manifest is written.
 
 ## Maintenance-loop consequence
 
-`knowledge/maintenance.py` compares freshly loaded document text against the
-manifest's **capped** `content`, so a document larger than the cap is
-reported as changed on every maintenance pass. This is the intended
-consequence of capping at record-build time; `knowledge/maintenance.py` is
-not modified by this run.
+`knowledge/maintenance.py` compares each freshly walked document against the
+manifest's **capped** `content` — the same prefix the indexer stores — so
+change detection sees exactly what the index holds. A document over the cap
+is reported `changed` only when its stored prefix differs; a change that
+lies beyond the cap is invisible to change detection by design.
 
 ## Repository-specific exclusions
 

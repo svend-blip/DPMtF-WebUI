@@ -120,7 +120,9 @@ def detect_changes(repo, scope, manifest_path) -> MaintenancePlan:
     for rel_path, content, _size_bytes in indexer._iter_documents(
         repo_path, exclusions
     ):
-        current[rel_path] = content
+        current[rel_path] = indexer.cap_content(
+            content, config.get_knowledge_max_document_chars()
+        )[0]
 
     previous_paths = set(previous)
     current_paths = set(current)

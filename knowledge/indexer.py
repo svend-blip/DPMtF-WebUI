@@ -128,6 +128,18 @@ def _contains_secret_markers(content: str) -> bool:
     return False
 
 
+def cap_content(content: str, max_chars: int) -> tuple[str, bool]:
+    """Return ``(stored_content, truncated)`` for one document.
+
+    ``truncated`` is True exactly when ``len(content)`` exceeds ``max_chars``.
+    ``stored_content`` is ``content[:max_chars]`` when truncated, otherwise the
+    full ``content`` unchanged.
+    """
+    if len(content) > max_chars:
+        return content[:max_chars], True
+    return content, False
+
+
 def _load_repo_exclusions(scope: str) -> list[tuple[str, str]]:
     """Load enabled ``knowledge_exclusions`` rows for ``scope``, read-only.
 
@@ -380,16 +392,15 @@ def main(argv: list[str] | None = None) -> int:
             for rel_path, content, size_bytes in _iter_documents(
                 repo_path, exclusions, knowledgeignore_patterns
             ):
-                truncated = len(content) > max_chars
+                stored_content, truncated = cap_content(content, max_chars)
                 record = {
                     "scope": args.scope,
                     "path": rel_path,
-                    "content": content,
+                    "content": stored_content,
                     "size_bytes": size_bytes,
                     "indexed_at": datetime.now(timezone.utc).isoformat(),
                 }
                 if truncated:
-                    record["content"] = content[:max_chars]
                     record["truncated"] = True
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
                 count += 1

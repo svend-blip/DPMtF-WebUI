@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 import config
+import knowledge.indexer as indexer
 import knowledge.maintenance as maintenance
 from knowledge.provider import ProviderNotReady
 
@@ -626,3 +627,74 @@ def test_refresh_scope_resolves_the_provider_for_its_own_scope(
     assert result == {"status": "noop", "manifest": str(manifest.resolve())}
     assert resolve_calls == [("stub", "target-scope")]
     assert provider.index_calls == []
+
+
+# ── GOAL-DRAFT-031: capped-document change detection ─────────────────────
+
+
+def _write_capped_manifest(tmp_path, monkeypatch):
+    """Build the common GOAL 031 setup for the detector-side tests.
+
+    Patches the configured cap to 5, creates a repo whose only document is
+    ``big.txt`` (6 chars, over the cap), and writes the manifest through the
+    indexer itself so the stored record is genuinely capped, not hand-built.
+    Returns ``(repo, manifest_path)``.
+    """
+    monkeypatch.setattr(config, "get_knowledge_max_document_chars", lambda: 5)
+    repo = _write_repo(tmp_path, {"big.txt": "abcdef"})
+    out = tmp_path / "manifest.jsonl"
+    assert (
+        indexer.main(
+            ["--repo", str(repo), "--scope", "test", "--out", str(out)]
+        )
+        == 0
+    )
+    records = [
+        json.loads(line)
+        for line in out.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert records[0]["content"] == "abcde"
+    assert records[0]["truncated"] is True
+    return repo, out
+
+
+def test_detect_changes_reports_noop_for_a_document_over_the_cap(
+    knowledge_db, tmp_path, monkeypatch
+):
+    """A document over the cap matches its capped manifest: noop."""
+    repo, out = _write_capped_manifest(tmp_path, monkeypatch)
+
+    plan = maintenance.detect_changes(repo, "test", out)
+
+    assert plan.status == "noop"
+    assert plan.changed_paths == []
+    assert plan.removed_paths == []
+
+
+def test_detect_changes_reports_changed_when_the_capped_prefix_differs(
+    knowledge_db, tmp_path, monkeypatch
+):
+    """A change inside the capped prefix is detected."""
+    repo, out = _write_capped_manifest(tmp_path, monkeypatch)
+    (repo / "big.txt").write_text("axcdef", encoding="utf-8")
+
+    plan = maintenance.detect_changes(repo, "test", out)
+
+    assert plan.status == "changed"
+    assert plan.changed_paths == ["big.txt"]
+    assert plan.removed_paths == []
+
+
+def test_detect_changes_ignores_a_change_beyond_the_cap(
+    knowledge_db, tmp_path, monkeypatch
+):
+    """A change beyond the capped prefix is invisible by design: noop."""
+    repo, out = _write_capped_manifest(tmp_path, monkeypatch)
+    (repo / "big.txt").write_text("abcdeXYZ", encoding="utf-8")
+
+    plan = maintenance.detect_changes(repo, "test", out)
+
+    assert plan.status == "noop"
+    assert plan.changed_paths == []
+    assert plan.removed_paths == []
