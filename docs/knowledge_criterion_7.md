@@ -3,7 +3,8 @@
 > Language: en-US. This report is the honest population summary for family
 > 2000 success criterion 7. It compares two populations of different tasks,
 > not the same task pair that criterion 7 asks to commission, and it claims
-> no causal effect of retrieval.
+> no causal effect of retrieval. The same-task pair was commissioned on
+> 2026-09-15 (runs 043 and 044) and has its own section below.
 
 ## What this measures
 
@@ -115,6 +116,54 @@ here in prose only:
 - Run 014: `tool_calls` 133, `tokens` 5162267, `source`
   "FlowRunner journal events.jsonl (instance eloop2000), usage events
   summed over the ledger window".
+
+## The same-task pair — runs 043 and 044, measured 2026-09-15
+
+Criterion 7 asks for one representative run that shows whether retrieval
+reduces repository exploration, tool calls, tokens or execution time. The
+pair below is that run, commissioned as the procedure requires: **the same
+GOAL body, byte-identical apart from its title line, from the same baseline
+commit `63bcfac`**, once with the knowledge tools removed from the
+simple-harness allowlist (arm A, run 043) and once with them available
+(arm B, run 044). Both arms closed SUCCESS with 3/3 acceptance criteria and
+one review cycle. Arm A's implementation was archived and reverted, not
+committed, so arm B could start from the same tree; arm B's work is what
+landed (`[run-044]`).
+
+| | arm A — retrieval unavailable (043) | arm B — retrieval available (044) |
+|---|---:|---:|
+| tool calls | 62 | 75 |
+| tokens | 970 460 | 1 177 636 |
+| retrieval events | 0 | 0 |
+| time to first implementation (s) | 199 | 486 |
+| total execution time (s) | 679 | 951 |
+| review failures | 0 | 0 |
+| rework cycles | 0 | 0 |
+| harness sessions | 3 | 4 |
+| diff | 5 files, 186 insertions | 5 files, 176 insertions |
+
+**The treatment was never applied.** Arm B's retrieval-event count is zero:
+the roles had `knowledge_search` registered (the harness exits 2 when an
+MCP server is unreachable, and both arms ran to completion) and used only
+the built-in tools — `read_file`, `list_directory`, `shell`, `apply_patch`,
+`write_file`. So the numbers above compare two runs of the same task that
+both worked without retrieval, and the differences between them are
+run-to-run variance, not an effect of retrieval. **Criterion 7 is therefore
+not yet answered by measurement**, and no causal claim is made here.
+
+What the pair does establish:
+
+1. The instrument works end to end: the same GOAL, one baseline, derived
+   metrics from FlowRunner state and harness session logs, and a verdict
+   in each arm.
+2. Availability is not use. Making retrieval reachable changes nothing on
+   its own for a task an agent judges it can solve by reading the files in
+   front of it.
+3. The next attempt must either instruct the role to consult the knowledge
+   layer before exploring (the `knowledge-first` skill exists for exactly
+   this) or choose a task whose answer is not in the files the role would
+   open anyway — a convention decided in another repository, a decision
+   recorded in a closed run, an interface used from a sibling project.
 
 ## Commissioning procedure — the step the supervising session runs next
 
