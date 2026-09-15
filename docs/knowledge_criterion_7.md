@@ -165,6 +165,74 @@ What the pair does establish:
    open anyway — a convention decided in another repository, a decision
    recorded in a closed run, an interface used from a sibling project.
 
+## Second pair — runs 045 and 046, measured 2026-09-15, with the treatment applied
+
+The first pair failed to apply its treatment: the tools were available in
+arm B and the roles never called them. This pair carries the
+retrieve-before-exploring instruction **in both GOAL bodies**, so the only
+difference between the arms is whether `knowledge_search` is in the
+harness's allowlist. Same GOAL text apart from the title, same baseline
+`c12d399`, same task (a `--markdown` renderer for this harness). Both arms
+closed SUCCESS with 4/4 acceptance criteria. Arm A's implementation was
+archived and reverted; arm B's is what landed (`[run-046]`).
+
+**The treatment arrived.** Measured in the session logs, not from the
+roles' own reports: arm A made 0 `knowledge_search` calls (its implementer
+reported the tool absent and read files instead); arm B made 5, one in
+each of its decomposer, implementer and reviewer sessions.
+
+### The comparable slice — cycle 1 of each arm
+
+Arm B needed a second cycle for a reason unrelated to retrieval (its first
+implementer left five scratch files inside the run directory; the reviewer
+rejected on that and the rework fixed it). Comparing whole runs therefore
+compares one cycle against two. Cycle 1 is the like-for-like slice:
+
+| cycle 1 | arm A — no retrieval (045) | arm B — retrieval (046) | difference |
+|---|---:|---:|---|
+| tool calls | 91 | 79 | −13 % |
+| tokens | 2 752 655 | 2 368 005 | −14 % |
+| `knowledge_search` calls | 0 | 3 | treatment applied |
+| implementer alone, tool calls | 48 | 34 | −29 % |
+| implementer alone, tokens | 1 958 419 | 1 385 512 | −29 % |
+
+### Whole runs, for completeness
+
+| | arm A (045) | arm B (046) |
+|---|---:|---:|
+| cycles | 1 | 2 |
+| tool calls | 102 | 149 |
+| tokens | 2 927 631 | 3 847 126 |
+| `knowledge_search` calls | 0 | 5 |
+| time to first implementation (s) | 1170 | 788 |
+| total execution time (s) | 1794 | 3437 |
+| review failures | 0 | 1 |
+| harness sessions | 4 | 7 |
+
+### Reading
+
+In the comparable cycle the arm that retrieved opened fewer files and spent
+fewer tokens, and its implementer — the role that does the exploring — used
+29 % fewer of both. Its time to first implementation was also shorter
+(788 s against 1170 s). Over the whole run arm B cost more, because an
+unrelated review failure added a second cycle; that is a property of this
+one run, not of retrieval.
+
+**This is one observation, not a measurement of effect size.** n = 1 per
+arm, one task, one model, and the second cycle confounds the totals.
+Criterion 7 asks whether retrieval reduces exploration for a representative
+run, and this pair answers *yes for the cycle in which it was applied*,
+with the caveats stated. A second and third pair on different tasks would
+be needed before the percentages mean anything.
+
+One defect this pair exposed: `knowledge_eval.py` renders `retrieval
+events 0` for both arms because it counts rows in DPMtF's local
+`knowledge_retrieval_log` joined by run id, while a role's retrieval goes
+through mcp-light to the knowledge service and is logged there. The
+harness's own counter (`scripts/knowledge_run_metrics.py`, which counts
+`knowledge_*` tool calls in the session logs) is the one that saw the five
+calls.
+
 ## Commissioning procedure — the step the supervising session runs next
 
 The evaluation harness (`scripts/knowledge_eval.py`) already prints this
