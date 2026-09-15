@@ -51,6 +51,9 @@ DPMtF proxies the service's learning list (`GET /v1/learning`) at `/api/knowledg
   `POST /api/knowledge/refresh`. Both are pure proxies: they forward to the
   service and pass its HTTP status and body back unchanged. A transport
   failure (status 0) becomes a `502`.
+- `scripts/knowledge_eval.py` renders the with-vs-without retrieval
+  comparison; pass `--markdown` to print it as one Markdown table instead
+  of flat `key value` lines.
 
 ## Local responsibilities DPMtF keeps
 

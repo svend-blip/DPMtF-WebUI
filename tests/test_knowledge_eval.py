@@ -3,6 +3,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import importlib.util
+import json
 import sqlite3
 from pathlib import Path
 
@@ -94,6 +95,13 @@ def _seed_retrieval_rows(db_path, rows):
         conn.commit()
     finally:
         conn.close()
+
+
+def _write_metrics(run_dir, metrics):
+    """Write a metrics.json payload into ``run_dir`` (read by the harness)."""
+    run_dir.joinpath("metrics.json").write_text(
+        json.dumps(metrics), encoding="utf-8"
+    )
 
 
 @pytest.fixture
@@ -229,3 +237,76 @@ def test_metric_values_honor_available_columns():
     assert knowledge_eval._metric_values(set(METRIC_HEADINGS)) == {
         metric: 0 for metric in METRIC_HEADINGS
     }
+
+
+def test_markdown_flag_renders_one_table_with_both_arms(temp_db, tmp_path, capsys):
+    with_dir = tmp_path / "with-run"
+    without_dir = tmp_path / "without-run"
+    with_dir.mkdir()
+    without_dir.mkdir()
+    _write_metrics(with_dir, {"tool_calls": 11, "tokens": 111})
+    _write_metrics(without_dir, {"tool_calls": 22, "tokens": 222})
+
+    assert (
+        knowledge_eval.main(
+            [
+                "--with-run",
+                str(with_dir),
+                "--without-run",
+                str(without_dir),
+                "--markdown",
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+
+    # Exactly one table: one header row and one alignment row.
+    assert lines[0] == "| | without retrieval | with retrieval |"
+    assert lines[1] == "| --- | ---: | ---: |"
+    assert out.count("| | without retrieval | with retrieval |") == 1
+    assert out.count("| --- | ---: | ---: |") == 1
+
+    # Both bound column headers in the header row, in arm order.
+    assert "without retrieval" in lines[0]
+    assert "with retrieval" in lines[0]
+
+    # All six metric rows plus the retrieval events row.
+    for metric in METRIC_HEADINGS:
+        assert any(line.startswith(f"| {metric} |") for line in lines)
+    assert any(line.startswith("| retrieval events |") for line in lines)
+
+    # Arm columns are right-aligned and values land in the bound column order.
+    assert "---:" in lines[1]
+    assert "| tool_calls | 22 | 11 |" in out
+    assert "| tokens | 222 | 111 |" in out
+
+    # Markdown mode renders the table only — no commissioning prose.
+    assert "commissioning_procedure" not in out
+
+
+def test_markdown_flag_leaves_the_flat_output_unchanged(temp_db, tmp_path, capsys):
+    with_dir = tmp_path / "with-run"
+    without_dir = tmp_path / "without-run"
+    with_dir.mkdir()
+    without_dir.mkdir()
+    _write_metrics(with_dir, {"tool_calls": 11, "tokens": 111})
+    _write_metrics(without_dir, {"tool_calls": 22, "tokens": 222})
+
+    assert (
+        knowledge_eval.main(
+            ["--with-run", str(with_dir), "--without-run", str(without_dir)]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+
+    assert lines.count("with_retrieval") == 1
+    assert lines.count("without_retrieval") == 1
+    assert lines.count("retrieval_events 0") == 2
+    for metric in METRIC_HEADINGS:
+        assert sum(1 for line in lines if line.startswith(f"{metric} ")) == 2
+    assert "commissioning_procedure" in lines
+    assert not any(line.startswith("| ") for line in lines)

@@ -172,16 +172,37 @@ def _print_run_report(with_metrics, without_metrics, with_events, without_events
     print("\n".join(lines))
 
 
+def render_markdown(report) -> str:
+    """Render the with-vs-without comparison as one Markdown table.
+
+    ``report`` is arm-keyed by the two bound column headers; each arm value
+    maps the six ``METRIC_HEADINGS`` keys plus ``"retrieval events"`` to an
+    integer. A metric absent from an arm renders as 0. This is a pure
+    formatter: it never prints, reads files, or opens the database.
+    """
+    arms = ("without retrieval", "with retrieval")
+    lines = [
+        "| | " + " | ".join(arms) + " |",
+        "| --- | " + " | ".join("---:" for _ in arms) + " |",
+    ]
+    for metric in METRIC_HEADINGS + ("retrieval events",):
+        values = [str(report[arm].get(metric, 0)) for arm in arms]
+        lines.append("| " + metric + " | " + " | ".join(values) + " |")
+    return "\n".join(lines)
+
+
 def main(argv=None):
     """Entry point. Returns 0 on success.
 
     With no options the default empty-state DB report is printed exactly as
     before. With --with-run/--without-run the two arms are rendered from
-    collect_run_metrics for the supplied run directories.
+    collect_run_metrics for the supplied run directories. With --markdown the
+    comparison is printed as one Markdown table instead of the flat report.
     """
     parser = argparse.ArgumentParser(description="Knowledge evaluation harness.")
     parser.add_argument("--with-run", type=Path, default=None)
     parser.add_argument("--without-run", type=Path, default=None)
+    parser.add_argument("--markdown", action="store_true")
     args = parser.parse_args([] if argv is None else argv)
 
     if args.with_run is None and args.without_run is None:
@@ -194,7 +215,23 @@ def main(argv=None):
             if conn is not None:
                 conn.close()
         metric_values = _metric_values(available_columns)
-        _print_report(retrieval_events, metric_values)
+        if args.markdown:
+            report = {
+                "without retrieval": {
+                    **{metric: 0 for metric in METRIC_HEADINGS},
+                    "retrieval events": 0,
+                },
+                "with retrieval": {
+                    **{
+                        metric: metric_values.get(metric, 0)
+                        for metric in METRIC_HEADINGS
+                    },
+                    "retrieval events": retrieval_events,
+                },
+            }
+            print(render_markdown(report))
+        else:
+            _print_report(retrieval_events, metric_values)
         return 0
 
     zero_metrics = {metric: 0 for metric in METRIC_HEADINGS}
@@ -223,7 +260,28 @@ def main(argv=None):
     finally:
         if conn is not None:
             conn.close()
-    _print_run_report(with_metrics, without_metrics, with_events, without_events)
+    if args.markdown:
+        report = {
+            "without retrieval": {
+                **{
+                    metric: without_metrics.get(metric, 0)
+                    for metric in METRIC_HEADINGS
+                },
+                "retrieval events": without_events,
+            },
+            "with retrieval": {
+                **{
+                    metric: with_metrics.get(metric, 0)
+                    for metric in METRIC_HEADINGS
+                },
+                "retrieval events": with_events,
+            },
+        }
+        print(render_markdown(report))
+    else:
+        _print_run_report(
+            with_metrics, without_metrics, with_events, without_events
+        )
     return 0
 
 
