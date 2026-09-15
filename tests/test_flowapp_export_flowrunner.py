@@ -522,3 +522,80 @@ def test_description_has_no_knowledge_block_when_disabled(tmp_path, monkeypatch)
 
     assert "knowledge" not in desc
     assert "KNOWLEDGE_SERVICE_URL" not in desc["secrets"]["optional"]
+
+
+def test_exported_context_tells_every_role_to_retrieve_first_with_run_attribution(
+        tmp_path, monkeypatch):
+    # GOAL-DRAFT-047: every exported role is told to retrieve before exploring
+    # and to attribute the lookup to the run. The bullet lives in the shared
+    # block, so it reaches the decomposer, the implementer and the reviewer
+    # alike — not one role's own text.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs",
+        lambda: _gov_dir(tmp_path, ["D.md", "I.md", "R.md"]),
+    )
+    facts = {
+        "d": _facts("D.md", "simple-harness", "cloud_x"),
+        "i": _facts("I.md", "simple-harness", "cloud_x"),
+        "r": _facts("R.md", "simple-harness", "cloud_y"),
+    }
+    monkeypatch.setattr(fe, "_resolve_execution_config", lambda fk, sk, db: facts[sk])
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(fe, "_read_learning_artifact_schema", lambda: "# schema\n")
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [
+        {"step_key": "d", "from_role": "2000-execution-decomposer",
+         "to_role": "2000-implementer", "sort_order": 1},
+        {"step_key": "i", "from_role": "2000-implementer",
+         "to_role": "2000-reviewer", "sort_order": 2},
+        {"step_key": "r", "from_role": "2000-reviewer",
+         "to_role": "2000-execution-decomposer", "sort_order": 3},
+    ]
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+    markers = ("You are the decomposer", "You are the implementer",
+               "You are the reviewer")
+    for step, marker in zip(desc["flows"][0]["steps"], markers):
+        text = step["governance"]
+        for literal in ("knowledge_search", "current_repository",
+                        "run_id", "handoff_id"):
+            assert literal in text
+        # the bullet sits in the shared block, before the role-specific text
+        assert text.index("knowledge_search") < text.index(marker)
+
+
+def test_no_retrieval_instruction_when_knowledge_is_disabled(tmp_path, monkeypatch):
+    # GOAL-DRAFT-047: with knowledge disabled the exported context stays
+    # byte-for-byte what it was before the retrieval bullet existed. Build the
+    # same step with the switch on and off; removing the added bullet from the
+    # enabled text must reproduce the disabled text exactly.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["I.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("I.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "i", "from_role": "2000-implementer",
+              "to_role": "2000-reviewer", "sort_order": 1}]
+
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    enabled = fe._to_flowrunner_description(flow_row, steps, "unused.db")[
+        "flows"][0]["steps"][0]["governance"]
+
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    disabled = fe._to_flowrunner_description(flow_row, steps, "unused.db")[
+        "flows"][0]["steps"][0]["governance"]
+
+    for literal in ("knowledge_search", "current_repository", "run_id",
+                    "handoff_id"):
+        assert literal not in disabled
+
+    # one-bullet diff, byte for byte
+    bullet_lines = [line for line in enabled.split("\n") if "knowledge_search" in line]
+    assert len(bullet_lines) == 1
+    assert enabled.replace(bullet_lines[0] + "\n", "", 1) == disabled

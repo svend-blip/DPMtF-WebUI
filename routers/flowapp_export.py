@@ -330,6 +330,21 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         )
     else:
         role_block = ""
+    import config  # late import; sys.path set up by routers/bridge.py
+    retrieval_bullet = ""
+    if config.get_knowledge_enabled():
+        retrieval_bullet = (
+            "- **Retrieve before exploring, and attribute the lookup to this run.** Before "
+            "grepping or walking the repository, call the `knowledge_search` tool once with "
+            "the task's own sentence, `scope: \"current_repository\"`, and `workspace` set to "
+            "the repository root you were started in (without `workspace` the tool cannot "
+            "resolve `current_repository` and refuses). Pass `run_id` and `handoff_id` taken "
+            "from the run directory and deliverable names in your STEP INPUT (the run's three "
+            "digits and the handoff's three digits) so the service's retrieval log attributes "
+            "the lookup to this run. Call it again when the work moves into a part of the "
+            "repository you have not read; if the tool is not available in the session, say "
+            "so once in your deliverable and continue by reading files.\n"
+        )
     return (
         "## FlowRunner execution context (prepended by the DPMtF exporter)\n\n"
         "You are running under **FlowRunner**, not under the DPMtF bridge. Everything in "
@@ -346,6 +361,7 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         "previous deliverables and your own deliverable. Use those paths exactly; never "
         "invent `goals/`, `runs/`, `RUN-LEDGER.md` or `END-REPORT.md` locations of your own. "
         "`RUN-LEDGER.md` is written by FlowRunner, not by you.\n"
+        f"{retrieval_bullet}"
         f"{role_block}"
         "- Finishing your turn is the completion signal: the next step starts automatically. "
         "Summarise your deliverable in your final message.\n"

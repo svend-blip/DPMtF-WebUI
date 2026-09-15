@@ -36,6 +36,7 @@ operator supplies the env name `KNOWLEDGE_SERVICE_URL`, never the URL), and
 FlowRunner's preflight probes the service's health (`GET <url>/v1/health` for
 the `http` provider type) while the harness sees `KNOWLEDGE_PROJECT_URL`.
 DPMtF proxies the service's learning list (`GET /v1/learning`) at `/api/knowledge/learning`, with `history` and `repository` as its only query parameters, as a pure proxy like search and refresh.
+Exported roles are told to retrieve first and to attribute their lookups — the tool call carries `run_id`/`handoff_id` so `GET /v1/retrievals` can answer "what did run NNN retrieve".
 
 ## Client paths
 
