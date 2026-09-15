@@ -128,3 +128,78 @@ def test_transport_failure_is_status_zero_not_an_exception(monkeypatch):
     assert status == 0
     assert "detail" in payload
     assert "network down" in payload["detail"]
+
+
+def test_learning_sends_only_the_set_parameters_and_the_token_header(monkeypatch):
+    monkeypatch.setattr(config, "get_knowledge_service_url",
+                        lambda: "http://service.test")
+    monkeypatch.setattr(config, "get_knowledge_service_token",
+                        lambda: "secret-token")
+
+    captured = {}
+
+    def recording_http(method, url, params_or_body, timeout):
+        captured["method"] = method
+        captured["url"] = url
+        captured["params_or_body"] = params_or_body
+        captured["timeout"] = timeout
+        return (200, {"artifacts": [{"repository": "dpmtf-webui"}]})
+
+    real_http = service_client._http
+    monkeypatch.setattr(service_client, "_http", recording_http)
+
+    # Defaults: neither history nor repository travels.
+    status, payload = service_client.learning()
+    assert status == 200
+    assert payload == {"artifacts": [{"repository": "dpmtf-webui"}]}
+    assert captured["method"] == "GET"
+    assert captured["url"] == "http://service.test/v1/learning"
+    assert captured["timeout"] == 30.0
+    assert captured["params_or_body"] == {}
+
+    # Set case: exactly the two keys, history encoded lowercase.
+    status, payload = service_client.learning(
+        history=True, repository="dpmtf-webui"
+    )
+    assert status == 200
+    assert payload == {"artifacts": [{"repository": "dpmtf-webui"}]}
+    assert captured["method"] == "GET"
+    assert captured["url"] == "http://service.test/v1/learning"
+    assert captured["params_or_body"] == {
+        "history": "true",
+        "repository": "dpmtf-webui",
+    }
+
+    # Exercise the real ``_http`` with a faked ``urlopen`` (still no
+    # network) to prove the query string and the token header.
+    requests_seen = []
+
+    def fake_urlopen(request, timeout):
+        requests_seen.append((request, timeout))
+        return _FakeResponse(
+            200, b'{"artifacts": [{"repository": "dpmtf-webui"}]}'
+        )
+
+    monkeypatch.setattr(service_client.urllib.request, "urlopen", fake_urlopen)
+
+    status2, payload2 = real_http(
+        "GET",
+        "http://service.test/v1/learning",
+        {"history": "true", "repository": "dpmtf-webui"},
+        10.0,
+    )
+    assert status2 == 200
+    assert payload2 == {"artifacts": [{"repository": "dpmtf-webui"}]}
+    assert len(requests_seen) == 1
+    request, timeout = requests_seen[0]
+    assert timeout == 10.0
+
+    parsed = urllib.parse.urlparse(request.full_url)
+    assert parsed.scheme == "http"
+    assert parsed.netloc == "service.test"
+    assert parsed.path == "/v1/learning"
+    assert urllib.parse.parse_qs(parsed.query) == {
+        "history": ["true"],
+        "repository": ["dpmtf-webui"],
+    }
+    assert request.get_header("X-knowledge-token") == "secret-token"

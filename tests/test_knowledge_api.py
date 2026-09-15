@@ -119,3 +119,75 @@ def test_search_and_refresh_are_pure_proxies(monkeypatch):
     assert search_calls[0][2]["q"] == "ok"
     assert refresh_calls[0][0] == "POST"
     assert refresh_calls[0][2] == {"scope": "ok", "repo_path": "/tmp/x"}
+
+
+def test_learning_is_a_pure_proxy(monkeypatch):
+    learning_calls = []
+
+    two_row_payload = {
+        "artifacts": [
+            {
+                "repository": "dpmtf-webui",
+                "family": "2000",
+                "run": "044",
+                "topic": "learning proxy",
+                "evidence_level": "anecdote",
+                "confidence": 0.9,
+                "admitted_by": "cli",
+                "supersedes": None,
+            },
+            {
+                "repository": "dpmtf-webui",
+                "family": "2000",
+                "run": "042",
+                "topic": "learning proxy",
+                "evidence_level": "validated",
+                "confidence": 1.0,
+                "admitted_by": "cli",
+                "supersedes": None,
+                "superseded_by": None,
+                "retracted_at": None,
+            },
+        ]
+    }
+
+    def fake_http(method, url, params_or_body, timeout):
+        assert url.endswith("/v1/learning"), f"unexpected call: {method} {url}"
+        learning_calls.append((method, url, params_or_body, timeout))
+        repo = params_or_body.get("repository")
+        if repo == "busy":
+            return (503, {"detail": "not ready"})
+        if repo == "down":
+            return (0, {"detail": "connection refused"})
+        return (200, two_row_payload)
+
+    monkeypatch.setattr(service_client, "_http", fake_http)
+
+    with TestClient(app.app) as client:
+        ok = client.get(
+            "/api/knowledge/learning",
+            params={"history": "true", "repository": "slug"},
+        )
+        assert ok.status_code == 200
+        assert ok.json() == two_row_payload
+
+        busy = client.get(
+            "/api/knowledge/learning", params={"repository": "busy"}
+        )
+        assert busy.status_code == 503
+        assert busy.json() == {"detail": "not ready"}
+
+        down = client.get(
+            "/api/knowledge/learning", params={"repository": "down"}
+        )
+        assert down.status_code == 502
+        assert down.json() == {"detail": "connection refused"}
+
+        bare = client.get("/api/knowledge/learning")
+        assert bare.status_code == 200
+        assert bare.json() == two_row_payload
+
+    assert learning_calls[0][0] == "GET"
+    assert learning_calls[0][1].endswith("/v1/learning")
+    assert learning_calls[0][2] == {"history": "true", "repository": "slug"}
+    assert learning_calls[3][2] == {}

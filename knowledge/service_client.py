@@ -103,6 +103,16 @@ def refresh(scope, repo_path):
                          {"scope": scope, "repo_path": repo_path})
 
 
+def learning(history=False, repository=""):
+    """List the validated learning artifacts. Returns ``(status, payload)``."""
+    params = {}
+    if history:
+        params["history"] = "true"
+    if repository:
+        params["repository"] = repository
+    return _service_call("GET", "/v1/learning", params)
+
+
 def health():
     """Ask the knowledge service for its health. Returns ``(status, payload)``."""
     return _service_call("GET", "/v1/health", {})

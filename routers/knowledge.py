@@ -1,10 +1,10 @@
 """Knowledge API router: pure proxies to the standalone knowledge service.
 
-``GET /api/knowledge/search`` and ``POST /api/knowledge/refresh`` forward to
-``knowledge.service_client`` and pass the service's HTTP status and body back
-unchanged. A transport failure (status 0) becomes a 502. DPMtF keeps no
-provider, indexer, maintenance routine or scope guard of its own, so this
-router has no local branch.
+``GET /api/knowledge/search``, ``POST /api/knowledge/refresh`` and
+``GET /api/knowledge/learning`` forward to ``knowledge.service_client`` and
+pass the service's HTTP status and body back unchanged. A transport failure
+(status 0) becomes a 502. DPMtF keeps no provider, indexer, maintenance
+routine or scope guard of its own, so this router has no local branch.
 """
 
 from __future__ import annotations
@@ -60,6 +60,19 @@ async def search_knowledge(
         flow_key=flow_key,
         run_id=run_id,
         handoff_id=handoff_id,
+    )
+    return _proxy_response(status, payload)
+
+
+@router.get("/learning")
+async def list_learning(
+    history: bool = False,
+    repository: str = "",
+):
+    """Forward a learning-list request to the knowledge service and pass its response through."""
+    status, payload = service_client.learning(
+        history=history,
+        repository=repository,
     )
     return _proxy_response(status, payload)
 
