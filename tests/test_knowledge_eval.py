@@ -310,3 +310,89 @@ def test_markdown_flag_leaves_the_flat_output_unchanged(temp_db, tmp_path, capsy
         assert sum(1 for line in lines if line.startswith(f"{metric} ")) == 2
     assert "commissioning_procedure" in lines
     assert not any(line.startswith("| ") for line in lines)
+
+
+def test_attribution_counts_each_field_over_the_rows_read(temp_db, capsys):
+    conn = sqlite3.connect(temp_db)
+    try:
+        rows = [
+            ("implementer", "run-1", "handoff-1"),
+            ("reviewer", "run-2", "handoff-2"),
+            ("architect", None, "handoff-3"),
+            ("implementer", None, None),
+        ]
+        for role, run_id, handoff_id in rows:
+            conn.execute(
+                "INSERT INTO knowledge_retrieval_log "
+                "(provider, scope, query, result_count, sources, "
+                " retrieved_token_count, retrieval_duration_ms, "
+                " agent_role, run_id, handoff_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "test-provider",
+                    "test-scope",
+                    "query",
+                    1,
+                    "[]",
+                    10,
+                    5,
+                    role,
+                    run_id,
+                    handoff_id,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert knowledge_eval.main() == 0
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+    assert "run_id 2 of 4 (50%)" in out
+    assert "handoff_id 3 of 4 (75%)" in out
+    assert "agent_role 4 of 4 (100%)" in out
+    newest_30_index = lines.index("newest_30")
+    assert lines[newest_30_index + 1] == "run_id 2 of 4 (50%)"
+    assert lines[newest_30_index + 2] == "handoff_id 3 of 4 (75%)"
+    assert lines[newest_30_index + 3] == "agent_role 4 of 4 (100%)"
+
+
+def test_attribution_reports_zero_of_n_rather_than_omitting_a_field(temp_db, capsys):
+    conn = sqlite3.connect(temp_db)
+    try:
+        for i in range(3):
+            conn.execute(
+                "INSERT INTO knowledge_retrieval_log "
+                "(provider, scope, query, result_count, sources, "
+                " retrieved_token_count, retrieval_duration_ms, "
+                " agent_role, run_id, handoff_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "test-provider",
+                    "test-scope",
+                    f"query {i}",
+                    1,
+                    "[]",
+                    10,
+                    5,
+                    "implementer",
+                    None,
+                    f"handoff-{i}",
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert knowledge_eval.main() == 0
+    out = capsys.readouterr().out
+    assert "run_id 0 of 3 (0%)" in out
+    assert "newest_30\nrun_id 0 of 3 (0%)" in out
+
+
+def test_attribution_degrades_when_retrieval_log_is_unreadable(empty_db, capsys):
+    assert knowledge_eval.main() == 0
+    out = capsys.readouterr().out
+    assert "with_retrieval\nretrieval_events 0" in out
+    assert "without_retrieval\nretrieval_events 0" in out
+    assert "attribution\nattribution unavailable: could not read the retrieval log" in out

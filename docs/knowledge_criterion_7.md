@@ -242,3 +242,53 @@ step the supervising session takes next:
 ```text
 To commission the representative comparison, run the same representative task twice: once with retrieval enabled and once with retrieval disabled in config. After both RUNs complete, print this script's stdout for the comparison. The with_retrieval arm is populated from knowledge_retrieval_log rows joined to execution records by run_id/handoff_id; the without_retrieval arm comes from execution records with no matching knowledge_retrieval_log row.
 ```
+
+## Third pair — runs 048 and 049, 2026-09-17
+
+The same task both times: add an attribution section to
+`scripts/knowledge_eval.py` reporting how many retrieval-log rows carry
+`run_id`, `handoff_id` and `agent_role`. Same baseline (`0e808ec`, clean
+tree), same models, same governance. The only difference was whether
+`knowledge_search`, `knowledge_scopes` and `knowledge_learning` were in the
+harness allowlist.
+
+Both arms closed SUCCESS with 4/4 criteria measured green by the supervising
+session, not taken from either END-REPORT.
+
+|                    | arm A (no retrieval) | arm B (retrieval) | difference |
+|--------------------|---------------------:|------------------:|-----------:|
+| tool calls         |                   93 |                89 |      −4.3 % |
+| prompt tokens      |            3,189,589 |         2,959,867 |      −7.2 % |
+| completion tokens  |               71,703 |            77,383 |      +7.9 % |
+| reasoning tokens   |               45,371 |            49,434 |      +9.0 % |
+| session seconds    |                1,155 |             1,450 |     +25.5 % |
+| `knowledge_search` |                    0 |                 4 |          — |
+
+Every figure is counted from the FlowRunner event stream
+(`runtime/runs/<id>/events.jsonl`), not from any role's report.
+
+**What this pair measures, precisely.** Arm B made four retrieval calls —
+exactly one per role, the mandated opening lookup. None of the roles searched
+again. So this is the cost and benefit of *one* lookup per role, not of
+retrieval used as a working tool. Read that way the result is coherent: a
+single lookup replaced some exploration (4 fewer tool calls, 7 % fewer prompt
+tokens) and added some thinking about what it returned (8–9 % more output).
+
+**It is not a third confirmation of pair 2.** Pair 2 reported 13 % fewer tool
+calls and 14 % fewer tokens. This pair reports 4 % and 7 %. A difference of
+four tool calls is within what two runs of the same task differ by for
+reasons having nothing to do with retrieval, and should not be read as an
+effect.
+
+**One confound, stated because it was the supervising session's own doing.**
+Both arms ran while an unrelated benchmark held the host's NVMe and 16 CPU
+threads. Both chains run cloud models, so contention reaches them only
+through local tool calls, and both were exposed — but not to the same phase
+of it. The wall-clock row is the least trustworthy figure in the table; token
+and tool-call counts are not affected by host load.
+
+**A substantive finding from the harness this pair built.** Attribution is
+not merely incomplete, it is getting worse: `run_id` is present on 252 of 438
+retrieval rows (58 %) overall, but on **0 of the newest 30**. Whatever writes
+recent rows has stopped attributing them to a run. That is worth a run of its
+own.

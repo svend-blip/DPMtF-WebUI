@@ -43,6 +43,12 @@ METRIC_HEADINGS = (
     "rework",
 )
 
+# Attribution fields carried by each knowledge_retrieval_log row, and the
+# number of most-recent rows the attribution section reads. These are module
+# literals so the tests can reference the same values the harness uses.
+ATTRIBUTION_FIELDS = ("run_id", "handoff_id", "agent_role")
+ATTRIBUTION_WINDOW = 500
+
 # Fixed prose describing how the representative comparison RUNs are
 # commissioned and where their comparison output is found. This is output
 # only — it executes nothing.
@@ -101,6 +107,142 @@ def _count_run_retrieval_events(conn, run_dir):
         return int(row[0])
     except sqlite3.OperationalError:
         return 0
+
+
+def _read_attribution_rows(conn):
+    """Return the most recent knowledge_retrieval_log rows for attribution.
+
+    The read stays on the caller's existing read-only connection and selects
+    only the columns the attribution section reports. A missing database
+    file, missing table, missing column, or any other sqlite3 error returns
+    None so the caller can render the degraded section instead of crashing.
+    """
+    if conn is None:
+        return None
+    try:
+        return conn.execute(
+            "SELECT id, run_id, handoff_id, agent_role "
+            "FROM knowledge_retrieval_log ORDER BY id DESC LIMIT ?",
+            (ATTRIBUTION_WINDOW,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return None
+
+
+def _attribution_field_count(rows, field):
+    """Count rows where ``field`` is present and not empty.
+
+    The row layout is fixed by ``_read_attribution_rows``:
+    ``(id, run_id, handoff_id, agent_role)``. ``(value or "").strip()``
+    treats NULL, the empty string, and whitespace-only strings as not
+    carrying the field.
+    """
+    field_index = ATTRIBUTION_FIELDS.index(field) + 1
+    count = 0
+    for row in rows:
+        value = row[field_index]
+        if (value or "").strip():
+            count += 1
+    return count
+
+
+def _percentage(count, total):
+    """Return ``count`` as a whole-number percentage of ``total``.
+
+    Division by zero is the zero state, never an exception.
+    """
+    return int(count * 100 / total) if total else 0
+
+
+def _attribution_counts(rows):
+    """Return per-field attribution counts over all rows and the newest 30.
+
+    ``rows`` is the result of ``_read_attribution_rows`` (already ordered by
+    id descending). When it is None the returned structure carries
+    ``unavailable: True`` so the formatters render the degraded section.
+    """
+    if rows is None:
+        return {
+            "unavailable": True,
+            "rows_considered": 0,
+            "newest_considered": 0,
+            "all": {field: 0 for field in ATTRIBUTION_FIELDS},
+            "newest": {field: 0 for field in ATTRIBUTION_FIELDS},
+        }
+
+    rows_considered = len(rows)
+    newest_rows = rows[:30]
+    newest_considered = len(newest_rows)
+    return {
+        "unavailable": False,
+        "rows_considered": rows_considered,
+        "newest_considered": newest_considered,
+        "all": {
+            field: _attribution_field_count(rows, field)
+            for field in ATTRIBUTION_FIELDS
+        },
+        "newest": {
+            field: _attribution_field_count(newest_rows, field)
+            for field in ATTRIBUTION_FIELDS
+        },
+    }
+
+
+def _render_attribution(counts):
+    """Return the flat attribution lines for ``counts`` (pure formatter)."""
+    if counts["unavailable"]:
+        return (
+            "attribution\n"
+            "attribution unavailable: could not read the retrieval log"
+        )
+
+    total = counts["rows_considered"]
+    newest_total = counts["newest_considered"]
+    lines = ["attribution", f"rows_considered {total}"]
+    for field in ATTRIBUTION_FIELDS:
+        count = counts["all"][field]
+        lines.append(
+            f"{field} {count} of {total} ({_percentage(count, total)}%)"
+        )
+    lines.append("newest_30")
+    for field in ATTRIBUTION_FIELDS:
+        count = counts["newest"][field]
+        lines.append(
+            f"{field} {count} of {newest_total} "
+            f"({_percentage(count, newest_total)}%)"
+        )
+    return "\n".join(lines)
+
+
+def _render_attribution_markdown(counts):
+    """Return the attribution table with its heading (pure formatter)."""
+    if counts["unavailable"]:
+        return (
+            "## Attribution\n\n"
+            "attribution unavailable: could not read the retrieval log"
+        )
+
+    total = counts["rows_considered"]
+    newest_total = counts["newest_considered"]
+    lines = [
+        "## Attribution",
+        "",
+        "| field | rows carrying | rows considered | percent |",
+        "| --- | --- | --- | --- |",
+    ]
+    for field in ATTRIBUTION_FIELDS:
+        count = counts["all"][field]
+        lines.append(
+            f"| {field} (all rows) | {count} | {total} | "
+            f"{_percentage(count, total)}% |"
+        )
+    for field in ATTRIBUTION_FIELDS:
+        count = counts["newest"][field]
+        lines.append(
+            f"| {field} (newest 30) | {count} | {newest_total} | "
+            f"{_percentage(count, newest_total)}% |"
+        )
+    return "\n".join(lines)
 
 
 def _available_execution_columns(conn):
@@ -211,10 +353,12 @@ def main(argv=None):
         try:
             retrieval_events = _count_retrieval_events(conn)
             available_columns = _available_execution_columns(conn)
+            attribution_rows = _read_attribution_rows(conn)
         finally:
             if conn is not None:
                 conn.close()
         metric_values = _metric_values(available_columns)
+        attribution_counts = _attribution_counts(attribution_rows)
         if args.markdown:
             report = {
                 "without retrieval": {
@@ -230,8 +374,10 @@ def main(argv=None):
                 },
             }
             print(render_markdown(report))
+            print(_render_attribution_markdown(attribution_counts))
         else:
             _print_report(retrieval_events, metric_values)
+            print(_render_attribution(attribution_counts))
         return 0
 
     zero_metrics = {metric: 0 for metric in METRIC_HEADINGS}
@@ -257,9 +403,11 @@ def main(argv=None):
             if args.without_run is not None
             else 0
         )
+        attribution_rows = _read_attribution_rows(conn)
     finally:
         if conn is not None:
             conn.close()
+    attribution_counts = _attribution_counts(attribution_rows)
     if args.markdown:
         report = {
             "without retrieval": {
@@ -278,10 +426,12 @@ def main(argv=None):
             },
         }
         print(render_markdown(report))
+        print(_render_attribution_markdown(attribution_counts))
     else:
         _print_run_report(
             with_metrics, without_metrics, with_events, without_events
         )
+        print(_render_attribution(attribution_counts))
     return 0
 
 

@@ -81,6 +81,16 @@ configured scope. The duplication with the service's `/v1/scope-for-path`
 endpoint is accepted and documented; the local copy exists so scope
 resolution works at compile time without a service round-trip.
 
+## Attribution coverage
+
+`scripts/knowledge_eval.py` reports attribution over the 500 most recent
+`knowledge_retrieval_log` rows plus a newest-30 slice. A row carries a
+field (`run_id`, `handoff_id`, or `agent_role`) when the field is present
+and not empty; a field with no coverage prints `0 of N` rather than being
+omitted. The section appears in both the plain output and the `--markdown`
+rendering. When the log cannot be read, the section says so and the rest
+of the report is unchanged.
+
 ## Grants
 
 Service access grants are managed with the service's own CLI,
