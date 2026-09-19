@@ -562,6 +562,71 @@ def execute(harness_key, role_config, task, cwd):
 # ── runner adapter for the standalone's run_terminal loop ──────────
 
 
+# ---------------------------------------------------------------------------
+# Run position for a simple-harness role
+# ---------------------------------------------------------------------------
+#
+# simple-harness fills run_id / handoff_id / flow_key on MCP calls from these
+# three variables, so that a knowledge retrieval can be attributed to the run
+# that made it. FlowRunner sets them for its runs; BridgeV002 set none, and
+# every retrieval made from one of its panes was logged without a run.
+#
+# They are set per invocation, not at pane launch: the terminal starts the
+# harness once per delivered prompt, and a pane outlives its handoffs.
+
+POSITION_ENV_NAMES = (
+    "SIMPLE_HARNESS_RUN_ID",
+    "SIMPLE_HARNESS_HANDOFF_ID",
+    "SIMPLE_HARNESS_FLOW_KEY",
+)
+
+#: The flow this terminal serves; bound by main().
+_TERMINAL_FLOW = ""
+
+# The two forms the convention templates give the handoff id: a whole line
+# "Handoff ID: 097", and the tag <handoff_id>097</handoff_id>. A FIELD is
+# matched, never a substring — prose that mentions a handoff is not the field.
+_HANDOFF_LINE = re.compile(r"^[ \t]*Handoff ID:[ \t]*([0-9A-Za-z_-]+)[ \t]*$", re.MULTILINE)
+_HANDOFF_TAG = re.compile(r"<handoff_id>[ \t]*([0-9A-Za-z_-]+)[ \t]*</handoff_id>")
+
+
+def _executing_run(flow_key):
+    """The run the chain is working for ``flow_key``, or None.
+
+    ``supervisor_state.executing_run`` is the one definition of that; it is
+    imported here rather than re-derived.
+    """
+    import config
+    import supervisor_state
+    return supervisor_state.executing_run(config.get_bridge_dir(), flow_key)
+
+
+def position_env(harness_key, flow_key, task):
+    """The position variables for one invocation, as a dict.
+
+    Only what is known is set: a flow without runs has no run id, and a
+    prompt that carries no handoff field — or two different ones — has no
+    handoff id. A wrong attribution is worse than none. A value already in
+    the environment was put there by the operator and is left alone.
+    """
+    if harness_key != "simple-harness":
+        return {}
+    found = {}
+    ids = set(_HANDOFF_LINE.findall(task or "")) | set(_HANDOFF_TAG.findall(task or ""))
+    if len(ids) == 1:
+        found["SIMPLE_HARNESS_HANDOFF_ID"] = ids.pop()
+    if flow_key:
+        found["SIMPLE_HARNESS_FLOW_KEY"] = flow_key
+        try:
+            run = _executing_run(flow_key)
+        except Exception as exc:  # a lookup must never break a delivery
+            print(f"harness_terminal: run position lookup failed: {exc}", file=sys.stderr)
+            run = None
+        if run:
+            found["SIMPLE_HARNESS_RUN_ID"] = str(run)
+    return {k: v for k, v in found.items() if not os.environ.get(k)}
+
+
 def _standalone_pkg():
     """Lazy import of the standalone package, via the harness module.
 
@@ -594,19 +659,28 @@ def _standalone_runner(*, role, harness, model_target, cwd, task,
     run_terminal loop relies on for lifecycle visibility.
     """
     ha = _standalone_pkg()
-    return ha.execute(
-        role=role,
-        harness=harness,
-        model_target=model_target,
-        cwd=cwd,
-        task=task,
-        request_id=request_id,
-        heartbeat_interval=heartbeat_interval,
-        timeout=timeout,
-        on_event=on_event,
-        cancel_event=cancel_event,
-        cancel_grace_seconds=cancel_grace_seconds,
-    )
+    # The child inherits this process's environment. The position is set
+    # for this invocation and taken out again: the terminal runs one turn at
+    # a time, and the next prompt belongs to another handoff.
+    position = position_env(harness, _TERMINAL_FLOW, task)
+    os.environ.update(position)
+    try:
+        return ha.execute(
+            role=role,
+            harness=harness,
+            model_target=model_target,
+            cwd=cwd,
+            task=task,
+            request_id=request_id,
+            heartbeat_interval=heartbeat_interval,
+            timeout=timeout,
+            on_event=on_event,
+            cancel_event=cancel_event,
+            cancel_grace_seconds=cancel_grace_seconds,
+        )
+    finally:
+        for name in position:
+            os.environ.pop(name, None)
 
 
 def main(argv=None):
@@ -638,6 +712,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     cwd = args.cwd or os.getcwd()
+
+    global _TERMINAL_FLOW
+    _TERMINAL_FLOW = args.flow
 
     ha = _standalone_pkg()
     reader = _IdleAccumulatingReader(sys.stdin.buffer)
