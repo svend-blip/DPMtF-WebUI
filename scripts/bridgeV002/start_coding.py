@@ -378,6 +378,31 @@ def _harness_terminal_command(role, harness_key, flow_key, cwd, project_root,
     )
 
 
+def context_limit_env(resolved):
+    """The harness env that bounds a simple-harness role by its model's window.
+
+    simple-harness keeps a run inside the model's context window only when it
+    knows that window. It asks the runtime, and a local runtime usually
+    answers; a cloud API's /v1/models names the model and nothing else, so
+    against one the limit stays unknown and the context lifecycle accounts
+    without bounding — which, on a cloud flow, is money. The allocator's
+    resolved alias already carries ``context``; this hands it on.
+
+    It is the CONFIGURED limit (``SIMPLE_HARNESS_CONTEXT_MODEL_LIMIT``), which
+    the harness reconciles with what the runtime reports by taking the
+    smaller, and not the context-limit flag, which skips that probe and
+    would override a local runtime serving the model with a smaller window
+    than the alias declares. What the alias does not say is not set.
+    """
+    try:
+        tokens = int((resolved or {}).get("context") or 0)
+    except (TypeError, ValueError):
+        return {}
+    if tokens <= 0:
+        return {}
+    return {"SIMPLE_HARNESS_CONTEXT_MODEL_LIMIT": str(tokens)}
+
+
 def _launch_decisions_for(harness_key):
     """Native-branch fork decisions, read from the harness's LaunchSpec.
 
@@ -590,6 +615,10 @@ def main():
             output_cap = role.get("max_output_tokens") or resolved.get("max_output_tokens")
             if output_cap:
                 child_env["SIMPLE_HARNESS_MAX_OUTPUT_TOKENS"] = str(output_cap)
+
+            # The alias's context window bounds the role's run (see
+            # context_limit_env): without it a cloud role runs unbounded.
+            child_env.update(context_limit_env(resolved))
 
             # Reasoning effort (2026-09-02): an alias may name the OpenAI-
             # compatible `reasoning_effort` level (low | medium | high |
