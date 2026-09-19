@@ -599,3 +599,62 @@ def test_no_retrieval_instruction_when_knowledge_is_disabled(tmp_path, monkeypat
     bullet_lines = [line for line in enabled.split("\n") if "knowledge_search" in line]
     assert len(bullet_lines) == 1
     assert enabled.replace(bullet_lines[0] + "\n", "", 1) == disabled
+
+
+def test_description_declares_the_mcp_server_that_carries_retrieval(tmp_path, monkeypatch):
+    # The exported governance tells every role to call `knowledge_search`.
+    # That is an mcp-light tool, and nothing in the export said so: a run had
+    # it only when the receiving machine's own ~/.simple-harness/config.json
+    # happened to declare mcp-light. FlowRunner now refuses a FlowApp that
+    # enables knowledge, runs simple-harness steps and declares no server
+    # offering knowledge_search — so the export declares it, by env NAME.
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: True)
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+
+    server = desc["mcp_servers"]["mcp-light"]
+    assert server["transport"] == "http"
+    assert server["endpoint_env"] == "MCP_LIGHT_URL"
+    assert server["permission"] == "read_only"
+    # The knowledge tools and nothing else: the exported context tells the
+    # role that the bridge's mcp-light tools do not apply under FlowRunner.
+    assert server["allowlist"] == ["knowledge_search", "knowledge_scopes",
+                                   "knowledge_learning", "knowledge_retrievals"]
+    assert "MCP_LIGHT_URL" in desc["secrets"]["optional"]
+    # the env NAME travels; the endpoint never leaks into the description
+    serialized = json.dumps(desc)
+    assert "9135" not in serialized
+    assert "127.0.0.1" not in serialized
+
+
+def test_description_has_no_mcp_servers_block_when_knowledge_is_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    flow_row = {"flow_key": "2000-02-ELOOP", "name": "E"}
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+
+    desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
+
+    assert "mcp_servers" not in desc
+    assert "MCP_LIGHT_URL" not in desc["secrets"]["optional"]

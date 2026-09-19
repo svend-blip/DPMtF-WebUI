@@ -406,6 +406,15 @@ def _read_learning_artifact_schema() -> str:
         return fh.read()
 
 
+#: mcp-light's tools that reach the knowledge service.
+_KNOWLEDGE_MCP_TOOLS = (
+    "knowledge_search",
+    "knowledge_scopes",
+    "knowledge_learning",
+    "knowledge_retrievals",
+)
+
+
 def _to_flowrunner_description(flow_row, steps, db_path):
     """Build a FlowRunner exporter Description dict from DPMtF facts.
 
@@ -531,7 +540,7 @@ def _to_flowrunner_description(flow_row, steps, db_path):
     # types into `flowrunner secrets check` on the machine that runs the
     # FlowApp — never the service URL, which stays out of the export.
     knowledge_enabled = config.get_knowledge_enabled()
-    optional_secrets = ["KNOWLEDGE_SERVICE_URL"] if knowledge_enabled else []
+    optional_secrets = ["KNOWLEDGE_SERVICE_URL", "MCP_LIGHT_URL"] if knowledge_enabled else []
 
     description = {
         "app": {
@@ -562,6 +571,25 @@ def _to_flowrunner_description(flow_row, steps, db_path):
                     "endpoint_env": "KNOWLEDGE_SERVICE_URL",
                 }
             },
+        }
+        # The retrieval bullet above tells every role to call
+        # `knowledge_search`. That is an mcp-light tool, and until now the
+        # export did not say where it comes from: a run had it only when the
+        # receiving machine's own ~/.simple-harness/config.json happened to
+        # declare mcp-light. FlowRunner connects a run to the MCP servers the
+        # FlowApp declares — and refuses one that enables knowledge, runs
+        # simple-harness steps and declares no server offering
+        # knowledge_search — so the server is declared here, by the NAME of
+        # the variable holding its endpoint. The allowlist is the knowledge
+        # tools only: the execution context tells the role that the bridge's
+        # mcp-light tools do not apply under FlowRunner.
+        description["mcp_servers"] = {
+            "mcp-light": {
+                "transport": "http",
+                "endpoint_env": "MCP_LIGHT_URL",
+                "permission": "read_only",
+                "allowlist": list(_KNOWLEDGE_MCP_TOOLS),
+            }
         }
     return description
 
