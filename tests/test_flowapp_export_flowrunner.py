@@ -639,7 +639,7 @@ def test_description_declares_the_mcp_server_that_carries_retrieval(tmp_path, mo
     assert "127.0.0.1" not in serialized
 
 
-def test_description_has_no_mcp_servers_block_when_knowledge_is_disabled(tmp_path, monkeypatch):
+def test_description_declares_no_mcp_light_when_knowledge_is_disabled(tmp_path, monkeypatch):
     monkeypatch.setattr(
         config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
     )
@@ -656,5 +656,123 @@ def test_description_has_no_mcp_servers_block_when_knowledge_is_disabled(tmp_pat
 
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
 
-    assert "mcp_servers" not in desc
+    # No mcp-light without knowledge. (A family FlowApp still declares
+    # scope-mcp — project memory does not depend on the knowledge service —
+    # so the block itself is present; that is pinned further down.)
+    assert "mcp-light" not in desc.get("mcp_servers", {})
     assert "MCP_LIGHT_URL" not in desc["secrets"]["optional"]
+
+
+# --- scope-mcp: project memory between steps, cycles and runs ----------------
+
+def _family_description(tmp_path, monkeypatch, flow_key, steps, knowledge=False):
+    monkeypatch.setattr(
+        config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]),
+    )
+    monkeypatch.setattr(
+        fe, "_resolve_execution_config",
+        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_x"),
+    )
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding", lambda role, client: {})
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: knowledge)
+    return fe._to_flowrunner_description({"flow_key": flow_key, "name": "F"}, steps, "unused.db")
+
+
+_ELOOP_STEPS = [
+    {"step_key": "d", "from_role": "2000-execution-decomposer", "to_role": "2000-implementer", "sort_order": 1},
+    {"step_key": "i", "from_role": "2000-implementer", "to_role": "2000-reviewer", "sort_order": 2},
+    {"step_key": "r", "from_role": "2000-reviewer", "to_role": "2000-execution-decomposer", "sort_order": 3},
+]
+_PLOOP_STEPS = [
+    {"step_key": "p", "from_role": "2000-planning-supervisor", "to_role": "2000-planning-supervisor", "sort_order": 1},
+]
+
+
+def test_a_family_flowapp_declares_scope_mcp_with_its_state_in_the_family_tree(tmp_path, monkeypatch):
+    desc = _family_description(tmp_path, monkeypatch, "2000-02-ELOOP", _ELOOP_STEPS)
+    server = desc["mcp_servers"]["scope-mcp"]
+    assert server["transport"] == "stdio"
+    assert server["permission"] == "workspace_write"
+    # The server's home is a variable, never a path; its state sits inside
+    # the family tree, which ignores itself, so the target repository's
+    # `git status` does not learn that the run kept notes — and both loops of
+    # the family name the same file.
+    assert server["command"] == ["node", "${SCOPE_MCP_HOME}/src/server.js",
+                                 "--db", ".flowrunner/2000/scope-mcp/state.db"]
+    assert "SCOPE_MCP_HOME" in desc["secrets"]["optional"]
+    planning = _family_description(tmp_path, monkeypatch, "2000-01-PLOOP", _PLOOP_STEPS)
+    assert planning["mcp_servers"]["scope-mcp"]["command"] == server["command"]
+    # Declared whether or not knowledge is enabled; mcp-light only with it.
+    assert "mcp-light" not in desc["mcp_servers"]
+    both = _family_description(tmp_path, monkeypatch, "2000-02-ELOOP", _ELOOP_STEPS, knowledge=True)
+    assert set(both["mcp_servers"]) == {"mcp-light", "scope-mcp"}
+
+
+def test_the_allowlist_is_the_fence_goals_belong_to_the_planner(tmp_path, monkeypatch):
+    execution = _family_description(tmp_path, monkeypatch, "2000-02-ELOOP", _ELOOP_STEPS)
+    planning = _family_description(tmp_path, monkeypatch, "2000-01-PLOOP", _PLOOP_STEPS)
+    chain = set(execution["mcp_servers"]["scope-mcp"]["allowlist"])
+    planner = set(planning["mcp_servers"]["scope-mcp"]["allowlist"])
+    assert chain == {"status", "record_decision", "record_blocker", "resolve_blocker", "checkpoint"}
+    assert planner == chain | {"init_project", "set_goals"}
+    # SCOPE.md is the Human's and the project is never declared finished by a
+    # role: what would say otherwise is not offered to anyone.
+    for forbidden in ("record_scope", "add_scope_addendum", "complete_project",
+                      "coverage", "complete_goal", "next_goal"):
+        assert forbidden not in planner
+
+
+def test_a_flow_outside_a_family_declares_no_scope_mcp(tmp_path, monkeypatch):
+    desc = _family_description(tmp_path, monkeypatch, "9000-simple-flow-without-loops", _ELOOP_STEPS)
+    assert "mcp_servers" not in desc
+    assert "SCOPE_MCP_HOME" not in desc["secrets"]["optional"]
+    assert "scope-mcp" not in desc["flows"][0]["steps"][0]["governance"]
+
+
+def test_every_role_is_told_what_project_memory_is_and_is_not(tmp_path, monkeypatch):
+    desc = _family_description(tmp_path, monkeypatch, "2000-02-ELOOP", _ELOOP_STEPS)
+    governance = {s["name"]: s["governance"] for s in desc["flows"][0]["steps"]}
+    for name, text in governance.items():
+        head = text.split("\n---\n")[0]
+        # what it is for, what outranks it, and the two calls that frame a turn
+        assert "scope-mcp" in head, name
+        assert "`status`" in head and "`checkpoint`" in head, name
+        assert "The files are the contract" in head, name
+        assert "record_decision" in head and "record_blocker" in head, name
+    decomposer, implementer, reviewer = governance["d"], governance["i"], governance["r"]
+    # The decomposer's tool budget is tight; the memory calls are counted in it.
+    assert "inside your budget" in decomposer.split("\n---\n")[0]
+    # The reviewer's only REPOSITORY write stays the verdict: memory is not the repository.
+    assert "not a repository write" in reviewer.split("\n---\n")[0]
+    # The implementer records the reading it chose where the handoff was silent.
+    assert "left something open" in implementer.split("\n---\n")[0]
+    # Goals are the planner's: no execution role is told to touch them.
+    for text in governance.values():
+        assert "set_goals" not in text.split("\n---\n")[0]
+
+
+def test_the_planner_mirrors_its_drafts_as_goals(tmp_path, monkeypatch):
+    desc = _family_description(tmp_path, monkeypatch, "2000-01-PLOOP", _PLOOP_STEPS)
+    head = desc["flows"][0]["steps"][0]["governance"].split("\n---\n")[0]
+    assert "init_project" in head and "set_goals" in head
+    assert "GOAL-DRAFT" in head
+    # the scope stays a file the Human owns
+    assert "never" in head and "SCOPE.md" in head
+
+
+def test_no_project_memory_when_the_steps_run_read_only(tmp_path, monkeypatch):
+    # Measured 2026-09-19: simple-harness ends a run with exit 4 on a tool
+    # call the permission gate refuses, and scope-mcp's tools write. Under
+    # read_only the role's first instructed call — `status` — would kill the
+    # run. The exporter falls back to read_only when the mode cannot be
+    # resolved, so that fallback must not come with the memory, nor with
+    # governance telling the role to call it.
+    desc = _family_description(tmp_path, monkeypatch, "2000-02-ELOOP", _ELOOP_STEPS)
+    assert "scope-mcp" in desc["mcp_servers"]          # workspace_write: declared
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "read_only")
+    ro = fe._to_flowrunner_description({"flow_key": "2000-02-ELOOP", "name": "F"}, _ELOOP_STEPS, "unused.db")
+    assert "mcp_servers" not in ro
+    assert "SCOPE_MCP_HOME" not in ro["secrets"]["optional"]
+    for step in ro["flows"][0]["steps"]:
+        assert "scope-mcp" not in step["governance"].split("\n---\n")[0]

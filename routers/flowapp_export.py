@@ -267,8 +267,133 @@ def _flowapp_family(flow_key: str) -> str:
     return m.group(1) if m else ""
 
 
+#: scope-mcp tools every role of a family may call, and the two more that
+#: belong to the planner alone. The allowlist is the fence: what is not here
+#: is not offered to the model at all. `record_scope` / `add_scope_addendum`
+#: are left out because SCOPE.md is a file the Human owns; `complete_project`,
+#: `coverage`, `complete_goal` and `next_goal` because no role declares the
+#: project finished, and an execution run cannot be tied to one goal id.
+_SCOPE_MCP_CHAIN_TOOLS = (
+    "status",
+    "record_decision",
+    "record_blocker",
+    "resolve_blocker",
+    "checkpoint",
+)
+_SCOPE_MCP_PLANNER_TOOLS = ("init_project", "set_goals")
+
+
+def _scope_mcp_server(flow_key: str, step_permission: str = "workspace_write") -> dict | None:
+    """The scope-mcp declaration for a family FlowApp, or None.
+
+    None as well when the steps run ``read_only``. scope-mcp's tools write,
+    and simple-harness ends a run with exit 4 on a tool call the permission
+    gate refuses (measured 2026-09-19): under read_only the role's first
+    instructed call — ``status`` — would kill the run. ``read_only`` is also
+    this exporter's fallback when the mode cannot be resolved, so the
+    fallback must come without the memory and without the governance that
+    tells a role to call it.
+
+    scope-mcp holds project memory between steps, cycles and runs: decisions
+    a later context must not re-litigate, open blockers, the last working
+    position. It is declared for the two loops of a family, which share one
+    planning tree and therefore one memory; any other flow gets none.
+
+    Its home is named by a variable (``${SCOPE_MCP_HOME}``), never a path.
+    Its state file sits inside the family tree, ``.flowrunner/<family>/``:
+    that directory ignores itself, so the target repository's ``git status``
+    does not learn that a run kept notes, and both loops name the same file.
+    The path is relative to the server's cwd, which simple-harness makes the
+    workspace.
+    """
+    family = _flowapp_family(flow_key)
+    if not family or step_permission == "read_only":
+        return None
+    tools = list(_SCOPE_MCP_CHAIN_TOOLS)
+    if "PLOOP" in (flow_key or "").upper():
+        tools = list(_SCOPE_MCP_PLANNER_TOOLS) + tools
+    return {
+        "transport": "stdio",
+        "command": ["node", "${SCOPE_MCP_HOME}/src/server.js",
+                    "--db", f".flowrunner/{family}/scope-mcp/state.db"],
+        "permission": "workspace_write",
+        "allowlist": tools,
+    }
+
+
+def _project_memory_bullets(role: str) -> str:
+    """Governance for scope-mcp, by role.
+
+    What the text has to settle: what the memory is for, what outranks it,
+    which calls frame a turn, and — per role — how it sits beside the rules
+    that role already has (the decomposer's tool budget, the reviewer's single
+    repository write, the planner's ownership of the goals).
+    """
+    common = (
+        "- **Project memory (scope-mcp): the files are the contract, the memory is what the "
+        "next context must not have to work out again.** The `scope-mcp` tools keep decisions, "
+        "open blockers and the last working position between steps, cycles and runs of this "
+        "family. The files are the contract: where the GOAL, a handoff, a verdict or `SCOPE.md` "
+        "says one thing and the memory another, the file is right and the memory is stale — "
+        "say so in your deliverable. Nothing in the memory authorises anything.\n"
+        "  - **First call of your turn: `status`.** Read the recent decisions, the open "
+        "blockers and the last checkpoint before you read files, so you do not re-decide what "
+        "an earlier step settled.\n"
+        "  - `record_decision` — one or two sentences, with the reason — for what a later "
+        "context must not re-litigate: a chosen approach, an accepted reading of an ambiguous "
+        "criterion, a deliberate deferral. Not a log of what you did: that is your "
+        "deliverable.\n"
+        "  - `record_blocker` for what stops progress and what would unblock it; "
+        "`resolve_blocker` (by the number `status` shows) only for a blocker you have "
+        "verified is gone.\n"
+        "  - **Last call of your turn: `checkpoint`**, with `work_completed`, "
+        "`validation_state` and `next_action` — what the next context should do first.\n"
+        "  - If the tools are not available in the session, say so once in your deliverable "
+        "and carry on; the memory is an aid, never a precondition.\n"
+    )
+    if "decomposer" in role:
+        return common + (
+            "  - For you: `status` and `checkpoint` are two calls inside your budget of "
+            "twelve, not on top of it. Record as a decision how you cut the GOAL into work "
+            "packages when that is not obvious from the handoff, and — on the closing turn — "
+            "one decision naming the run and its END-REPORT status. The goals in the memory "
+            "are the planner's: you do not change them.\n"
+        )
+    if "review" in role:
+        return common + (
+            "  - For you: a memory call is not a repository write — your only repository "
+            "write remains the verdict file. Record as a decision the reading you applied "
+            "when a criterion could be measured two ways, so the next cycle is measured the "
+            "same way. Record a blocker when you reject for a cause the implementer cannot "
+            "fix inside the fence (a defect in the contract itself); resolve a blocker only "
+            "when you measured that it is gone.\n"
+        )
+    if "implement" in role:
+        return common + (
+            "  - For you: where the handoff left something open and you chose a reading — a "
+            "return type, a file location, an error behaviour — record that choice and why as "
+            "a decision, as well as in your result file. Record a blocker when a criterion "
+            "cannot be met as written, with what you measured; do not loosen the code to "
+            "make it pass.\n"
+        )
+    if "planning" in role or "supervisor" in role:
+        return common + (
+            "  - For you, and only you: the goals in the memory mirror your drafts. On your "
+            "first turn call `init_project` with the objective in one paragraph, taken from "
+            "`SCOPE.md` (idempotent: later turns may call it again, never with `reset`). "
+            "After writing or revising drafts call `set_goals` with one goal per "
+            "`GOAL-DRAFT-NNN.md` — id `draft-NNN`, the draft's title, and status `completed` "
+            "for a draft whose run has an END-REPORT with Status SUCCESS — so `status` shows "
+            "every role where the plan stands. `SCOPE.md` stays a file the Human owns: you "
+            "never record or amend the scope through the memory. Questions for the Human "
+            "still go to `backlog.md`; a blocker in the memory is for what stops a draft.\n"
+        )
+    return common
+
+
 def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | None,
-                        bridge_dir: str, from_role: str = "") -> str:
+                        bridge_dir: str, from_role: str = "",
+                        project_memory: bool = False) -> str:
     """Execution-context notice prepended to every exported governance file.
 
     The role files are written for the DPMtF bridge (dispatch signals,
@@ -362,6 +487,7 @@ def _flowrunner_context(step_key: str, prev_key: str | None, next_key: str | Non
         "invent `goals/`, `runs/`, `RUN-LEDGER.md` or `END-REPORT.md` locations of your own. "
         "`RUN-LEDGER.md` is written by FlowRunner, not by you.\n"
         f"{retrieval_bullet}"
+        f"{_project_memory_bullets(role) if project_memory else ''}"
         f"{role_block}"
         "- Finishing your turn is the completion signal: the next step starts automatically. "
         "Summarise your deliverable in your final message.\n"
@@ -496,8 +622,9 @@ def _to_flowrunner_description(flow_row, steps, db_path):
             gov_text = fh.read()
         prev_key = agent_steps[i - 1]["step_key"] if i > 0 else None
         next_key = agent_steps[i + 1]["step_key"] if i + 1 < len(agent_steps) else None
-        gov_text = _flowrunner_context(step_key, prev_key, next_key, config.get_bridge_dir(),
-                                       s.get("from_role", "")) + gov_text
+        gov_text = _flowrunner_context(
+            step_key, prev_key, next_key, config.get_bridge_dir(), s.get("from_role", ""),
+            project_memory=_scope_mcp_server(flow_row["flow_key"], step_permission) is not None) + gov_text
         if "decomposer" in (s.get("from_role") or "").lower():
             # The decomposer's governance references the learning-artifact
             # schema; bundle it so a FlowApp on a foreign target repository
@@ -541,6 +668,9 @@ def _to_flowrunner_description(flow_row, steps, db_path):
     # FlowApp — never the service URL, which stays out of the export.
     knowledge_enabled = config.get_knowledge_enabled()
     optional_secrets = ["KNOWLEDGE_SERVICE_URL", "MCP_LIGHT_URL"] if knowledge_enabled else []
+    scope_mcp = _scope_mcp_server(flow_row["flow_key"], step_permission)
+    if scope_mcp is not None:
+        optional_secrets.append("SCOPE_MCP_HOME")
 
     description = {
         "app": {
@@ -591,6 +721,10 @@ def _to_flowrunner_description(flow_row, steps, db_path):
                 "allowlist": list(_KNOWLEDGE_MCP_TOOLS),
             }
         }
+    # Project memory for the two loops of a family, whether or not knowledge
+    # is enabled: the two servers answer different questions.
+    if scope_mcp is not None:
+        description.setdefault("mcp_servers", {})["scope-mcp"] = scope_mcp
     return description
 
 
