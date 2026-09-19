@@ -206,6 +206,36 @@ def _resolved_model_binding(role_key, client):
     return binding
 
 
+def _role_context_budget(role_key, db_path):
+    """The acting role's context budget (bridge_roles.context_budget), or 0.
+
+    The window says what the model CAN hold; the budget what the role MAY
+    use (migration 115). Both travel in the binding, and FlowRunner bounds
+    the step by the smaller. A role without a budget, a database from before
+    the column, or one that cannot be read, all mean "no budget": the export
+    is never failed over an optional cap.
+    """
+    role_key = (role_key or "").strip()
+    if not role_key:
+        return 0
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT context_budget FROM bridge_roles WHERE role_key = ?", (role_key,)
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        logger.info("context budget not read for role=%s: %s", role_key, exc)
+        return 0
+    try:
+        budget = int(row[0]) if row and row[0] is not None else 0
+    except (TypeError, ValueError):
+        return 0
+    return budget if budget > 0 else 0
+
+
 def _resolve_execution_config(flow_key, step_key, db_path):
     """Late import of the bridge resolver — sys.path is set up by
     routers/bridge.py, which is the only importer of this module."""
@@ -653,6 +683,9 @@ def _to_flowrunner_description(flow_row, steps, db_path):
         alias = facts.get("model_alias") or "default"
         model_entry = {"name": profile, "dpmtf_alias": alias}
         model_entry.update(_resolved_model_binding(s.get("from_role", ""), harness))
+        budget = _role_context_budget(s.get("from_role", ""), db_path)
+        if budget:
+            model_entry["context_budget"] = budget
         models.setdefault(profile, model_entry)
         harnesses.setdefault(harness, {"name": harness, "type": harness})
         fr_step = {

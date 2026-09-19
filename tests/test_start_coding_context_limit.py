@@ -41,6 +41,52 @@ def test_it_is_the_configured_limit_not_the_flag():
 
 
 def test_the_launch_block_applies_it_from_the_resolved_alias():
-    assert "child_env.update(context_limit_env(resolved))" in SRC
     # beside the other per-alias harness settings, inside the same branch
-    assert SRC.index("SIMPLE_HARNESS_MAX_OUTPUT_TOKENS") < SRC.index("child_env.update(context_limit_env(resolved))")
+    assert SRC.index("SIMPLE_HARNESS_MAX_OUTPUT_TOKENS") < SRC.index("child_env.update(context_limit_env(resolved")
+
+
+# --- the per-role context budget (migration 115) ------------------------------
+
+def test_the_smaller_of_window_and_budget_bounds_the_role():
+    # A 1,000,000-token window bounds nothing a run will reach; the budget is
+    # what the role MAY use.
+    assert start_coding.context_limit_env({"context": 1000000}, 131072) == {NAME: "131072"}
+    # A budget above the window cannot enlarge the window.
+    assert start_coding.context_limit_env({"context": 65536}, 131072) == {NAME: "65536"}
+    # A budget alone still bounds a role whose alias declares no window.
+    assert start_coding.context_limit_env({}, 32768) == {NAME: "32768"}
+    # No budget: the window, as before migration 115.
+    assert start_coding.context_limit_env({"context": 131072}, None) == {NAME: "131072"}
+
+
+def test_a_budget_that_is_not_a_positive_number_is_no_budget():
+    for budget in (0, -1, "", "lots", None):
+        assert start_coding.context_limit_env({"context": 131072}, budget) == {NAME: "131072"}, budget
+    assert start_coding.context_limit_env({}, 0) == {}
+
+
+def test_the_launch_block_passes_the_roles_budget():
+    assert 'child_env.update(context_limit_env(resolved, role.get("context_budget")))' in SRC
+
+
+def test_get_flow_roles_returns_the_budget(tmp_path):
+    import sqlite3
+    db = tmp_path / "t.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE bridge_flow_steps (flow_key TEXT, step_key TEXT, from_role TEXT, to_role TEXT,
+                                        sort_order INTEGER, is_active INTEGER DEFAULT 1);
+        CREATE TABLE bridge_roles (role_key TEXT PRIMARY KEY, tmux_session TEXT, is_active INTEGER DEFAULT 1,
+            role_type TEXT DEFAULT 'agent', default_model_source TEXT, default_model_alias TEXT,
+            max_output_tokens INTEGER, config_dir TEXT, allocator_client TEXT, workdir_mode TEXT,
+            execution_target TEXT, default_harness_source TEXT, default_harness_profile TEXT,
+            max_turns INTEGER, context_budget INTEGER);
+        INSERT INTO bridge_flow_steps VALUES ('f', 's', 'with-budget', 'without', 1, 1);
+        INSERT INTO bridge_roles (role_key, tmux_session, context_budget) VALUES ('with-budget', 's1', 131072);
+        INSERT INTO bridge_roles (role_key, tmux_session) VALUES ('without', 's2');
+    """)
+    conn.commit()
+    conn.close()
+    roles = {r["role_key"]: r for r in start_coding.get_flow_roles(str(db), "f")}
+    assert roles["with-budget"]["context_budget"] == 131072
+    assert roles["without"]["context_budget"] is None

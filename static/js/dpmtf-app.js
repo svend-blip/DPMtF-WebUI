@@ -2203,6 +2203,7 @@ function renderRoleCard(role, refresh, container) {
     [lbl("lbl_bridge_role_type", "Role Type"), role.role_type && role.role_type !== "agent" ? role.role_type : null],
     [lbl("lbl_bridge_enter_command", "Enter Command"), role.enter_command || "default"],
     [lbl("lbl_bridge_role_max_turns", "Max Turns"), role.max_turns != null ? String(role.max_turns) : null],
+    [lbl("lbl_bridge_role_context_budget", "Context Budget (tokens)"), role.context_budget != null ? String(role.context_budget) : null],
   ];
   fields.forEach(function (pair) {
     if (!pair[1]) return;
@@ -3098,6 +3099,10 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
         var mtEl = document.getElementById("bridge-edit-input-max_turns");
         if (mtEl) body.max_turns = mtEl.value ? parseInt(mtEl.value, 10) : null;
 
+        // Migration 115: per-role context budget
+        const cbEl = document.getElementById("bridge-edit-input-context_budget");
+        if (cbEl) body.context_budget = cbEl.value ? parseInt(cbEl.value, 10) : null;
+
         fetch("/api/bridge-v2/roles/" + encodeURIComponent(roleKey), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -3368,6 +3373,19 @@ function editBridgeRoleFull(roleKey, refresh, formContainer) {
       mtDiv.appendChild(mtInput);
       mtDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_role_max_turns_help", "Session turn ceiling for this role. Empty = harness default.")));
       form.appendChild(mtDiv);
+
+      // Migration 115: per-role context budget
+      const cbDiv = el("div", "dpmtf-form-group");
+      cbDiv.appendChild(el("label", "dpmtf-label", lbl("lbl_bridge_role_context_budget", "Context Budget (tokens)")));
+      const cbInput = el("input", null);
+      cbInput.type = "number";
+      cbInput.min = "1";
+      cbInput.step = "1";
+      cbInput.id = "bridge-edit-input-context_budget";
+      cbInput.value = role.context_budget != null ? String(role.context_budget) : "";
+      cbDiv.appendChild(cbInput);
+      cbDiv.appendChild(el("p", "dpmtf-muted", lbl("lbl_bridge_role_context_budget_help", "Most context tokens this role may use. The smaller of this and the model's window bounds the run. Empty = the model's window. Must hold the governance file and tool definitions with room to work.")));
+      form.appendChild(cbDiv);
 
       // Target project is a FLOW field (bridge_flows.target_project_path),
       // not a role field — a role can run in several flows, each with its

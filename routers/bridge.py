@@ -676,7 +676,20 @@ async def bridge_v2_update_role(role_key: str, request: Request):
         "fresh_session_command",      # Migration 009: session reset before injection
         "codex_fresh_context_policy", # Migration 069: codex restart-based context release
         "max_turns",                  # Migration 099: per-role turn ceiling
+        "context_budget",             # Migration 115: per-role context budget
     ]
+    if "context_budget" in data and data["context_budget"] is not None:
+        budget = data["context_budget"]
+        # bool is an int in Python; a budget of True is not a budget of 1.
+        if isinstance(budget, bool) or not isinstance(budget, int) or budget <= 0:
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"context_budget must be a positive whole number of tokens, "
+                    f"or empty for the model's window; got {budget!r}"
+                ),
+            )
     if "workdir_mode" in data and data["workdir_mode"] not in ("target_project", "father"):
         conn.close()
         raise HTTPException(

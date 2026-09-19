@@ -806,3 +806,46 @@ def test_an_alias_without_a_usable_context_declares_no_window(monkeypatch):
         binding = fe._resolved_model_binding("r", "simple-harness")
         assert binding.get("model") == "m", "the stub must resolve, or this proves nothing"
         assert "context_window" not in binding, context
+
+
+# --- the role's context budget travels with the binding (migration 115) -------
+
+def _budget_db(tmp_path, budget, with_column=True):
+    import sqlite3
+    import uuid
+    db = tmp_path / f"roles-{uuid.uuid4().hex}.db"
+    conn = sqlite3.connect(db)
+    column = ", context_budget INTEGER" if with_column else ""
+    conn.execute(f"CREATE TABLE bridge_roles (role_key TEXT PRIMARY KEY{column})")
+    if with_column:
+        conn.execute("INSERT INTO bridge_roles VALUES ('2000-execution-decomposer', ?)", (budget,))
+    else:
+        conn.execute("INSERT INTO bridge_roles VALUES ('2000-execution-decomposer')")
+    conn.commit()
+    conn.close()
+    return str(db)
+
+
+def test_the_acting_roles_budget_is_exported_beside_the_window(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["D.md"]))
+    monkeypatch.setattr(fe, "_resolve_execution_config",
+                        lambda fk, sk, db: _facts("D.md", "simple-harness", "cloud_qwen38flash"))
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "workspace_write")
+    monkeypatch.setattr(fe, "_resolved_model_binding",
+                        lambda role, client: {"model": "qwen3.8-flash", "context_window": 1000000})
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    steps = [{"step_key": "d", "from_role": "2000-execution-decomposer",
+              "to_role": "2000-implementer", "sort_order": 1}]
+    flow = {"flow_key": "2000-02-ELOOP", "name": "E"}
+
+    desc = fe._to_flowrunner_description(flow, steps, _budget_db(tmp_path, 131072))
+    profile = desc["models"][0]
+    # Both numbers travel: what the model can hold, and what the role may use.
+    assert profile["context_window"] == 1000000
+    assert profile["context_budget"] == 131072
+
+    # No budget set, and a database from before the column: no field, no error.
+    for db in (_budget_db(tmp_path, None), _budget_db(tmp_path, None, with_column=False), "unused.db"):
+        d = fe._to_flowrunner_description(flow, steps, db)
+        assert "context_budget" not in d["models"][0], db
+        assert d["models"][0]["context_window"] == 1000000
