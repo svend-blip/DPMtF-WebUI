@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 """Tests for the DPMtF -> FlowRunner Description bridge (format=flowrunner).
 
 Run 088 / D(a): routers/flowapp_export.py transforms DPMtF flow facts into
@@ -776,3 +777,32 @@ def test_no_project_memory_when_the_steps_run_read_only(tmp_path, monkeypatch):
     assert "SCOPE_MCP_HOME" not in ro["secrets"]["optional"]
     for step in ro["flows"][0]["steps"]:
         assert "scope-mcp" not in step["governance"].split("\n---\n")[0]
+
+
+# --- the model's context window travels with the binding ----------------------
+
+def _allocator_answers(monkeypatch, payload):
+    monkeypatch.setattr(config, "get_project_path", lambda name: "/nonexistent/model-allocator")
+    monkeypatch.setattr(
+        fe.subprocess, "run",
+        lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr=""))
+
+
+def test_the_binding_carries_the_aliass_context_window(monkeypatch):
+    # A FlowApp exported from here runs mostly against cloud endpoints, which
+    # do not report their window; FlowRunner bounds a run by the binding's
+    # context_window. The allocator already resolves `context` per alias.
+    _allocator_answers(monkeypatch, {
+        "real_model": "deepseek-v4-pro", "default_api_base": "https://api.deepseek.com",
+        "api_key_env": "DEEPSEEK_API_KEY", "backend": "openai_compatible", "context": 131072})
+    binding = fe._resolved_model_binding("2000-implementer", "simple-harness")
+    assert binding["context_window"] == 131072
+    assert binding["model"] == "deepseek-v4-pro"
+
+
+def test_an_alias_without_a_usable_context_declares_no_window(monkeypatch):
+    for context in (None, 0, -4, "plenty", ""):
+        _allocator_answers(monkeypatch, {"real_model": "m", "context": context})
+        binding = fe._resolved_model_binding("r", "simple-harness")
+        assert binding.get("model") == "m", "the stub must resolve, or this proves nothing"
+        assert "context_window" not in binding, context

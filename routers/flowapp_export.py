@@ -194,6 +194,15 @@ def _resolved_model_binding(role_key, client):
         value = (resolved.get(src) or "").strip()
         if value:
             binding[dst] = value
+    # The alias's context window. FlowRunner bounds a run by it; without it
+    # a run against an endpoint that does not report its window — a cloud
+    # API — is unbounded. What the alias does not say is not declared.
+    try:
+        context = int(resolved.get("context") or 0)
+    except (TypeError, ValueError):
+        context = 0
+    if context > 0:
+        binding["context_window"] = context
     return binding
 
 
