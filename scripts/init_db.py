@@ -4316,5 +4316,12 @@ conn.close()
 # to them what they did to the live database (see the top of this file).
 if FRESH_INSTALL:
     migrate.run_migrations(DB_PATH)
+    # Several flow migrations carry the target paths of the machine they were
+    # written on. A fresh install keeps a target only if the directory is
+    # here; a flow without one works in Father. Never done to an existing
+    # database — see migrate.clear_missing_target_paths.
+    for _flow_key, _path in migrate.clear_missing_target_paths(DB_PATH):
+        print(f"Flow '{_flow_key}': target project path '{_path}' is not on this machine - "
+              f"cleared; set it in the flow editor.")
 
 print("Database initialized successfully!")

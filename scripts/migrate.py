@@ -105,6 +105,43 @@ def is_fresh(db_path: str | None = None) -> bool:
     return row[0] == 0
 
 
+def _dir_exists(path: str) -> bool:
+    return os.path.isdir(path)
+
+
+def clear_missing_target_paths(db_path: str | None = None) -> list[tuple[str, str]]:
+    """Clear bridge_flows.target_project_path where the directory is not here.
+
+    For a FRESH install only (init_db.py decides). Several flow migrations
+    write the target paths of the machine they were written on. There they are
+    right; on any other machine bridge_lib refuses every dispatch of those
+    flows with "targets project path ..., which does not exist". A flow with
+    no target works in Father, and the path is set in the flow editor.
+
+    Never run this on an existing database: a path that is missing right now
+    (an unmounted disk, a repository being moved) is the installation's own.
+
+    Returns the (flow_key, path) pairs that were cleared.
+    """
+    target_db = db_path or config.get_db_path()
+    conn = sqlite3.connect(target_db)
+    try:
+        rows = conn.execute(
+            "SELECT flow_key, target_project_path FROM bridge_flows "
+            "WHERE COALESCE(TRIM(target_project_path), '') != ''"
+        ).fetchall()
+        cleared = [(flow_key, path) for flow_key, path in rows if not _dir_exists(path.strip())]
+        conn.executemany(
+            "UPDATE bridge_flows SET target_project_path = NULL, updated_at = datetime('now') "
+            "WHERE flow_key = ?",
+            [(flow_key,) for flow_key, _ in cleared],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return cleared
+
+
 def run_migrations(db_path: str | None = None, stop_after: str | None = None) -> dict:
     """Apply pending SQL migrations and return a summary.
 

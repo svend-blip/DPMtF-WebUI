@@ -260,9 +260,11 @@ them. On an existing database it applies what is pending and leaves every
 row's content alone. A fresh install holds the system data (convention
 rules, scripts, labels in the mandatory locales) and the flows with their
 roles and steps, the core flows `strict_review`, `cloud_llm` and `cloud_pay`
-included. The core flows are installed without a target project — a flow
-with no target works in this repository; set the path, and the model
-aliases your model-allocator knows, per installation in the UI.
+included. The core flows are installed without a target project, and a
+target path an older flow migration wrote is kept only if that directory
+exists on this machine (`init_db.py` prints each one it clears). A flow with
+no target works in this repository; set the path, and the model aliases
+your model-allocator knows, per installation in the UI.
 
 ### Install using an Agent
 

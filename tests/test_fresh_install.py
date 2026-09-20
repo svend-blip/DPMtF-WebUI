@@ -316,3 +316,57 @@ def test_the_core_flows_name_no_home_directory(fresh_db):
     assert hits == []
     assert _q(fresh_db, f"SELECT DISTINCT target_project_path FROM bridge_flows WHERE flow_key IN ({marks})",
               *flows) == [(None,)]
+
+
+# ── a fresh install targets no directory this machine does not have ──────
+
+def _targets(db):
+    return dict(_q(db, "SELECT flow_key, target_project_path FROM bridge_flows "
+                       "WHERE COALESCE(target_project_path, '') != ''"))
+
+
+def test_clear_missing_target_paths_clears_what_is_not_here(tmp_path):
+    db = tmp_path / "t.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE bridge_flows (flow_key TEXT PRIMARY KEY, target_project_path TEXT, updated_at TEXT)")
+    conn.executemany("INSERT INTO bridge_flows (flow_key, target_project_path) VALUES (?, ?)",
+                     [("here", str(tmp_path)), ("gone", str(tmp_path / "nobody" / "project")),
+                      ("father", None), ("blank", "")])
+    conn.commit()
+    conn.close()
+    cleared = migrate.clear_missing_target_paths(str(db))
+    assert cleared == [("gone", str(tmp_path / "nobody" / "project"))]
+    assert _targets(db) == {"here": str(tmp_path)}
+    assert migrate.clear_missing_target_paths(str(db)) == []
+
+
+def test_a_fresh_install_on_another_machine_targets_nothing_it_lacks(tmp_path, monkeypatch):
+    # Seven flow migrations (010, 016, 032, 043, 077, 090 ...) write the
+    # author's target paths. On the machine they were written on those are
+    # right; anywhere else every dispatch of those flows stops at
+    # "targets project path ..., which does not exist". A fresh install keeps
+    # a target only if the directory is there; without one the flow works in
+    # Father, and the path is set in the flow editor.
+    monkeypatch.setattr(migrate, "_dir_exists", lambda path: False)
+    db = tmp_path / "elsewhere.db"
+    _run_init_db(db, monkeypatch)
+    assert _q(db, "SELECT COUNT(*) FROM bridge_flows")[0][0] > 20
+    assert _targets(db) == {}
+
+
+def test_an_existing_database_keeps_every_target_path(fresh_db, tmp_path, monkeypatch):
+    # Not fresh: even a path that is missing right now (an unmounted disk, a
+    # repository being moved) is the installation's own and stays.
+    target = tmp_path / "existing.db"
+    src, dst = sqlite3.connect(fresh_db), sqlite3.connect(target)
+    try:
+        src.backup(dst)
+    finally:
+        src.close()
+    dst.execute("UPDATE bridge_flows SET target_project_path = '/mnt/unmounted/project' WHERE flow_key = 'strict_review'")
+    dst.commit()
+    dst.close()
+    before = _targets(target)
+    monkeypatch.setattr(migrate, "_dir_exists", lambda path: False)
+    _run_init_db(target, monkeypatch)
+    assert _targets(target) == before and before["strict_review"] == "/mnt/unmounted/project"
