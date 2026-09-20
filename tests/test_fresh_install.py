@@ -370,3 +370,42 @@ def test_an_existing_database_keeps_every_target_path(fresh_db, tmp_path, monkey
     monkeypatch.setattr(migrate, "_dir_exists", lambda path: False)
     _run_init_db(target, monkeypatch)
     assert _targets(target) == before and before["strict_review"] == "/mnt/unmounted/project"
+
+
+# ── a fresh install belongs to the machine it is made on ─────────────────
+
+def test_a_fresh_install_carries_nobody_elses_home(tmp_path, monkeypatch):
+    # Build a fresh install as somebody else: another home directory, and no
+    # directory of the author's present. Whatever then still names the home
+    # of the user running this suite was written down literally somewhere —
+    # a seed or a migration — instead of being taken from config.
+    # The one legitimate exception is the checkout itself: git_sync_status
+    # records where this repository is, and that is a fact about the machine.
+    import os
+    real_home = os.path.expanduser("~")
+    other_home = tmp_path / "home" / "somebody"
+    other_home.mkdir(parents=True)
+    monkeypatch.setenv("DPMTF_HOME_DIR", str(other_home))
+    monkeypatch.setattr(migrate, "_dir_exists", lambda path: False)
+    db = tmp_path / "somebody.db"
+    _run_init_db(db, monkeypatch)
+
+    root = config.get_project_root()
+    conn = sqlite3.connect(db)
+    hits = []
+    try:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+        for t in tables:
+            for row in conn.execute(f'SELECT * FROM "{t}"'):
+                hits += [(t, v[:90]) for v in row
+                         if isinstance(v, str) and real_home in v and not v.startswith(root)]
+        # the seeds did follow config: the reference project sits in the other home
+        assert conn.execute("SELECT target_project_path FROM webui_migration_targets").fetchone()[0].startswith(
+            str(other_home))
+        # and a key is not named after a person
+        keys = [r[0] for r in conn.execute("SELECT card_key FROM v2_panel_requirements")]
+    finally:
+        conn.close()
+    assert hits == []
+    assert "home_dir_disk" in keys and not any("svend" in k for k in keys), keys

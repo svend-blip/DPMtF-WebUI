@@ -1833,7 +1833,7 @@ v2_panel_requirements_data = [
         "ai_pc_resource_webui_v2",
         "system_resources",
         "System Resources",
-        "home_svend_disk",
+        "home_dir_disk",
         config.get_home_dir(),
         "disk_usage",
         3,
