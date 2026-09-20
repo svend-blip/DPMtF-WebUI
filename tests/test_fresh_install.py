@@ -259,3 +259,60 @@ def test_every_key_the_frontend_asks_for_resolves(fresh_db, locale):
         WHERE COALESCE(t.translated_text, '') != ''""", locale)}
     unresolved = sorted(_frontend_keys() - resolved)
     assert unresolved == [], f"{len(unresolved)} keys do not resolve in {locale}, e.g. {unresolved[:8]}"
+
+
+# ── the core flows are part of a fresh install ───────────────────────────
+
+CORE_FLOWS = {"strict_review": 4, "cloud_llm": 4, "cloud_pay": 4, "1010-01-PLOOP": 2, "1010-02-ELOOP": 3}
+
+
+def test_the_core_flows_are_installed_with_their_steps(fresh_db):
+    # strict_review, cloud_llm and cloud_pay are the flows the governance
+    # 40x/41x/42x files describe; they and the 1010 family were made by hand
+    # in the production database and existed nowhere else until migration 119.
+    steps = dict(_q(fresh_db, "SELECT flow_key, COUNT(*) FROM bridge_flow_steps WHERE is_active = 1 GROUP BY 1"))
+    flows = {r[0] for r in _q(fresh_db, "SELECT flow_key FROM bridge_flows WHERE is_active = 1")}
+    assert set(CORE_FLOWS) <= flows, sorted(set(CORE_FLOWS) - flows)
+    assert {k: steps.get(k) for k in CORE_FLOWS} == CORE_FLOWS
+
+
+def test_every_role_a_flow_names_exists(fresh_db):
+    # Found 2026-09-20: the role `human` existed only in production, and 20
+    # steps in 10 migrated flows named it.
+    dangling = _q(fresh_db, """
+        SELECT flow_key, step_key, from_role, to_role FROM bridge_flow_steps
+        WHERE from_role NOT IN (SELECT role_key FROM bridge_roles)
+           OR to_role   NOT IN (SELECT role_key FROM bridge_roles)""")
+    assert dangling == [], f"{len(dangling)} steps name a role that does not exist, e.g. {dangling[:3]}"
+    supervisors = _q(fresh_db, """
+        SELECT flow_key, supervisor_role FROM bridge_flows
+        WHERE COALESCE(supervisor_role, '') != '' AND supervisor_role NOT IN (SELECT role_key FROM bridge_roles)""")
+    assert supervisors == []
+
+
+def test_every_rule_a_step_names_exists(fresh_db):
+    dangling = _q(fresh_db, """
+        SELECT flow_key, step_key, rule_key FROM bridge_flow_steps
+        WHERE COALESCE(rule_key, '') != '' AND rule_key NOT IN (SELECT rule_key FROM bridge_convention_rules)""")
+    assert dangling == []
+
+
+def test_the_core_flows_name_no_home_directory(fresh_db):
+    # The repository is public. In production cloud_pay and the 1010 family
+    # carry a target path under the author's home directory; the migration
+    # installs them without one (no target = the flow works in Father, and
+    # the path is set per installation in the flow editor). Seven older
+    # migrations do write such a path — that is theirs, and not measured here.
+    flows = tuple(CORE_FLOWS)
+    marks = ",".join("?" * len(flows))
+    rows = _q(fresh_db, f"SELECT * FROM bridge_flows WHERE flow_key IN ({marks})", *flows)
+    rows += _q(fresh_db, f"SELECT * FROM bridge_flow_steps WHERE flow_key IN ({marks})", *flows)
+    rows += _q(fresh_db, f"""SELECT * FROM bridge_roles WHERE role_key IN (
+        SELECT from_role FROM bridge_flow_steps WHERE flow_key IN ({marks})
+        UNION SELECT to_role FROM bridge_flow_steps WHERE flow_key IN ({marks}))""", *flows, *flows)
+    assert len(rows) > 30
+    hits = [str(v)[:80] for row in rows for v in row
+            if isinstance(v, str) and ("/home/" in v or "/Users/" in v or "svend" in v.lower())]
+    assert hits == []
+    assert _q(fresh_db, f"SELECT DISTINCT target_project_path FROM bridge_flows WHERE flow_key IN ({marks})",
+              *flows) == [(None,)]
