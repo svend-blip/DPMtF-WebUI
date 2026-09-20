@@ -60,8 +60,8 @@ def test_to_flowrunner_description_maps_facts(tmp_path, monkeypatch):
     )
     flow_row = {"flow_key": "9000-02-ELOOP", "name": "9000 Execution Loop"}
     steps = [
-        {"step_key": "s1", "to_role": "9000-implementer", "sort_order": 1},
-        {"step_key": "s2", "to_role": "9000-reviewer", "sort_order": 2},
+        {"step_key": "s1", "from_role": "9000-implementer", "to_role": "9000-reviewer", "sort_order": 1},
+        {"step_key": "s2", "from_role": "9000-reviewer", "to_role": "9000-implementer", "sort_order": 2},
     ]
 
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
@@ -271,7 +271,8 @@ def test_export_survives_an_unresolvable_binding(tmp_path, monkeypatch):
     steps = [{"step_key": "d", "from_role": "f-decomposer",
               "to_role": "f-implementer", "sort_order": 1}]
     desc = fe._to_flowrunner_description(flow_row, steps, "unused.db")
-    assert desc["models"][0] == {"name": "implementer", "dpmtf_alias": "cloud_x"}
+    # named after the role that runs the step (f-decomposer), not the one it hands to
+    assert desc["models"][0] == {"name": "decomposer", "dpmtf_alias": "cloud_x"}
     assert desc["secrets"]["required"] == []
 
 
@@ -849,3 +850,89 @@ def test_the_acting_roles_budget_is_exported_beside_the_window(tmp_path, monkeyp
         d = fe._to_flowrunner_description(flow, steps, db)
         assert "context_budget" not in d["models"][0], db
         assert d["models"][0]["context_window"] == 1000000
+
+
+# ── a model profile is named after the role that runs the step ────────────
+
+_NAMED_ELOOP_STEPS = [
+    {"step_key": "decomposer-implementer", "from_role": "2000-execution-decomposer",
+     "to_role": "2000-implementer", "sort_order": 1},
+    {"step_key": "implementer-reviewer", "from_role": "2000-implementer",
+     "to_role": "2000-reviewer", "sort_order": 2},
+    {"step_key": "reviewer-decomposer", "from_role": "2000-reviewer",
+     "to_role": "2000-execution-decomposer", "sort_order": 3},
+]
+_NAMED_ELOOP_ALIAS = {"decomposer-implementer": "cloud_qwen38flash",
+                "implementer-reviewer": "cloud_deepseek_v4pro_direct",
+                "reviewer-decomposer": "cloud_deepseek_v4pro_direct"}
+
+
+def _eloop_description(tmp_path, monkeypatch, steps=None, alias=None):
+    alias = alias or _NAMED_ELOOP_ALIAS
+    monkeypatch.setattr(config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["G.md"]))
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    monkeypatch.setattr(fe, "_resolved_step_permission", lambda: "read_only")
+    monkeypatch.setattr(fe, "_resolve_execution_config",
+                        lambda fk, sk, db: _facts("G.md", "simple-harness", alias[sk]))
+    # the binding is resolved for the ACTING role; say which role was asked
+    monkeypatch.setattr(fe, "_resolved_model_binding",
+                        lambda role, client: {"model": "model-of-" + role})
+    return fe._to_flowrunner_description(
+        {"flow_key": "2000-02-ELOOP", "name": "E"}, steps or _NAMED_ELOOP_STEPS, "unused.db")
+
+
+def test_a_profile_is_named_after_the_role_that_runs_the_step(tmp_path, monkeypatch):
+    # Found 2026-09-20. A step `A-B` is run by A (its governance, its model,
+    # its budget), and the profile was named after B. Every value was A's and
+    # every name was shifted one place: the decomposer ran on a profile called
+    # `implementer`, the planning supervisor on one called `human`. The
+    # bundle's README was written from those names and said the implementer
+    # runs on DashScope; it is the decomposer that does.
+    desc = _eloop_description(tmp_path, monkeypatch)
+    by_step = {s["name"]: s["model"] for s in desc["flows"][0]["steps"]}
+    assert by_step == {"decomposer-implementer": "execution-decomposer",
+                       "implementer-reviewer": "implementer",
+                       "reviewer-decomposer": "reviewer"}
+    models = {m["name"]: m for m in desc["models"]}
+    assert set(models) == {"execution-decomposer", "implementer", "reviewer"}
+    # name, alias and binding now agree on one role
+    assert models["execution-decomposer"]["dpmtf_alias"] == "cloud_qwen38flash"
+    assert models["execution-decomposer"]["model"] == "model-of-2000-execution-decomposer"
+    assert models["implementer"]["dpmtf_alias"] == "cloud_deepseek_v4pro_direct"
+    assert models["implementer"]["model"] == "model-of-2000-implementer"
+
+
+def test_the_planning_profile_is_not_called_human(tmp_path, monkeypatch):
+    steps = [
+        {"step_key": "human-planning", "from_role": "human",
+         "to_role": "2000-planning-supervisor", "sort_order": 1},
+        {"step_key": "planning-human", "from_role": "2000-planning-supervisor",
+         "to_role": "human", "sort_order": 2},
+    ]
+    monkeypatch.setattr(config, "get_governance_dir_abs", lambda: _gov_dir(tmp_path, ["G.md"]))
+    monkeypatch.setattr(config, "get_knowledge_enabled", lambda: False)
+    monkeypatch.setattr(fe, "_resolve_execution_config",
+                        lambda fk, sk, db: _facts("G.md", "simple-harness", "cloud_deepseek_v4pro_direct"))
+    desc = fe._to_flowrunner_description({"flow_key": "2000-01-PLOOP", "name": "P"}, steps, "unused.db")
+    assert [m["name"] for m in desc["models"]] == ["planning-supervisor"]
+    assert desc["flows"][0]["steps"][0]["model"] == "planning-supervisor"
+
+
+def test_one_role_with_two_models_gets_two_profiles(tmp_path, monkeypatch):
+    # A step may override its role's model. Profiles were collected with
+    # setdefault on the name, so the second step silently ran on the first
+    # step's model. The second profile carries the step's name.
+    steps = [
+        {"step_key": "draft", "from_role": "2000-implementer", "to_role": "2000-reviewer", "sort_order": 1},
+        {"step_key": "polish", "from_role": "2000-implementer", "to_role": "2000-reviewer", "sort_order": 2},
+        {"step_key": "again", "from_role": "2000-implementer", "to_role": "2000-reviewer", "sort_order": 3},
+    ]
+    alias = {"draft": "cloud_qwen38flash", "polish": "cloud_deepseek_v4pro_direct", "again": "cloud_qwen38flash"}
+    desc = _eloop_description(tmp_path, monkeypatch, steps=steps, alias=alias)
+    by_step = {s["name"]: s["model"] for s in desc["flows"][0]["steps"]}
+    models = {m["name"]: m["dpmtf_alias"] for m in desc["models"]}
+    assert by_step["draft"] == "implementer" and by_step["again"] == "implementer"
+    assert by_step["polish"] != "implementer"
+    assert models[by_step["polish"]] == "cloud_deepseek_v4pro_direct"
+    assert models["implementer"] == "cloud_qwen38flash"
+    assert len(models) == 2

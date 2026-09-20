@@ -257,16 +257,20 @@ _FR_SUPPORTED_HARNESSES = frozenset(
 _ENGINE_WORDS = ("freetoken", "qwen", "sglang", "ollama", "llama.cpp")
 
 
-def _fr_profile_id(to_role, flow_key):
+def _fr_profile_id(acting_role, flow_key):
     """Abstract, rule-8-safe model profile id from the executing role.
 
     DPMtF model_aliases frequently name an inference engine (e.g.
     ``freetoken-qwen38-flash-next``); FlowRunner's rule 8 forbids that in
-    a model profile. The executing role is the abstract identity, so we
-    derive the profile from ``to_role`` (minus the flow-family prefix),
-    and fall back to ``model`` if the role itself names an engine.
+    a model profile. The executing role is the abstract identity, so the
+    profile is named after it (minus the flow-family prefix), with
+    ``model`` as the fallback if the role itself names an engine.
+
+    The executing role of a step ``A-B`` is A, its FROM_ROLE (see
+    ``_to_flowrunner_description``). Until 2026-09-20 this was handed the
+    step's to_role: every value in a profile was A's and its name was B's.
     """
-    role = (to_role or "model").strip()
+    role = (acting_role or "model").strip()
     fam = flow_key.split("-")[0]
     if role.startswith(fam + "-"):
         role = role[len(fam) + 1:]
@@ -679,13 +683,24 @@ def _to_flowrunner_description(flow_row, steps, db_path):
                 status_code=422,
                 detail=(f"step '{step_key}' harness '{harness}' is not supported by "
                         f"FlowRunner (supported: {sorted(_FR_SUPPORTED_HARNESSES)})"))
-        profile = _fr_profile_id(s.get("to_role", ""), flow_row["flow_key"])
+        # Name, alias, binding and budget all belong to the role that RUNS
+        # the step. A step written without a from_role (older callers) falls
+        # back to the role it hands to, as before.
+        acting_role = s.get("from_role") or s.get("to_role", "")
+        profile = _fr_profile_id(acting_role, flow_row["flow_key"])
         alias = facts.get("model_alias") or "default"
-        model_entry = {"name": profile, "dpmtf_alias": alias}
+        model_entry = {"dpmtf_alias": alias}
         model_entry.update(_resolved_model_binding(s.get("from_role", ""), harness))
         budget = _role_context_budget(s.get("from_role", ""), db_path)
         if budget:
             model_entry["context_budget"] = budget
+        # One role, one profile - unless a step overrides its role's model:
+        # then the step gets a profile of its own, named after it, instead
+        # of silently running on the first step's model.
+        known = models.get(profile)
+        if known is not None and {k: v for k, v in known.items() if k != "name"} != model_entry:
+            profile = f"{profile}-{step_key}"
+        model_entry["name"] = profile
         models.setdefault(profile, model_entry)
         harnesses.setdefault(harness, {"name": harness, "type": harness})
         fr_step = {
