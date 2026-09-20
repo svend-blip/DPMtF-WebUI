@@ -12,8 +12,26 @@ DB_PATH = config.get_db_path()
 # Create database directory if it doesn't exist
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# Create/upgrade schema via versioned migrations
-migrate.run_migrations(DB_PATH)
+# Create/upgrade schema via versioned migrations.
+#
+# On a FRESH database the order is: the baseline migration (the schema these
+# seeds were written for), the seeds below, then every other migration — see
+# the end of this file. That is the order in which the live database came to
+# be: its rows existed, and each migration changed them. Until 2026-09-20 every
+# migration ran first, so on a fresh database a migration that reads or updates
+# seeded rows found none, did nothing, and was recorded as applied; the seeds
+# then arrived in their original form. Measured: 118 of 434 labels had a
+# Spanish text (migration 036 translates the labels that exist), and the
+# `handoff` template was the seed rather than what migrations 095/098/101 had
+# made of it.
+#
+# An existing database is migrated exactly as before: everything pending, then
+# the seeds, which add what is missing and leave the rest alone.
+FRESH_INSTALL = migrate.is_fresh(DB_PATH)
+if FRESH_INSTALL:
+    migrate.run_migrations(DB_PATH, stop_after=migrate.baseline_migration())
+else:
+    migrate.run_migrations(DB_PATH)
 
 # Connect to database for canonical data seeding
 conn = sqlite3.connect(DB_PATH)
@@ -364,12 +382,17 @@ ui_labels_data = [
 ]
 
 # Safely insert or update ui_labels data (no DELETE)
+# The i18n seeds leave alone what a migration or the label editor decided:
+# a row's is_active survives the REPLACE, and a slot that is already bound is
+# not bound a second time. Without that, every run re-activated the duplicate
+# labels migration 038 had retired and put two labels on their slots — the
+# state the live database was found in on 2026-09-20 (migration 117).
 for label in ui_labels_data:
     cursor.execute("""
         INSERT OR REPLACE INTO ui_labels
-        (label_id, label_key, label_domain, default_text, description)
-        VALUES (?, ?, ?, ?, ?)
-    """, label)
+        (label_id, label_key, label_domain, default_text, description, is_active)
+        VALUES (?, ?, ?, ?, ?, COALESCE((SELECT is_active FROM ui_labels WHERE label_id = ?), 1))
+    """, (*label, label[0]))
 
 # Seed translations (en-US + da-DK) for all labels
 ui_label_translations_data = [
@@ -1130,9 +1153,10 @@ ui_label_translations_data = [
 for translation in ui_label_translations_data:
     cursor.execute("""
         INSERT OR REPLACE INTO ui_label_translations
-        (label_id, locale, translated_text)
-        VALUES (?, ?, ?)
-    """, translation)
+        (label_id, locale, translated_text, is_active)
+        VALUES (?, ?, ?, COALESCE((SELECT is_active FROM ui_label_translations
+                                   WHERE label_id = ? AND locale = ?), 1))
+    """, (*translation, translation[0], translation[1]))
 
 # ── 2F-bis: Seed ui_text_slots ──
 ui_text_slots_data = [
@@ -1453,8 +1477,8 @@ ui_text_slot_labels_data = [
 for slot_key, label_key in ui_text_slot_labels_data:
     cursor.execute("""
         INSERT OR IGNORE INTO ui_text_slot_labels (slot_key, label_key)
-        VALUES (?, ?)
-    """, (slot_key, label_key))
+        SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM ui_text_slot_labels WHERE slot_key = ?)
+    """, (slot_key, label_key, slot_key))
 
 # Create endpoint_registry table
 
@@ -2670,9 +2694,9 @@ ui_labels_subgroups = [
 for label in ui_labels_subgroups:
     cursor.execute("""
         INSERT OR REPLACE INTO ui_labels
-        (label_id, label_key, label_domain, default_text, description)
-        VALUES (?, ?, ?, ?, ?)
-    """, label)
+        (label_id, label_key, label_domain, default_text, description, is_active)
+        VALUES (?, ?, ?, ?, ?, COALESCE((SELECT is_active FROM ui_labels WHERE label_id = ?), 1))
+    """, (*label, label[0]))
 
 # Tilføj til translations
 ui_label_translations_subgroups = [
@@ -2686,9 +2710,10 @@ ui_label_translations_subgroups = [
 for translation in ui_label_translations_subgroups:
     cursor.execute("""
         INSERT OR REPLACE INTO ui_label_translations
-        (label_id, locale, translated_text)
-        VALUES (?, ?, ?)
-    """, translation)
+        (label_id, locale, translated_text, is_active)
+        VALUES (?, ?, ?, COALESCE((SELECT is_active FROM ui_label_translations
+                                   WHERE label_id = ? AND locale = ?), 1))
+    """, (*translation, translation[0], translation[1]))
 
 # Tilføj text slots for subgroup titles
 ui_text_slots_subgroups = [
@@ -2711,8 +2736,8 @@ ui_text_slot_labels_subgroups = [
 for slot_key, label_key in ui_text_slot_labels_subgroups:
     cursor.execute("""
         INSERT OR IGNORE INTO ui_text_slot_labels (slot_key, label_key)
-        VALUES (?, ?)
-    """, (slot_key, label_key))
+        SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM ui_text_slot_labels WHERE slot_key = ?)
+    """, (slot_key, label_key, slot_key))
 
 # Register new endpoints — panel structure + subgroup state
 endpoint_registry_subgroups = [
@@ -3508,9 +3533,9 @@ _bridge_setup_labels = [
 for label in _bridge_setup_labels:
     cursor.execute("""
         INSERT OR REPLACE INTO ui_labels
-        (label_id, label_key, label_domain, default_text, description)
-        VALUES (?, ?, ?, ?, ?)
-    """, label)
+        (label_id, label_key, label_domain, default_text, description, is_active)
+        VALUES (?, ?, ?, ?, ?, COALESCE((SELECT is_active FROM ui_labels WHERE label_id = ?), 1))
+    """, (*label, label[0]))
 
 # Layer 4: ui_label_translations — locale-specific text
 _bridge_setup_translations = [
@@ -3994,9 +4019,10 @@ _bridge_setup_translations = [
 for translation in _bridge_setup_translations:
     cursor.execute("""
         INSERT OR REPLACE INTO ui_label_translations
-        (label_id, locale, translated_text)
-        VALUES (?, ?, ?)
-    """, translation)
+        (label_id, locale, translated_text, is_active)
+        VALUES (?, ?, ?, COALESCE((SELECT is_active FROM ui_label_translations
+                                   WHERE label_id = ? AND locale = ?), 1))
+    """, (*translation, translation[0], translation[1]))
 
 # Layer 1: ui_text_slots — position IDs
 _bridge_setup_slots = [
@@ -4270,8 +4296,8 @@ _bridge_setup_slot_labels = [
 for slot_key, label_key in _bridge_setup_slot_labels:
     cursor.execute("""
         INSERT OR IGNORE INTO ui_text_slot_labels (slot_key, label_key)
-        VALUES (?, ?)
-    """, (slot_key, label_key))
+        SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM ui_text_slot_labels WHERE slot_key = ?)
+    """, (slot_key, label_key, slot_key))
 
 # ── Bridge ID Counters (DB-driven, flow-isolated) ────────────────────
 
@@ -4280,5 +4306,10 @@ for slot_key, label_key in _bridge_setup_slot_labels:
 # Commit changes and close connection
 conn.commit()
 conn.close()
+
+# A fresh database now has its rows; the migrations after the baseline can do
+# to them what they did to the live database (see the top of this file).
+if FRESH_INSTALL:
+    migrate.run_migrations(DB_PATH)
 
 print("Database initialized successfully!")

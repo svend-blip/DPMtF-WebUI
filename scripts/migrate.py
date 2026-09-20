@@ -78,11 +78,42 @@ def _applied_migrations(conn: sqlite3.Connection) -> set[str]:
         return set()
 
 
-def run_migrations(db_path: str | None = None) -> dict:
+def baseline_migration() -> str | None:
+    """Filename of the first migration: the schema the seeds were written for."""
+    migrations = _discover_migrations()
+    return migrations[0].name if migrations else None
+
+
+def is_fresh(db_path: str | None = None) -> bool:
+    """True when the database does not exist yet or holds no table at all.
+
+    Asking never creates the file. A fresh database is the one case where
+    init_db.py must seed BEFORE the data migrations run: the live database
+    had its rows first and was changed by each migration, and a migration
+    that reads or updates seeded rows does nothing when there are none.
+    """
+    target_db = db_path or config.get_db_path()
+    if not Path(target_db).is_file():
+        return True
+    conn = sqlite3.connect(f"file:{Path(target_db).resolve()}?mode=ro", uri=True)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchone()
+    finally:
+        conn.close()
+    return row[0] == 0
+
+
+def run_migrations(db_path: str | None = None, stop_after: str | None = None) -> dict:
     """Apply pending SQL migrations and return a summary.
 
     Args:
         db_path: Optional DB path override. Defaults to config.get_db_path().
+        stop_after: Optional migration filename; pending migrations are
+            applied up to and including it, and the rest are left pending.
+            init_db.py uses it on a fresh database to apply the baseline,
+            seed, and only then apply everything else.
 
     Returns:
         dict with keys: applied (list[str]), skipped (int), db_path (str).
@@ -94,6 +125,11 @@ def run_migrations(db_path: str | None = None) -> dict:
     Path(target_db).parent.mkdir(parents=True, exist_ok=True)
 
     migrations = _discover_migrations()
+    if stop_after is not None:
+        names = [m.name for m in migrations]
+        if stop_after not in names:
+            raise RuntimeError(f"stop_after names no migration: {stop_after}")
+        migrations = migrations[: names.index(stop_after) + 1]
     applied: list[str] = []
 
     conn = sqlite3.connect(target_db)

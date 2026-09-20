@@ -253,6 +253,17 @@ cp .env.example .env            # secrets and machine paths — never committed
 venv/bin/python scripts/init_db.py    # runs migrations, seeds, idempotent
 ```
 
+On a database that does not exist yet `init_db.py` applies the baseline
+migration, seeds, and then applies every other migration — the order the
+production database grew in, so a migration that updates seeded rows finds
+them. On an existing database it applies what is pending and leaves every
+row's content alone. A fresh install holds the system data (convention
+rules, scripts, labels in the mandatory locales) and the flows that were
+written as migrations. The oldest flows (`strict_review`, `cloud_llm`,
+`cloud_pay`), the 1010 family and the roles under them were created by hand
+and exist only in the production database; target paths, models and
+mandates are set per installation in the UI.
+
 ### Install using an Agent
 
 Point your coding agent at this repository; `CLAUDE.md` and
