@@ -154,6 +154,11 @@ for phase in phase_data:
 # Create ui_label_translations table for locale-specific translations
 
 # Seed baseline ui_labels data (existing + 45 new for 2F-bis)
+# LBL-1000575/587/599/600: these four labels were seeded as LBL-1000228/229/
+# 317/318, ids the Bridge Setup seed further down uses for other labels. The
+# later REPLACE removed them on every run, so their keys never had a label.
+# They carry the ids migration 118 gave them. The template-manager labels the
+# main page uses are in domain main, the only domain the frontend fetches.
 ui_labels_data = [
     # Existing system_setup labels
     ("LBL-1000001", "system_setup.title", "system_setup", "System Setup", "Title for the system setup section"),
@@ -300,31 +305,31 @@ ui_labels_data = [
     ("LBL-1000210", "lbl_target_session_architect", "template_manager", "Architect — design & analysis (claude_architect)", "target_session option: claude_architect"),
     ("LBL-1000211", "lbl_target_session_review", "template_manager", "Review — validation & coordination (claude_review)", "target_session option: claude_review"),
     # ── Prompt Compiler Hardening: handoff ID assignment (handoff 017) ──
-    ("LBL-1000212", "lbl_btn_assign_handoff_id", "template_manager", "Assign Handoff ID", "Button to assign a real handoff ID to a compiled prompt"),
-    ("LBL-1000213", "lbl_status_assigning_id", "template_manager", "Assigning handoff ID...", "Loading state for handoff ID assignment"),
-    ("LBL-1000214", "lbl_handoff_ready", "template_manager", "Handoff {ID} ready", "Success message when handoff file is written"),
-    ("LBL-1000215", "lbl_handoff_file_written", "template_manager", "File written:", "Label preceding the handoff file path"),
-    ("LBL-1000216", "lbl_dispatch_command", "template_manager", "Dispatch command:", "Label preceding the dispatch shell command"),
-    ("LBL-1000217", "lbl_btn_copy_command", "template_manager", "Copy Command", "Button to copy dispatch command to clipboard"),
+    ("LBL-1000212", "lbl_btn_assign_handoff_id", "main", "Assign Handoff ID", "Button to assign a real handoff ID to a compiled prompt"),
+    ("LBL-1000213", "lbl_status_assigning_id", "main", "Assigning handoff ID...", "Loading state for handoff ID assignment"),
+    ("LBL-1000214", "lbl_handoff_ready", "main", "Handoff {ID} ready", "Success message when handoff file is written"),
+    ("LBL-1000215", "lbl_handoff_file_written", "main", "File written:", "Label preceding the handoff file path"),
+    ("LBL-1000216", "lbl_dispatch_command", "main", "Dispatch command:", "Label preceding the dispatch shell command"),
+    ("LBL-1000217", "lbl_btn_copy_command", "main", "Copy Command", "Button to copy dispatch command to clipboard"),
     # ── Accelerated WebUI Factory labels (2026-06-18) ──
-    ("LBL-1000218", "lbl_compiler_new_webui_name", "template_manager", "New webui", "Accelerated: new webui name field"),
-    ("LBL-1000219", "lbl_compiler_new_webui_port", "template_manager", "Port", "Accelerated: port number field"),
-    ("LBL-1000220", "lbl_compiler_new_webui_title", "template_manager", "Title", "Accelerated: project title field"),
-    ("LBL-1000221", "lbl_compiler_create_webui_btn", "template_manager", "Create New WebUI", "Accelerated: create button"),
-    ("LBL-1000222", "lbl_compiler_start_server_btn", "template_manager", "Start WebUI Server", "Accelerated: start server button"),
-    ("LBL-1000223", "lbl_compiler_webui_created", "template_manager", "WebUI project created successfully", "Accelerated: success message"),
-    ("LBL-1000224", "lbl_compiler_governance_reminder", "template_manager", "Governance files to create in docs/dpmtf/:", "Accelerated: governance reminder"),
-    ("LBL-1000225", "lbl_compiler_open_webui", "template_manager", "Open WebUI", "Accelerated: open webui link text"),
-    ("LBL-1000226", "lbl_compiler_script_error", "template_manager", "Script error", "Accelerated: script error heading"),
-    ("LBL-1000227", "lbl_compiler_field_required", "template_manager", "This field is required", "Accelerated: field required message"),
+    ("LBL-1000218", "lbl_compiler_new_webui_name", "main", "New webui", "Accelerated: new webui name field"),
+    ("LBL-1000219", "lbl_compiler_new_webui_port", "main", "Port", "Accelerated: port number field"),
+    ("LBL-1000220", "lbl_compiler_new_webui_title", "main", "Title", "Accelerated: project title field"),
+    ("LBL-1000221", "lbl_compiler_create_webui_btn", "main", "Create New WebUI", "Accelerated: create button"),
+    ("LBL-1000222", "lbl_compiler_start_server_btn", "main", "Start WebUI Server", "Accelerated: start server button"),
+    ("LBL-1000223", "lbl_compiler_webui_created", "main", "WebUI project created successfully", "Accelerated: success message"),
+    ("LBL-1000224", "lbl_compiler_governance_reminder", "main", "Governance files to create in docs/dpmtf/:", "Accelerated: governance reminder"),
+    ("LBL-1000225", "lbl_compiler_open_webui", "main", "Open WebUI", "Accelerated: open webui link text"),
+    ("LBL-1000226", "lbl_compiler_script_error", "main", "Script error", "Accelerated: script error heading"),
+    ("LBL-1000227", "lbl_compiler_field_required", "main", "This field is required", "Accelerated: field required message"),
     # ── BridgeV002 Compiler Integration (B4, 2026-06-22) ──
-    ("LBL-1000228", "lbl_compiler_flow_key", "template_manager", "Flow Key", "BridgeV002: select flow for dispatch"),
-    ("LBL-1000229", "lbl_compiler_step_key", "template_manager", "Step Key", "BridgeV002: select step for dispatch"),
+    ("LBL-1000575", "lbl_compiler_flow_key", "main", "Flow Key", "BridgeV002: select flow for dispatch"),
+    ("LBL-1000587", "lbl_compiler_step_key", "main", "Step Key", "BridgeV002: select step for dispatch"),
     # ── Deliver to Bridge button (handoff 178) ──
-    ("LBL-1000300", "lbl_btn_deliver_to_bridge", "template_manager", "Deliver to Bridge", "Button to dispatch a compiled handoff to the bridge without manual terminal run"),
-    ("LBL-1000301", "lbl_deliver_in_progress", "template_manager", "Delivering...", "Loading state shown on Deliver to Bridge button while dispatch runs"),
-    ("LBL-1000302", "lbl_deliver_no_handoff", "template_manager", "No handoff ready. Assign a handoff ID first.", "Error message when Deliver to Bridge is clicked before Assign Handoff ID"),
-    ("LBL-1000303", "lbl_deliver_success", "template_manager", "Handoff {ID} delivered to {TO}", "Success message after dispatch completes"),
+    ("LBL-1000300", "lbl_btn_deliver_to_bridge", "main", "Deliver to Bridge", "Button to dispatch a compiled handoff to the bridge without manual terminal run"),
+    ("LBL-1000301", "lbl_deliver_in_progress", "main", "Delivering...", "Loading state shown on Deliver to Bridge button while dispatch runs"),
+    ("LBL-1000302", "lbl_deliver_no_handoff", "main", "No handoff ready. Assign a handoff ID first.", "Error message when Deliver to Bridge is clicked before Assign Handoff ID"),
+    ("LBL-1000303", "lbl_deliver_success", "main", "Handoff {ID} delivered to {TO}", "Success message after dispatch completes"),
     # ── Comprehensive i18n (handoff 213) ──
     ("LBL-1000304", "lbl_btn_run_validation", "main", "Run Validation", "Validation drawer: trigger button"),
     ("LBL-1000305", "lbl_placeholder_new_webui_name", "main", "mywebui", "Accelerated WebUI form: name input placeholder"),
@@ -340,8 +345,8 @@ ui_labels_data = [
     ("LBL-1000315", "lbl_confirm_stop_tmux_sessions", "main", "Stop all tmux sessions for '{flowKey}'?", "Confirm dialog before stopping tmux sessions for a flow"),
     ("LBL-1000316", "lbl_confirm_delete_step", "main", "Delete step #{stepId}?", "Confirm dialog before deleting a bridge step"),
     # ── Machine Profile Fase 1 — System Setup labels ──
-    ("LBL-1000317", "system_setup_title", "main", "System Setup", "Machine Profile System Setup panel title"),
-    ("LBL-1000318", "system_setup_run_all_checks", "main", "Run All Checks", "Button to run all system checks"),
+    ("LBL-1000600", "system_setup_title", "main", "System Setup", "Machine Profile System Setup panel title"),
+    ("LBL-1000599", "system_setup_run_all_checks", "main", "Run All Checks", "Button to run all system checks"),
     ("LBL-1000319", "system_setup_machine_profile", "main", "Machine Profile", "Machine Profile section header"),
     ("LBL-1000320", "system_setup_model_providers", "main", "Model Providers", "Model Providers section header"),
     ("LBL-1000321", "system_setup_runtime_config", "main", "Role Runtime Config", "Role Runtime Config section header"),
@@ -967,8 +972,8 @@ ui_label_translations_data = [
     ("LBL-1000226", "en-US", "Script error"),
     ("LBL-1000227", "en-US", "This field is required"),
     # ── BridgeV002 Compiler Integration (en-US) ──
-    ("LBL-1000228", "en-US", "Flow Key"),
-    ("LBL-1000229", "en-US", "Step Key"),
+    ("LBL-1000575", "en-US", "Flow Key"),
+    ("LBL-1000587", "en-US", "Step Key"),
     # ── Deliver to Bridge button (handoff 178) ──
     ("LBL-1000300", "en-US", "Deliver to Bridge"),
     ("LBL-1000301", "en-US", "Delivering..."),
@@ -986,8 +991,8 @@ ui_label_translations_data = [
     ("LBL-1000226", "da-DK", "Script fejl"),
     ("LBL-1000227", "da-DK", "Dette felt er påkrævet"),
     # ── BridgeV002 Compiler Integration (en-US) ──
-    ("LBL-1000228", "da-DK", "Flow-nøgle"),
-    ("LBL-1000229", "da-DK", "Trin-nøgle"),
+    ("LBL-1000575", "da-DK", "Flow-nøgle"),
+    ("LBL-1000587", "da-DK", "Trin-nøgle"),
     # ── Deliver to Bridge button (handoff 178) ──
     ("LBL-1000300", "da-DK", "Send til Bridge"),
     ("LBL-1000301", "da-DK", "Sender..."),
@@ -1108,8 +1113,8 @@ ui_label_translations_data = [
     ("LBL-1000316", "el-GR", "Διαγραφή βήματος #{stepId};"),
     ("LBL-1000316", "sv-SE", "Ta bort steg #{stepId}?"),
     # ── Machine Profile Fase 1 — System Setup translations (da-DK) ──
-    ("LBL-1000317", "da-DK", "Systemopsætning"),
-    ("LBL-1000318", "da-DK", "Kør alle checks"),
+    ("LBL-1000600", "da-DK", "Systemopsætning"),
+    ("LBL-1000599", "da-DK", "Kør alle checks"),
     ("LBL-1000319", "da-DK", "Maskinprofil"),
     ("LBL-1000320", "da-DK", "Modeludbydere"),
     ("LBL-1000321", "da-DK", "Runtime-konfiguration"),

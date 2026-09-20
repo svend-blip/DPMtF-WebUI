@@ -218,3 +218,44 @@ def test_stop_after_applies_the_baseline_only(tmp_path):
     summary = migrate.run_migrations(str(db), stop_after=baseline)
     assert summary["applied"] == [baseline]
     assert len(migrate.pending_migrations(str(db))["pending"]) == len(migrate._discover_migrations()) - 1
+
+
+# ── every key the frontend asks for resolves ─────────────────────────────
+
+def _frontend_keys():
+    """Literal lbl("key", ...) keys and data-slot attributes, plus the one
+    family of keys the frontend builds at run time."""
+    import re
+    keys = set()
+    for js in sorted((PROJECT_ROOT / "static" / "js").glob("*.js")):
+        src = js.read_text(encoding="utf-8")
+        keys |= set(re.findall(r"""\blbl\(\s*["']([A-Za-z0-9_.-]+)["']\s*[,)]""", src))
+        sections = re.search(r"_systemSetupSections\s*=\s*\[(.*?)\]", src, re.S)
+        if sections:
+            keys |= {"system_setup_run_" + s for s in re.findall(r'"([a-z_]+)"', sections.group(1))}
+    for html in sorted((PROJECT_ROOT / "templates").glob("*.html")):
+        keys |= set(re.findall(r'data-slot="([^"]+)"', html.read_text(encoding="utf-8")))
+    return keys
+
+
+def test_the_key_scan_finds_the_frontend():
+    keys = _frontend_keys()
+    assert len(keys) > 300
+    assert {"lbl_page_title", "pg_setup", "system_setup_run_paths"} <= keys
+
+
+@pytest.mark.parametrize("locale", MANDATORY_LOCALES)
+def test_every_key_the_frontend_asks_for_resolves(fresh_db, locale):
+    # The frontend loads /api/ui-labels/main and nothing else, and the API
+    # walks slot -> binding -> label (domain main) -> translation. Found
+    # 2026-09-20: 104 keys fell out of that walk — 28 labels no slot was
+    # bound to, 20 labels in a domain nothing fetches, and 56 keys with no
+    # label at all — and the UI had shown their hardcoded fallbacks since.
+    resolved = {r[0] for r in _q(fresh_db, """
+        SELECT s.slot_key FROM ui_text_slots s
+        JOIN ui_text_slot_labels sl ON sl.slot_key = s.slot_key
+        JOIN ui_labels l ON l.label_key = sl.label_key AND l.label_domain = 'main' AND l.is_active = 1
+        JOIN ui_label_translations t ON t.label_id = l.label_id AND t.locale = ? AND t.is_active = 1
+        WHERE COALESCE(t.translated_text, '') != ''""", locale)}
+    unresolved = sorted(_frontend_keys() - resolved)
+    assert unresolved == [], f"{len(unresolved)} keys do not resolve in {locale}, e.g. {unresolved[:8]}"
