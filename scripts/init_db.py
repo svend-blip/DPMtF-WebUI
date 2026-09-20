@@ -3034,12 +3034,12 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/results/{handoff_id}-result.md\n"
-        "  {bridge_dir}/{flow_key}/results/{handoff_id}-notification.md\n"
+        "  {bridge_dir}/{artifact_root}/results/{handoff_id}-result.md\n"
+        "  {bridge_dir}/{artifact_root}/results/{handoff_id}-notification.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  technical_review: {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "  technical_review: {bridge_dir}/{artifact_root}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_output>\n"
         "\n"
         "<dispatch_command>\n"
@@ -3080,17 +3080,13 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "  {bridge_dir}/{artifact_root}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
-        "</deliverable_output>\n"
-        "\n"
-        "<dispatch_command>\n"
-        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
-        "</dispatch_command>",
+        "  verdict: {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>",
     ),
 )
 
@@ -3104,8 +3100,8 @@ cursor.execute(
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
-        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
+        "  {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-verdict.md\n"
+        "  {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-commit-message.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
@@ -3134,27 +3130,36 @@ cursor.execute(
     ),
 )
 
-# 3.2b Migrate content_templates from legacy implementertoreview/ to flow-specific
-# {flow_key}/<subdir>/ paths (idempotent, unconditional — fixes live DB rows that
-# were seeded with the legacy path; the IS NULL seed above only catches fresh DBs).
-# Reproduced bug: review02pay wrote verdicts to {bridge_dir}/implementertoreview/
-# instead of {bridge_dir}/{flow_key}/verdicts/ on handoffs 15 and 17.
+# 3.2b Repair content_templates still carrying the legacy implementertoreview/
+# path (the IS NULL seed above only catches fresh DBs). Reproduced bug:
+# review02pay wrote verdicts to {bridge_dir}/implementertoreview/ instead of
+# the flow's own verdicts/ directory on handoffs 15 and 17.
+#
+# ONLY rows that still carry that path are touched. Until 2026-09-20 these
+# three UPDATEs were unconditional, and their text named the flow key as the
+# path root: this file runs the migrations first and its own statements
+# afterwards, so every run rewrote the three rules and undid migration 084,
+# which had moved them to the artifact root (a shared-root family resolves
+# the flow key to the wrong directory). tests/test_artifact_root_prompt.py
+# TG1/TG2 were red from the first run after 2026-08-31 for exactly that.
+# A template a migration or the UI has set is not this file's to overwrite.
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
-       WHERE rule_key = 'technical_review'""",
+       WHERE rule_key = 'technical_review'
+         AND content_template LIKE '%implementertoreview/%'""",
     (
         "<handoff_id>{handoff_id}</handoff_id>\n"
         "\n"
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/results/{handoff_id}-result.md\n"
-        "  {bridge_dir}/{flow_key}/results/{handoff_id}-notification.md\n"
+        "  {bridge_dir}/{artifact_root}/results/{handoff_id}-result.md\n"
+        "  {bridge_dir}/{artifact_root}/results/{handoff_id}-notification.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  technical_review: {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "  technical_review: {bridge_dir}/{artifact_root}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_output>\n"
         "\n"
         "<dispatch_command>\n"
@@ -3166,39 +3171,37 @@ cursor.execute(
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
-       WHERE rule_key = 'verdict'""",
+       WHERE rule_key = 'verdict'
+         AND content_template LIKE '%implementertoreview/%'""",
     (
         "<handoff_id>{handoff_id}</handoff_id>\n"
         "\n"
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "  {bridge_dir}/{artifact_root}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
-        "</deliverable_output>\n"
-        "\n"
-        "<dispatch_command>\n"
-        "  escalation: python3 dispatch.py --db-flow FLOW --signal-escalation --from-role {next_role} --to-role archi01\n"
-        "</dispatch_command>",
+        "  verdict: {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-commit-message.md\n"
+        "</deliverable_output>",
     ),
 )
 
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
-       WHERE rule_key = 'human_delivery'""",
+       WHERE rule_key = 'human_delivery'
+         AND content_template LIKE '%implementertoreview/%'""",
     (
         "<handoff_id>{handoff_id}</handoff_id>\n"
         "\n"
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
-        "  {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
+        "  {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-verdict.md\n"
+        "  {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-commit-message.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
@@ -3278,28 +3281,31 @@ cursor.execute(
     ("escalation_content", "escalation"),
 )
 
-# G2/G4: Migrate existing verdict content_templates to minimal file refs
-# Unlike IS NULL seed above, these unconditionally update live databases.
-# Flow-specific paths ({flow_key}/<subdir>) + canonical filenames per
-# bridge_flow_steps.deliverable_pattern. Fixes legacy implementertoreview/ bug
-# where review02pay wrote {ID}-review-verdict.md to the legacy dir instead of
-# {ID}-verdict.md to {flow_key}/verdicts/.
+# G2/G4: the verdict template is the minimal file-reference form: canonical
+# filenames per bridge_flow_steps.deliverable_pattern, under the artifact
+# root. The seed and the 3.2b repair above write that form; this statement
+# is what remains of the G2/G4 migration and, like 3.2b, touches ONLY a row
+# that still carries the legacy implementertoreview/ path (review02pay wrote
+# {ID}-review-verdict.md there instead of {ID}-verdict.md under verdicts/).
+# It was unconditional until 2026-09-20 and named the flow key as the path
+# root, so it undid migration 084 on every run — see 3.2b.
 cursor.execute(
     """UPDATE bridge_convention_rules
        SET content_template = ?
-       WHERE rule_key = 'verdict'""",
+       WHERE rule_key = 'verdict'
+         AND content_template LIKE '%implementertoreview/%'""",
     (
         "<handoff_id>{handoff_id}</handoff_id>\n"
         "\n"
         "<source_role>{source_role}</source_role>\n"
         "\n"
         "<deliverable_input>\n"
-        "  {bridge_dir}/{flow_key}/reviews/{handoff_id}-review01.md\n"
+        "  {bridge_dir}/{artifact_root}/reviews/{handoff_id}-review01.md\n"
         "</deliverable_input>\n"
         "\n"
         "<deliverable_output>\n"
-        "  verdict: {bridge_dir}/{flow_key}/verdicts/{handoff_id}-verdict.md\n"
-        "  commit_msg (if APPROVED): {bridge_dir}/{flow_key}/verdicts/{handoff_id}-commit-message.md\n"
+        "  verdict: {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-verdict.md\n"
+        "  commit_msg (if APPROVED): {bridge_dir}/{artifact_root}/verdicts/{handoff_id}-commit-message.md\n"
         "</deliverable_output>",
     ),
 )
