@@ -280,7 +280,9 @@ hardcoded `/home/svend/...`-style paths are an auto-fail:
   `http://127.0.0.1:9140`, service mode; enabled in the committed
   `dpmtf.ini`; the client is in `knowledge/`).
 - `databases/dpmtf.db` — the production DB; schema changes are numbered
-  migrations under `scripts/db/` applied by `scripts/migrate.py`.
+  migrations under `scripts/db/` applied by `scripts/migrate.py`
+  (`--status` lists what is pending and changes nothing; only the bare
+  invocation writes).
 
 ## Running
 

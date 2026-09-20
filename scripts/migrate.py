@@ -3,8 +3,15 @@
 Discovers scripts/db/*.sql migration files, applies pending migrations in
 numeric order, and records them in schema_migrations. Idempotent and safe
 to re-run.
+
+    python3 scripts/migrate.py             apply what is pending
+    python3 scripts/migrate.py --status    list what is pending; change nothing
+    python3 scripts/migrate.py --help
+
+Only the bare invocation (optionally with --db) writes to the database.
 """
 
+import argparse
 import os
 import re
 import sqlite3
@@ -126,8 +133,65 @@ def run_migrations(db_path: str | None = None) -> dict:
     return {"applied": applied, "skipped": skipped, "db_path": target_db}
 
 
-def main() -> int:
-    summary = run_migrations()
+def pending_migrations(db_path: str | None = None) -> dict:
+    """What run_migrations would apply, without applying or creating anything.
+
+    The database is opened read-only. One that does not exist yet, or that
+    predates schema_migrations, has everything pending — and is left exactly
+    as it was found: no file is created and no bookkeeping table is added.
+    """
+    target_db = db_path or config.get_db_path()
+    migrations = _discover_migrations()
+    already_applied: set[str] = set()
+    if Path(target_db).is_file():
+        conn = sqlite3.connect(f"file:{Path(target_db).resolve()}?mode=ro", uri=True)
+        try:
+            already_applied = _applied_migrations(conn)
+        finally:
+            conn.close()
+    pending = [m.name for m in migrations if m.name not in already_applied]
+    return {"pending": pending, "applied": len(migrations) - len(pending), "db_path": target_db}
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="migrate.py",
+        description=(
+            "Apply the pending SQL migrations under scripts/db/ to the DPMtF "
+            "database, in filename order, recording each in schema_migrations. "
+            "Run without arguments to apply; --status only looks."
+        ),
+    )
+    parser.add_argument(
+        "--status", action="store_true",
+        help="list the pending migrations and exit; the database is opened "
+             "read-only and nothing is created or changed",
+    )
+    parser.add_argument(
+        "--db", metavar="PATH", default=None,
+        help="database file to use instead of the configured one",
+    )
+    # argparse exits 0 on --help and 2 on anything it does not know — before
+    # any of the code below runs, which is the point: until 2026-09-20 main()
+    # ignored argv, so `migrate.py --help` (or a typo) applied every pending
+    # migration to the live database.
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+
+    if args.status:
+        report = pending_migrations(args.db)
+        print(
+            f"{len(report['pending'])} pending, {report['applied']} already applied. "
+            f"DB: {report['db_path']}"
+        )
+        for name in report["pending"]:
+            print(f"  - {name}")
+        return 0
+
+    summary = run_migrations(args.db)
     print(
         f"Applied {len(summary['applied'])} migration(s), "
         f"skipped {summary['skipped']} already-applied. "
